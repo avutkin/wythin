@@ -563,10 +563,17 @@ struct BLEConnectionSheet: View {
             if !ble.discoveredDevices.isEmpty {
                 VStack(spacing: 0) {
                     ForEach(ble.discoveredDevices) { device in
-                        DeviceRow(device: device, isConnecting: {
-                            if case .connecting(let n) = ble.state { return n == device.name }
-                            return false
-                        }()) {
+                        DeviceRow(
+                            device: device,
+                            isConnecting: {
+                                if case .connecting(let n) = ble.state { return n == device.name }
+                                return false
+                            }(),
+                            // In a crowded room your own strap (on your chest, phone
+                            // in hand) is almost always the strongest signal.
+                            isNearest: ble.discoveredDevices.count > 1
+                                       && device.id == ble.discoveredDevices.first?.id
+                        ) {
                             ble.connectToDevice(device)
                         }
                         if device.id != ble.discoveredDevices.last?.id {
@@ -680,14 +687,26 @@ struct BLEConnectionSheet: View {
 private struct DeviceRow: View {
     let device:       BLEDevice
     let isConnecting: Bool
+    var isNearest:    Bool = false
     let onConnect:    () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(device.name)
-                    .font(Theme.monoBody)
-                    .foregroundStyle(Theme.text)
+                HStack(spacing: 6) {
+                    Text(device.name)
+                        .font(Theme.monoBody)
+                        .foregroundStyle(Theme.text)
+                    if isNearest {
+                        Text("NEAREST")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Theme.accent)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Theme.accent.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+                }
                 HStack(spacing: 5) {
                     Text(device.rssiDots)
                         .font(.system(size: 10, design: .monospaced))
@@ -715,6 +734,7 @@ private struct DeviceRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
+        .background(isNearest ? Theme.accent.opacity(0.06) : Color.clear)
     }
 
     private var rssiColor: Color {
