@@ -127,9 +127,9 @@ private struct DayScrollView: View {
 
     var body: some View {
         LogoRefreshableScrollView(enabled: isToday, onRefresh: {
-            // Pull down on today's page to refresh — honors the 5-minute floor
-            // (updates once the window has elapsed, or for the first reading).
-            await liveStore.refresh(env: env)
+            // Pull down on today's page to force an immediate update; otherwise
+            // the state refreshes automatically at most every 5 minutes.
+            await liveStore.refresh(env: env, force: true)
         }) {
             VStack(spacing: 12) {
 

@@ -13,10 +13,10 @@ final class LiveStateStore {
     /// Never update the current state more often than this.
     private let minInterval: TimeInterval = 300   // 5 minutes
 
-    /// Fetch a new insight, but never more often than once every 5 minutes.
-    /// The very first reading still populates an empty widget immediately, and a
-    /// pull-to-refresh takes effect once the 5-minute window has elapsed.
-    func refresh(env: AppEnvironment) async {
+    /// Fetch a new insight from the current trend + absolute values. Automatic
+    /// refreshes are capped to once every 5 minutes; `force` (a pull-to-refresh)
+    /// updates immediately, and the first reading always populates an empty widget.
+    func refresh(env: AppEnvironment, force: Bool = false) async {
         guard !inFlight else { return }
 
         // Pass today's points so each metric's dayMean is today's average, and
@@ -25,7 +25,7 @@ final class LiveStateStore {
         let todayPoints = MetricsQualityFilter.filter(env.tickHistory.filter { $0.timestamp >= startOfDay })
         guard let trends = LiveStateTrendCompute.summarize(todayPoints) else { return }
 
-        guard text == nil || Date().timeIntervalSince(lastRefresh) >= minInterval else { return }
+        guard force || text == nil || Date().timeIntervalSince(lastRefresh) >= minInterval else { return }
 
         inFlight = true
         defer { inFlight = false }
@@ -40,9 +40,11 @@ final class LiveStateStore {
 
 /// Small, always-visible widget showing an OpenAI-generated, purely
 /// descriptive account of the nervous-system trend over the last 10 minutes.
-/// Updates at most once every 5 minutes while visible and BLE-connected (the
-/// first reading appears as soon as there's enough data). Never shows a loading
-/// state on refresh — the previous description stays until a new one replaces it.
+/// Updates automatically at most once every 5 minutes while visible and
+/// BLE-connected, or immediately when the user pulls the Live tab to refresh
+/// (the first reading appears as soon as there's enough data). Reads both the
+/// trend and the absolute values. Never shows a loading state on refresh — the
+/// previous description stays until a new one replaces it.
 struct LiveStateWidget: View {
     @Environment(AppEnvironment.self) var env
     let store: LiveStateStore
