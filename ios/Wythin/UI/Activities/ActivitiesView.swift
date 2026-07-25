@@ -468,7 +468,7 @@ private struct ActivityLogRow: View {
 
                 Spacer()
 
-                if let score = entry.impactScore {
+                if let score = entry.displayImpactScore {
                     VStack(alignment: .trailing, spacing: 1) {
                         Text("\(score)%")
                             .font(.system(size: 15, weight: .semibold, design: .monospaced))
@@ -711,9 +711,10 @@ struct ActivityDetailView: View {
                                                         startedAt: entry.startedAt,
                                                         endedAt: windowEnd))
                         }
-                        // Overall practice impact — read the value stored at
-                        // capture so this gauge and the row badge always agree.
-                        if let score = entry.impactScore {
+                        // Overall practice impact — same value the row badge
+                        // shows (precise when stored at capture, else a cheap
+                        // estimate) so the two always agree.
+                        if let score = entry.displayImpactScore {
                             VStack(spacing: 14) {
                                 Text("OVERALL PRACTICE IMPACT")
                                     .font(Theme.monoLabel)

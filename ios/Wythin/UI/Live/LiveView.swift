@@ -184,6 +184,10 @@ private struct DayScrollView: View {
 
             }
             .padding(.top, 8)
+            // The paged day-TabView doesn't forward the app tab bar's bottom
+            // safe-area inset, so add clearance or the last section (the
+            // collapsible SIGNAL QUALITY header) hides under the menu.
+            .padding(.bottom, 72)
         }
         .task(id: date) {
             if isToday {

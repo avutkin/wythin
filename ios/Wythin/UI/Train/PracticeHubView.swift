@@ -13,6 +13,9 @@ struct PracticeHubView: View {
     @State private var selected: Practice?         = nil
     @State private var showBLESheet                = false
 
+    // 3-up grid of practice tiles.
+    private let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+
     /// Practices for the current filter. When unfiltered, Resonance is pulled
     /// out into the featured card so it isn't listed twice.
     private var visiblePractices: [Practice] {
@@ -30,10 +33,10 @@ struct PracticeHubView: View {
                         FeaturedPracticeCard(practice: resonance) { selected = resonance }
                     }
 
-                    LazyVStack(spacing: 10) {
+                    LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 14) {
                         ForEach(visiblePractices) { practice in
                             Button { selected = practice } label: {
-                                PracticeCard(practice: practice)
+                                PracticeGridTile(practice: practice)
                             }
                             .buttonStyle(.plain)
                         }
@@ -145,55 +148,56 @@ struct ArtThumb: View {
     }
 }
 
-// MARK: - Practice card
+// MARK: - Practice grid tile
 
-private struct PracticeCard: View {
+/// Compact tile for the 3-up practices grid: a square gradient art thumbnail
+/// (with a ★ / biofeedback badge) above a two-line title and duration.
+private struct PracticeGridTile: View {
     let practice: Practice
 
-    private var teacherName: String {
-        PracticeCatalog.teacher(practice.teacherID)?.name ?? ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            practice.art.gradient
+                .aspectRatio(1, contentMode: .fit)
+                .overlay(
+                    Image(systemName: practice.art.symbol)
+                        .font(.system(size: 26, weight: .light))
+                        .foregroundStyle(.white.opacity(0.9))
+                )
+                .overlay(alignment: .topTrailing) { badge }
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border, lineWidth: 0.5))
+
+            Text(practice.title)
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundStyle(Theme.text)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("\(practice.defaultDurationMins) min")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(Theme.dim)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    var body: some View {
-        HStack(spacing: 12) {
-            ArtThumb(art: practice.art, size: 48)
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(practice.title)
-                        .font(.system(size: 14, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Theme.text)
-                        .lineLimit(1)
-                    if practice.isStarred {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Theme.accent)
-                    } else if practice.isBiofeedback {
-                        Image(systemName: "waveform.path.ecg")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Theme.breathe)
-                    }
-                }
-                Text(practice.subtitle)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(Theme.dim)
-                    .lineLimit(1)
-                Text("\(teacherName) · \(practice.defaultDurationMins) min")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(Theme.dim.opacity(0.8))
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 11))
-                .foregroundStyle(Theme.dim.opacity(0.4))
+    @ViewBuilder
+    private var badge: some View {
+        if practice.isStarred {
+            badgeIcon("star.fill", Theme.accent)
+        } else if practice.isBiofeedback {
+            badgeIcon("waveform.path.ecg", Theme.breathe)
         }
-        .padding(12)
-        .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.border, lineWidth: 0.5))
+    }
+
+    private func badgeIcon(_ symbol: String, _ color: Color) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(5)
+            .background(color.opacity(0.9), in: Circle())
+            .padding(6)
     }
 }
 

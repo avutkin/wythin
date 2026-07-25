@@ -137,6 +137,20 @@ final class ActivityLog {
     /// gauge always show the same number.
     var impactScore: Int?
 
+    /// Overall practice impact for display. Prefers the precise score stored at
+    /// capture; falls back to a cheap estimate from the stored before/during
+    /// averages so the value is always shown — and identical in the row badge
+    /// and the detail gauge (both read this).
+    var displayImpactScore: Int? {
+        if let s = impactScore { return s }
+        let uplifts: [Double] = activityMetricDefs.compactMap { def in
+            let d = self[keyPath: def.duringKey].map(Double.init)
+            let b = self[keyPath: def.beforeKey].map(Double.init)
+            return def.benefitDelta(current: d, base: b)
+        }
+        return ActivityImpact.score(uplifts: uplifts)
+    }
+
     init(activityType:    String,
          activitySubtype: String? = nil,
          customName:      String? = nil,
@@ -239,7 +253,12 @@ final class ActivityLog {
             sortBy: [SortDescriptor(\.timestamp)]
         )
         desc.fetchLimit = 2_000
-        guard let samples = try? context.fetch(desc) else { return }
+        guard let rawSamples = try? context.fetch(desc) else { return }
+        // Gate samples through the same wear/artifact quality filter the Live
+        // view and the activity detail charts use, so these stored window
+        // averages match what those screens show. Without this, strap-off and
+        // noisy beats (SDNN≈0) pull HRV/SDNN below the filtered live values.
+        let samples = rawSamples.filter { MetricsQualityFilter.isValid(MetricsHistoryPoint(from: $0)) }
 
         let before = samples.filter { $0.timestamp >= beforeStart && $0.timestamp < startedAt }
         let during = samples.filter { $0.timestamp >= startedAt   && $0.timestamp <= end       }

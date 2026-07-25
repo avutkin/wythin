@@ -707,7 +707,7 @@ struct MetricsChartsView: View, Equatable {
             lfhfCard
             rsaCard
             vtiCard
-            sdnnCard
+            hrvCard
             hrCard
 
             signalQualitySection
@@ -744,6 +744,9 @@ struct MetricsChartsView: View, Equatable {
                         .foregroundStyle(Theme.dim)
                 }
                 .padding(.vertical, 4)
+                // Make the whole row tappable, not just the text/chevron —
+                // the Spacer gap is otherwise not hit-testable.
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -989,33 +992,33 @@ struct MetricsChartsView: View, Equatable {
         ) { $0.rsaMs.map(Double.init) }
     }
 
-    // MARK: SDNN
+    // MARK: HRV (RMSSD)
 
-    private var sdnnCard: some View {
+    private var hrvCard: some View {
         MetricChartCard(
             title:   "Energy Reserve",
-            technicalName: "SDNN",
-            subtitle: "Your overall heart-rate variability",
+            technicalName: "HRV",
+            subtitle: "Your beat-to-beat variability",
             yLabel:  "ms",
             color:   Theme.hrv,
             windows: TimeWindow.allCases,
             refs: [
-                RefLine(value: 20,  label: "unhealthy", color: Theme.warn),
-                RefLine(value: 50,  label: "moderate",  color: Theme.rsa),
-                RefLine(value: 100, label: "healthy",   color: Theme.coh),
+                RefLine(value: 20, label: "unhealthy", color: Theme.warn),
+                RefLine(value: 40, label: "moderate",  color: Theme.rsa),
+                RefLine(value: 65, label: "healthy",   color: Theme.coh),
             ],
-            yDomain: 0...160,
+            yDomain: 0...120,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
-                "Your overall reserve of adaptability — the big-picture measure of how much your heart rate flexes. More flex means more capacity to handle whatever the day brings.",
-                physical:    "It rolls up every kind of variation in your heartbeat, from fast breathing-driven changes to slow background ones, into a single overall number.",
-                physiology:  "A bigger reserve means a flexible, resilient system that adapts well to stress. A small one points to a body that's running rigid and taxed.",
-                training:    "Builds with fitness, good sleep, and lower stress. It doesn't move much within a single session — compare it day to day or week to week.",
-                sensitivity: "Steady within a session; most useful as a multi-day trend.",
-                levels:      "Low:           under 20 ms\nBelow average: 20–50 ms\nModerate:      50–100 ms\nStrong:        100+ ms\nAthletic:      130+ ms"
+                "Your core beat-to-beat variability — the headline marker of recovery and vagal (calming) tone. Higher signals a rested, adaptable system.",
+                physical:    "It measures how much the gap between consecutive heartbeats changes from one beat to the next — the fast, breathing-driven variation (RMSSD).",
+                physiology:  "Driven mainly by your calming (vagal / parasympathetic) system. It rises with rest, slow breathing and good recovery; it drops under stress, exertion and fatigue.",
+                training:    "Responsive within a session — expect it to climb during restful, slow-breathing practice. Also worth tracking day to day as a recovery gauge.",
+                sensitivity: "Responsive — moves with your breathing and your recovery state.",
+                levels:      "Low:           under 20 ms\nBelow average: 20–40 ms\nModerate:      40–65 ms\nStrong:        65–100 ms\nAthletic:      100+ ms"
             ),
             history: history, rawHistory: rawHistory, date: date
-        ) { $0.sdnn.map(Double.init) }
+        ) { $0.rmssd.map(Double.init) }
     }
 
     // MARK: pNN50
