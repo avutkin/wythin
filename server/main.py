@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 
 from .db import init_pool, close_pool, create_schema
 from .auth import key_ok
-from .routers import sessions, stream, admin, insights, tokens
+from .routers import sessions, stream, admin, insights, tokens, me
 
 
 @asynccontextmanager
@@ -41,13 +41,19 @@ app.add_middleware(
 # dashboard is a data-free HTML shell that then fetches /admin/stats WITH the
 # key, so serving the shell openly leaks nothing.
 _OPEN_PATHS = {"/health", "/admin/dashboard"}
+# Per-user routes authenticate via Bearer token inside the route, so they
+# bypass the shared X-API-Key gate. (/v1/tokens stays gated — app-only.)
+_BEARER_PREFIXES = ("/v1/me", "/mcp")
 
 
 @app.middleware("http")
 async def api_key_gate(request: Request, call_next):
-    # Everything outside _OPEN_PATHS needs the key (only enforced when API_KEY
-    # is configured — see server/auth.py).
-    if request.url.path not in _OPEN_PATHS and not key_ok(request.headers.get("x-api-key")):
+    # Everything outside _OPEN_PATHS/_BEARER_PREFIXES needs the key (only
+    # enforced when API_KEY is configured — see server/auth.py).
+    path = request.url.path
+    if path in _OPEN_PATHS or path.startswith(_BEARER_PREFIXES):
+        return await call_next(request)
+    if not key_ok(request.headers.get("x-api-key")):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return await call_next(request)
 
@@ -57,6 +63,7 @@ app.include_router(stream.router)
 app.include_router(admin.router)
 app.include_router(insights.router)
 app.include_router(tokens.router)
+app.include_router(me.router)
 
 
 @app.get("/health")

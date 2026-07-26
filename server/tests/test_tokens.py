@@ -52,3 +52,29 @@ async def test_create_list_revoke_token():
         # Revoking again → 404
         r = await c.delete(f"/v1/tokens/{token_id}", headers={"X-User-ID": "tok-device-1"})
         assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_me_requires_and_scopes_by_token():
+    async with _client() as c:
+        # No token → 401
+        r = await c.get("/v1/me")
+        assert r.status_code == 401
+
+        # Bogus token → 401
+        r = await c.get("/v1/me", headers={"Authorization": "Bearer wyth_pat_nope"})
+        assert r.status_code == 401
+
+        # Mint a token for user A and read /v1/me
+        made = (await c.post("/v1/tokens", json={"name": "cc"},
+                             headers={"X-User-ID": "me-device-A"})).json()
+        token = made["token"]
+        r = await c.get("/v1/me", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 200
+        me = r.json()
+        assert "id" in me
+
+        # Revoked token → 401
+        await c.delete(f"/v1/tokens/{made['id']}", headers={"X-User-ID": "me-device-A"})
+        r = await c.get("/v1/me", headers={"Authorization": f"Bearer {token}"})
+        assert r.status_code == 401
