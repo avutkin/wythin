@@ -37,11 +37,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Paths reachable without the API key. /health is for uptime checks; the
+# dashboard is a data-free HTML shell that then fetches /admin/stats WITH the
+# key, so serving the shell openly leaks nothing.
+_OPEN_PATHS = {"/health", "/admin/dashboard"}
+
+
 @app.middleware("http")
 async def api_key_gate(request: Request, call_next):
-    # /health stays open for uptime checks; everything else needs the key
-    # (only enforced when API_KEY is configured — see server/auth.py).
-    if request.url.path != "/health" and not key_ok(request.headers.get("x-api-key")):
+    # Everything outside _OPEN_PATHS needs the key (only enforced when API_KEY
+    # is configured — see server/auth.py).
+    if request.url.path not in _OPEN_PATHS and not key_ok(request.headers.get("x-api-key")):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return await call_next(request)
 
