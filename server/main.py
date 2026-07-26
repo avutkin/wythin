@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 
 from .db import init_pool, close_pool, create_schema
 from .auth import key_ok
-from .routers import sessions, stream, admin, insights
+from .routers import sessions, stream, admin, insights, tokens
 
 
 @asynccontextmanager
@@ -50,6 +50,7 @@ app.include_router(sessions.router)
 app.include_router(stream.router)
 app.include_router(admin.router)
 app.include_router(insights.router)
+app.include_router(tokens.router)
 
 
 @app.get("/health")

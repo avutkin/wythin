@@ -100,3 +100,21 @@ class InsightRequest(BaseModel):
 
 class InsightResponse(BaseModel):
     text: str
+
+
+class TokenCreate(BaseModel):
+    name: Optional[str] = None
+
+
+class TokenCreated(BaseModel):
+    token: str            # raw token — returned once
+    id: str
+    name: Optional[str] = None
+    created_at: str
+
+
+class TokenInfo(BaseModel):
+    id: str
+    name: Optional[str] = None
+    created_at: str
+    last_used_at: Optional[str] = None
