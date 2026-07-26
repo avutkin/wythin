@@ -38,3 +38,4 @@ ios/JustBreathe.xcodeproj/project.xcworkspace/xcuserdata/
 
 # Hetzner deploy secrets
 server/deploy/.env
+.venv313
