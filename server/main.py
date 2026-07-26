@@ -46,12 +46,18 @@ _OPEN_PATHS = {"/health", "/admin/dashboard"}
 _BEARER_PREFIXES = ("/v1/me", "/mcp")
 
 
+def _bearer_exempt(path: str) -> bool:
+    """True if path equals a Bearer prefix exactly, or is nested under one
+    (prefix + "/"). Prevents accidental exemption of unrelated paths that
+    merely share a string prefix, e.g. "/v1/messages" vs "/v1/me"."""
+    return any(path == p or path.startswith(p + "/") for p in _BEARER_PREFIXES)
+
+
 @app.middleware("http")
 async def api_key_gate(request: Request, call_next):
     # Everything outside _OPEN_PATHS/_BEARER_PREFIXES needs the key (only
     # enforced when API_KEY is configured — see server/auth.py).
-    path = request.url.path
-    if path in _OPEN_PATHS or path.startswith(_BEARER_PREFIXES):
+    if request.url.path in _OPEN_PATHS or _bearer_exempt(request.url.path):
         return await call_next(request)
     if not key_ok(request.headers.get("x-api-key")):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
