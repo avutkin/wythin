@@ -27,24 +27,41 @@ def _allow(key: str) -> bool:
     return True
 
 
-async def current_user_id(authorization: Optional[str] = Header(default=None)) -> str:
+class AuthError(Exception):
+    """Auth failure carrying an HTTP-ish status so callers can map it."""
+    def __init__(self, status: int, detail: str):
+        self.status = status
+        self.detail = detail
+        super().__init__(detail)
+
+
+async def resolve_bearer(authorization: str | None) -> str:
+    """Resolve 'Bearer wyth_pat_...' to a user_id, or raise AuthError.
+    Rate-limited per token; updates last_used_at on success."""
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="missing bearer token")
+        raise AuthError(401, "missing bearer token")
     raw = authorization[len("Bearer "):].strip()
     if not raw.startswith(TOKEN_PREFIX):
-        raise HTTPException(status_code=401, detail="invalid token")
+        raise AuthError(401, "invalid token")
     token_hash = hash_token(raw)
     if not _allow(token_hash):
-        raise HTTPException(status_code=429, detail="rate limit exceeded")
+        raise AuthError(429, "rate limit exceeded")
     async with get_pool().acquire() as conn:
         row = await conn.fetchrow(
             "SELECT user_id, revoked_at FROM api_tokens WHERE token_sha256 = $1",
             token_hash,
         )
         if row is None or row["revoked_at"] is not None:
-            raise HTTPException(status_code=401, detail="invalid or revoked token")
+            raise AuthError(401, "invalid or revoked token")
         await conn.execute(
             "UPDATE api_tokens SET last_used_at = NOW() WHERE token_sha256 = $1",
             token_hash,
         )
     return str(row["user_id"])
+
+
+async def current_user_id(authorization: Optional[str] = Header(default=None)) -> str:
+    try:
+        return await resolve_bearer(authorization)
+    except AuthError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail)
