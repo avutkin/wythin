@@ -237,13 +237,19 @@ struct SettingsView: View {
     /// Erases the caller's data server-side. Mints a short-lived token to
     /// authorize the Bearer-scoped delete call, then revokes it immediately
     /// afterward — no token is left persisted just for this one-off action.
+    ///
+    /// The revoke runs in a `defer` right after the token is minted, so it
+    /// fires on every exit path (success, `deleteMyData` throwing, etc.) —
+    /// a stray full-scope token is never left live on the server.
     private func deleteCloudData() async {
         isDeletingCloudData = true; accessError = nil
         defer { isDeletingCloudData = false }
         do {
             let created = try await env.sync.client.createToken(name: "delete-my-data", userID: env.userID)
+            defer {
+                Task { try? await env.sync.client.revokeToken(id: created.id, userID: env.userID) }
+            }
             try await env.sync.client.deleteMyData(token: created.token)
-            try? await env.sync.client.revokeToken(id: created.id, userID: env.userID)
             await loadTokens()
         } catch {
             accessError = "Couldn't delete cloud data. Check the server URL and try again."

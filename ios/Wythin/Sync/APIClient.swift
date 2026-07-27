@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import SwiftUI
 
 // MARK: - Wire types (Codable)
 
@@ -253,8 +254,6 @@ struct APIClient {
 // (not skipped) on the next call. No-ops entirely while the user has the
 // cloud-sync toggle off.
 
-import SwiftUI
-
 @MainActor
 final class MetricSyncService {
     private let client: APIClient
@@ -264,6 +263,7 @@ final class MetricSyncService {
     @AppStorage("metricsLastSyncedAt") private var lastSyncedISO = ""
     private let iso = ISO8601DateFormatter()
     private let batch = 2000
+    private var isSyncing = false
 
     init(client: APIClient, userID: String, container: ModelContainer) {
         self.client = client; self.userID = userID; self.container = container
@@ -271,6 +271,9 @@ final class MetricSyncService {
 
     func syncIfEnabled() async {
         guard enabled else { return }
+        guard !isSyncing else { return }
+        isSyncing = true
+        defer { isSyncing = false }
         let after = iso.date(from: lastSyncedISO) ?? Date.distantPast
         let ctx = ModelContext(container)
         var desc = FetchDescriptor<HRVSample>(
