@@ -13,14 +13,32 @@ from fastapi.responses import JSONResponse
 
 from .db import init_pool, close_pool, create_schema
 from .auth import key_ok
+from .mcp_server import mcp
 from .routers import sessions, stream, admin, insights, tokens, me
+
+
+# StreamableHTTPSessionManager.run() may only be entered once per instance
+# (it raises RuntimeError on re-entry). In production the app lifespan runs
+# exactly once for the life of the process, so this is a non-issue. The test
+# suite, however, opens/closes the ASGI lifespan once per test against the
+# same module-level `app`/`mcp` singletons — so on the 2nd+ test we skip
+# re-running the session manager and just let requests flow; the mounted
+# /mcp routes were already wired against `mcp.streamable_http_app()` at
+# import time regardless of whether the manager's task group is live.
+_mcp_session_manager_started = False
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _mcp_session_manager_started
     await init_pool()
     await create_schema()
-    yield
+    if _mcp_session_manager_started:
+        yield
+    else:
+        _mcp_session_manager_started = True
+        async with mcp.session_manager.run():
+            yield
     await close_pool()
 
 
@@ -70,6 +88,8 @@ app.include_router(admin.router)
 app.include_router(insights.router)
 app.include_router(tokens.router)
 app.include_router(me.router)
+
+app.mount("/mcp", mcp.streamable_http_app())
 
 
 @app.get("/health")
