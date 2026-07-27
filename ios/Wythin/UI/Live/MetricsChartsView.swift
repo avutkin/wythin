@@ -44,6 +44,7 @@ private struct ChartPoint: Identifiable {
     let date:    Date
     let val:     Double
     let quality: Float? // average signal quality in this bucket (nil = no quality data)
+    let segment: Int    // contiguous-run id; increments across data gaps so the line breaks
 }
 
 // MARK: - Anomaly Band
@@ -357,16 +358,39 @@ private struct MetricChartCard: View {
                 qualCnt[key] = (qualCnt[key] ?? 0) + 1
             }
         }
-        return sums.keys
-            .sorted()
-            .compactMap { key -> ChartPoint? in
-                guard let n = counts[key], n > 0 else { return nil }
-                let mid = Double(key) * bucket + bucket / 2
-                var val = sums[key]! / Double(n)
-                if let transform = bucketTransform { val = transform(val) }
-                let q: Float? = qualCnt[key].map { (qualSum[key] ?? 0) / Float($0) }
-                return ChartPoint(id: key, date: Date(timeIntervalSince1970: mid), val: val, quality: q)
-            }
+        // Assign a segment id per contiguous run of buckets. A missing bucket
+        // (gap in data — e.g. strap off / signal lost) starts a new segment, so
+        // the line is drawn per-segment and broken across the gap rather than
+        // interpolated straight through it.
+        var result: [ChartPoint] = []
+        var segment = 0
+        var prevKey: Int?
+        for key in sums.keys.sorted() {
+            guard let n = counts[key], n > 0 else { continue }
+            if let pk = prevKey, key > pk + 1 { segment += 1 }   // empty bucket(s) between → gap
+            let mid = Double(key) * bucket + bucket / 2
+            var val = sums[key]! / Double(n)
+            if let transform = bucketTransform { val = transform(val) }
+            let q: Float? = qualCnt[key].map { (qualSum[key] ?? 0) / Float($0) }
+            result.append(ChartPoint(id: key, date: Date(timeIntervalSince1970: mid),
+                                     val: val, quality: q, segment: segment))
+            prevKey = key
+        }
+        return result
+    }
+
+    /// The x-domain actually drawn. For the 24h view, clamp to the data envelope
+    /// (first→last sample, small padding) so off-body stretches with no data
+    /// aren't shown as dead space; the shorter live windows keep their sliding
+    /// window unchanged.
+    private var visibleDates: (start: Date, end: Date) {
+        guard win == .h24 else { return windowDates }
+        let pts = points
+        guard let first = pts.first?.date, let last = pts.last?.date, last > first else {
+            return windowDates
+        }
+        let pad = last.timeIntervalSince(first) * 0.02
+        return (first.addingTimeInterval(-pad), last.addingTimeInterval(pad))
     }
 
     var body: some View {
@@ -428,10 +452,14 @@ private struct MetricChartCard: View {
     private func smoothed(_ pts: [ChartPoint]) -> [ChartPoint] {
         guard pts.count >= 3 else { return pts }
         return pts.indices.map { idx in
-            let lo  = max(0, idx - 1)
-            let hi  = min(pts.count - 1, idx + 1)
+            let seg = pts[idx].segment
+            // Only blend neighbours within the same contiguous segment so
+            // smoothing never bridges a data gap.
+            let lo  = (idx - 1 >= 0            && pts[idx - 1].segment == seg) ? idx - 1 : idx
+            let hi  = (idx + 1 <= pts.count - 1 && pts[idx + 1].segment == seg) ? idx + 1 : idx
             let avg = pts[lo...hi].reduce(0.0) { $0 + $1.val } / Double(hi - lo + 1)
-            return ChartPoint(id: pts[idx].id, date: pts[idx].date, val: avg, quality: pts[idx].quality)
+            return ChartPoint(id: pts[idx].id, date: pts[idx].date, val: avg,
+                              quality: pts[idx].quality, segment: seg)
         }
     }
 
@@ -443,7 +471,7 @@ private struct MetricChartCard: View {
         // x-window (plus any reference lines) with a little padding, so the
         // whole curve is always in frame rather than clipped by a fixed domain.
         let domain: ClosedRange<Double> = {
-            let (wStart, wEnd) = windowDates
+            let (wStart, wEnd) = visibleDates
             let vals = pts.filter { $0.date >= wStart && $0.date <= wEnd }.map(\.val)
                      + refs.map(\.value)
             guard let lo = vals.min(), let hi = vals.max() else { return yDomain }
@@ -484,7 +512,7 @@ private struct MetricChartCard: View {
     }
 
     private func chart(_ pts: [ChartPoint], domain: ClosedRange<Double>) -> some View {
-        let (start, end) = windowDates
+        let (start, end) = visibleDates
         let bands        = anomalyBands
         let poorBands    = poorQualityBands
 
@@ -518,7 +546,8 @@ private struct MetricChartCard: View {
                     AreaMark(
                         x: .value("time", pt.date),
                         yStart: .value("base", domain.lowerBound),
-                        yEnd: .value(yLabel, pt.val)
+                        yEnd: .value(yLabel, pt.val),
+                        series: .value("seg", pt.segment)
                     )
                     .foregroundStyle(
                         LinearGradient(
@@ -545,7 +574,8 @@ private struct MetricChartCard: View {
                 ForEach(pts) { pt in
                     LineMark(
                         x: .value("time", pt.date),
-                        y: .value(yLabel, pt.val)
+                        y: .value(yLabel, pt.val),
+                        series: .value("seg", pt.segment)
                     )
                     .foregroundStyle(markColor(pt))
                     .interpolationMethod(.catmullRom)
