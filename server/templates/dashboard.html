@@ -125,6 +125,14 @@
     <section id="view-user" style="display:none">
       <div class="kpis" id="user-kpis"></div>
       <div class="panel">
+        <h2>Live metrics
+          <span class="sub">—
+            <select id="user-window"><option value="24h">24h</option><option value="7d">7d</option><option value="30d">30d</option></select>
+          </span>
+        </h2>
+        <div class="charts" id="user-charts"></div>
+      </div>
+      <div class="panel">
         <h2>Sessions <span class="sub">— click a row</span></h2>
         <div class="tablewrap"><table id="user-sessions"></table></div>
       </div>
@@ -140,6 +148,15 @@
       <div class="panel">
         <h2>Session signals</h2>
         <div class="charts" id="session-charts"></div>
+      </div>
+    </section>
+
+    <!-- Activity detail -->
+    <section id="view-activity" style="display:none">
+      <div class="kpis" id="activity-kpis"></div>
+      <div class="panel">
+        <h2>Before · During · After</h2>
+        <div class="tablewrap"><table id="activity-metrics"></table></div>
       </div>
     </section>
   </div>
@@ -184,7 +201,7 @@
 
   function show(view) {
     state.view = view;
-    ["overview", "user", "session"].forEach(v => $("#view-" + v).style.display = v === view ? "" : "none");
+    ["overview", "user", "session", "activity"].forEach(v => $("#view-" + v).style.display = v === view ? "" : "none");
   }
   const stamp = () => $("#updated").textContent = "updated " + new Date().toLocaleTimeString();
 
@@ -210,6 +227,8 @@
     { k: "display_name", label: "User", cell: (u) => `<span class="name">${u.display_name || "—"}</span><br><span class="device">${(u.device_id||"").slice(0,12) || u.id.slice(0,8)}</span>` },
     { k: "first_seen", label: "First seen", cell: (u) => fmtDate(u.first_seen) },
     { k: "last_seen", label: "Last seen", cell: (u) => ago(u.last_seen) },
+    { k: "current_streak", label: "Streak", cell: (u) => u.current_streak ? `${u.current_streak}d${u.practiced_today ? " •" : ""}` : "—" },
+    { k: "days_active_7d", label: "Active 7d", cell: (u) => fmt(u.days_active_7d) },
     { k: "session_count", label: "Sessions", cell: (u) => fmt(u.session_count) },
     { k: "total_minutes", label: "Minutes", cell: (u) => fmt(u.total_minutes, 0) },
     { k: "avg_coherence", label: "Avg coh", cell: (u) => u.avg_coherence == null ? "—" : fmt(u.avg_coherence, 2) },
@@ -250,6 +269,8 @@
       ["Avg RSA", u.avg_rsa == null ? "—" : fmt(u.avg_rsa, 1) + " <small>ms</small>"],
     ];
     $("#user-kpis").innerHTML = cards.map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+    $("#user-window").onchange = () => loadUserMetrics(id).catch(() => {});
+    loadUserMetrics(id).catch(() => {});
     const t = $("#user-sessions");
     if (!d.sessions.length) {
       t.innerHTML = `<tr><td class="empty" colspan="7">no sessions</td></tr>`;
@@ -284,7 +305,7 @@
     const body = list.map(a => {
       const name = a.activity_subtype || (a.activity_type === "Custom" ? (a.custom_name || "Custom") : a.activity_type);
       const dur = (a.started_at && a.ended_at) ? (new Date(a.ended_at) - new Date(a.started_at)) / 60000 : null;
-      return `<tr>
+      return `<tr class="clickable" data-id="${a.id}">
         <td>${fmtTime(a.started_at)}</td>
         <td><span class="name">${name}</span><br><span class="device">${a.activity_type}${a.is_manual ? " · manual" : ""}</span></td>
         <td>${dur == null ? "—" : fmt(dur, 0) + " min"}</td>
@@ -295,6 +316,27 @@
       </tr>`;
     }).join("");
     t.innerHTML = head + body;
+    t.querySelectorAll("tr.clickable").forEach(tr => tr.onclick = () => { location.hash = "/activity/" + tr.dataset.id; });
+  }
+
+  // ── Per-user live metrics ─────────────────────────────────────────────
+  const LIVE_SIGNALS = [
+    { k: "mean_bpm",  label: "Pulse",               unit: "bpm", color: "var(--warn)",    d: 0 },
+    { k: "rsa_ms",    label: "Conscious Breathing", unit: "ms",  color: "var(--rsa)",     d: 0 },
+    { k: "sdnn",      label: "Energy Reserve",      unit: "ms",  color: "var(--hrv)",     d: 0 },
+    { k: "vti",       label: "Calm Power",          unit: "",    color: "var(--breathe)", d: 2 },
+    { k: "coherence", label: "Coherence",           unit: "",    color: "var(--coh)",     d: 2 },
+    { k: "dc",        label: "Vagal Tone",          unit: "ms",  color: "var(--breathe)", d: 1 },
+    { k: "dfa1",      label: "Harmony",             unit: "",    color: "var(--hrv)",     d: 2 },
+    { k: "pip",       label: "Inner Noise",         unit: "%",   color: "var(--warn)",    d: 0 },
+    { k: "rcmse",     label: "Adaptive Capacity",   unit: "",    color: "var(--accent)",  d: 2 },
+  ];
+  async function loadUserMetrics(id) {
+    const d = await api(`users/${id}/metrics?window=${$("#user-window").value}`);
+    const s = d.samples || [];
+    $("#user-charts").innerHTML = s.length
+      ? LIVE_SIGNALS.map(sig => miniChart(sig, s)).join("")
+      : `<div class="empty">no live metrics in this window</div>`;
   }
 
   // ── Session detail ────────────────────────────────────────────────────
@@ -321,6 +363,43 @@
     ].map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
     if (!s.length) { $("#session-charts").innerHTML = `<div class="empty">no samples for this session</div>`; wireCrumb(); return; }
     $("#session-charts").innerHTML = SIGNALS.map(sig => miniChart(sig, s)).join("");
+    wireCrumb();
+    stamp();
+  }
+
+  // ── Activity detail ───────────────────────────────────────────────────
+  // [label, activities-column suffix, decimals, higherIsBetter]
+  const ACT_METRICS = [
+    ["Pulse", "hr", 0, false], ["Conscious Breathing", "rsa", 0, true],
+    ["RMSSD", "rmssd", 0, true], ["Energy Reserve", "sdnn", 0, true],
+    ["Calm Power", "vti", 2, true], ["Stress Balance", "stress", 0, false],
+    ["Adaptive Capacity", "rcmse", 2, true], ["Inner Noise", "pip", 0, false],
+    ["Vagal Tone", "dc", 1, true], ["Harmony", "dfa1", 2, true],
+  ];
+  async function openActivity(id) {
+    const a = await api(`activities/${id}`);
+    show("activity");
+    const name = a.activity_subtype || (a.activity_type === "Custom" ? (a.custom_name || "Custom") : a.activity_type);
+    const back = state.userId ? `<a data-nav="/user/${state.userId}">user</a>` : `<a data-nav="/">Overview</a>`;
+    $("#crumb").innerHTML = `<a data-nav="/">Overview</a> › ${back} › <strong>${name}</strong>`;
+    const dur = (a.started_at && a.ended_at) ? (new Date(a.ended_at) - new Date(a.started_at)) / 60000 : null;
+    $("#activity-kpis").innerHTML = [
+      ["Activity", name], ["When", fmtTime(a.started_at)],
+      ["Duration", dur == null ? "—" : fmt(dur, 0) + " <small>min</small>"],
+      ["Impact", a.impact_score == null ? "—" : a.impact_score + "%"],
+    ].map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+    const head = "<tr><th>Metric</th><th>Before</th><th>During</th><th>After</th><th>Δ</th></tr>";
+    const body = ACT_METRICS.map(([label, key, dp, higherBetter]) => {
+      const b = a[`before_${key}`], dv = a[`during_${key}`], af = a[`after_${key}`];
+      let delta = "<span class='muted'>—</span>";
+      if (b != null && dv != null) {
+        const diff = dv - b, good = higherBetter ? diff >= 0 : diff <= 0;
+        delta = `<span style="color:${good ? "var(--coh)" : "var(--warn)"}">${diff >= 0 ? "+" : "−"}${fmt(Math.abs(diff), dp)}</span>`;
+      }
+      const c = (v) => v == null ? "—" : fmt(v, dp);
+      return `<tr><td>${label}</td><td>${c(b)}</td><td>${c(dv)}</td><td>${c(af)}</td><td>${delta}</td></tr>`;
+    }).join("");
+    $("#activity-metrics").innerHTML = head + body;
     wireCrumb();
     stamp();
   }
@@ -378,7 +457,8 @@
   async function route() {
     const parts = location.hash.replace(/^#/, "").split("/").filter(Boolean);
     try {
-      if (parts[0] === "user" && parts[1]) await openUser(parts[1]);
+      if (parts[0] === "activity" && parts[1]) await openActivity(parts[1]);
+      else if (parts[0] === "user" && parts[1]) await openUser(parts[1]);
       else if (parts[0] === "session" && parts[1]) await openSession(parts[1]);
       else await loadOverview();
     } catch (e) { /* gate shown by api() */ }
