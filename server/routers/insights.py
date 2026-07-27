@@ -63,9 +63,11 @@ _LIVE_STATE_SYSTEM_PROMPT = (
     "\n"
     "Example reply:\n"
     "engaged_performing | Locked In\n"
-    "• Energy is well above today's average and steady — **real drive, not stress**\n"
-    "• Inner noise sits near your calmest today — **your focus is sharp** (down ~20%)\n"
-    "• Breathing has settled below your daily norm — **you're grounded**\n"
+    "• Energy eased down through the first half of the window and has been flat "
+    "since — **you've settled**\n"
+    "• Inner noise dropped sharply about four minutes in and stayed there — "
+    "**focus clicked into place**\n"
+    "• Breathing wobbled early, then smoothed and held — **you're grounded now**\n"
     "→ Ride it: start your most demanding task now while the focus is here.\n"
     "\n"
     "BULLETS — use EXACTLY 3, data-driven and in PLAIN everyday language, each ONE "
@@ -73,12 +75,18 @@ _LIVE_STATE_SYSTEM_PROMPT = (
     "'Energy is strong and steady — real drive, not stress' or 'The mental static "
     "is low — your focus is sharp'). Wrap the single KEY IDEA / insight of each "
     "bullet in **double asterisks** to bold it — the takeaway, exactly one short "
-    "bold span per bullet. Ground each bullet MOSTLY in the ABSOLUTE numbers: the "
-    "current value ('now') and how it compares to TODAY'S AVERAGE ('day_avg') — "
-    "e.g. 'well above your day's average', 'your calmest reading today', 'right "
-    "around your daily norm'. You MAY add the recent percent change as a secondary "
-    "detail (e.g. 'up ~15%'), but the absolute value and the day-average "
-    "comparison lead. NEVER put "
+    "bold span per bullet. Ground each bullet in the ARC of the window: what "
+    "moved, WHEN in the window it moved, and whether it held. You are given five "
+    "equal buckets (oldest first), a slope, a volatility rating and a named "
+    "'shape' — lean on those, e.g. 'eased down through the first half and has "
+    "been flat since', 'spiked around the middle then came back', 'has been "
+    "swinging all window'. You MAY cite the slope as a rough percent (e.g. "
+    "'down ~8%').\n"
+    "\n"
+    "NEVER compare to an average, a norm, a 'usual' value or a 'typical' day. "
+    "You do NOT have one and must not invent one — a separate part of the app "
+    "owns that comparison. Describe only what happened inside this window. "
+    "NEVER put "
     "technical or metric terms in the output — no HRV, RMSSD, RSA, SDNN, DFA, "
     "LF/HF, 'vagal tone', 'coherence', 'entropy', 'deceleration'. ('Inner noise' "
     "is fine — it's one of the app's own plain labels.) "
@@ -234,16 +242,96 @@ _METRIC_NAMES = {
 
 def _format_live_state(req: InsightRequest) -> str:
     lines = [
-        f"Window: last {req.window_minutes} minutes. For each metric: 'now' is "
-        f"the current value, 'day_avg' is today's average so far, 'range' is the "
-        f"window's low–high, and 'trend' is the direction."
+        f"Window: last {req.window_minutes} minutes, split into five equal "
+        f"buckets (oldest first). 'now' is the latest value, 'slope' is the "
+        f"change across the whole window, and 'shape' names the arc. No "
+        f"averages or norms are provided \u2014 describe only this window."
     ]
     for name, trend in (req.metrics or {}).items():
         label = _METRIC_NAMES.get(name, name)
+        lines.append(f"{label}:")
+        if trend.buckets:
+            arc = " \u2192 ".join(f"{v:.1f}" for v in trend.buckets)
+            lines.append(f"  buckets: {arc}")
         lines.append(
-            f"{label}: now={trend.end} day_avg={trend.day_mean} "
-            f"window_avg={trend.mean} range={trend.min}-{trend.max} "
-            f"start={trend.start} trend={trend.direction}"
+            f"  now={trend.now} | slope={trend.slope_pct}% | "
+            f"volatility={trend.volatility} | shape={trend.shape} | "
+            f"range={trend.min}-{trend.max}"
+        )
+    return "\n".join(lines)
+
+
+_DAY_POTENTIAL_SYSTEM_PROMPT = (
+    "You are an expert physiologist writing the 'today's potential' read-out "
+    "for a person wearing a chest strap. You are given a capacity score the "
+    "app already computed from their FIRST RESTED READING of the day compared "
+    "with their own personal baseline \u2014 you never compute, state, or "
+    "contradict the number. Reply in EXACTLY this plain-text structure, "
+    "nothing before or after:\n"
+    "\n"
+    "<fresh 2-3 word title>\n"
+    "\u2022 <how today's rested reading compares with their own usual range>\n"
+    "\u2022 <what the pattern across recent mornings shows>\n"
+    "\u2192 <what today can realistically hold>\n"
+    "\n"
+    "Example reply:\n"
+    "Good Reserves\n"
+    "\u2022 Your first still reading came in **at the top of your usual range** "
+    "\u2014 the strongest start you've had in a week.\n"
+    "\u2022 Your mornings are **settling back into a steady rhythm** after "
+    "midweek's dip.\n"
+    "\u2192 Room for one genuinely hard block and a full session \u2014 don't "
+    "spend it all before noon.\n"
+    "\n"
+    "EXACTLY 2 bullets. Wrap the single KEY IDEA of each bullet in **double "
+    "asterisks**. Speak in plain everyday language about capacity, reserves, "
+    "and what the body can carry today. NEVER use technical terms \u2014 no "
+    "HRV, RMSSD, RSA, SDNN, DFA, LF/HF, 'vagal tone', 'coherence', 'entropy', "
+    "'deceleration'. ('Inner noise' is fine \u2014 it is one of the app's own "
+    "labels.) Never mention z-scores, weights, or the word 'baseline'; say "
+    "'your usual range' instead.\n"
+    "\n"
+    "If the fragmentation modifier is above zero, do NOT describe recovery or "
+    "reserves as high however good the rest looks \u2014 the rhythm is erratic, "
+    "and that inflates the underlying measure rather than reflecting real "
+    "recovery.\n"
+    "If baseline_sufficient is false there is not yet enough history for a "
+    "personal range: compare only with the immediately preceding mornings, "
+    "claim no norms, and say the app is still learning what is normal for "
+    "them.\n"
+    "If confidence is 'low', or late is true, hedge accordingly.\n"
+    "The title must vary \u2014 never simply echo the band name. Keep the whole "
+    "reply under 60 words."
+)
+
+
+def _format_day_potential(req: InsightRequest) -> str:
+    lines = []
+    if req.score is not None:
+        lines.append(f"Capacity score: {req.score}/100 (band: {req.band})")
+    else:
+        lines.append("Capacity score: not yet available \u2014 baseline still building.")
+    lines.append(
+        f"Rested reading: {req.anchor_hour:.1f}h, {req.anchor_duration_min} min, "
+        f"late={req.late}, confidence={req.confidence}"
+    )
+    lines.append(
+        f"History: {req.baseline_anchors} of {req.baseline_target} readings, "
+        f"sufficient={req.baseline_sufficient}"
+    )
+    for name, comp in (req.components or {}).items():
+        lines.append(f"{name}: z={comp.z} ({comp.level})")
+    for name, value in (req.modifiers or {}).items():
+        lines.append(f"modifier {name}: -{value}")
+    if req.recent:
+        lines.append(
+            "Recent morning scores (oldest first): "
+            + ", ".join(str(v) for v in req.recent)
+        )
+    if req.streak_current is not None:
+        lines.append(
+            f"Streak: {req.streak_current} mornings (best {req.streak_best}, "
+            f"grace_used={req.grace_used})"
         )
     return "\n".join(lines)
 
@@ -253,12 +341,22 @@ async def generate_insight(
     req: InsightRequest,
     client: AsyncOpenAI = Depends(get_openai_client),
 ):
-    if req.mode == "live_state":
+    if req.mode == "day_potential":
+        if req.anchor_hour is None or req.baseline_sufficient is None:
+            raise HTTPException(status_code=422, detail="anchor and baseline are required for day_potential mode")
+        if req.baseline_sufficient and req.score is None:
+            raise HTTPException(status_code=422, detail="score is required when the baseline is sufficient")
+        if not req.baseline_sufficient and not req.recent:
+            raise HTTPException(status_code=422, detail="recent is required when the baseline is insufficient")
+        system_prompt = _DAY_POTENTIAL_SYSTEM_PROMPT
+        user_content = _format_day_potential(req)
+        max_tokens = 200
+    elif req.mode == "live_state":
         if not req.metrics:
             raise HTTPException(status_code=422, detail="metrics is required for live_state mode")
         system_prompt = _LIVE_STATE_SYSTEM_PROMPT
         user_content = _format_live_state(req)
-        max_tokens = 220   # room for the state line + bullets + recommendation
+        max_tokens = 260   # arc phrasing needs a little more room
     else:
         if not req.activity_type:
             raise HTTPException(status_code=422, detail="activity_type is required for activity mode")

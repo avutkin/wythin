@@ -147,3 +147,117 @@ async def test_generate_activity_insight_missing_activity_type_returns_422():
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
     assert r.status_code == 422
+
+
+# --- day_potential mode -----------------------------------------------------
+
+_DAY_POTENTIAL_PAYLOAD = {
+    "mode": "day_potential",
+    "score": 72,
+    "band": "good",
+    "anchor_hour": 7.2,
+    "anchor_duration_min": 5,
+    "late": False,
+    "confidence": "high",
+    "components": {"recovery_capacity": {"z": 0.8, "level": "top of usual"}},
+    "modifiers": {"fragmentation": 0.0},
+    "baseline_anchors": 41,
+    "baseline_target": 60,
+    "baseline_sufficient": True,
+    "recent": [64, 58, 61, 66, 69, 70, 72],
+    "streak_current": 4,
+    "streak_best": 6,
+    "grace_used": False,
+}
+
+
+@pytest.mark.asyncio
+async def test_day_potential_success():
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
+        content="Good Reserves\n• a\n• b\n→ c"
+    )
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights", json=_DAY_POTENTIAL_PAYLOAD)
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 200
+    assert r.json()["text"].startswith("Good Reserves")
+
+
+@pytest.mark.asyncio
+async def test_day_potential_requires_score_when_baseline_sufficient():
+    payload = {k: v for k, v in _DAY_POTENTIAL_PAYLOAD.items() if k != "score"}
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights", json=payload)
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_day_potential_allows_recent_when_baseline_insufficient():
+    payload = dict(_DAY_POTENTIAL_PAYLOAD)
+    payload.pop("score")
+    payload["baseline_sufficient"] = False
+    payload["baseline_anchors"] = 3
+    payload["recent"] = [58, 61, 64]
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
+        content="Learning\n• a\n• b\n→ c"
+    )
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights", json=payload)
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_day_potential_rejects_missing_anchor():
+    payload = {k: v for k, v in _DAY_POTENTIAL_PAYLOAD.items() if k != "anchor_hour"}
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights", json=payload)
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 422
+
+
+def test_live_state_format_has_buckets_and_no_day_average():
+    from server.models import InsightRequest, MetricTrend
+    from server.routers.insights import _format_live_state
+
+    req = InsightRequest(mode="live_state", window_minutes=10, metrics={
+        "hr": MetricTrend(now=68.4, min=68.0, max=74.1,
+                          buckets=[74.1, 72.8, 70.2, 68.9, 68.4],
+                          slope_pct=-7.7, volatility="low", shape="steady-fall")
+    })
+    text = _format_live_state(req)
+    assert "74.1 → 72.8" in text
+    assert "steady-fall" in text
+    assert "day_avg" not in text
+
+
+def test_day_potential_format_includes_score_and_modifiers():
+    from server.models import InsightRequest, MetricComponent
+    from server.routers.insights import _format_day_potential
+
+    req = InsightRequest(
+        mode="day_potential", score=72, band="good", anchor_hour=7.2,
+        anchor_duration_min=5, late=False, confidence="high",
+        components={"recovery_capacity": MetricComponent(z=0.8, level="top of usual")},
+        modifiers={"fragmentation": 4.0},
+        baseline_anchors=41, baseline_target=60, baseline_sufficient=True,
+        recent=[64, 70, 72], streak_current=4, streak_best=6, grace_used=False)
+    text = _format_day_potential(req)
+    assert "72/100" in text
+    assert "modifier fragmentation: -4.0" in text
+    assert "Streak: 4 mornings" in text
