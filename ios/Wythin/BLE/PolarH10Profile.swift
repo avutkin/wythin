@@ -89,6 +89,10 @@ struct HRFrame {
     let bpm: Int
     /// RR intervals in milliseconds. Converted from BLE raw (raw × 1000 / 1024).
     let rrIntervalsMs: [Int]
+    /// Sensor Contact Status from the HR-measurement flags (bits 1–2).
+    /// `nil` when the sensor doesn't report support; otherwise true = electrodes
+    /// on skin, false = off-body. The most direct off-body signal there is.
+    let contact: Bool?
 }
 
 // MARK: - Packet Parsers
@@ -166,6 +170,9 @@ extension PolarH10Profile {
         let flags = data[0]
         let is16bit = (flags & 0x01) != 0
         let hasRR   = (flags & 0x10) != 0
+        // Bits 1–2: sensor contact. bit 2 = supported, bit 1 = detected.
+        let contactSupported = (flags & 0x04) != 0
+        let contact: Bool?   = contactSupported ? ((flags & 0x02) != 0) : nil
 
         let bpm: Int
         var offset: Int
@@ -190,7 +197,7 @@ extension PolarH10Profile {
                 offset += 2
             }
         }
-        return HRFrame(bpm: bpm, rrIntervalsMs: rrMs)
+        return HRFrame(bpm: bpm, rrIntervalsMs: rrMs, contact: contact)
     }
 
     // MARK: - Settings Query Helpers

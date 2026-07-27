@@ -61,6 +61,9 @@ final class BLEService: NSObject {
     var batteryLevel:      Int?        = nil
     var lastError:         String?     = nil
     var discoveredDevices: [BLEDevice] = []
+    /// Latest Polar-reported skin-contact status (HR flags bits 1–2).
+    /// nil = sensor doesn't report it; false = off-body; true = on skin.
+    var sensorContact:     Bool?       = nil
 
     /// Human-readable CoreBluetooth central manager state — shown in the BLE sheet for diagnostics.
     var cbStateDescription: String {
@@ -750,7 +753,10 @@ extension BLEService: CBPeripheralDelegate {
 
         case PolarH10Profile.hrMeasurement:
             if let frame = PolarH10Profile.parseHRFrame(data) {
-                Task { @MainActor in self.hrSubject.send(frame) }
+                Task { @MainActor in
+                    self.sensorContact = frame.contact
+                    self.hrSubject.send(frame)
+                }
             }
 
         case PolarH10Profile.batteryLevel:

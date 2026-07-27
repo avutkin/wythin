@@ -467,6 +467,16 @@ struct BLEConnectionSheet: View {
                     .font(Theme.monoBody)
                     .foregroundStyle(Theme.text)
             }
+            HStack {
+                Text("Skin contact")
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+                Spacer()
+                Text(ble.sensorContact == nil ? "not reported"
+                     : (ble.sensorContact == true ? "on skin" : "off-body"))
+                    .font(Theme.monoBody)
+                    .foregroundStyle(ble.sensorContact == false ? Theme.warn : Theme.text)
+            }
             if q.tier != .good {
                 Divider().background(Theme.border)
                 Text("Improving signal quality")

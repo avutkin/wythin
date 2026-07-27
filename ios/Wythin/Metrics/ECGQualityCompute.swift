@@ -18,7 +18,7 @@ enum SignalQualityTier: Int, Comparable {
 
 struct ECGQualityResult {
     let tier:   SignalQualityTier
-    let reason: String   // "clean" | "clipping" | "lead-off"
+    let reason: String   // "clean" | "clipping" | "lead-off" | "noise"
 }
 
 // MARK: - Combined Output (RR-artifact + ECG-waveform)
@@ -57,12 +57,24 @@ enum ECGQualityCompute {
             return ECGQualityResult(tier: .poor, reason: "lead-off")
         }
 
+        // Clipping first — a large pinned run is also low-kurtosis, so it must be
+        // classified here before the noise check below misreads it.
         let clippedFraction = clippedSampleFraction(ecg)
         if clippedFraction >= clipPoorFraction {
             return ECGQualityResult(tier: .poor, reason: "clipping")
         } else if clippedFraction > 0 {
             return ECGQualityResult(tier: .okay, reason: "clipping")
         }
+
+        // White-noise / no-QRS: an off-body strap isn't flatline — the open
+        // electrodes pick up ambient noise. Real ECG is dominated by sharp QRS
+        // spikes, so its amplitude distribution is highly peaked (kurtosis well
+        // above the Gaussian ~3); ambient noise is ~Gaussian. Real amplitude but
+        // low kurtosis = "listening to the air", not a heart.
+        if kurtosis(ecg, mean: mean, stddev: stddev) < noiseKurtosisThreshold {
+            return ECGQualityResult(tier: .poor, reason: "noise")
+        }
+
         return ECGQualityResult(tier: .good, reason: "clean")
     }
 
@@ -99,6 +111,20 @@ enum ECGQualityCompute {
     private static let clipRunTolerance: Float = 0.5
     private static let clipMinRunLength: Int   = 5
     private static let clipPoorFraction: Float = 0.10
+
+    /// Below this raw kurtosis, a non-flatline window is treated as noise (no
+    /// real QRS). Gaussian noise ≈ 3; resting ECG (sparse QRS spikes over a
+    /// quiet baseline) is far more peaked, typically well above 5.
+    private static let noiseKurtosisThreshold: Float = 4.0
+
+    /// Raw kurtosis (Gaussian ≈ 3) of the sample distribution.
+    private static func kurtosis(_ x: [Float], mean: Float, stddev: Float) -> Float {
+        guard stddev > 0, !x.isEmpty else { return 0 }
+        let n  = Float(x.count)
+        let s2 = stddev * stddev
+        let m4 = x.reduce(Float(0)) { $0 + pow($1 - mean, 4) } / n
+        return m4 / (s2 * s2)
+    }
 
     private static func clippedSampleFraction(_ ecg: [Float]) -> Float {
         guard let maxVal = ecg.max(), let minVal = ecg.min() else { return 0 }

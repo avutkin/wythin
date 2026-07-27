@@ -3,6 +3,27 @@ import XCTest
 
 final class ECGQualityComputeTests: XCTestCase {
 
+    /// QRS-like ECG stand-in: a quiet, non-repeating baseline with a sharp spike
+    /// every ~40 samples (like R-waves). Highly peaked (high kurtosis) so it reads
+    /// as a real cardiac signal, not white noise, and its baseline never forms a
+    /// clipping run (consecutive samples differ by more than the clip tolerance).
+    private func qrsLike(_ n: Int = 200) -> [Float] {
+        (0..<n).map { i in
+            i % 40 == 5 ? 600 : Float((i * 13) % 17) * 0.7 - 6
+        }
+    }
+
+    /// Deterministic broadband noise (xorshift), ~uniform so kurtosis is low —
+    /// stands in for an off-body strap "listening to the air".
+    private func whiteNoise(_ n: Int = 200) -> [Float] {
+        var seed: UInt64 = 88172645463325252
+        func next() -> Float {
+            seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17
+            return Float(Int(seed % 2000)) - 1000
+        }
+        return (0..<n).map { _ in next() }
+    }
+
     func testInsufficientSamplesReturnsNil() {
         let ecg: [Float] = Array(repeating: 0, count: 50)   // below the 130-sample (~1s) minimum
         XCTAssertNil(ECGQualityCompute.compute(ecg: ecg))
@@ -16,18 +37,22 @@ final class ECGQualityComputeTests: XCTestCase {
         XCTAssertEqual(result?.reason, "lead-off")
     }
 
+    func testWhiteNoiseDetected() {
+        // Real amplitude but no QRS structure (low kurtosis) → off-body noise.
+        let result = ECGQualityCompute.compute(ecg: whiteNoise())
+        XCTAssertEqual(result?.tier, .poor)
+        XCTAssertEqual(result?.reason, "noise")
+    }
+
     func testCleanSignalIsGood() {
-        // Deterministic non-repeating pattern — no two consecutive samples are
-        // ever within clipping tolerance of each other, so no run can form.
-        let ecg: [Float] = (0..<200).map { i in Float(i % 37) * 17.3 - 300 }
-        let result = ECGQualityCompute.compute(ecg: ecg)
+        let result = ECGQualityCompute.compute(ecg: qrsLike())
         XCTAssertEqual(result?.tier, .good)
         XCTAssertEqual(result?.reason, "clean")
     }
 
     func testSustainedClippingDetectedAsPoor() {
-        var ecg: [Float] = (0..<200).map { i in Float(i % 37) * 17.3 - 300 }
-        let railValue: Float = 1000   // clearly outside the base signal's own range
+        var ecg = qrsLike()
+        let railValue: Float = 2000   // a new rail, clearly outside the QRS range
         for i in 50..<90 { ecg[i] = railValue }   // 40 consecutive pinned samples (20% of window)
         let result = ECGQualityCompute.compute(ecg: ecg)
         XCTAssertEqual(result?.tier, .poor)
@@ -35,8 +60,8 @@ final class ECGQualityComputeTests: XCTestCase {
     }
 
     func testBriefClippingDetectedAsOkay() {
-        var ecg: [Float] = (0..<200).map { i in Float(i % 37) * 17.3 - 300 }
-        let railValue: Float = 1000
+        var ecg = qrsLike()
+        let railValue: Float = 2000
         for i in 50..<56 { ecg[i] = railValue }   // 6 consecutive pinned samples (3% of window)
         let result = ECGQualityCompute.compute(ecg: ecg)
         XCTAssertEqual(result?.tier, .okay)
@@ -44,8 +69,8 @@ final class ECGQualityComputeTests: XCTestCase {
     }
 
     func testShortPinnedRunIsIgnored() {
-        var ecg: [Float] = (0..<200).map { i in Float(i % 37) * 17.3 - 300 }
-        let railValue: Float = 1000
+        var ecg = qrsLike()
+        let railValue: Float = 2000
         for i in 50..<53 { ecg[i] = railValue }   // only 3 consecutive — below the run-length gate
         let result = ECGQualityCompute.compute(ecg: ecg)
         XCTAssertEqual(result?.tier, .good)
@@ -94,8 +119,8 @@ final class ECGQualityComputeTests: XCTestCase {
     }
 
     func testClipMinRunLengthBoundaryCountsAsClipping() {
-        var ecg: [Float] = (0..<200).map { i in Float(i % 37) * 17.3 - 300 }
-        let railValue: Float = 1000
+        var ecg = qrsLike()
+        let railValue: Float = 2000
         for i in 50..<55 { ecg[i] = railValue }   // exactly 5 consecutive — the clipMinRunLength boundary
         let result = ECGQualityCompute.compute(ecg: ecg)
         XCTAssertEqual(result?.tier, .okay)   // 5/200 = 2.5%, well under the 10% Poor threshold
@@ -103,8 +128,8 @@ final class ECGQualityComputeTests: XCTestCase {
     }
 
     func testClipPoorFractionBoundaryTipsIntoPoor() {
-        var ecg: [Float] = (0..<200).map { i in Float(i % 37) * 17.3 - 300 }
-        let railValue: Float = 1000
+        var ecg = qrsLike()
+        let railValue: Float = 2000
         for i in 50..<70 { ecg[i] = railValue }   // exactly 20 consecutive (10% of window) — the clipPoorFraction boundary
         let result = ECGQualityCompute.compute(ecg: ecg)
         XCTAssertEqual(result?.tier, .poor)

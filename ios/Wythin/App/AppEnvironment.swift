@@ -284,11 +284,17 @@ final class AppEnvironment {
                 }.value
 
                 // ── Off-body detection → low-power standby ────────────────────
-                // The Polar reports flatline ECG (lead-off) and mostly-invalid
-                // RR when off the chest. If that persists past the threshold,
-                // drop the strap into standby so it stops streaming and silently
-                // auto-reconnects when worn again.
-                let offBody = tick.ecgQuality?.tier == .poor || (tick.signalQuality ?? 1) < 0.5
+                // Three independent cues, any of which marks the strap off-body:
+                //   1. The Polar's own skin-contact bit reports no contact.
+                //   2. ECG quality is poor — flatline (lead-off) OR white noise
+                //      (electrodes picking up the air, no real QRS).
+                //   3. RR is mostly invalid/corrected (signalQuality < 0.5).
+                // When any persists past the threshold, drop to standby (stops
+                // streaming, silently auto-reconnects when worn again).
+                let contactLost = ble.sensorContact == false
+                let ecgBad      = tick.ecgQuality?.tier == .poor
+                let rrBad       = (tick.signalQuality ?? 1) < 0.5
+                let offBody = contactLost || ecgBad || rrBad
                 if offBody {
                     let since = offBodySince ?? Date()
                     offBodySince = since
