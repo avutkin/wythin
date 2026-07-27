@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AT13 /* AnchorDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT13 /* AnchorDetectorTests.swift */; };
+		A210 /* AnchorDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F210 /* AnchorDetector.swift */; };
 		A101 /* WythinApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F101 /* WythinApp.swift */; };
 		A102 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F102 /* AppEnvironment.swift */; };
 		A103 /* BLEService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F103 /* BLEService.swift */; };
@@ -101,6 +103,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		FT13 /* AnchorDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetectorTests.swift; sourceTree = "<group>"; };
+		F210 /* AnchorDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetector.swift; sourceTree = "<group>"; };
 		F101 /* WythinApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WythinApp.swift; sourceTree = "<group>"; };
 		F102 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		F103 /* BLEService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEService.swift; sourceTree = "<group>"; };
@@ -294,6 +298,7 @@
 		GAPP_MET /* Metrics */ = {
 			isa = PBXGroup;
 			children = (
+				F210 /* AnchorDetector.swift */,
 				F106 /* MetricsEngine.swift */,
 				F107 /* HRVCompute.swift */,
 				F108 /* RSACompute.swift */,
@@ -424,6 +429,7 @@
 		GTESTS /* WythinTests */ = {
 			isa = PBXGroup;
 			children = (
+				FT13 /* AnchorDetectorTests.swift */,
 				FT01 /* MetricsTests.swift */,
 				FT02 /* BLETests.swift */,
 				FT03 /* ECGQualityComputeTests.swift */,
@@ -530,6 +536,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A210 /* AnchorDetector.swift in Sources */,
 				A101 /* WythinApp.swift in Sources */,
 				A102 /* AppEnvironment.swift in Sources */,
 				A103 /* BLEService.swift in Sources */,
@@ -606,6 +613,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AT13 /* AnchorDetectorTests.swift in Sources */,
 				AT01 /* MetricsTests.swift in Sources */,
 				AT02 /* BLETests.swift in Sources */,
 				AT03 /* ECGQualityComputeTests.swift in Sources */,
