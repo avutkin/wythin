@@ -298,6 +298,11 @@ final class AppEnvironment {
                 try? await Task.sleep(for: .seconds(2))
                 guard let self else { break }
 
+                // Off-body standby: ECG/ACC streams are paused, so there's no live
+                // data to process. Skip so stale/empty buckets never reach the
+                // charts; BLEService resumes automatically when the strap is worn.
+                if case .standby = self.ble.state { continue }
+
                 let inForeground = self.isInForeground
 
                 // In background, only process every 30 s to avoid unnecessary

@@ -248,26 +248,36 @@ final class BLEService: NSObject {
         state = .idle
     }
 
-    /// Off-body auto-standby. Called when the strap has been off long enough
-    /// (sustained bad signal) that streaming is wasteful. Stops the streams,
-    /// drops the active connection, and arms a NO-TIMEOUT pending connect so
-    /// iOS silently reconnects the moment the strap is worn again (re-advertises)
-    /// — no scanning, no polling, minimal battery. Only meaningful from a live
-    /// connection; a real disconnect already routes through the reconnect path.
+    /// Off-body auto-standby. Called when the strap has been off long enough that
+    /// streaming is wasteful. We PAUSE in place rather than disconnect: a still-
+    /// powered off-body strap keeps advertising for minutes and would immediately
+    /// re-establish a dropped connection and re-stream garbage. So we stop the
+    /// heavy ECG/ACC streams but keep the lightweight HR notification alive to
+    /// watch the skin-contact bit, and resume the instant the strap is worn again
+    /// (see resumeFromStandby). If the H10 powers itself off later, the normal
+    /// disconnect/reconnect path takes over.
     func enterStandby() {
         guard case .connected = state, let p = peripheral, !inStandby else { return }
-        print("🌙 BLE: entering standby — strap off-body")
+        print("🌙 BLE: entering standby — strap off-body (paused in place)")
         inStandby = true
         connectionTimeoutTask?.cancel()
         reconnectTask?.cancel()
         watchdogTask?.cancel()
-        connectionGapSubject.send()      // discard buffered beats spanning the gap
-        suppressNextDisconnect = true    // the cancel below is expected
-        stopPMDStreams()
+        connectionGapSubject.send()      // discard buffered off-body beats
+        stopPMDStreams()                 // stop ECG/ACC; keep HR for contact
+        pmdStreamsStarted = false        // allow a clean restart on resume
         state = .standby(name: p.name ?? "Polar H10")
-        centralManager.cancelPeripheralConnection(p)
-        // The pending reconnect is armed in didDisconnectPeripheral once the
-        // cancel completes (see suppressNextDisconnect + inStandby handling).
+    }
+
+    /// Resume from off-body standby — the strap is worn again (contact restored).
+    /// Restart the ECG/ACC streams and mark the link live.
+    private func resumeFromStandby(name: String) {
+        guard inStandby, peripheral != nil else { return }
+        print("🌙 BLE: resuming from standby — strap worn again")
+        inStandby = false
+        state = .connected(name: name)
+        startPMDStreams()
+        startWatchdog()
     }
 
     // MARK: - Private helpers
@@ -756,17 +766,21 @@ extension BLEService: CBPeripheralDelegate {
                 let name = peripheral.name ?? "Polar H10"
                 Task { @MainActor in
                     self.sensorContact = frame.contact
+                    // Paused for off-body: keep watching the contact bit over the
+                    // lightweight HR link and resume the moment the strap is worn
+                    // again. Don't forward off-body beats into the pipeline.
+                    if self.inStandby {
+                        if frame.contact == true { self.resumeFromStandby(name: name) }
+                        return
+                    }
                     // Live data means we ARE connected — keep the top-bar indicator
                     // honest if the state drifted (an ineffective disconnect, or an
                     // OS-level reconnect after the strap was worn again). Treat it as
                     // a real, managed connection (clear the user-disconnect latch) so
                     // it's maintained in the background too — not just while open.
-                    // Never override an intentional off-body standby.
-                    if !self.inStandby {
-                        self.userDisconnected = false
-                        if case .connected = self.state {} else {
-                            self.state = .connected(name: name)
-                        }
+                    self.userDisconnected = false
+                    if case .connected = self.state {} else {
+                        self.state = .connected(name: name)
                     }
                     self.hrSubject.send(frame)
                 }
