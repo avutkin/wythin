@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import timedelta
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse, HTMLResponse
@@ -245,6 +246,46 @@ async def user_detail(user_id: str):
             for r in sessions
         ],
         "activities": [_activity_row(r) for r in activities],
+    }
+
+
+_METRIC_WINDOWS = {
+    "24h": (timedelta(hours=24), timedelta(minutes=5)),
+    "7d":  (timedelta(days=7),   timedelta(hours=1)),
+    "30d": (timedelta(days=30),  timedelta(hours=4)),
+}
+_METRIC_COLS = ("mean_bpm", "rmssd", "sdnn", "pnn50", "lf_hf", "rsa_ms",
+                "coherence", "cbi", "breath_bpm", "dfa1", "rcmse", "pip", "dc", "vti")
+
+
+@router.get("/users/{user_id}/metrics")
+async def user_metrics(user_id: str, window: str = "24h"):
+    """Bucketed per-user metric_samples series for the live charts. `window` is
+    one of 24h / 7d / 30d; each column is averaged per time bucket."""
+    span, bucket = _METRIC_WINDOWS.get(window, _METRIC_WINDOWS["24h"])
+    avg_cols = ", ".join(f"AVG({c}) AS {c}" for c in _METRIC_COLS)
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            SELECT date_bin($2::interval, ts, TIMESTAMPTZ 'epoch') AS bucket, {avg_cols}
+            FROM metric_samples
+            WHERE user_id = $1::uuid AND ts > NOW() - $3::interval
+            GROUP BY bucket
+            ORDER BY bucket
+            """,
+            user_id, bucket, span,
+        )
+
+    def _f(v):
+        return float(v) if v is not None else None
+
+    return {
+        "window": window if window in _METRIC_WINDOWS else "24h",
+        "samples": [
+            {"ts": r["bucket"].isoformat(), **{c: _f(r[c]) for c in _METRIC_COLS}}
+            for r in rows
+        ],
     }
 
 

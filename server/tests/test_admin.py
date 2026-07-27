@@ -139,3 +139,29 @@ async def test_user_and_session_drilldown():
     async with _client() as client:
         nf = await client.get("/admin/users/00000000-0000-0000-0000-0000000000ff")
         assert nf.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_user_metrics_series():
+    """Upload recent per-user metric_samples, then confirm the bucketed live
+    series endpoint returns them (incl. advanced columns). Requires a database."""
+    from datetime import datetime, timezone, timedelta
+    base = datetime.now(timezone.utc) - timedelta(minutes=5)
+    async with _client() as client:
+        up = await client.post("/v1/metrics", headers={"X-User-ID": "test-metrics-user"}, json={
+            "samples": [
+                {"ts": base.isoformat(),                         "mean_bpm": 61.0, "rmssd": 42.0, "coherence": 0.60, "dc": 6.0, "dfa1": 1.0},
+                {"ts": (base + timedelta(seconds=2)).isoformat(), "mean_bpm": 62.0, "rmssd": 44.0, "coherence": 0.62, "dc": 6.5, "dfa1": 1.05},
+            ]
+        })
+        assert up.status_code in (200, 201), up.text
+
+        stats = await client.get("/admin/stats", params={"days": 3650})
+        uid = next(u["id"] for u in stats.json()["users"] if u["device_id"] == "test-metrics-user")
+
+        r = await client.get(f"/admin/users/{uid}/metrics", params={"window": "24h"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["window"] == "24h"
+    assert isinstance(body["samples"], list) and body["samples"], "expected bucketed samples"
+    assert {"ts", "mean_bpm", "rmssd", "coherence", "dc", "dfa1"} <= set(body["samples"][0])
