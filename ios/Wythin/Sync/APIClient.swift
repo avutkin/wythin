@@ -60,17 +60,59 @@ struct InsightPayload: Codable {
 }
 
 struct MetricTrendPayload: Codable {
-    let start: Float?
-    let end:   Float?
-    let min:   Float?
-    let max:   Float?
-    let mean:  Float?
-    let direction: String?
-    let dayMean: Float?
+    let now:        Float?
+    let min:        Float?
+    let max:        Float?
+    let buckets:    [Float]?
+    let slopePct:   Float?
+    let volatility: String?
+    let shape:      String?
+
+    // NOTE: no day_mean. The live read must never compare to an average —
+    // that is Day Potential's job, and withholding the field is the only
+    // enforcement that doesn't leak through prompt wording.
+    enum CodingKeys: String, CodingKey {
+        case now, min, max, buckets, volatility, shape
+        case slopePct = "slope_pct"
+    }
+}
+
+struct MetricComponentPayload: Codable {
+    let z: Float?
+    let level: String?
+}
+
+/// Day-potential request. Carries the locally-computed score and every part
+/// that produced it, so the model can explain the number without inventing
+/// one.
+struct DayPotentialPayload: Codable {
+    let mode = "day_potential"
+    let score: Int?
+    let band: String?
+    let anchorHour: Double
+    let anchorDurationMin: Int
+    let late: Bool
+    let confidence: String
+    let components: [String: MetricComponentPayload]
+    let modifiers: [String: Float]
+    let baselineAnchors: Int
+    let baselineTarget: Int
+    let baselineSufficient: Bool
+    let recent: [Int]
+    let streakCurrent: Int
+    let streakBest: Int
+    let graceUsed: Bool
 
     enum CodingKeys: String, CodingKey {
-        case start, end, min, max, mean, direction
-        case dayMean = "day_mean"
+        case mode, score, band, components, modifiers, recent, late, confidence
+        case anchorHour = "anchor_hour"
+        case anchorDurationMin = "anchor_duration_min"
+        case baselineAnchors = "baseline_anchors"
+        case baselineTarget = "baseline_target"
+        case baselineSufficient = "baseline_sufficient"
+        case streakCurrent = "streak_current"
+        case streakBest = "streak_best"
+        case graceUsed = "grace_used"
     }
 }
 
@@ -227,6 +269,13 @@ struct APIClient {
         return try JSONDecoder().decode(InsightResponse.self, from: data)
     }
 
+    func generateDayPotentialInsight(_ payload: DayPotentialPayload) async throws -> InsightResponse {
+        var req = request(path: "/insights", method: "POST")
+        req.httpBody = try JSONEncoder().encode(payload)
+        let (data, _) = try await session.data(for: req)
+        return try JSONDecoder().decode(InsightResponse.self, from: data)
+    }
+
     func generateLiveStateInsight(_ payload: LiveStateInsightPayload) async throws -> InsightResponse {
         var req = request(path: "/insights", method: "POST")
         req.httpBody = try JSONEncoder().encode(payload)
@@ -375,13 +424,13 @@ extension InsightPayload {
 
 extension MetricTrendPayload {
     init(from trend: MetricTrend) {
-        self.start = trend.start
-        self.end   = trend.end
-        self.min   = trend.min
-        self.max   = trend.max
-        self.mean  = trend.mean
-        self.direction = trend.direction
-        self.dayMean = trend.dayMean
+        self.now        = trend.end
+        self.min        = trend.min
+        self.max        = trend.max
+        self.buckets    = trend.buckets
+        self.slopePct   = trend.slopePct
+        self.volatility = trend.volatility
+        self.shape      = trend.shape
     }
 }
 

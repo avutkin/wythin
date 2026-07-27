@@ -71,4 +71,30 @@ final class LiveStateTrendComputeTests: XCTestCase {
         let result = LiveStateTrendCompute.summarize(old + recent, windowMinutes: 10, now: now)
         XCTAssertEqual(result?["hr"]?.mean, 70)
     }
+
+    func testProducesFiveBucketsAndShape() {
+        let values: [Float] = (0..<300).map { 74 - Float($0) * 0.02 }   // steady fall
+        let now = Date()
+        let history = (0..<300).map { i in
+            MetricsHistoryPoint(timestamp: now.addingTimeInterval(-Double(300 - i) * 2),
+                                meanBPM: values[i])
+        }
+        let hr = LiveStateTrendCompute.summarize(history, windowMinutes: 10, now: now)?["hr"]
+        XCTAssertEqual(hr?.buckets?.count, 5)
+        XCTAssertEqual(hr?.shape, "steady-fall")
+        XCTAssertNotNil(hr?.slopePct)
+        // A 74 → 68 drift is ~2.8% relative SD — "moderate", not "low".
+        XCTAssertEqual(hr?.volatility, "moderate")
+    }
+
+    func testFlatWindowReadsAsLowVolatilityPlateau() {
+        let now = Date()
+        let history = (0..<300).map { i in
+            MetricsHistoryPoint(timestamp: now.addingTimeInterval(-Double(300 - i) * 2),
+                                meanBPM: 70 + Float(i % 2) * 0.05)
+        }
+        let hr = LiveStateTrendCompute.summarize(history, windowMinutes: 10, now: now)?["hr"]
+        XCTAssertEqual(hr?.shape, "plateau")
+        XCTAssertEqual(hr?.volatility, "low")
+    }
 }
