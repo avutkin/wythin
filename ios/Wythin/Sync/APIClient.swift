@@ -88,6 +88,41 @@ struct InsightResponse: Codable {
     let text: String
 }
 
+struct TokenCreated: Codable, Identifiable {
+    let token: String
+    let id: String
+    let name: String?
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case token, id, name
+        case createdAt = "created_at"
+    }
+}
+
+struct TokenInfo: Codable, Identifiable {
+    let id: String
+    let name: String?
+    let createdAt: String
+    let lastUsedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case createdAt = "created_at"
+        case lastUsedAt = "last_used_at"
+    }
+}
+
+/// Builds the exact `claude mcp add` command for a freshly minted token.
+enum MCPSetup {
+    static func claudeCommand(serverURL: URL, token: String) -> String {
+        var base = serverURL.absoluteString
+        if base.hasSuffix("/") { base.removeLast() }
+        return "claude mcp add --transport http wythin \(base)/mcp "
+             + "--header \"Authorization: Bearer \(token)\""
+    }
+}
+
 struct ServerSession: Codable {
     let id:           String
     let startedAt:    String
@@ -132,6 +167,29 @@ struct APIClient {
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
         let (data, _) = try await session.data(for: req)
         return try JSONDecoder().decode([ServerSession].self, from: data)
+    }
+
+    // MARK: Access tokens
+
+    func createToken(name: String, userID: String) async throws -> TokenCreated {
+        var req = request(path: "/v1/tokens", method: "POST")
+        req.addValue(userID, forHTTPHeaderField: "X-User-ID")
+        req.httpBody = try JSONEncoder().encode(["name": name])
+        let (data, _) = try await session.data(for: req)
+        return try JSONDecoder().decode(TokenCreated.self, from: data)
+    }
+
+    func listTokens(userID: String) async throws -> [TokenInfo] {
+        var req = request(path: "/v1/tokens", method: "GET")
+        req.addValue(userID, forHTTPHeaderField: "X-User-ID")
+        let (data, _) = try await session.data(for: req)
+        return try JSONDecoder().decode([TokenInfo].self, from: data)
+    }
+
+    func revokeToken(id: String, userID: String) async throws {
+        var req = request(path: "/v1/tokens/\(id)", method: "DELETE")
+        req.addValue(userID, forHTTPHeaderField: "X-User-ID")
+        _ = try await session.data(for: req)
     }
 
     // MARK: Insights
