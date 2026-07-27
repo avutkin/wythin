@@ -163,6 +163,7 @@ struct SettingsView: View {
         case .connecting(let n): return "CONNECTING \(n)"
         case .connected(let n):  return n.uppercased()
         case .disconnected(let r): return "OFF — \(r)"
+        case .standby:           return "IDLE — STRAP OFF"
         case .unauthorized:      return "NO PERMISSION"
         case .unsupported:       return "UNSUPPORTED"
         }

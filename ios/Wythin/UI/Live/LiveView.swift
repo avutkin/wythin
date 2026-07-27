@@ -659,6 +659,7 @@ struct BLEConnectionSheet: View {
         case .connecting(let n): return "Connecting to \(n)"
         case .connected(let n):  return n
         case .disconnected:      return "Disconnected"
+        case .standby(let n):    return n
         case .unauthorized:      return "No Bluetooth Permission"
         case .unsupported:       return "Bluetooth Unavailable"
         }
@@ -671,6 +672,7 @@ struct BLEConnectionSheet: View {
         case .connecting:        return "Establishing connection…"
         case .connected:         return "ECG + ACC streaming"
         case .disconnected(let r): return r
+        case .standby:           return "Strap off — will reconnect when worn"
         case .unauthorized:      return "Allow Bluetooth in iPhone Settings"
         case .unsupported:       return "This device doesn't support BLE"
         }

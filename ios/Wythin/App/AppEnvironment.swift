@@ -202,6 +202,12 @@ final class AppEnvironment {
 
     // MARK: BLE → DataBuffer → MetricsEngine pipeline
 
+    // Off-body detector: timestamp when sustained bad/absent signal began.
+    // After `offBodyStandbySeconds` of continuous off-body ticks we drop the
+    // strap into low-power standby (auto-reconnects when worn again).
+    private var offBodySince: Date?
+    private let offBodyStandbySeconds: TimeInterval = 180   // 3 minutes
+
     private func bindBLE() {
         // Forward ECG frames to buffer
         ble.ecgSubject
@@ -270,6 +276,23 @@ final class AppEnvironment {
                 let tick = await Task.detached(priority: priority) {
                     MetricsEngine.compute(from: snapshot)
                 }.value
+
+                // ── Off-body detection → low-power standby ────────────────────
+                // The Polar reports flatline ECG (lead-off) and mostly-invalid
+                // RR when off the chest. If that persists past the threshold,
+                // drop the strap into standby so it stops streaming and silently
+                // auto-reconnects when worn again.
+                let offBody = tick.ecgQuality?.tier == .poor || (tick.signalQuality ?? 1) < 0.5
+                if offBody {
+                    let since = offBodySince ?? Date()
+                    offBodySince = since
+                    if Date().timeIntervalSince(since) >= offBodyStandbySeconds {
+                        ble.enterStandby()
+                        offBodySince = nil
+                    }
+                } else {
+                    offBodySince = nil
+                }
 
                 // ── Foreground-only: update live display ──────────────────────
                 if inForeground {

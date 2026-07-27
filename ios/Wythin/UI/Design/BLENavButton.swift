@@ -68,6 +68,11 @@ struct BLENavButton: View {
                                     .foregroundStyle(Theme.warn.opacity(0.7))
                             )
 
+                    case .standby:
+                        Image(systemName: "moon.zzz")
+                            .font(.system(size: 17, weight: .light))
+                            .foregroundStyle(Theme.dim)
+
                     case .unauthorized:
                         Image(systemName: "lock.slash")
                             .font(.system(size: 17, weight: .light))
@@ -119,6 +124,7 @@ struct BLENavButton: View {
         case .connecting:    return 2
         case .connected:     return 3
         case .disconnected:  return 4
+        case .standby:       return 7
         case .unauthorized:  return 5
         case .unsupported:   return 6
         }

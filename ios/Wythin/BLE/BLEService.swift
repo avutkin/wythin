@@ -10,6 +10,9 @@ enum BLEState: Equatable {
     case connecting(name: String)
     case connected(name: String)
     case disconnected(reason: String)
+    /// Strap off-body: streaming stopped to save battery, a no-timeout pending
+    /// connect is armed, and iOS will auto-reconnect the instant it's worn again.
+    case standby(name: String)
     case unauthorized
     case unsupported
 }
@@ -116,6 +119,10 @@ final class BLEService: NSObject {
 
     // When true, auto-scan on BT-power-on is skipped (user intentionally disconnected).
     private var userDisconnected = false
+
+    // When true, we're in off-body standby: streaming stopped, a no-timeout
+    // pending connect is armed. Cleared on (re)connect and on manual disconnect.
+    private var inStandby = false
 
     // MARK: Init
 
@@ -225,6 +232,7 @@ final class BLEService: NSObject {
         guard let p = peripheral else { return }
         print("🔵 BLE: user disconnect")
         userDisconnected = true
+        inStandby = false
         suppressNextDisconnect = true
         connectionTimeoutTask?.cancel()
         scanTimeoutTask?.cancel()
@@ -237,7 +245,44 @@ final class BLEService: NSObject {
         state = .idle
     }
 
+    /// Off-body auto-standby. Called when the strap has been off long enough
+    /// (sustained bad signal) that streaming is wasteful. Stops the streams,
+    /// drops the active connection, and arms a NO-TIMEOUT pending connect so
+    /// iOS silently reconnects the moment the strap is worn again (re-advertises)
+    /// — no scanning, no polling, minimal battery. Only meaningful from a live
+    /// connection; a real disconnect already routes through the reconnect path.
+    func enterStandby() {
+        guard case .connected = state, let p = peripheral, !inStandby else { return }
+        print("🌙 BLE: entering standby — strap off-body")
+        inStandby = true
+        connectionTimeoutTask?.cancel()
+        reconnectTask?.cancel()
+        watchdogTask?.cancel()
+        connectionGapSubject.send()      // discard buffered beats spanning the gap
+        suppressNextDisconnect = true    // the cancel below is expected
+        stopPMDStreams()
+        state = .standby(name: p.name ?? "Polar H10")
+        centralManager.cancelPeripheralConnection(p)
+        // The pending reconnect is armed in didDisconnectPeripheral once the
+        // cancel completes (see suppressNextDisconnect + inStandby handling).
+    }
+
     // MARK: - Private helpers
+
+    /// Register a no-timeout pending connection: unlike `doConnect`, no 15 s
+    /// timeout is armed, so iOS keeps the request queued indefinitely and
+    /// connects when the peripheral next advertises (strap put back on).
+    private func armPendingConnect(_ p: CBPeripheral) {
+        print("🌙 BLE: armed pending reconnect (no timeout) — waiting for strap-on")
+        peripheral = p
+        p.delegate = self
+        pmdStreamsStarted = false
+        ecgSettings = nil
+        accSettings = nil
+        centralManager.connect(p, options: [
+            CBConnectPeripheralOptionNotifyOnDisconnectionKey: true
+        ])
+    }
 
     private func doConnect(_ p: CBPeripheral) {
         print("🔵 BLE: doConnect — '\(p.name ?? "?")'  p.state=\(p.state.rawValue)")
@@ -521,6 +566,7 @@ extension BLEService: CBCentralManagerDelegate {
         print("✅ BLE: connected to '\(peripheral.name ?? "?")'")
         Task { @MainActor in
             self.connectionTimeoutTask?.cancel()
+            self.inStandby = false      // worn again — leaving off-body standby
             UserDefaults.standard.set(peripheral.identifier.uuidString,
                                        forKey: self.savedDeviceKey)
             self.reconnectDelay = 2.0   // successful connection resets backoff
@@ -553,6 +599,11 @@ extension BLEService: CBCentralManagerDelegate {
             // the caller already handled state/cleanup — just reset the flag and return.
             if self.suppressNextDisconnect {
                 self.suppressNextDisconnect = false
+                // Off-body standby: now that the cancel has completed, arm the
+                // low-power pending reconnect that fulfils on strap-on.
+                if self.inStandby {
+                    self.armPendingConnect(peripheral)
+                }
                 return
             }
             // Unexpected drop — reconnect directly without scanning.
