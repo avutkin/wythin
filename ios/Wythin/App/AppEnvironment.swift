@@ -64,6 +64,8 @@ final class AppEnvironment {
                 // into tickHistory so intraday charts show the full picture.
                 reloadRecentHistory()
                 retryPendingInsights()
+                // Make sure the paired strap is (re)armed for seamless auto-connect.
+                ble.ensureAutoConnect()
             }
         }
     }

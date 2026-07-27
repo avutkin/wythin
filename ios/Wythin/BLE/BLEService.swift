@@ -211,6 +211,39 @@ final class BLEService: NSObject {
         if case .scanning = state { state = .idle }
     }
 
+    /// Seamless auto-connect to the already-paired strap. Arms a persistent,
+    /// no-timeout connect so iOS reconnects the moment the strap is worn again —
+    /// no scan, no tap, no give-up. Safe to call repeatedly (launch, foreground,
+    /// BT power-on, disconnect). No-op if the user explicitly disconnected, we're
+    /// paused/connected/connecting, BT isn't ready, or no strap is saved yet.
+    func ensureAutoConnect() {
+        guard !userDisconnected, !inStandby,
+              centralManager.state == .poweredOn else { return }
+        switch state {
+        case .connected, .connecting, .standby: return
+        default: break
+        }
+        guard let uuidStr = UserDefaults.standard.string(forKey: savedDeviceKey),
+              let uuid = UUID(uuidString: uuidStr) else { return }
+
+        // Adopt an already-OS-connected strap (e.g. after state restoration).
+        if let p = centralManager.retrieveConnectedPeripherals(withServices: [
+            PolarH10Profile.heartRateService, PolarH10Profile.pmdService,
+        ]).first(where: { $0.identifier == uuid }) {
+            print("✅ BLE: auto-connect — adopting OS-connected strap")
+            peripheralMap[p.identifier] = p
+            state = .connecting(name: p.name ?? "Polar H10")
+            doConnect(p)
+            return
+        }
+        // Otherwise arm a no-timeout pending connect that fulfils on advertise.
+        if let p = centralManager.retrievePeripherals(withIdentifiers: [uuid]).first {
+            print("🔵 BLE: auto-connect — armed persistent pending connect")
+            peripheralMap[p.identifier] = p
+            armPendingConnect(p)
+        }
+    }
+
     /// Connect to a device the user tapped in the list.
     func connectToDevice(_ device: BLEDevice) {
         print("🔵 BLE: connectToDevice — '\(device.name)'")
@@ -437,34 +470,17 @@ final class BLEService: NSObject {
     /// iOS will reconnect to the known peripheral as soon as it's available).
     private func handleUnexpectedDisconnect(_ p: CBPeripheral, error: Error?) {
         connectionTimeoutTask?.cancel()
-        clearCharacteristics()          // keep `peripheral` for direct reconnect
-        connectionGapSubject.send()
-
-        let reason = error?.localizedDescription ?? "Disconnected"
-        state = .disconnected(reason: reason)
-
-        let delay = reconnectDelay
-        reconnectDelay = min(reconnectDelay * 2, 30.0)
-        print("🔵 BLE: reconnecting in \(String(format: "%.1f", delay)) s (direct, no scan)")
-
         reconnectTask?.cancel()
-        reconnectTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled, let self else { return }
-            // If the peripheral recovered on its own during the delay, adopt it
-            if p.state == .connected {
-                print("✅ BLE: peripheral recovered on its own — re-attaching")
-                self.peripheral = p
-                self.state = .connected(name: p.name ?? "Polar H10")
-                self.discoverServices()
-                self.startWatchdog()
-            } else {
-                // Direct connect — no scanning; iOS queues the connect at OS level
-                // and completes it when the device becomes available.
-                self.peripheral = p
-                self.doConnect(p)
-            }
-        }
+        clearCharacteristics()          // keep `peripheral` for the pending reconnect
+        connectionGapSubject.send()
+        state = .disconnected(reason: error?.localizedDescription ?? "Disconnected")
+
+        // Persistent, no-timeout pending reconnect — no scan, no give-up. iOS
+        // completes it the instant the strap advertises again (worn / back in
+        // range). This is what makes reconnection seamless: the app is always
+        // ready and never needs a manual scan.
+        guard !userDisconnected else { return }
+        armPendingConnect(p)
     }
 }
 
@@ -481,10 +497,15 @@ extension BLEService: CBCentralManagerDelegate {
         Task { @MainActor in
             switch central.state {
             case .poweredOn:
-                // Auto-scan on BT power-on, UNLESS the user explicitly disconnected.
-                // This prevents surprise reconnects after the user taps Disconnect.
+                // On BT power-on, UNLESS the user explicitly disconnected: silently
+                // auto-connect a previously-paired strap (persistent pending connect,
+                // no scan), or scan only if none has been paired yet.
                 if !self.userDisconnected {
-                    self.startScanning()
+                    if UserDefaults.standard.string(forKey: self.savedDeviceKey) != nil {
+                        self.ensureAutoConnect()
+                    } else {
+                        self.startScanning()
+                    }
                 }
             case .unauthorized:
                 self.state = .unauthorized
@@ -595,11 +616,17 @@ extension BLEService: CBCentralManagerDelegate {
         print("❌ BLE: failed to connect — \(error?.localizedDescription ?? "unknown")")
         Task { @MainActor in
             self.connectionTimeoutTask?.cancel()
-            self.clearConnectionState()
-            self.reconnectDelay = 2.0
+            self.clearCharacteristics()   // keep the peripheral for a re-arm
             self.lastError = "Could not connect: \(error?.localizedDescription ?? "unknown error")"
-            // Fall back to scan so the user can retry by tapping the device
-            self.startScanning()
+            // For a paired strap, re-arm the persistent pending connect instead of
+            // giving up to a scan — stays seamless. Only scan if nothing is saved.
+            if !self.userDisconnected,
+               UserDefaults.standard.string(forKey: self.savedDeviceKey) != nil {
+                self.armPendingConnect(peripheral)
+            } else {
+                self.clearConnectionState()
+                self.startScanning()
+            }
         }
     }
 
