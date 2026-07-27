@@ -10,7 +10,7 @@ struct SettingsView: View {
     @State private var isWorking = false
     @State private var accessError: String?
 
-    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = false
+    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
     @State private var isDeletingCloudData = false
 
     var body: some View {

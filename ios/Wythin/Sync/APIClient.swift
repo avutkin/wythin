@@ -259,7 +259,7 @@ final class MetricSyncService {
     private let client: APIClient
     private let userID: String
     private let container: ModelContainer
-    @AppStorage("cloudSyncEnabled") private var enabled = false
+    @AppStorage("cloudSyncEnabled") private var enabled = true
     @AppStorage("metricsLastSyncedAt") private var lastSyncedISO = ""
     private let iso = ISO8601DateFormatter()
     private let batch = 2000
