@@ -66,6 +66,11 @@ struct ContentView: View {
     @State private var selectedTab: AppTab = .live
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("didBackfillWindowsV2") private var didBackfillWindowsV2 = false
+    // One-time cloud-sync disclosure (sync is on by default; the notice gives an
+    // explicit, informed choice on first launch after onboarding).
+    @AppStorage("didShowCloudSyncNotice") private var didShowCloudSyncNotice = false
+    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
+    @State private var showCloudNotice = false
 
     var body: some View {
         Group {
@@ -110,6 +115,64 @@ struct ContentView: View {
             selectedTab = tab
             env.pendingTabRequest = nil
         }
+        .onAppear {
+            if !didShowCloudSyncNotice { showCloudNotice = true }
+        }
+        .sheet(isPresented: $showCloudNotice) {
+            CloudSyncNoticeView(
+                onKeepOn:  { cloudSyncEnabled = true;  didShowCloudSyncNotice = true; showCloudNotice = false },
+                onTurnOff: { cloudSyncEnabled = false; didShowCloudSyncNotice = true; showCloudNotice = false }
+            )
+            .interactiveDismissDisabled()
+        }
+    }
+}
+
+// MARK: - Cloud Sync Notice (one-time consent)
+
+private struct CloudSyncNoticeView: View {
+    let onKeepOn:  () -> Void
+    let onTurnOff: () -> Void
+
+    var body: some View {
+        VStack(spacing: 22) {
+            Spacer()
+            Image(systemName: "icloud.and.arrow.up")
+                .font(.system(size: 44, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+            Text("Your data syncs to the cloud")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(Theme.text)
+                .multilineTextAlignment(.center)
+            VStack(spacing: 12) {
+                Text("Wythin syncs your metrics — heart rate, Inner Noise, and the rest — to your private account so you can explore them from Claude Code.")
+                Text("Your data is tied to your account and only reachable with your personal token. You can turn this off anytime in Settings — then everything stays on this device.")
+            }
+            .font(.system(size: 14))
+            .foregroundStyle(Theme.dim)
+            .multilineTextAlignment(.center)
+            .lineSpacing(4)
+            .padding(.horizontal, 28)
+            Spacer()
+            VStack(spacing: 10) {
+                Button(action: onKeepOn) {
+                    Text("Keep sync on")
+                        .font(Theme.monoBody).foregroundStyle(Theme.bg)
+                        .frame(maxWidth: .infinity).padding(.vertical, 14)
+                        .background(Theme.accent).clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                Button(action: onTurnOff) {
+                    Text("Keep my data on this device only")
+                        .font(Theme.monoBody).foregroundStyle(Theme.dim)
+                        .frame(maxWidth: .infinity).padding(.vertical, 14)
+                        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.bg)
     }
 }
 
