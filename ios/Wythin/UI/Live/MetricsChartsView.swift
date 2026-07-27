@@ -348,9 +348,11 @@ private struct MetricChartCard: View {
         var counts:  [Int: Int]    = [:]
         var qualSum: [Int: Float]  = [:]
         var qualCnt: [Int: Int]    = [:]
+        var presentKeys = Set<Int>()   // buckets with ANY valid sample (sensor on)
         for pt in history where pt.timestamp >= start && pt.timestamp < end {
-            guard let v = extract(pt) else { continue }
             let key = Int(pt.timestamp.timeIntervalSince1970 / bucket)
+            presentKeys.insert(key)          // record sensor-on regardless of this metric
+            guard let v = extract(pt) else { continue }
             sums[key]   = (sums[key]   ?? 0) + v
             counts[key] = (counts[key] ?? 0) + 1
             if let q = pt.signalQuality {
@@ -358,23 +360,28 @@ private struct MetricChartCard: View {
                 qualCnt[key] = (qualCnt[key] ?? 0) + 1
             }
         }
-        // Assign a segment id per contiguous run. The line only breaks across a
-        // gap when consecutive dots are ≥ `gapBreakSeconds` apart (5 min) — shorter
-        // dropouts stay connected. Longer gaps (e.g. strap off / signal lost) start
-        // a new segment so the line breaks rather than bridging straight across.
+        // Segment breaks are driven by the SHARED sensor-on timeline, not this
+        // metric's own nil pattern — so gaps line up across every chart. The
+        // line breaks only where the sensor delivered no data at all for
+        // ≥ gapBreakSeconds (strap off). A metric that's momentarily
+        // uncomputable while the sensor is on stays connected (bridged), and
+        // brief (< 5 min) sensor dropouts stay connected too.
         var result: [ChartPoint] = []
         var segment = 0
-        var prevDate: Date?
+        var prevKey: Int?
         for key in sums.keys.sorted() {
             guard let n = counts[key], n > 0 else { continue }
-            let mid  = Double(key) * bucket + bucket / 2
-            let date = Date(timeIntervalSince1970: mid)
-            if let pd = prevDate, date.timeIntervalSince(pd) >= gapBreakSeconds { segment += 1 }
+            if let pk = prevKey, Double(key - pk) * bucket >= gapBreakSeconds {
+                let sensorOnBetween = (pk + 1 ..< key).contains { presentKeys.contains($0) }
+                if !sensorOnBetween { segment += 1 }   // sensor truly off across the gap
+            }
+            let mid = Double(key) * bucket + bucket / 2
             var val = sums[key]! / Double(n)
             if let transform = bucketTransform { val = transform(val) }
             let q: Float? = qualCnt[key].map { (qualSum[key] ?? 0) / Float($0) }
-            result.append(ChartPoint(id: key, date: date, val: val, quality: q, segment: segment))
-            prevDate = date
+            result.append(ChartPoint(id: key, date: Date(timeIntervalSince1970: mid),
+                                     val: val, quality: q, segment: segment))
+            prevKey = key
         }
         return result
     }
