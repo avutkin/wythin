@@ -358,26 +358,30 @@ private struct MetricChartCard: View {
                 qualCnt[key] = (qualCnt[key] ?? 0) + 1
             }
         }
-        // Assign a segment id per contiguous run of buckets. A missing bucket
-        // (gap in data — e.g. strap off / signal lost) starts a new segment, so
-        // the line is drawn per-segment and broken across the gap rather than
-        // interpolated straight through it.
+        // Assign a segment id per contiguous run. The line only breaks across a
+        // gap when consecutive dots are ≥ `gapBreakSeconds` apart (5 min) — shorter
+        // dropouts stay connected. Longer gaps (e.g. strap off / signal lost) start
+        // a new segment so the line breaks rather than bridging straight across.
         var result: [ChartPoint] = []
         var segment = 0
-        var prevKey: Int?
+        var prevDate: Date?
         for key in sums.keys.sorted() {
             guard let n = counts[key], n > 0 else { continue }
-            if let pk = prevKey, key > pk + 1 { segment += 1 }   // empty bucket(s) between → gap
-            let mid = Double(key) * bucket + bucket / 2
+            let mid  = Double(key) * bucket + bucket / 2
+            let date = Date(timeIntervalSince1970: mid)
+            if let pd = prevDate, date.timeIntervalSince(pd) >= gapBreakSeconds { segment += 1 }
             var val = sums[key]! / Double(n)
             if let transform = bucketTransform { val = transform(val) }
             let q: Float? = qualCnt[key].map { (qualSum[key] ?? 0) / Float($0) }
-            result.append(ChartPoint(id: key, date: Date(timeIntervalSince1970: mid),
-                                     val: val, quality: q, segment: segment))
-            prevKey = key
+            result.append(ChartPoint(id: key, date: date, val: val, quality: q, segment: segment))
+            prevDate = date
         }
         return result
     }
+
+    /// Minimum gap between two dots before the connecting line breaks. Dots
+    /// closer than this stay joined even if a bucket or two is missing.
+    private var gapBreakSeconds: TimeInterval { 300 }   // 5 minutes
 
     /// The x-domain actually drawn. For the 24h view, clamp to the data envelope
     /// (first→last sample, small padding) so off-body stretches with no data
