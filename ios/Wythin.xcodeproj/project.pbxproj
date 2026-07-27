@@ -72,6 +72,7 @@
 		A153 /* PracticeImpactGauge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F153 /* PracticeImpactGauge.swift */; };
 		A154 /* MetricProgressRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F154 /* MetricProgressRow.swift */; };
 		A155 /* HeartRateCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F155 /* HeartRateCompute.swift */; };
+		A209 /* MotionCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F209 /* MotionCompute.swift */; };
 		A160 /* ClientProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = F160 /* ClientProfile.swift */; };
 		A161 /* OnboardingFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F161 /* OnboardingFlow.swift */; };
 		A162 /* OnboardingScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F162 /* OnboardingScreens.swift */; };
@@ -86,6 +87,7 @@
 		AT08 /* ActivityImpactTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT08 /* ActivityImpactTests.swift */; };
 		AT10 /* ClientProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT10 /* ClientProfileTests.swift */; };
 		AT11 /* PracticeCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT11 /* PracticeCatalogTests.swift */; };
+		AT12 /* MotionComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT12 /* MotionComputeTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -180,6 +182,8 @@
 		FT08 /* ActivityImpactTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityImpactTests.swift; sourceTree = "<group>"; };
 		FT10 /* ClientProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientProfileTests.swift; sourceTree = "<group>"; };
 		FT11 /* PracticeCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeCatalogTests.swift; sourceTree = "<group>"; };
+		FT12 /* MotionComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionComputeTests.swift; sourceTree = "<group>"; };
+		F209 /* MotionCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionCompute.swift; sourceTree = "<group>"; };
 		FTST /* WythinTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WythinTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -304,6 +308,7 @@
 				F152 /* ActivityImpact.swift */,
 				F202 /* AutonomicCompute.swift */,
 				F155 /* HeartRateCompute.swift */,
+				F209 /* MotionCompute.swift */,
 			);
 			path = Metrics;
 			sourceTree = "<group>";
@@ -429,6 +434,7 @@
 				FT08 /* ActivityImpactTests.swift */,
 				FT10 /* ClientProfileTests.swift */,
 				FT11 /* PracticeCatalogTests.swift */,
+				FT12 /* MotionComputeTests.swift */,
 			);
 			path = WythinTests;
 			sourceTree = "<group>";
@@ -588,6 +594,7 @@
 				A152 /* ActivityImpact.swift in Sources */,
 				A202 /* AutonomicCompute.swift in Sources */,
 				A155 /* HeartRateCompute.swift in Sources */,
+				A209 /* MotionCompute.swift in Sources */,
 				A123 /* ResonateView.swift in Sources */,
 				A124 /* PacerCircleView.swift in Sources */,
 				A125 /* HistoryView.swift in Sources */,
@@ -609,6 +616,7 @@
 				AT07 /* ActivityMetricStatsTests.swift in Sources */,
 				AT08 /* ActivityImpactTests.swift in Sources */,
 				AT11 /* PracticeCatalogTests.swift in Sources */,
+				AT12 /* MotionComputeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -45,6 +45,10 @@ struct MetricsTick {
     var rrInvalidRate:   Float? = nil
     var rrCorrectedRate: Float? = nil
 
+    /// SD of ACC vector magnitude (mg) over the window — stillness input for
+    /// the day's rested anchor. Defaulted so existing constructors compile.
+    var motion: Float? = nil
+
     /// ECG waveform quality (flatline/clipping check) — live-only, not persisted.
     let ecgQuality: ECGQualityResult?
 
@@ -148,6 +152,7 @@ enum MetricsEngine {
             signalQuality:  hrv.map { 1 - $0.invalidRate },
             rrInvalidRate:   hrv?.invalidRate,
             rrCorrectedRate: hrv?.correctedRate,
+            motion:          MotionCompute.magnitudeSD(accXYZ: snapshot.accXYZ),
             ecgQuality:     ecgQuality,
             rcmse:          rcmseResult?.meanEntropy,
             pip:            hrfResult?.pip,

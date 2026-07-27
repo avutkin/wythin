@@ -51,6 +51,7 @@ struct MetricsHistoryPoint {
     let pip:           Float?   // HR Fragmentation: % inflection points
     let ials:          Float?   // HR Fragmentation: inverse avg segment length
     let dc:            Float?   // Deceleration Capacity (ms)
+    let motion:        Float?   // SD of ACC vector magnitude (mg) — stillness
 
     init(from tick: MetricsTick) {
         timestamp  = tick.timestamp
@@ -78,6 +79,7 @@ struct MetricsHistoryPoint {
         pip           = tick.pip
         ials          = tick.ials
         dc            = tick.dc
+        motion        = tick.motion
     }
 
     init(from sample: HRVSample) {
@@ -106,6 +108,7 @@ struct MetricsHistoryPoint {
         pip           = sample.pip
         ials          = sample.ials
         dc            = sample.dc
+        motion        = sample.motion
     }
 
     /// Convenience initializer for constructing a snapshot directly by field,
@@ -147,5 +150,48 @@ struct MetricsHistoryPoint {
         self.pip = nil
         self.ials = nil
         self.dc = nil
+        self.motion = nil
+    }
+
+    /// Convenience initializer covering the fields the anchor pipeline reads.
+    init(
+        anchorTestTimestamp: Date,
+        meanBPM: Float? = nil,
+        vti: Float? = nil,
+        dc: Float? = nil,
+        pip: Float? = nil,
+        dfa1: Float? = nil,
+        breathBPM: Float? = nil,
+        motion: Float? = nil,
+        signalQuality: Float? = nil,
+        rrInvalidRate: Float? = nil,
+        ecgQualityTier: Int? = nil
+    ) {
+        self.timestamp = anchorTestTimestamp
+        self.ieRatio = nil
+        self.vti = vti
+        self.rmssd = vti.map { exp($0) }
+        self.rsaMs = nil
+        self.sdnn = nil
+        self.pnn50 = nil
+        self.ulfPower = nil
+        self.vlfPower = nil
+        self.lfPower = nil
+        self.hfPower = nil
+        self.lfHF = nil
+        self.coherence = nil
+        self.cbi = nil
+        self.breathBPM = breathBPM
+        self.meanBPM = meanBPM
+        self.dfa1 = dfa1
+        self.signalQuality = signalQuality
+        self.rrInvalidRate = rrInvalidRate
+        self.rrCorrectedRate = nil
+        self.ecgQualityTier = ecgQualityTier
+        self.rcmse = nil
+        self.pip = pip
+        self.ials = nil
+        self.dc = dc
+        self.motion = motion
     }
 }

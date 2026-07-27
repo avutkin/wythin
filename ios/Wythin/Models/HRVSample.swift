@@ -25,6 +25,7 @@ final class HRVSample {
     var pip:            Float?
     var ials:           Float?
     var dc:             Float?
+    var motion:         Float?   // SD of ACC vector magnitude (mg) — stillness
     var vti:            Float?   // ln(RMSSD)
     var ulfPower:       Float?   // ms²  (ULF < 0.003 Hz)
     var vlfPower:       Float?   // ms²  (VLF 0.003–0.04 Hz)
@@ -53,6 +54,7 @@ final class HRVSample {
         self.pip           = tick.pip
         self.ials          = tick.ials
         self.dc            = tick.dc
+        self.motion        = tick.motion
         self.vti        = tick.vti
         self.ulfPower   = tick.ulfPower
         self.vlfPower   = tick.vlfPower
