@@ -223,9 +223,10 @@ final class AppEnvironment {
     /// Live motion level (mean per-axis stddev of recent ACC). Surfaced in the
     /// BLE sheet for calibration. nil until enough samples.
     var accMotion: Float? = nil
-    /// Below this, the sensor is treated as physically still. Raw ACC units —
-    /// calibrate against the live readout (worn vs. on a table).
-    private let accStillnessThreshold: Float = 6.0
+    /// Below this, the sensor is treated as physically still. Calibrated against
+    /// the live readout: off-body on a table measures ~1.8–1.9, so 3.0 sits above
+    /// that with margin and below normal worn motion.
+    private let accStillnessThreshold: Float = 3.0
 
     /// Mean per-axis standard deviation of the rolling ACC window — the live
     /// motion level. nil until enough samples have accumulated.
