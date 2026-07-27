@@ -73,7 +73,7 @@ async def test_stats_shape():
 
     assert set(data["kpis"]) == {
         "total_users", "active_7d", "active_30d",
-        "total_sessions", "total_minutes", "avg_session_min",
+        "total_sessions", "total_minutes", "avg_session_min", "median_streak",
     }
     assert data["kpis"]["total_users"] >= 1
     assert data["kpis"]["total_sessions"] >= 1
@@ -86,6 +86,12 @@ async def test_stats_shape():
         "id", "device_id", "display_name", "first_seen", "last_seen",
         "session_count", "total_minutes", "avg_coherence", "avg_rsa",
     }
+
+    u = next(x for x in data["users"] if x["session_count"] >= 1)
+    assert "current_streak" in u
+    assert "days_active_7d" in u
+    assert "practiced_today" in u
+    assert isinstance(u["current_streak"], int)
 
 
 @pytest.mark.asyncio

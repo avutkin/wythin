@@ -65,6 +65,32 @@ async def usage_stats(days: int = 90):
         )
         users = await conn.fetch(
             """
+            WITH practice_days AS (
+                SELECT DISTINCT user_id, (ts_day)::date AS d FROM (
+                    SELECT user_id, date_trunc('day', started_at) AS ts_day FROM sessions
+                    UNION ALL
+                    SELECT user_id, date_trunc('day', started_at) AS ts_day FROM activities
+                ) x
+            ),
+            islands AS (
+                SELECT user_id, d,
+                       d - (ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY d))::int AS grp
+                FROM practice_days
+            ),
+            streaks AS (
+                SELECT user_id, COUNT(*) AS len, MAX(d) AS last_day
+                FROM islands GROUP BY user_id, grp
+            ),
+            consistency AS (
+                SELECT
+                    pd.user_id,
+                    COALESCE(MAX(s.len) FILTER (WHERE s.last_day >= CURRENT_DATE - 1), 0) AS current_streak,
+                    COUNT(DISTINCT pd.d) FILTER (WHERE pd.d > CURRENT_DATE - 7)          AS days_active_7d,
+                    BOOL_OR(pd.d = CURRENT_DATE)                                          AS practiced_today
+                FROM practice_days pd
+                LEFT JOIN streaks s ON s.user_id = pd.user_id
+                GROUP BY pd.user_id
+            )
             SELECT
               u.id, u.device_id, u.display_name,
               u.created_at                       AS first_seen,
@@ -72,16 +98,29 @@ async def usage_stats(days: int = 90):
               COUNT(s.id)                        AS session_count,
               COALESCE(SUM(EXTRACT(EPOCH FROM (s.ended_at - s.started_at)) / 60.0), 0) AS total_minutes,
               AVG(s.avg_coherence)               AS avg_coherence,
-              AVG(s.avg_rsa_ms)                  AS avg_rsa
+              AVG(s.avg_rsa_ms)                  AS avg_rsa,
+              COALESCE(c.current_streak, 0)      AS current_streak,
+              COALESCE(c.days_active_7d, 0)      AS days_active_7d,
+              COALESCE(c.practiced_today, FALSE) AS practiced_today
             FROM users u
-            LEFT JOIN sessions s ON s.user_id = u.id
-            GROUP BY u.id
+            LEFT JOIN sessions s    ON s.user_id = u.id
+            LEFT JOIN consistency c ON c.user_id = u.id
+            GROUP BY u.id, c.current_streak, c.days_active_7d, c.practiced_today
             ORDER BY last_seen DESC NULLS LAST
             """
         )
 
     def _f(v):
         return float(v) if v is not None else None
+
+    _streaks = sorted(r["current_streak"] for r in users)
+    if _streaks:
+        _mid = len(_streaks) // 2
+        median_streak = float(
+            _streaks[_mid] if len(_streaks) % 2 else (_streaks[_mid - 1] + _streaks[_mid]) / 2
+        )
+    else:
+        median_streak = 0.0
 
     return {
         "kpis": {
@@ -91,6 +130,7 @@ async def usage_stats(days: int = 90):
             "total_sessions":  kpi["total_sessions"],
             "total_minutes":   round(_f(kpi["total_minutes"]), 1),
             "avg_session_min": round(_f(kpi["avg_session_min"]), 1),
+            "median_streak":   round(median_streak, 1),
         },
         "sessions_per_day": [
             {"day": r["day"].isoformat(), "sessions": r["sessions"]} for r in series
@@ -106,6 +146,9 @@ async def usage_stats(days: int = 90):
                 "total_minutes": round(_f(r["total_minutes"]), 1),
                 "avg_coherence": round(_f(r["avg_coherence"]), 3) if r["avg_coherence"] is not None else None,
                 "avg_rsa":       round(_f(r["avg_rsa"]), 1) if r["avg_rsa"] is not None else None,
+                "current_streak":  r["current_streak"],
+                "days_active_7d":  r["days_active_7d"],
+                "practiced_today": r["practiced_today"],
             }
             for r in users
         ],
