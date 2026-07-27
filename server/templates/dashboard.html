@@ -8,6 +8,7 @@
   :root {
     --bg: #0c0c0c; --card: #171717; --surface: #1f1f1f; --border: #2a2a2a;
     --text: #ffffff; --dim: #8a8a8a; --accent: #00e5a0; --warn: #ff6b6b;
+    --hrv: #818cf8; --rsa: #fb923c; --coh: #39d353; --breathe: #58a6ff;
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
@@ -18,12 +19,9 @@
     }
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font-family: var(--sans); font-size: 14px; line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-  }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 20px 64px; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font-family: var(--sans); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 20px 64px; }
   header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 4px; }
   h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
   h1 .dot { color: var(--accent); }
@@ -37,52 +35,56 @@
   }
   button:hover, select:hover { border-color: var(--accent); }
 
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-          gap: 12px; margin: 22px 0; }
+  .crumb { font-family: var(--mono); font-size: 12px; color: var(--dim); margin: 14px 0 4px; }
+  .crumb a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .crumb a:hover { text-decoration: underline; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 18px 0; }
   .kpi { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
-  .kpi .label { font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em;
-                text-transform: uppercase; color: var(--dim); }
-  .kpi .value { font-size: 27px; font-weight: 650; margin-top: 6px;
-                font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .kpi .label { font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+  .kpi .value { font-size: 26px; font-weight: 650; margin-top: 6px; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
   .kpi .value small { font-size: 13px; color: var(--dim); font-weight: 500; margin-left: 2px; }
 
-  .panel { background: var(--card); border: 1px solid var(--border);
-           border-radius: 16px; padding: 18px; margin-bottom: 20px; }
-  .panel h2 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
-              color: var(--dim); margin: 0 0 14px; font-family: var(--mono); font-weight: 600; }
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 18px; margin-bottom: 20px; }
+  .panel h2 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim);
+              margin: 0 0 14px; font-family: var(--mono); font-weight: 600; }
 
   .chart { width: 100%; height: 220px; display: block; }
   .chart .bar { fill: var(--accent); opacity: .82; }
   .chart .bar:hover { opacity: 1; }
-  .chart .axis { stroke: var(--border); stroke-width: 1; }
-  .chart .tick { fill: var(--dim); font: 10px var(--mono); }
+  .axis { stroke: var(--border); stroke-width: 1; }
+  .tick { fill: var(--dim); font: 10px var(--mono); }
+
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .mini { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+  .mini .cap { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .mini .cap .t { font-family: var(--mono); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); }
+  .mini .cap .v { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 15px; }
+  .mini svg { width: 100%; height: 90px; display: block; }
+  .mini .line { fill: none; stroke-width: 1.6; }
+  .mini .area { opacity: .12; }
 
   .tablewrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  th, td { text-align: right; padding: 9px 12px; white-space: nowrap;
-           border-bottom: 1px solid var(--border); font-size: 13px; }
+  th, td { text-align: right; padding: 9px 12px; white-space: nowrap; border-bottom: 1px solid var(--border); font-size: 13px; }
   th:first-child, td:first-child { text-align: left; }
-  th { font-family: var(--mono); font-size: 10.5px; letter-spacing: .05em;
-       text-transform: uppercase; color: var(--dim); cursor: pointer; user-select: none; }
+  th { font-family: var(--mono); font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); cursor: pointer; user-select: none; }
   th:hover { color: var(--accent); }
   th .arrow { opacity: .5; font-size: 9px; }
   td .device { font-family: var(--mono); font-size: 12px; color: var(--dim); }
   td .name { font-weight: 550; }
-  tr:hover td { background: var(--surface); }
-  .muted { color: var(--dim); }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: var(--surface); }
+  .chev { color: var(--dim); }
 
-  #gate { position: fixed; inset: 0; background: rgba(0,0,0,.72);
-          display: none; align-items: center; justify-content: center; padding: 20px; }
+  #gate { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: none; align-items: center; justify-content: center; padding: 20px; }
   #gate.show { display: flex; }
-  #gate .box { background: var(--card); border: 1px solid var(--border);
-               border-radius: 16px; padding: 26px; width: 100%; max-width: 380px; }
+  #gate .box { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 26px; width: 100%; max-width: 380px; }
   #gate h3 { margin: 0 0 6px; font-size: 16px; }
   #gate p { margin: 0 0 16px; color: var(--dim); font-size: 13px; }
-  #gate input { width: 100%; font-family: var(--mono); font-size: 14px; color: var(--text);
-                background: var(--surface); border: 1px solid var(--border);
-                border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
-  #gate button.primary { width: 100%; background: var(--accent); color: #06231a;
-                         border: none; font-weight: 650; padding: 11px; font-size: 13px; }
+  #gate input { width: 100%; font-family: var(--mono); font-size: 14px; color: var(--text); background: var(--surface);
+                border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+  #gate button.primary { width: 100%; background: var(--accent); color: #06231a; border: none; font-weight: 650; padding: 11px; font-size: 13px; }
   #gate .err { color: var(--warn); font-size: 12px; min-height: 16px; font-family: var(--mono); }
   .empty { text-align: center; color: var(--dim); padding: 40px; font-family: var(--mono); font-size: 13px; }
 </style>
@@ -104,17 +106,38 @@
       </div>
     </header>
 
-    <div class="kpis" id="kpis"></div>
+    <div class="crumb" id="crumb"></div>
 
-    <div class="panel">
-      <h2>Sessions per day</h2>
-      <svg class="chart" id="chart" preserveAspectRatio="none"></svg>
-    </div>
+    <!-- Overview -->
+    <section id="view-overview">
+      <div class="kpis" id="kpis"></div>
+      <div class="panel">
+        <h2>Sessions per day</h2>
+        <svg class="chart" id="chart" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="panel">
+        <h2>Users <span class="sub">— click a row</span></h2>
+        <div class="tablewrap"><table id="table"></table></div>
+      </div>
+    </section>
 
-    <div class="panel">
-      <h2>Users</h2>
-      <div class="tablewrap"><table id="table"></table></div>
-    </div>
+    <!-- User detail -->
+    <section id="view-user" style="display:none">
+      <div class="kpis" id="user-kpis"></div>
+      <div class="panel">
+        <h2>Sessions <span class="sub">— click a row</span></h2>
+        <div class="tablewrap"><table id="user-sessions"></table></div>
+      </div>
+    </section>
+
+    <!-- Session detail -->
+    <section id="view-session" style="display:none">
+      <div class="kpis" id="session-kpis"></div>
+      <div class="panel">
+        <h2>Session signals</h2>
+        <div class="charts" id="session-charts"></div>
+      </div>
+    </section>
   </div>
 
   <div id="gate">
@@ -133,120 +156,211 @@
   const $ = (s) => document.querySelector(s);
   const fmt = (n, d = 0) => (n == null ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }));
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { year: "2-digit", month: "short", day: "numeric" }) : "—";
+  const fmtTime = (iso) => iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
   const ago = (iso) => {
     if (!iso) return "never";
-    const days = (Date.now() - new Date(iso)) / 86400000;
-    if (days < 1) return "today";
-    if (days < 2) return "yesterday";
-    if (days < 30) return Math.floor(days) + "d ago";
-    return fmtDate(iso);
+    const d = (Date.now() - new Date(iso)) / 86400000;
+    if (d < 1) return "today"; if (d < 2) return "yesterday";
+    if (d < 30) return Math.floor(d) + "d ago"; return fmtDate(iso);
   };
 
-  let sortKey = "last_seen", sortDir = -1, lastData = null;
-
+  const state = { view: "overview", userId: null, overview: null, sortKey: "last_seen", sortDir: -1 };
   const getKey = () => localStorage.getItem(KEY_STORE) || "";
   const setKey = (k) => localStorage.setItem(KEY_STORE, k);
 
-  async function load() {
-    const days = $("#range").value;
+  async function api(path) {
     let res;
-    try {
-      res = await fetch(`stats?days=${days}`, { headers: { "X-API-Key": getKey() } });
-    } catch (e) {
-      return showGate("Network error — is the server reachable?");
-    }
-    if (res.status === 401) return showGate(getKey() ? "That key was rejected." : "");
-    if (!res.ok) return showGate("Server error " + res.status);
+    try { res = await fetch(path, { headers: { "X-API-Key": getKey() } }); }
+    catch (e) { showGate("Network error — is the server reachable?"); throw e; }
+    if (res.status === 401) { showGate(getKey() ? "That key was rejected." : ""); throw new Error("401"); }
+    if (!res.ok) { showGate("Server error " + res.status); throw new Error(res.status); }
     hideGate();
-    lastData = await res.json();
-    render(lastData);
-    $("#updated").textContent = "updated " + new Date().toLocaleTimeString();
+    return res.json();
   }
 
-  function render(d) {
+  function show(view) {
+    state.view = view;
+    ["overview", "user", "session"].forEach(v => $("#view-" + v).style.display = v === view ? "" : "none");
+  }
+  const stamp = () => $("#updated").textContent = "updated " + new Date().toLocaleTimeString();
+
+  // ── Overview ──────────────────────────────────────────────────────────
+  async function loadOverview() {
+    const d = await api(`stats?days=${$("#range").value}`);
+    state.overview = d;
+    show("overview");
+    $("#crumb").innerHTML = "";
     const k = d.kpis;
     const cards = [
-      ["Total users", fmt(k.total_users)],
-      ["Active · 7d", fmt(k.active_7d)],
-      ["Active · 30d", fmt(k.active_30d)],
-      ["Total sessions", fmt(k.total_sessions)],
-      ["Practice minutes", fmt(k.total_minutes)],
-      ["Avg session", fmt(k.avg_session_min, 1) + " <small>min</small>"],
+      ["Total users", fmt(k.total_users)], ["Active · 7d", fmt(k.active_7d)],
+      ["Active · 30d", fmt(k.active_30d)], ["Total sessions", fmt(k.total_sessions)],
+      ["Practice minutes", fmt(k.total_minutes)], ["Avg session", fmt(k.avg_session_min, 1) + " <small>min</small>"],
     ];
-    $("#kpis").innerHTML = cards.map(([l, v]) =>
-      `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
-    drawChart(d.sessions_per_day || []);
-    drawTable(d.users || []);
+    $("#kpis").innerHTML = cards.map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+    barChart($("#chart"), (d.sessions_per_day || []).map(s => ({ label: s.day.slice(5), value: s.sessions, title: `${s.day}: ${s.sessions}` })));
+    drawUserTable(d.users || []);
+    stamp();
   }
 
-  function drawChart(series) {
-    const svg = $("#chart");
-    const W = svg.clientWidth || 900, H = 220, pad = { l: 34, r: 8, t: 10, b: 22 };
-    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    if (!series.length) { svg.innerHTML = `<text x="${W/2}" y="${H/2}" text-anchor="middle" class="tick">no sessions in range</text>`; return; }
-    const max = Math.max(1, ...series.map(s => s.sessions));
-    const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
-    const bw = iw / series.length;
-    const y = (v) => pad.t + ih - (v / max) * ih;
-    let el = "";
-    // y gridlines (0, max)
-    [0, max].forEach(v => {
-      const yy = y(v);
-      el += `<line class="axis" x1="${pad.l}" y1="${yy}" x2="${W - pad.r}" y2="${yy}" opacity="0.4"/>`;
-      el += `<text class="tick" x="${pad.l - 6}" y="${yy + 3}" text-anchor="end">${v}</text>`;
-    });
-    series.forEach((s, i) => {
-      const bh = ih - (y(s.sessions) - pad.t);
-      const x = pad.l + i * bw;
-      el += `<rect class="bar" x="${x + bw*0.12}" y="${y(s.sessions)}" width="${Math.max(1, bw*0.76)}" height="${Math.max(0, bh)}" rx="1.5"><title>${s.day}: ${s.sessions}</title></rect>`;
-    });
-    // x labels: first, middle, last
-    [0, Math.floor(series.length/2), series.length-1].forEach(i => {
-      const x = pad.l + i * bw + bw/2;
-      el += `<text class="tick" x="${x}" y="${H - 6}" text-anchor="middle">${series[i].day.slice(5)}</text>`;
-    });
-    svg.innerHTML = el;
-  }
-
-  const COLS = [
+  const UCOLS = [
     { k: "display_name", label: "User", cell: (u) => `<span class="name">${u.display_name || "—"}</span><br><span class="device">${(u.device_id||"").slice(0,12) || u.id.slice(0,8)}</span>` },
     { k: "first_seen", label: "First seen", cell: (u) => fmtDate(u.first_seen) },
     { k: "last_seen", label: "Last seen", cell: (u) => ago(u.last_seen) },
     { k: "session_count", label: "Sessions", cell: (u) => fmt(u.session_count) },
     { k: "total_minutes", label: "Minutes", cell: (u) => fmt(u.total_minutes, 0) },
-    { k: "avg_coherence", label: "Avg coherence", cell: (u) => u.avg_coherence == null ? "—" : fmt(u.avg_coherence, 2) },
+    { k: "avg_coherence", label: "Avg coh", cell: (u) => u.avg_coherence == null ? "—" : fmt(u.avg_coherence, 2) },
     { k: "avg_rsa", label: "Avg RSA", cell: (u) => u.avg_rsa == null ? "—" : fmt(u.avg_rsa, 1) },
+    { k: null, label: "", cell: () => `<span class="chev">›</span>` },
   ];
-
-  function drawTable(users) {
+  function drawUserTable(users) {
     const t = $("#table");
-    if (!users.length) { t.innerHTML = `<tr><td class="empty" colspan="${COLS.length}">no users yet</td></tr>`; return; }
+    if (!users.length) { t.innerHTML = `<tr><td class="empty" colspan="${UCOLS.length}">no users yet</td></tr>`; return; }
     const sorted = [...users].sort((a, b) => {
-      const av = a[sortKey], bv = b[sortKey];
+      const av = a[state.sortKey], bv = b[state.sortKey];
       if (av == null) return 1; if (bv == null) return -1;
-      return (av > bv ? 1 : av < bv ? -1 : 0) * sortDir;
+      return (av > bv ? 1 : av < bv ? -1 : 0) * state.sortDir;
     });
-    const head = "<tr>" + COLS.map(c =>
-      `<th data-k="${c.k}">${c.label}${sortKey === c.k ? ` <span class="arrow">${sortDir < 0 ? "▼" : "▲"}</span>` : ""}</th>`).join("") + "</tr>";
-    const body = sorted.map(u => "<tr>" + COLS.map(c => `<td>${c.cell(u)}</td>`).join("") + "</tr>").join("");
+    const head = "<tr>" + UCOLS.map(c => `<th ${c.k ? `data-k="${c.k}"` : ""}>${c.label}${state.sortKey === c.k ? ` <span class="arrow">${state.sortDir < 0 ? "▼" : "▲"}</span>` : ""}</th>`).join("") + "</tr>";
+    const body = sorted.map(u => `<tr class="clickable" data-id="${u.id}">` + UCOLS.map(c => `<td>${c.cell(u)}</td>`).join("") + "</tr>").join("");
     t.innerHTML = head + body;
-    t.querySelectorAll("th").forEach(th => th.onclick = () => {
+    t.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => {
       const k = th.dataset.k;
-      if (sortKey === k) sortDir *= -1; else { sortKey = k; sortDir = -1; }
-      drawTable(users);
+      if (state.sortKey === k) state.sortDir *= -1; else { state.sortKey = k; state.sortDir = -1; }
+      drawUserTable(users);
     });
+    t.querySelectorAll("tr.clickable").forEach(tr => tr.onclick = () => { location.hash = "/user/" + tr.dataset.id; });
+  }
+
+  // ── User detail ───────────────────────────────────────────────────────
+  async function openUser(id) {
+    state.userId = id;
+    const d = await api(`users/${id}`);
+    show("user");
+    const u = d.user;
+    const who = u.display_name || (u.device_id || id).slice(0, 12);
+    $("#crumb").innerHTML = `<a data-nav="/">Overview</a> › <strong>${who}</strong>`;
+    const cards = [
+      ["Sessions", fmt(u.session_count)], ["Practice minutes", fmt(u.total_minutes)],
+      ["First seen", fmtDate(u.first_seen)], ["Last seen", ago(u.last_seen)],
+      ["Avg coherence", u.avg_coherence == null ? "—" : fmt(u.avg_coherence, 2)],
+      ["Avg RSA", u.avg_rsa == null ? "—" : fmt(u.avg_rsa, 1) + " <small>ms</small>"],
+    ];
+    $("#user-kpis").innerHTML = cards.map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+    const t = $("#user-sessions");
+    if (!d.sessions.length) { t.innerHTML = `<tr><td class="empty" colspan="6">no sessions</td></tr>`; wireCrumb(); return; }
+    const head = "<tr><th>Started</th><th>Duration</th><th>Avg RSA</th><th>Avg coh</th><th>Best resonance</th><th>Samples</th><th></th></tr>";
+    const body = d.sessions.map(s => `<tr class="clickable" data-id="${s.id}">
+        <td>${fmtTime(s.started_at)}</td>
+        <td>${s.duration_min == null ? "—" : fmt(s.duration_min, 1) + " min"}</td>
+        <td>${s.avg_rsa_ms == null ? "—" : fmt(s.avg_rsa_ms, 1)}</td>
+        <td>${s.avg_coherence == null ? "—" : fmt(s.avg_coherence, 2)}</td>
+        <td>${s.best_resonance_bpm == null ? "—" : fmt(s.best_resonance_bpm, 1) + " bpm"}</td>
+        <td>${fmt(s.sample_count)}</td>
+        <td><span class="chev">›</span></td></tr>`).join("");
+    t.innerHTML = head + body;
+    t.querySelectorAll("tr.clickable").forEach(tr => tr.onclick = () => { location.hash = "/session/" + tr.dataset.id; });
+    wireCrumb();
+    stamp();
+  }
+
+  // ── Session detail ────────────────────────────────────────────────────
+  const SIGNALS = [
+    { k: "mean_bpm",   label: "HR",         unit: "bpm", color: "var(--warn)",    d: 0 },
+    { k: "rmssd",      label: "HRV · RMSSD", unit: "ms", color: "var(--hrv)",     d: 0 },
+    { k: "rsa_ms",     label: "RSA",        unit: "ms",  color: "var(--rsa)",     d: 0 },
+    { k: "coherence",  label: "Coherence",  unit: "",    color: "var(--coh)",     d: 2 },
+    { k: "breath_bpm", label: "Breath",     unit: "br/min", color: "var(--breathe)", d: 1 },
+    { k: "sdnn",       label: "SDNN",       unit: "ms",  color: "var(--hrv)",     d: 0 },
+  ];
+  async function openSession(id) {
+    const d = await api(`sessions/${id}/samples`);
+    show("session");
+    const s = d.samples || [];
+    const who = state.userId ? `<a data-nav="/user/${state.userId}">user</a>` : `<a data-nav="/">Overview</a>`;
+    $("#crumb").innerHTML = `<a data-nav="/">Overview</a> › ${who} › <strong>session</strong>`;
+    const t0 = s.length ? new Date(s[0].ts) : null, t1 = s.length ? new Date(s[s.length - 1].ts) : null;
+    const durMin = t0 && t1 ? (t1 - t0) / 60000 : 0;
+    $("#session-kpis").innerHTML = [
+      ["Samples", fmt(s.length)],
+      ["Duration", fmt(durMin, 1) + " <small>min</small>"],
+      ["Start", t0 ? fmtTime(s[0].ts) : "—"],
+    ].map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+    if (!s.length) { $("#session-charts").innerHTML = `<div class="empty">no samples for this session</div>`; wireCrumb(); return; }
+    $("#session-charts").innerHTML = SIGNALS.map(sig => miniChart(sig, s)).join("");
+    wireCrumb();
+    stamp();
+  }
+
+  // ── Charts ────────────────────────────────────────────────────────────
+  function barChart(svg, data) {
+    const W = svg.clientWidth || 900, H = 220, pad = { l: 34, r: 8, t: 10, b: 22 };
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    if (!data.length) { svg.innerHTML = `<text x="${W/2}" y="${H/2}" text-anchor="middle" class="tick">no data in range</text>`; return; }
+    const max = Math.max(1, ...data.map(s => s.value));
+    const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b, bw = iw / data.length;
+    const y = (v) => pad.t + ih - (v / max) * ih;
+    let el = "";
+    [0, max].forEach(v => { const yy = y(v);
+      el += `<line class="axis" x1="${pad.l}" y1="${yy}" x2="${W - pad.r}" y2="${yy}" opacity="0.4"/>`;
+      el += `<text class="tick" x="${pad.l - 6}" y="${yy + 3}" text-anchor="end">${v}</text>`; });
+    data.forEach((s, i) => { const x = pad.l + i * bw;
+      el += `<rect class="bar" x="${x + bw*0.12}" y="${y(s.value)}" width="${Math.max(1, bw*0.76)}" height="${Math.max(0, ih - (y(s.value) - pad.t))}" rx="1.5"><title>${s.title}</title></rect>`; });
+    [0, Math.floor(data.length/2), data.length-1].forEach(i => {
+      el += `<text class="tick" x="${pad.l + i*bw + bw/2}" y="${H - 6}" text-anchor="middle">${data[i].label}</text>`; });
+    svg.innerHTML = el;
+  }
+
+  function miniChart(sig, samples) {
+    const W = 320, H = 90, pad = { l: 4, r: 4, t: 6, b: 6 };
+    const pts = samples.map(s => ({ t: new Date(s.ts).getTime(), v: s[sig.k] })).filter(p => p.v != null && isFinite(p.v));
+    const last = pts.length ? pts[pts.length - 1].v : null;
+    const capV = last == null ? "—" : Number(last).toLocaleString(undefined, { maximumFractionDigits: sig.d, minimumFractionDigits: sig.d });
+    if (pts.length < 2) {
+      return `<div class="mini"><div class="cap"><span class="t">${sig.label}</span><span class="v" style="color:${sig.color}">${capV} ${sig.unit}</span></div>
+              <svg viewBox="0 0 ${W} ${H}"><text x="${W/2}" y="${H/2}" text-anchor="middle" class="tick">no data</text></svg></div>`;
+    }
+    const xs = pts.map(p => p.t), vs = pts.map(p => p.v);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs);
+    let lo = Math.min(...vs), hi = Math.max(...vs);
+    if (lo === hi) { lo -= 1; hi += 1; }
+    const px = (t) => pad.l + (x1 === x0 ? 0 : (t - x0) / (x1 - x0)) * (W - pad.l - pad.r);
+    const py = (v) => pad.t + (1 - (v - lo) / (hi - lo)) * (H - pad.t - pad.b);
+    const line = pts.map((p, i) => `${i ? "L" : "M"}${px(p.t).toFixed(1)},${py(p.v).toFixed(1)}`).join(" ");
+    const area = `M${px(pts[0].t).toFixed(1)},${(H - pad.b).toFixed(1)} ` +
+                 pts.map(p => `L${px(p.t).toFixed(1)},${py(p.v).toFixed(1)}`).join(" ") +
+                 ` L${px(pts[pts.length-1].t).toFixed(1)},${(H - pad.b).toFixed(1)} Z`;
+    return `<div class="mini">
+      <div class="cap"><span class="t">${sig.label}</span><span class="v" style="color:${sig.color}">${capV} ${sig.unit}</span></div>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        <path class="area" d="${area}" fill="${sig.color}" />
+        <path class="line" d="${line}" stroke="${sig.color}" />
+      </svg></div>`;
+  }
+
+  // ── Routing ───────────────────────────────────────────────────────────
+  function wireCrumb() {
+    document.querySelectorAll("#crumb a[data-nav]").forEach(a => a.onclick = () => { location.hash = a.dataset.nav; });
+  }
+  async function route() {
+    const parts = location.hash.replace(/^#/, "").split("/").filter(Boolean);
+    try {
+      if (parts[0] === "user" && parts[1]) await openUser(parts[1]);
+      else if (parts[0] === "session" && parts[1]) await openSession(parts[1]);
+      else await loadOverview();
+    } catch (e) { /* gate shown by api() */ }
   }
 
   function showGate(msg) { $("#gate").classList.add("show"); $("#keyErr").textContent = msg || ""; $("#keyInput").focus(); }
   function hideGate() { $("#gate").classList.remove("show"); }
 
-  $("#keySubmit").onclick = () => { const v = $("#keyInput").value.trim(); if (v) setKey(v); load(); };
+  $("#keySubmit").onclick = () => { const v = $("#keyInput").value.trim(); if (v) setKey(v); route(); };
   $("#keyInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#keySubmit").click(); });
   $("#changeKey").onclick = () => { $("#keyInput").value = getKey(); showGate(""); };
-  $("#refresh").onclick = load;
-  $("#range").onchange = load;
+  $("#refresh").onclick = route;
+  $("#range").onchange = () => { if (state.view === "overview") loadOverview().catch(() => {}); };
+  window.addEventListener("hashchange", route);
 
-  load();
+  route();
 })();
 </script>
 </body>

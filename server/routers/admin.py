@@ -2,8 +2,9 @@
 GET /admin/dashboard       — self-contained HTML user-activity dashboard
 GET /admin/stats           — aggregate usage stats (KPIs, sessions/day, per-user)
 GET /admin/users           — list all users + last-seen
-GET /admin/users/{id}      — per-user summary
+GET /admin/users/{id}      — per-user summary + their session list
 GET /admin/sessions        — all sessions (recent)
+GET /admin/sessions/{id}/samples — per-tick series for charts (JSON)
 GET /admin/sessions/{id}/export  — CSV download
 """
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 import csv
 import io
 from pathlib import Path
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse, HTMLResponse
 from ..db import get_pool
 from ..models import AdminUserRow
@@ -107,6 +108,111 @@ async def usage_stats(days: int = 90):
                 "avg_rsa":       round(_f(r["avg_rsa"]), 1) if r["avg_rsa"] is not None else None,
             }
             for r in users
+        ],
+    }
+
+
+@router.get("/users/{user_id}")
+async def user_detail(user_id: str):
+    """One user's summary KPIs plus their full session list (newest first).
+    Feeds the dashboard's per-user drill-down."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        u = await conn.fetchrow(
+            """
+            SELECT
+              u.id, u.device_id, u.display_name,
+              u.created_at                       AS first_seen,
+              MAX(s.started_at)                  AS last_seen,
+              COUNT(s.id)                        AS session_count,
+              COALESCE(SUM(EXTRACT(EPOCH FROM (s.ended_at - s.started_at)) / 60.0), 0) AS total_minutes,
+              AVG(s.avg_coherence)               AS avg_coherence,
+              AVG(s.avg_rsa_ms)                  AS avg_rsa
+            FROM users u
+            LEFT JOIN sessions s ON s.user_id = u.id
+            WHERE u.id = $1::uuid
+            GROUP BY u.id
+            """,
+            user_id,
+        )
+        if u is None:
+            raise HTTPException(status_code=404, detail="user not found")
+        sessions = await conn.fetch(
+            """
+            SELECT
+              s.id, s.started_at, s.ended_at,
+              s.avg_rsa_ms, s.avg_coherence, s.best_resonance_bpm,
+              (SELECT COUNT(*) FROM hrv_samples h WHERE h.session_id = s.id) AS sample_count
+            FROM sessions s
+            WHERE s.user_id = $1::uuid
+            ORDER BY s.started_at DESC
+            """,
+            user_id,
+        )
+
+    def _f(v):
+        return float(v) if v is not None else None
+
+    def _dur(a, b):
+        return round((b - a).total_seconds() / 60.0, 1) if a and b else None
+
+    return {
+        "user": {
+            "id":            str(u["id"]),
+            "device_id":     u["device_id"],
+            "display_name":  u["display_name"],
+            "first_seen":    u["first_seen"].isoformat() if u["first_seen"] else None,
+            "last_seen":     u["last_seen"].isoformat() if u["last_seen"] else None,
+            "session_count": u["session_count"],
+            "total_minutes": round(_f(u["total_minutes"]), 1),
+            "avg_coherence": round(_f(u["avg_coherence"]), 3) if u["avg_coherence"] is not None else None,
+            "avg_rsa":       round(_f(u["avg_rsa"]), 1) if u["avg_rsa"] is not None else None,
+        },
+        "sessions": [
+            {
+                "id":                 str(r["id"]),
+                "started_at":         r["started_at"].isoformat() if r["started_at"] else None,
+                "ended_at":           r["ended_at"].isoformat() if r["ended_at"] else None,
+                "duration_min":       _dur(r["started_at"], r["ended_at"]),
+                "avg_rsa_ms":         _f(r["avg_rsa_ms"]),
+                "avg_coherence":      _f(r["avg_coherence"]),
+                "best_resonance_bpm": _f(r["best_resonance_bpm"]),
+                "sample_count":       r["sample_count"],
+            }
+            for r in sessions
+        ],
+    }
+
+
+@router.get("/sessions/{session_id}/samples")
+async def session_samples(session_id: str):
+    """Per-tick metric series for one session — the same signals the app charts
+    (HR, HRV/RMSSD, RSA, coherence, breath)."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT ts, mean_bpm, rmssd, sdnn, rsa_ms, coherence, breath_bpm, lf_hf
+            FROM hrv_samples
+            WHERE session_id = $1::uuid
+            ORDER BY ts
+            """,
+            session_id,
+        )
+    return {
+        "session_id": session_id,
+        "samples": [
+            {
+                "ts":         r["ts"].isoformat(),
+                "mean_bpm":   r["mean_bpm"],
+                "rmssd":      r["rmssd"],
+                "sdnn":       r["sdnn"],
+                "rsa_ms":     r["rsa_ms"],
+                "coherence":  r["coherence"],
+                "breath_bpm": r["breath_bpm"],
+                "lf_hf":      r["lf_hf"],
+            }
+            for r in rows
         ],
     }
 
