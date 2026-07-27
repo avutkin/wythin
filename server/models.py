@@ -33,6 +33,32 @@ class SessionSchema(BaseModel):
     samples:           list[SampleSchema] = []
 
 
+class ActivitySchema(BaseModel):
+    """One logged activity uploaded from the iOS ActivityLog. Metric fields are
+    the stored before/during/after window averages (same grid the app shows)."""
+    id:               str   = Field(default_factory=lambda: str(uuid.uuid4()))
+    activity_type:    str
+    activity_subtype: Optional[str] = None
+    custom_name:      Optional[str] = None
+    started_at:       str
+    ended_at:         Optional[str] = None
+    is_manual:        bool = False
+    impact_score:     Optional[int] = None
+    notes:            Optional[str] = None
+
+    before_hr:     Optional[float] = None; during_hr:     Optional[float] = None; after_hr:     Optional[float] = None
+    before_rmssd:  Optional[float] = None; during_rmssd:  Optional[float] = None; after_rmssd:  Optional[float] = None
+    before_sdnn:   Optional[float] = None; during_sdnn:   Optional[float] = None; after_sdnn:   Optional[float] = None
+    before_rsa:    Optional[float] = None; during_rsa:    Optional[float] = None; after_rsa:    Optional[float] = None
+    before_vti:    Optional[float] = None; during_vti:    Optional[float] = None; after_vti:    Optional[float] = None
+    before_lfhf:   Optional[float] = None; during_lfhf:   Optional[float] = None; after_lfhf:   Optional[float] = None
+    before_stress: Optional[float] = None; during_stress: Optional[float] = None; after_stress: Optional[float] = None
+    before_rcmse:  Optional[float] = None; during_rcmse:  Optional[float] = None; after_rcmse:  Optional[float] = None
+    before_pip:    Optional[float] = None; during_pip:    Optional[float] = None; after_pip:    Optional[float] = None
+    before_dc:     Optional[float] = None; during_dc:     Optional[float] = None; after_dc:     Optional[float] = None
+    before_dfa1:   Optional[float] = None; during_dfa1:   Optional[float] = None; after_dfa1:   Optional[float] = None
+
+
 class UploadResponse(BaseModel):
     id: str
 

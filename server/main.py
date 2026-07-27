@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from .db import init_pool, close_pool, create_schema
 from .auth import key_ok
 from .mcp_server import mcp
-from .routers import sessions, stream, admin, insights, tokens, me
+from .routers import sessions, stream, admin, insights, tokens, me, activities
 
 
 @asynccontextmanager
@@ -72,6 +72,7 @@ app.include_router(admin.router)
 app.include_router(insights.router)
 app.include_router(tokens.router)
 app.include_router(me.router)
+app.include_router(activities.router)
 
 app.mount("/mcp", mcp.streamable_http_app())
 

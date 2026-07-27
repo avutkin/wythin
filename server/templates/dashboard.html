@@ -128,6 +128,10 @@
         <h2>Sessions <span class="sub">— click a row</span></h2>
         <div class="tablewrap"><table id="user-sessions"></table></div>
       </div>
+      <div class="panel">
+        <h2>Activities</h2>
+        <div class="tablewrap"><table id="user-activities"></table></div>
+      </div>
     </section>
 
     <!-- Session detail -->
@@ -247,20 +251,50 @@
     ];
     $("#user-kpis").innerHTML = cards.map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
     const t = $("#user-sessions");
-    if (!d.sessions.length) { t.innerHTML = `<tr><td class="empty" colspan="6">no sessions</td></tr>`; wireCrumb(); return; }
-    const head = "<tr><th>Started</th><th>Duration</th><th>Avg RSA</th><th>Avg coh</th><th>Best resonance</th><th>Samples</th><th></th></tr>";
-    const body = d.sessions.map(s => `<tr class="clickable" data-id="${s.id}">
-        <td>${fmtTime(s.started_at)}</td>
-        <td>${s.duration_min == null ? "—" : fmt(s.duration_min, 1) + " min"}</td>
-        <td>${s.avg_rsa_ms == null ? "—" : fmt(s.avg_rsa_ms, 1)}</td>
-        <td>${s.avg_coherence == null ? "—" : fmt(s.avg_coherence, 2)}</td>
-        <td>${s.best_resonance_bpm == null ? "—" : fmt(s.best_resonance_bpm, 1) + " bpm"}</td>
-        <td>${fmt(s.sample_count)}</td>
-        <td><span class="chev">›</span></td></tr>`).join("");
-    t.innerHTML = head + body;
-    t.querySelectorAll("tr.clickable").forEach(tr => tr.onclick = () => { location.hash = "/session/" + tr.dataset.id; });
+    if (!d.sessions.length) {
+      t.innerHTML = `<tr><td class="empty" colspan="7">no sessions</td></tr>`;
+    } else {
+      const head = "<tr><th>Started</th><th>Duration</th><th>Avg RSA</th><th>Avg coh</th><th>Best resonance</th><th>Samples</th><th></th></tr>";
+      const body = d.sessions.map(s => `<tr class="clickable" data-id="${s.id}">
+          <td>${fmtTime(s.started_at)}</td>
+          <td>${s.duration_min == null ? "—" : fmt(s.duration_min, 1) + " min"}</td>
+          <td>${s.avg_rsa_ms == null ? "—" : fmt(s.avg_rsa_ms, 1)}</td>
+          <td>${s.avg_coherence == null ? "—" : fmt(s.avg_coherence, 2)}</td>
+          <td>${s.best_resonance_bpm == null ? "—" : fmt(s.best_resonance_bpm, 1) + " bpm"}</td>
+          <td>${fmt(s.sample_count)}</td>
+          <td><span class="chev">›</span></td></tr>`).join("");
+      t.innerHTML = head + body;
+      t.querySelectorAll("tr.clickable").forEach(tr => tr.onclick = () => { location.hash = "/session/" + tr.dataset.id; });
+    }
+    drawActivities(d.activities || []);
     wireCrumb();
     stamp();
+  }
+
+  function actDelta(a, during, before, dp) {
+    const dv = a[during], bv = a[before];
+    if (dv == null || bv == null) return `<span class="muted">—</span>`;
+    const diff = dv - bv;
+    return (diff >= 0 ? "+" : "−") + fmt(Math.abs(diff), dp);
+  }
+  function drawActivities(list) {
+    const t = $("#user-activities");
+    if (!list.length) { t.innerHTML = `<tr><td class="empty" colspan="7">no activities logged</td></tr>`; return; }
+    const head = "<tr><th>When</th><th>Activity</th><th>Duration</th><th>Impact</th><th>HRV Δ</th><th>RSA Δ</th><th>HR Δ</th></tr>";
+    const body = list.map(a => {
+      const name = a.activity_subtype || (a.activity_type === "Custom" ? (a.custom_name || "Custom") : a.activity_type);
+      const dur = (a.started_at && a.ended_at) ? (new Date(a.ended_at) - new Date(a.started_at)) / 60000 : null;
+      return `<tr>
+        <td>${fmtTime(a.started_at)}</td>
+        <td><span class="name">${name}</span><br><span class="device">${a.activity_type}${a.is_manual ? " · manual" : ""}</span></td>
+        <td>${dur == null ? "—" : fmt(dur, 0) + " min"}</td>
+        <td>${a.impact_score == null ? "—" : a.impact_score + "%"}</td>
+        <td>${actDelta(a, "during_rmssd", "before_rmssd", 0)}</td>
+        <td>${actDelta(a, "during_rsa", "before_rsa", 0)}</td>
+        <td>${actDelta(a, "during_hr", "before_hr", 0)}</td>
+      </tr>`;
+    }).join("");
+    t.innerHTML = head + body;
   }
 
   // ── Session detail ────────────────────────────────────────────────────

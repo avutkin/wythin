@@ -72,8 +72,36 @@ CREATE TABLE IF NOT EXISTS hrv_samples (
     breath_bpm  REAL
 );
 
+CREATE TABLE IF NOT EXISTS activities (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id            UUID REFERENCES users(id) ON DELETE CASCADE,
+    client_activity_id TEXT UNIQUE,           -- UUID from iOS ActivityLog
+    activity_type      TEXT NOT NULL,
+    activity_subtype   TEXT,
+    custom_name        TEXT,
+    started_at         TIMESTAMPTZ NOT NULL,
+    ended_at           TIMESTAMPTZ,
+    is_manual          BOOLEAN DEFAULT FALSE,
+    impact_score       INT,
+    notes              TEXT,
+    -- before / during / after grid, mirroring ActivityLog's stored averages
+    before_hr     REAL, during_hr     REAL, after_hr     REAL,
+    before_rmssd  REAL, during_rmssd  REAL, after_rmssd  REAL,
+    before_sdnn   REAL, during_sdnn   REAL, after_sdnn   REAL,
+    before_rsa    REAL, during_rsa    REAL, after_rsa    REAL,
+    before_vti    REAL, during_vti    REAL, after_vti    REAL,
+    before_lfhf   REAL, during_lfhf   REAL, after_lfhf   REAL,
+    before_stress REAL, during_stress REAL, after_stress REAL,
+    before_rcmse  REAL, during_rcmse  REAL, after_rcmse  REAL,
+    before_pip    REAL, during_pip    REAL, after_pip    REAL,
+    before_dc     REAL, during_dc     REAL, after_dc     REAL,
+    before_dfa1   REAL, during_dfa1   REAL, after_dfa1   REAL,
+    created_at         TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS hrv_samples_session_ts ON hrv_samples(session_id, ts);
 CREATE INDEX IF NOT EXISTS sessions_user_started   ON sessions(user_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS activities_user_started ON activities(user_id, started_at DESC);
 
 CREATE TABLE IF NOT EXISTS api_tokens (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),

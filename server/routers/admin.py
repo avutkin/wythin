@@ -112,6 +112,18 @@ async def usage_stats(days: int = 90):
     }
 
 
+def _activity_row(r) -> dict:
+    """asyncpg activities Record → JSON-safe dict (all columns, incl. the full
+    before/during/after metric grid)."""
+    d = dict(r)
+    d["id"] = str(d["id"])
+    d.pop("user_id", None)
+    for k in ("started_at", "ended_at", "created_at"):
+        if d.get(k) is not None:
+            d[k] = d[k].isoformat()
+    return d
+
+
 @router.get("/users/{user_id}")
 async def user_detail(user_id: str):
     """One user's summary KPIs plus their full session list (newest first).
@@ -149,6 +161,14 @@ async def user_detail(user_id: str):
             """,
             user_id,
         )
+        activities = await conn.fetch(
+            """
+            SELECT * FROM activities
+            WHERE user_id = $1::uuid
+            ORDER BY started_at DESC
+            """,
+            user_id,
+        )
 
     def _f(v):
         return float(v) if v is not None else None
@@ -181,6 +201,7 @@ async def user_detail(user_id: str):
             }
             for r in sessions
         ],
+        "activities": [_activity_row(r) for r in activities],
     }
 
 
