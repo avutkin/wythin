@@ -592,15 +592,6 @@ private struct MetricChartCard: View {
                     .interpolationMethod(.monotone)
                     .lineStyle(StrokeStyle(lineWidth: 1.5))
                 }
-
-                ForEach(pts) { pt in
-                    PointMark(
-                        x: .value("time", pt.date),
-                        y: .value(yLabel, pt.val)
-                    )
-                    .foregroundStyle(markColor(pt))
-                    .symbolSize(18)
-                }
             }
             .chartXScale(domain: start...end)
             .chartYScale(domain: domain)
