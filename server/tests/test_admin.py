@@ -10,16 +10,22 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 import pytest
-from asgi_lifespan import LifespanManager
 from httpx import AsyncClient, ASGITransport
 from server.main import app
 
 
 @asynccontextmanager
 async def _client():
-    async with LifespanManager(app) as manager:
-        async with AsyncClient(transport=ASGITransport(app=manager.app), base_url="http://test") as client:
+    # Init the DB pool directly rather than driving the app lifespan, which runs
+    # the single-shot MCP session manager and cannot be re-entered per test.
+    from server.db import init_pool, close_pool, create_schema
+    await init_pool()
+    await create_schema()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             yield client
+    finally:
+        await close_pool()
 
 
 @pytest.mark.asyncio
