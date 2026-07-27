@@ -82,5 +82,42 @@ async def test_tool_helpers_scope_to_user():
 async def test_mcp_tools_registered_and_mounted():
     from server.mcp_server import mcp
     tools = {t.name for t in await mcp.list_tools()}
-    assert {"whoami", "list_sessions", "get_session", "get_session_samples"} <= tools
+    assert {"whoami", "list_sessions", "get_session", "get_session_samples",
+            "get_day_summary", "get_metric_trend", "get_metric_stats"} <= tools
     assert any(getattr(r, "path", "") == "/mcp" for r in app.routes)
+
+
+@pytest.mark.asyncio
+async def test_metric_tools_scope_and_aggregate():
+    from server.db import get_or_create_user, get_pool
+    from server.mcp_server import _day_summary, _metric_trend, _metric_stats, _parse_dt
+    import server.db as _  # ensure module import
+    from server.db import init_pool, close_pool, create_schema
+    await init_pool(); await create_schema()
+    try:
+        a = await get_or_create_user("mt-A"); b = await get_or_create_user("mt-B")
+        async with get_pool().acquire() as conn:
+            for i, pip in enumerate([40, 30, 20]):
+                await conn.execute(
+                    "INSERT INTO metric_samples (user_id, ts, pip, mean_bpm) VALUES ($1,$2,$3,$4) "
+                    "ON CONFLICT DO NOTHING",
+                    a, _parse_dt(f"2026-07-27T10:0{i}:00Z"), float(pip), 60.0)
+        summ = await _day_summary(a, "2026-07-27")
+        assert summ["pip"]["min"] == 20 and summ["pip"]["max"] == 40 and summ["pip"]["n"] == 3
+        # user B sees nothing
+        summ_b = await _day_summary(b, "2026-07-27")
+        assert summ_b == {} or summ_b.get("pip", {}).get("n", 0) == 0
+        stats = await _metric_stats(a, "inner_noise", "2026-07-27T00:00:00Z", "2026-07-28T00:00:00Z")
+        assert stats["n"] == 3 and stats["min"] == 20
+        trend = await _metric_trend(a, "pip", "2026-07-27T10:00:00Z", "2026-07-27T10:03:00Z", buckets=3)
+        assert len(trend) >= 1
+    finally:
+        await close_pool()
+
+
+def test_resolve_metric_alias_and_reject():
+    from server.mcp_server import _resolve_metric
+    assert _resolve_metric("inner_noise") == "pip"
+    assert _resolve_metric("pip") == "pip"
+    with pytest.raises(ValueError):
+        _resolve_metric("; DROP TABLE")

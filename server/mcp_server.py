@@ -7,7 +7,7 @@ scopes all queries to it — no tool accepts a user_id argument.
 from __future__ import annotations
 
 import uuid as _uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -152,3 +152,85 @@ async def get_session(ctx: Context, session_id: str) -> dict:
 async def get_session_samples(ctx: Context, session_id: str, limit: int = 2000) -> list[dict]:
     """Get the per-sample HRV rows (chronological) within one of your sessions."""
     return await _get_session_samples(await _auth(ctx), session_id, limit)
+
+
+# ---- metric_samples aggregate tools ----
+
+_METRIC_COLS = {"mean_bpm", "rmssd", "sdnn", "pnn50", "lf_hf", "rsa_ms", "coherence",
+                "cbi", "breath_bpm", "dfa1", "rcmse", "pip", "dc", "vti"}
+_METRIC_ALIASES = {
+    "hr": "mean_bpm", "heart_rate": "mean_bpm", "pulse": "mean_bpm",
+    "inner_noise": "pip", "harmony": "dfa1", "vagal_tone": "dc",
+    "calm_power": "vti", "hrv": "rmssd", "stress_balance": "lf_hf",
+}
+
+
+def _resolve_metric(name: str) -> str:
+    key = (name or "").strip().lower()
+    col = _METRIC_ALIASES.get(key, key)
+    if col not in _METRIC_COLS:
+        raise ValueError(f"unknown metric '{name}'; valid: {sorted(_METRIC_COLS | set(_METRIC_ALIASES))}")
+    return col
+
+
+def _day_bounds(date: str):
+    start = datetime.fromisoformat(date).replace(tzinfo=timezone.utc)
+    return start, start + timedelta(days=1)
+
+
+async def _day_summary(user_id: str, date: str) -> dict:
+    start, end = _day_bounds(date)
+    aggs = ", ".join(f"avg({c}) a_{c}, min({c}) mn_{c}, max({c}) mx_{c}, count({c}) n_{c}" for c in sorted(_METRIC_COLS))
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            f"SELECT {aggs} FROM metric_samples WHERE user_id=$1 AND ts>=$2 AND ts<$3",
+            user_id, start, end)
+    out = {}
+    for c in sorted(_METRIC_COLS):
+        n = row[f"n_{c}"] or 0
+        if n:
+            out[c] = {"avg": round(row[f"a_{c}"], 3), "min": row[f"mn_{c}"], "max": row[f"mx_{c}"], "n": n}
+    return out
+
+
+async def _metric_stats(user_id: str, metric: str, since: str, until: str) -> dict:
+    col = _resolve_metric(metric)
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            f"SELECT avg({col}) a, min({col}) mn, max({col}) mx, count({col}) n "
+            f"FROM metric_samples WHERE user_id=$1 AND ts>=$2 AND ts<$3",
+            user_id, _parse_dt(since), _parse_dt(until))
+    return {"metric": col, "avg": round(row["a"], 3) if row["a"] is not None else None,
+            "min": row["mn"], "max": row["mx"], "n": row["n"] or 0}
+
+
+async def _metric_trend(user_id: str, metric: str, since: str, until: str, buckets: int = 60) -> list[dict]:
+    col = _resolve_metric(metric)
+    s, e = _parse_dt(since), _parse_dt(until)
+    buckets = max(1, min(int(buckets), 500))
+    span = max((e - s).total_seconds(), 1.0)
+    width = span / buckets
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch(
+            f"SELECT floor(extract(epoch from ts - $2) / $4)::int AS b, avg({col}) v "
+            f"FROM metric_samples WHERE user_id=$1 AND ts>=$2 AND ts<$3 AND {col} IS NOT NULL "
+            f"GROUP BY b ORDER BY b", user_id, s, e, width)
+    return [{"t": (s + timedelta(seconds=r["b"] * width)).isoformat(), "value": round(r["v"], 3)} for r in rows]
+
+
+@mcp.tool()
+async def get_day_summary(ctx: Context, date: str) -> dict:
+    """Per-metric avg/min/max/count for one UTC day (YYYY-MM-DD) of your data. Best for 'how was my X today'."""
+    return await _day_summary(await _auth(ctx), date)
+
+
+@mcp.tool()
+async def get_metric_trend(ctx: Context, metric: str, since: str, until: str, buckets: int = 60) -> list[dict]:
+    """Downsampled time series of one metric over [since, until) (ISO datetimes), ~`buckets` points. Metric accepts names/aliases like 'inner_noise', 'hr'."""
+    return await _metric_trend(await _auth(ctx), metric, since, until, buckets)
+
+
+@mcp.tool()
+async def get_metric_stats(ctx: Context, metric: str, since: str, until: str) -> dict:
+    """avg/min/max/count of one metric over [since, until). Good for comparisons across ranges."""
+    return await _metric_stats(await _auth(ctx), metric, since, until)
