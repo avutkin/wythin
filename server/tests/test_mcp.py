@@ -3,16 +3,20 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 import pytest
-from asgi_lifespan import LifespanManager
 from httpx import AsyncClient, ASGITransport
 from server.main import app
 
 
 @asynccontextmanager
 async def _client():
-    async with LifespanManager(app) as manager:
-        async with AsyncClient(transport=ASGITransport(app=manager.app), base_url="http://test") as c:
+    from server.db import init_pool, close_pool, create_schema
+    await init_pool()
+    await create_schema()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             yield c
+    finally:
+        await close_pool()
 
 
 @pytest.mark.asyncio
@@ -42,7 +46,10 @@ async def test_tool_helpers_scope_to_user():
     from server.mcp_server import (
         _list_sessions, _get_session, _get_session_samples, _whoami,
     )
-    async with LifespanManager(app):
+    from server.db import init_pool, close_pool, create_schema
+    await init_pool()
+    await create_schema()
+    try:
         uid_a = await get_or_create_user("mcp-scope-A")
         uid_b = await get_or_create_user("mcp-scope-B")
         async with get_pool().acquire() as conn:
@@ -67,6 +74,8 @@ async def test_tool_helpers_scope_to_user():
         assert (await _get_session(uid_a, str(sid)))["id"] == str(sid)
         assert len(await _get_session_samples(uid_a, str(sid))) == 1
         assert (await _whoami(uid_a))["id"] == uid_a
+    finally:
+        await close_pool()
 
 
 @pytest.mark.asyncio

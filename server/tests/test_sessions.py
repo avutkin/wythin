@@ -8,7 +8,6 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 import pytest
-from asgi_lifespan import LifespanManager
 from httpx import AsyncClient, ASGITransport
 from server.main import app
 
@@ -17,12 +16,19 @@ from server.main import app
 async def _client():
     """
     httpx's ASGITransport does not drive the ASGI lifespan protocol on its
-    own, so FastAPI's `lifespan` (which calls init_pool()) never runs unless
-    something else triggers it — LifespanManager does that explicitly.
+    own, so FastAPI's `lifespan` never runs unless something else triggers
+    it. Rather than running the full app lifespan (which also starts the
+    single-shot MCP session manager — see server/main.py), these tests only
+    need the database, so they initialize the pool directly.
     """
-    async with LifespanManager(app) as manager:
-        async with AsyncClient(transport=ASGITransport(app=manager.app), base_url="http://test") as client:
+    from server.db import init_pool, close_pool, create_schema
+    await init_pool()
+    await create_schema()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             yield client
+    finally:
+        await close_pool()
 
 
 @pytest.mark.asyncio

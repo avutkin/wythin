@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import pytest
-from asgi_lifespan import LifespanManager
 from httpx import AsyncClient, ASGITransport
 from server.main import app
 
@@ -22,9 +21,14 @@ def test_generate_token_shape_and_hash():
 
 @asynccontextmanager
 async def _client():
-    async with LifespanManager(app) as manager:
-        async with AsyncClient(transport=ASGITransport(app=manager.app), base_url="http://test") as c:
+    from server.db import init_pool, close_pool, create_schema
+    await init_pool()
+    await create_schema()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             yield c
+    finally:
+        await close_pool()
 
 
 @pytest.mark.asyncio
