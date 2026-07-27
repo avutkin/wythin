@@ -113,6 +113,8 @@ final class AppEnvironment {
             let context = modelContainer.mainContext
             let uploader = SessionUploader(client: sync.client, userID: userID)
             await uploader.flushPending(context: context)
+            let activityUploader = ActivityUploader(client: sync.client, userID: userID)
+            await activityUploader.flushPending(context: context)
         }
     }
 

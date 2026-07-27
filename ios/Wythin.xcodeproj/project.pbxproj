@@ -20,6 +20,7 @@
 		A111 /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F111 /* SyncService.swift */; };
 		A112 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F112 /* APIClient.swift */; };
 		A113 /* SessionUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F113 /* SessionUploader.swift */; };
+		A208 /* ActivityUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F208 /* ActivityUploader.swift */; };
 		A114 /* HRVSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F114 /* HRVSession.swift */; };
 		A115 /* HRVSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = F115 /* HRVSample.swift */; };
 		A116 /* ResonanceResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = F116 /* ResonanceResult.swift */; };
@@ -111,6 +112,7 @@
 		F111 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 		F112 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		F113 /* SessionUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionUploader.swift; sourceTree = "<group>"; };
+		F208 /* ActivityUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityUploader.swift; sourceTree = "<group>"; };
 		F114 /* HRVSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HRVSession.swift; sourceTree = "<group>"; };
 		F115 /* HRVSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HRVSample.swift; sourceTree = "<group>"; };
 		F116 /* ResonanceResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResonanceResult.swift; sourceTree = "<group>"; };
@@ -356,6 +358,7 @@
 				F111 /* SyncService.swift */,
 				F112 /* APIClient.swift */,
 				F113 /* SessionUploader.swift */,
+				F208 /* ActivityUploader.swift */,
 				F145 /* InsightGenerator.swift */,
 			);
 			path = Sync;
@@ -534,6 +537,7 @@
 				A111 /* SyncService.swift in Sources */,
 				A112 /* APIClient.swift in Sources */,
 				A113 /* SessionUploader.swift in Sources */,
+				A208 /* ActivityUploader.swift in Sources */,
 				A145 /* InsightGenerator.swift in Sources */,
 				A114 /* HRVSession.swift in Sources */,
 				A115 /* HRVSample.swift in Sources */,

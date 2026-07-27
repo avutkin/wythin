@@ -117,6 +117,16 @@ struct APIClient {
         return try JSONDecoder().decode(UploadResponse.self, from: data)
     }
 
+    // MARK: Activities
+
+    func uploadActivity(_ payload: ActivityUploadPayload, userID: String) async throws -> UploadResponse {
+        var req = request(path: "/activities", method: "POST")
+        req.addValue(userID, forHTTPHeaderField: "X-User-ID")
+        req.httpBody = try JSONEncoder().encode(payload)
+        let (data, _) = try await session.data(for: req)
+        return try JSONDecoder().decode(UploadResponse.self, from: data)
+    }
+
     func fetchSessions(userID: String) async throws -> [ServerSession] {
         var req = request(path: "/sessions", method: "GET")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
