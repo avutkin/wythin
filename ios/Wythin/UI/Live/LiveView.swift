@@ -86,7 +86,7 @@ struct LiveView: View {
                 }
             }
             .sheet(isPresented: $showBLESheet) {
-                BLEConnectionSheet(ble: env.ble, quality: currentQuality)
+                BLEConnectionSheet(ble: env.ble, quality: currentQuality, motion: env.accMotion)
             }
         }
     }
@@ -371,11 +371,13 @@ private struct DateNavigator: View {
 struct BLEConnectionSheet: View {
     let ble:     BLEService
     let quality: CombinedSignalQuality?
+    let motion:  Float?
     @Environment(\.dismiss) private var dismiss
 
-    init(ble: BLEService, quality: CombinedSignalQuality? = nil) {
+    init(ble: BLEService, quality: CombinedSignalQuality? = nil, motion: Float? = nil) {
         self.ble     = ble
         self.quality = quality
+        self.motion  = motion
     }
 
     var body: some View {
@@ -476,6 +478,15 @@ struct BLEConnectionSheet: View {
                      : (ble.sensorContact == true ? "on skin" : "off-body"))
                     .font(Theme.monoBody)
                     .foregroundStyle(ble.sensorContact == false ? Theme.warn : Theme.text)
+            }
+            HStack {
+                Text("Motion")
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+                Spacer()
+                Text(motion.map { String(format: "%.1f", $0) } ?? "—")
+                    .font(Theme.monoBody)
+                    .foregroundStyle(Theme.text)
             }
             if q.tier != .good {
                 Divider().background(Theme.border)

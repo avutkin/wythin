@@ -212,7 +212,32 @@ final class AppEnvironment {
     // After `offBodyStandbySeconds` of continuous off-body ticks we drop the
     // strap into low-power standby (auto-reconnects when worn again).
     private var offBodySince: Date?
-    private let offBodyStandbySeconds: TimeInterval = 180   // 3 minutes
+    private let offBodyStandbySeconds: TimeInterval = 60    // trip within ~1 minute of removal
+
+    // Accelerometer motion: worn straps always jitter a little (breathing,
+    // ballistocardiogram, posture); a strap set down is dead-still. Rolling
+    // window of recent per-axis samples → mean per-axis stddev = motion level.
+    private var accWindow: [SIMD3<Float>] = []
+    private let accWindowMax = 200
+    /// Live motion level (mean per-axis stddev of recent ACC). Surfaced in the
+    /// BLE sheet for calibration. nil until enough samples.
+    var accMotion: Float? = nil
+    /// Below this, the sensor is treated as physically still. Raw ACC units —
+    /// calibrate against the live readout (worn vs. on a table).
+    private let accStillnessThreshold: Float = 6.0
+
+    /// Mean per-axis standard deviation of the rolling ACC window — the live
+    /// motion level. nil until enough samples have accumulated.
+    private func computeAccMotion() -> Float? {
+        let w = accWindow
+        guard w.count >= 30 else { return nil }
+        func std(_ vals: [Float]) -> Float {
+            let m = vals.reduce(0, +) / Float(vals.count)
+            let v = vals.reduce(Float(0)) { $0 + ($1 - m) * ($1 - m) } / Float(vals.count)
+            return v.squareRoot()
+        }
+        return (std(w.map(\.x)) + std(w.map(\.y)) + std(w.map(\.z))) / 3
+    }
 
     private func bindBLE() {
         // Forward ECG frames to buffer
@@ -223,10 +248,16 @@ final class AppEnvironment {
             }
             .store(in: &cancellables)
 
-        // Forward ACC frames
+        // Forward ACC frames (+ keep a rolling window for off-body motion detection)
         ble.accSubject
             .sink { [weak self] xyz in
                 guard let self else { return }
+                self.accWindow.append(contentsOf: xyz.map {
+                    SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z))
+                })
+                if self.accWindow.count > self.accWindowMax {
+                    self.accWindow.removeFirst(self.accWindow.count - self.accWindowMax)
+                }
                 Task { await self.dataBuffer.appendACC(xyz: xyz) }
             }
             .store(in: &cancellables)
@@ -284,17 +315,21 @@ final class AppEnvironment {
                 }.value
 
                 // ── Off-body detection → low-power standby ────────────────────
-                // Three independent cues, any of which marks the strap off-body:
-                //   1. The Polar's own skin-contact bit reports no contact.
-                //   2. ECG quality is poor — flatline (lead-off) OR white noise
-                //      (electrodes picking up the air, no real QRS).
-                //   3. RR is mostly invalid/corrected (signalQuality < 0.5).
-                // When any persists past the threshold, drop to standby (stops
-                // streaming, silently auto-reconnects when worn again).
+                // Cues: (1) the Polar's own skin-contact bit; (2) ECG poor —
+                // lead-off OR white noise (no QRS); (3) RR mostly invalid; and
+                // (4) the accelerometer dead-still. A worn strap always jitters a
+                // little (breathing/BCG/posture), so a bad signal that is ALSO
+                // physically still is a strong "set down on a table" signature.
+                // Contact-loss alone is enough; otherwise require bad signal AND
+                // stillness — falling back to signal-only when ACC is unavailable —
+                // so a worn-but-noisy strap isn't wrongly disconnected. Trips
+                // after `offBodyStandbySeconds` (~1 min) of continuous off-body.
+                accMotion = computeAccMotion()
                 let contactLost = ble.sensorContact == false
-                let ecgBad      = tick.ecgQuality?.tier == .poor
-                let rrBad       = (tick.signalQuality ?? 1) < 0.5
-                let offBody = contactLost || ecgBad || rrBad
+                let badSignal   = tick.ecgQuality?.tier == .poor || (tick.signalQuality ?? 1) < 0.5
+                let still       = accMotion.map { $0 < accStillnessThreshold } ?? false
+                let noACC       = accMotion == nil
+                let offBody = contactLost || (badSignal && (still || noACC))
                 if offBody {
                     let since = offBodySince ?? Date()
                     offBodySince = since
