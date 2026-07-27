@@ -753,8 +753,18 @@ extension BLEService: CBPeripheralDelegate {
 
         case PolarH10Profile.hrMeasurement:
             if let frame = PolarH10Profile.parseHRFrame(data) {
+                let name = peripheral.name ?? "Polar H10"
                 Task { @MainActor in
                     self.sensorContact = frame.contact
+                    // Live data means we ARE connected — keep the top-bar indicator
+                    // honest if the state drifted (an ineffective disconnect, or an
+                    // OS-level reconnect after the strap was worn again). Never
+                    // override an intentional off-body standby.
+                    if !self.inStandby {
+                        if case .connected = self.state {} else {
+                            self.state = .connected(name: name)
+                        }
+                    }
                     self.hrSubject.send(frame)
                 }
             }
