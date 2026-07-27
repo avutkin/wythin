@@ -113,6 +113,7 @@ private struct DayScrollView: View {
     @State private var chartFiltered: [MetricsHistoryPoint] = []
     @State private var chartDayAvg:   MetricsTick?          = nil
     @State private var liveStore      = LiveStateStore()
+    @State private var potentialStore = DayPotentialStore()
 
     private var isToday: Bool { Calendar.current.isDateInToday(date) }
 
@@ -130,12 +131,13 @@ private struct DayScrollView: View {
             // Pull down on today's page to force an immediate update; otherwise
             // the state refreshes automatically at most every 5 minutes.
             await liveStore.refresh(env: env, force: true)
+            await potentialStore.refresh(env: env, force: true)
         }) {
             VStack(spacing: 12) {
 
                 // ── Autonomic state (today only) ────────────────────
                 if isToday {
-                    LiveStateWidget(store: liveStore)
+                    LiveStateWidget(store: liveStore, potentialStore: potentialStore)
                         .padding(.horizontal)
                     let state = PolyvagalState.infer(from: env.latestTick)
                     CurrentStateCard(tick: env.latestTick, state: state)

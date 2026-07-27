@@ -1,0 +1,170 @@
+<h2>Day Potential — anchor-based, in layout C</h2>
+<p class="subtitle">The score now comes from the first rested window of the day compared to your own 60-day range — not from today's average. Mock data. Collapsed is the default state; everything else is behind the tap or is an edge case.</p>
+
+<style>
+  .wy { background:#0E1116; border:1px solid rgba(255,255,255,.08); border-radius:18px; padding:16px; color:#E8ECF2; font-family:-apple-system,system-ui,sans-serif; max-width:400px; margin:0 auto; }
+  .wy-lab { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10px; letter-spacing:.14em; color:#8A94A6; text-transform:uppercase; }
+  .wy-title { font-size:19px; font-weight:700; margin-top:2px; }
+  .wy-row { display:flex; align-items:center; gap:12px; }
+  .wy-ico { width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:19px; flex:0 0 auto; }
+  .wy-b { display:flex; gap:8px; margin-top:9px; font-size:13px; color:#98A2B3; line-height:1.45; }
+  .wy-dot { width:5px; height:5px; border-radius:50%; margin-top:7px; flex:0 0 auto; }
+  .wy-b b { color:#E8ECF2; font-weight:600; }
+  .wy-rec { margin-top:14px; padding:11px 12px; border-radius:12px; display:flex; gap:9px; align-items:flex-start; }
+  .wy-rec-t { font-size:13px; font-weight:500; color:#E8ECF2; line-height:1.45; }
+  .wy-sep { height:1px; background:rgba(255,255,255,.08); margin:14px 0; }
+
+  .strip { display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:12px; }
+  .strip .bar { flex:1; height:5px; border-radius:3px; background:rgba(255,255,255,.10); overflow:hidden; position:relative; }
+  .strip .bar span { display:block; height:100%; border-radius:3px; }
+  .num { font-size:14px; font-weight:700; }
+  .meta { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10.5px; color:#6E7789; margin-top:10px; letter-spacing:.02em; }
+
+  /* 7-day anchor sparkline with baseline band */
+  .spark { position:relative; height:54px; margin-top:12px; display:flex; align-items:flex-end; gap:6px; }
+  .spark .band { position:absolute; left:0; right:0; top:16px; height:22px; background:rgba(255,255,255,.055); border-top:1px dashed rgba(255,255,255,.14); border-bottom:1px dashed rgba(255,255,255,.14); border-radius:2px; }
+  .spark i { flex:1; border-radius:3px 3px 0 0; position:relative; z-index:1; display:block; }
+  .sparkx { display:flex; gap:6px; margin-top:5px; }
+  .sparkx i { flex:1; text-align:center; font-family:ui-monospace,Menlo,monospace; font-size:9px; color:#5C6474; font-style:normal; }
+
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:900px){ .grid2 { grid-template-columns:1fr; } }
+  .cap { font-size:12.5px; color:#98A2B3; margin-top:8px; line-height:1.5; }
+  h3.sec { margin:26px 0 10px; font-size:14px; }
+</style>
+
+<h3 class="sec">1 · Collapsed — what you see by default</h3>
+<div class="wy">
+  <div class="strip" style="background:rgba(46,204,155,.10); border:1px solid rgba(46,204,155,.22);">
+    <div style="font-size:15px;">&#9788;</div>
+    <div style="flex:1;">
+      <div class="wy-lab" style="color:#2ECC9B;">Today&rsquo;s potential &middot; good reserves</div>
+      <div class="bar"><span style="width:72%; background:#2ECC9B;"></span></div>
+    </div>
+    <div class="num" style="color:#2ECC9B;">72</div>
+    <div style="color:#8A94A6; font-size:13px;">&#9662;</div>
+  </div>
+  <div class="wy-row" style="margin-top:15px;">
+    <div class="wy-ico" style="background:rgba(90,160,255,.16); color:#5AA0FF;">&#9678;</div>
+    <div><div class="wy-lab">Current state</div><div class="wy-title">Locked In</div></div>
+  </div>
+  <div class="wy-b"><div class="wy-dot" style="background:rgba(90,160,255,.7)"></div><div>Energy eased down steadily over the first six minutes and has been flat since &mdash; <b>you&rsquo;ve settled</b>.</div></div>
+  <div class="wy-b"><div class="wy-dot" style="background:rgba(90,160,255,.7)"></div><div>Inner noise dropped sharply four minutes in and stayed there &mdash; <b>focus clicked into place</b>.</div></div>
+</div>
+
+<h3 class="sec">2 · Expanded — after the tap</h3>
+<div class="wy">
+  <div class="strip" style="background:rgba(46,204,155,.10); border:1px solid rgba(46,204,155,.22);">
+    <div style="font-size:15px;">&#9788;</div>
+    <div style="flex:1;">
+      <div class="wy-lab" style="color:#2ECC9B;">Today&rsquo;s potential &middot; good reserves</div>
+      <div class="bar"><span style="width:72%; background:#2ECC9B;"></span></div>
+    </div>
+    <div class="num" style="color:#2ECC9B;">72</div>
+    <div style="color:#8A94A6; font-size:13px;">&#9652;</div>
+  </div>
+
+  <div class="meta">MORNING READ &middot; 07:12 &middot; 4 MIN STILL &middot; SEATED</div>
+
+  <div class="spark">
+    <div class="band"></div>
+    <i style="height:30px; background:rgba(255,255,255,.18)"></i>
+    <i style="height:24px; background:rgba(255,255,255,.18)"></i>
+    <i style="height:19px; background:rgba(255,110,110,.55)"></i>
+    <i style="height:27px; background:rgba(255,255,255,.18)"></i>
+    <i style="height:33px; background:rgba(255,255,255,.18)"></i>
+    <i style="height:36px; background:rgba(255,255,255,.18)"></i>
+    <i style="height:41px; background:#2ECC9B"></i>
+  </div>
+  <div class="sparkx">
+    <i>MON</i><i>TUE</i><i>WED</i><i>THU</i><i>FRI</i><i>SAT</i><i>TODAY</i>
+  </div>
+  <div class="meta" style="margin-top:7px;">SHADED BAND = YOUR USUAL RANGE (60-DAY, &plusmn;1 SD) &middot; 41 READINGS</div>
+
+  <div class="wy-b"><div class="wy-dot" style="background:rgba(46,204,155,.7)"></div><div>Your first still reading this morning came in <b>at the top of your usual range</b> &mdash; the strongest start you&rsquo;ve had in a week.</div></div>
+  <div class="wy-b"><div class="wy-dot" style="background:rgba(46,204,155,.7)"></div><div>Your mornings have been <b>settling back into a steady rhythm</b> after Wednesday&rsquo;s dip, which is a good sign on its own.</div></div>
+
+  <div class="wy-rec" style="background:rgba(46,204,155,.10); border:1px solid rgba(46,204,155,.25);">
+    <span style="color:#2ECC9B;">&#9788;</span>
+    <div><div class="wy-lab" style="color:#2ECC9B;">What today can hold</div><div class="wy-rec-t">Room for one genuinely hard block and a full session &mdash; don&rsquo;t spend it all before noon.</div></div>
+  </div>
+
+  <div class="wy-sep"></div>
+  <div class="wy-lab">How the day has gone so far</div>
+  <div class="wy-b" style="margin-top:6px;"><div class="wy-dot" style="background:rgba(255,255,255,.25)"></div><div>Six hours in, you&rsquo;ve spent that steadily rather than in spikes &mdash; <b>most of the reserve is still there</b>.</div></div>
+</div>
+<p class="cap"><strong>Capacity lives in the number, load lives in the prose.</strong> The score is the morning anchor vs your baseline and does not move as the day wears on; the bottom block is the only place today's running average is mentioned.</p>
+
+<h3 class="sec">3 · The three states it has to degrade into</h3>
+<div class="grid2">
+
+  <div>
+    <div class="wy">
+      <div class="strip" style="background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.10);">
+        <div style="font-size:15px; color:#8A94A6;">&#9788;</div>
+        <div style="flex:1;">
+          <div class="wy-lab">Today&rsquo;s potential &middot; waiting for a still moment</div>
+          <div class="bar"><span style="width:100%; background:repeating-linear-gradient(90deg,rgba(255,255,255,.16) 0 6px,transparent 6px 12px);"></span></div>
+        </div>
+        <div class="num" style="color:#5C6474;">&mdash;</div>
+      </div>
+      <div class="meta">NEEDS 3 MIN STILL &middot; YOU&rsquo;VE BEEN MOVING SINCE 06:40</div>
+    </div>
+    <p class="cap"><strong>No anchor yet.</strong> Strapped on mid-walk, so there is no rested window to read. Shows honestly rather than scoring motion artifact as fatigue.</p>
+  </div>
+
+  <div>
+    <div class="wy">
+      <div class="strip" style="background:rgba(90,160,255,.09); border:1px solid rgba(90,160,255,.20);">
+        <div style="font-size:15px; color:#5AA0FF;">&#9788;</div>
+        <div style="flex:1;">
+          <div class="wy-lab" style="color:#5AA0FF;">Morning read &middot; learning your range</div>
+          <div class="bar"><span style="width:43%; background:#5AA0FF;"></span></div>
+        </div>
+        <div class="num" style="color:#5AA0FF; font-size:12px;">3<span style="color:#5C6474;">/7</span></div>
+      </div>
+      <div class="meta">4 MORE MORNINGS BEFORE A SCORE IS MEANINGFUL</div>
+      <div class="wy-b"><div class="wy-dot" style="background:rgba(90,160,255,.6)"></div><div>This morning&rsquo;s reading was <b>a little calmer than yesterday&rsquo;s</b>. Still learning what&rsquo;s normal for you.</div></div>
+    </div>
+    <p class="cap"><strong>Baseline still building.</strong> Under ~7 anchors there is no SD, so no score &mdash; the bar tracks progress toward one instead. Day-to-day language only, no norms claimed.</p>
+  </div>
+
+  <div>
+    <div class="wy">
+      <div class="strip" style="background:rgba(255,160,60,.10); border:1px solid rgba(255,160,60,.25);">
+        <div style="font-size:15px; color:#FF9F3C;">&#9788;</div>
+        <div style="flex:1;">
+          <div class="wy-lab" style="color:#FF9F3C;">Today&rsquo;s potential &middot; running light</div>
+          <div class="bar"><span style="width:31%; background:#FF9F3C;"></span></div>
+        </div>
+        <div class="num" style="color:#FF9F3C;">31</div>
+        <div style="color:#8A94A6; font-size:13px;">&#9652;</div>
+      </div>
+      <div class="meta">MORNING READ &middot; 06:58 &middot; 5 MIN STILL &middot; UNSETTLED WEEK</div>
+      <div class="wy-b"><div class="wy-dot" style="background:rgba(255,160,60,.7)"></div><div>This morning sat <b>below your usual range</b>, and your resting pace was up a little too.</div></div>
+      <div class="wy-b"><div class="wy-dot" style="background:rgba(255,160,60,.7)"></div><div>Your mornings have also been <b>swinging more than usual</b> this week &mdash; that pattern often shows up before you feel it.</div></div>
+      <div class="wy-rec" style="background:rgba(255,160,60,.10); border:1px solid rgba(255,160,60,.25);">
+        <span style="color:#FF9F3C;">&#9788;</span>
+        <div><div class="wy-lab" style="color:#FF9F3C;">What today can hold</div><div class="wy-rec-t">Take the easier version of whatever you had planned. Protect tonight&rsquo;s sleep.</div></div>
+      </div>
+    </div>
+    <p class="cap"><strong>Low and unstable.</strong> Both axes fire: below the band, and the week's spread is widening. Rising variability is its own warning, so it earns its own sentence.</p>
+  </div>
+
+</div>
+
+<h3 class="sec">Does this shape work?</h3>
+<div class="options">
+  <div class="option" data-choice="yes" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content"><h3>Yes — build the spec around this</h3><p>Anchor-based score, 7-day sparkline against your usual band, load kept separate at the bottom, three degraded states.</p></div>
+  </div>
+  <div class="option" data-choice="simpler" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content"><h3>Too much in the expanded view</h3><p>Drop the sparkline and/or the "how the day has gone" block — keep the expansion to a score, a meta line, and two sentences.</p></div>
+  </div>
+  <div class="option" data-choice="score" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content"><h3>Rethink the number itself</h3><p>The 0–100 or its banding isn't right — talk about what the score should represent before locking the layout.</p></div>
+  </div>
+</div>

@@ -1,0 +1,147 @@
+<h2>How should Day Potential and Current State sit together?</h2>
+<p class="subtitle">Mock data throughout — the wording below is roughly what the new prompts would produce. Note that the Current State bullets no longer mention averages; all "vs your norm" language has moved up into Day Potential.</p>
+
+<style>
+  .wy { background:#0E1116; border:1px solid rgba(255,255,255,.08); border-radius:18px; padding:16px; color:#E8ECF2; font-family:-apple-system,system-ui,sans-serif; }
+  .wy + .wy { margin-top:12px; }
+  .wy-lab { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10px; letter-spacing:.14em; color:#8A94A6; text-transform:uppercase; }
+  .wy-title { font-size:19px; font-weight:700; margin-top:2px; }
+  .wy-row { display:flex; align-items:center; gap:12px; }
+  .wy-ico { width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:19px; flex:0 0 auto; }
+  .wy-b { display:flex; gap:8px; margin-top:9px; font-size:13px; color:#98A2B3; line-height:1.45; }
+  .wy-dot { width:5px; height:5px; border-radius:50%; margin-top:7px; flex:0 0 auto; }
+  .wy-b b { color:#E8ECF2; font-weight:600; }
+  .wy-rec { margin-top:14px; padding:11px 12px; border-radius:12px; display:flex; gap:9px; align-items:flex-start; }
+  .wy-rec-t { font-size:13px; font-weight:500; color:#E8ECF2; line-height:1.45; }
+  .wy-sep { height:1px; background:rgba(255,255,255,.08); margin:15px -16px; }
+  .wy-ring { width:46px; height:46px; border-radius:50%; flex:0 0 auto; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; color:#2ECC9B;
+             background:conic-gradient(#2ECC9B 0 72%, rgba(255,255,255,.09) 72% 100%); }
+  .wy-ring i { width:36px; height:36px; border-radius:50%; background:#0E1116; display:flex; align-items:center; justify-content:center; font-style:normal; }
+  .wy-strip { display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:12px; background:rgba(46,204,155,.10); border:1px solid rgba(46,204,155,.22); }
+  .wy-bar { flex:1; height:5px; border-radius:3px; background:rgba(255,255,255,.10); overflow:hidden; }
+  .wy-bar span { display:block; height:100%; width:72%; background:#2ECC9B; border-radius:3px; }
+  .phone { max-width:380px; margin:0 auto; }
+</style>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:14px; background:#161A21;">
+      <div class="phone">
+        <div class="wy">
+          <div class="wy-row">
+            <div class="wy-ring"><i>72</i></div>
+            <div>
+              <div class="wy-lab">Today&rsquo;s potential</div>
+              <div class="wy-title">Good reserves</div>
+            </div>
+          </div>
+          <div class="wy-b"><div class="wy-dot" style="background:rgba(46,204,155,.7)"></div><div>Your recovery capacity has averaged <b>a little above your usual</b> today &mdash; the tank is fuller than a typical Monday.</div></div>
+          <div class="wy-b"><div class="wy-dot" style="background:rgba(46,204,155,.7)"></div><div>Calm has held near your normal range all morning, with <b>no sustained tension</b>.</div></div>
+
+          <div class="wy-sep"></div>
+
+          <div class="wy-row">
+            <div class="wy-ico" style="background:rgba(90,160,255,.16); color:#5AA0FF;">&#9678;</div>
+            <div>
+              <div class="wy-lab">Right now</div>
+              <div class="wy-title">Locked In</div>
+            </div>
+          </div>
+          <div class="wy-b"><div class="wy-dot" style="background:rgba(90,160,255,.7)"></div><div>Energy eased down steadily over the first six minutes and has been flat since &mdash; <b>you&rsquo;ve settled</b>.</div></div>
+          <div class="wy-b"><div class="wy-dot" style="background:rgba(90,160,255,.7)"></div><div>Inner noise dropped sharply four minutes in and stayed there &mdash; <b>focus clicked into place</b>.</div></div>
+          <div class="wy-b"><div class="wy-dot" style="background:rgba(90,160,255,.7)"></div><div>Breathing wobbled early, then smoothed out and held &mdash; <b>you&rsquo;re grounded now</b>.</div></div>
+          <div class="wy-rec" style="background:rgba(90,160,255,.10); border:1px solid rgba(90,160,255,.25);">
+            <span style="color:#5AA0FF;">&rarr;</span>
+            <div><div class="wy-lab" style="color:#5AA0FF;">Next step</div><div class="wy-rec-t">Ride it &mdash; start your most demanding task now, while the focus is here.</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A &mdash; One card, two stacked sections</h3>
+      <p>Day Potential on top with its own score, a divider, then Right Now. One card, one visual unit; the day frames the moment. Costs vertical space &mdash; this is a tall card before you reach the charts.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:14px; background:#161A21;">
+      <div class="phone">
+        <div class="wy">
+          <div class="wy-row">
+            <div class="wy-ring"><i>72</i></div>
+            <div>
+              <div class="wy-lab">Today&rsquo;s potential</div>
+              <div class="wy-title">Good reserves</div>
+            </div>
+          </div>
+          <div class="wy-b"><div class="wy-dot" style="background:rgba(46,204,155,.7)"></div><div>Your recovery capacity has averaged <b>a little above your usual</b> today &mdash; the tank is fuller than a typical Monday.</div></div>
+          <div class="wy-b"><div class="wy-dot" style="background:rgba(46,204,155,.7)"></div><div>Calm has held near your normal range all morning, with <b>no sustained tension</b>.</div></div>
+          <div class="wy-rec" style="background:rgba(46,204,155,.10); border:1px solid rgba(46,204,155,.25);">
+            <span style="color:#2ECC9B;">&#9788;</span>
+            <div><div class="wy-lab" style="color:#2ECC9B;">What today can hold</div><div class="wy-rec-t">There&rsquo;s room for one hard block and a real session &mdash; don&rsquo;t spend it all before noon.</div></div>
+          </div>
+        </div>
+
+        <div class="wy">
+          <div class="wy-row">
+            <div class="wy-ico" style="background:rgba(90,160,255,.16); color:#5AA0FF;">&#9678;</div>
+            <div>
+              <div class="wy-lab">Current state</div>
+              <div class="wy-title">Locked In</div>
+            </div>
+          </div>
+          <div class="wy-b"><div class="wy-dot" style="background:rgba(90,160,255,.7)"></div><div>Energy eased down steadily over the first six minutes and has been flat since &mdash; <b>you&rsquo;ve settled</b>.</div></div>
+          <div class="wy-b"><div class="wy-dot" style="background:rgba(90,160,255,.7)"></div><div>Inner noise dropped sharply four minutes in and stayed there &mdash; <b>focus clicked into place</b>.</div></div>
+          <div class="wy-b"><div class="wy-dot" style="background:rgba(90,160,255,.7)"></div><div>Breathing wobbled early, then smoothed and held &mdash; <b>you&rsquo;re grounded now</b>.</div></div>
+          <div class="wy-rec" style="background:rgba(90,160,255,.10); border:1px solid rgba(90,160,255,.25);">
+            <span style="color:#5AA0FF;">&rarr;</span>
+            <div><div class="wy-lab" style="color:#5AA0FF;">Next step</div><div class="wy-rec-t">Ride it &mdash; start your most demanding task now, while the focus is here.</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B &mdash; Two separate cards</h3>
+      <p>Day Potential is its own card with its own closing line about what the day can hold; Current State keeps its shape below. Cleanest separation of slow vs fast, and each can refresh (or fail) independently without the other flickering. Two cards is more scroll.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:14px; background:#161A21;">
+      <div class="phone">
+        <div class="wy">
+          <div class="wy-strip">
+            <div style="font-size:15px;">&#9788;</div>
+            <div style="flex:1;">
+              <div class="wy-lab" style="color:#2ECC9B;">Today&rsquo;s potential &middot; good reserves</div>
+              <div class="wy-bar"><span></span></div>
+            </div>
+            <div style="font-size:14px; font-weight:700; color:#2ECC9B;">72</div>
+            <div style="color:#8A94A6; font-size:13px;">&#9662;</div>
+          </div>
+
+          <div class="wy-row" style="margin-top:15px;">
+            <div class="wy-ico" style="background:rgba(90,160,255,.16); color:#5AA0FF;">&#9678;</div>
+            <div>
+              <div class="wy-lab">Current state</div>
+              <div class="wy-title">Locked In</div>
+            </div>
+          </div>
+          <div class="wy-b"><div class="wy-dot" style="background:rgba(90,160,255,.7)"></div><div>Energy eased down steadily over the first six minutes and has been flat since &mdash; <b>you&rsquo;ve settled</b>.</div></div>
+          <div class="wy-b"><div class="wy-dot" style="background:rgba(90,160,255,.7)"></div><div>Inner noise dropped sharply four minutes in and stayed there &mdash; <b>focus clicked into place</b>.</div></div>
+          <div class="wy-b"><div class="wy-dot" style="background:rgba(90,160,255,.7)"></div><div>Breathing wobbled early, then smoothed and held &mdash; <b>you&rsquo;re grounded now</b>.</div></div>
+          <div class="wy-rec" style="background:rgba(90,160,255,.10); border:1px solid rgba(90,160,255,.25);">
+            <span style="color:#5AA0FF;">&rarr;</span>
+            <div><div class="wy-lab" style="color:#5AA0FF;">Next step</div><div class="wy-rec-t">Ride it &mdash; start your most demanding task now, while the focus is here.</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C &mdash; Collapsed readiness strip, tap to expand</h3>
+      <p>The day reads as one score bar; the two explanatory sentences live behind a tap. Most compact, keeps the moment primary. Risk: the day narrative you asked for is hidden by default, so most users never read it.</p>
+    </div>
+  </div>
+
+</div>

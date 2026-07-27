@@ -48,6 +48,7 @@ final class LiveStateStore {
 struct LiveStateWidget: View {
     @Environment(AppEnvironment.self) var env
     let store: LiveStateStore
+    let potentialStore: DayPotentialStore
     @State private var refreshTask: Task<Void, Never>?
 
     private var isConnected: Bool {
@@ -56,7 +57,10 @@ struct LiveStateWidget: View {
     }
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 14) {
+            // Capacity first — the day frames the moment.
+            DayPotentialStrip(store: potentialStore)
+            Divider().overlay(Theme.dim.opacity(0.2))
             if let text = store.text {
                 structured(text)
             } else {
@@ -191,6 +195,9 @@ struct LiveStateWidget: View {
                 try? await Task.sleep(for: .seconds(store.text == nil ? 15 : 20))
                 guard !Task.isCancelled else { break }
                 await store.refresh(env: env)
+                // Anchor detection keeps polling until a rested window
+                // appears; once frozen the store's guards make this cheap.
+                await potentialStore.refresh(env: env)
             }
         }
     }

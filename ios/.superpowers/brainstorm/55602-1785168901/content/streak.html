@@ -1,0 +1,156 @@
+<h2>Morning-read streak in the collapsed strip</h2>
+<p class="subtitle">Three ways to show consecutive mornings. Mock data. The thing worth deciding: does the streak motivate on its own, or should it be tied to what more readings actually buy you — a sharper personal range?</p>
+
+<style>
+  .wy { background:#0E1116; border:1px solid rgba(255,255,255,.08); border-radius:18px; padding:16px; color:#E8ECF2; font-family:-apple-system,system-ui,sans-serif; max-width:400px; margin:0 auto; }
+  .wy-lab { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:10px; letter-spacing:.14em; color:#8A94A6; text-transform:uppercase; }
+  .wy-title { font-size:19px; font-weight:700; margin-top:2px; }
+  .wy-row { display:flex; align-items:center; gap:12px; }
+  .wy-ico { width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:19px; flex:0 0 auto; }
+  .wy-b { display:flex; gap:8px; margin-top:9px; font-size:13px; color:#98A2B3; line-height:1.45; }
+  .wy-dot { width:5px; height:5px; border-radius:50%; margin-top:7px; flex:0 0 auto; }
+  .wy-b b { color:#E8ECF2; font-weight:600; }
+
+  .strip { display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:12px; background:rgba(46,204,155,.10); border:1px solid rgba(46,204,155,.22); }
+  .strip .bar { flex:1; height:5px; border-radius:3px; background:rgba(255,255,255,.10); overflow:hidden; }
+  .strip .bar span { display:block; height:100%; border-radius:3px; background:#2ECC9B; }
+  .num { font-size:14px; font-weight:700; color:#2ECC9B; }
+
+  /* day dots */
+  .days { display:flex; align-items:center; gap:7px; }
+  .d { width:9px; height:9px; border-radius:50%; background:#2ECC9B; flex:0 0 auto; }
+  .d.miss { background:transparent; box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.16); }
+  .d.today { background:transparent; box-shadow:0 0 0 1.5px #2ECC9B, 0 0 0 5px rgba(46,204,155,.14); }
+  .d.pending { background:transparent; box-shadow:0 0 0 1.5px rgba(255,160,60,.9), 0 0 0 5px rgba(255,160,60,.13); }
+  .streak-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:11px; }
+  .streak-txt { font-size:11.5px; color:#8A94A6; }
+  .streak-txt b { color:#E8ECF2; font-weight:600; }
+
+  .chip { display:inline-flex; align-items:center; gap:4px; padding:2px 7px; border-radius:999px; background:rgba(255,160,60,.16); color:#FF9F3C; font-size:11px; font-weight:700; }
+  .mini { height:4px; border-radius:2px; background:rgba(255,255,255,.10); overflow:hidden; margin-top:6px; }
+  .mini span { display:block; height:100%; border-radius:2px; background:#5AA0FF; }
+  .cta { margin-top:11px; padding:9px 11px; border-radius:11px; background:rgba(255,160,60,.10); border:1px solid rgba(255,160,60,.25); font-size:12.5px; color:#E8ECF2; display:flex; gap:8px; align-items:center; }
+  .cap { font-size:12.5px; color:#98A2B3; margin-top:8px; line-height:1.5; max-width:400px; margin-left:auto; margin-right:auto; }
+  h3.sec { margin:26px 0 10px; font-size:14px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:900px){ .grid2 { grid-template-columns:1fr; } }
+</style>
+
+<h3 class="sec">A · Seven dots + plain streak line</h3>
+<div class="wy">
+  <div class="strip">
+    <div style="font-size:15px;">&#9788;</div>
+    <div style="flex:1;">
+      <div class="wy-lab" style="color:#2ECC9B;">Today&rsquo;s potential &middot; good reserves</div>
+      <div class="bar"><span style="width:72%"></span></div>
+    </div>
+    <div class="num">72</div>
+    <div style="color:#8A94A6; font-size:13px;">&#9662;</div>
+  </div>
+  <div class="streak-row">
+    <div class="days">
+      <div class="d"></div><div class="d"></div><div class="d miss"></div><div class="d"></div><div class="d"></div><div class="d"></div><div class="d today"></div>
+    </div>
+    <div class="streak-txt"><b>4 mornings</b> in a row</div>
+  </div>
+</div>
+<p class="cap"><strong>A.</strong> One extra row. The dots double as a week-at-a-glance calendar, so a missed day is visible without being scolding. Nothing is claimed beyond the fact.</p>
+
+<h3 class="sec">B · Inline chip, no extra row</h3>
+<div class="wy">
+  <div class="strip">
+    <div style="font-size:15px;">&#9788;</div>
+    <div style="flex:1;">
+      <div class="wy-lab" style="color:#2ECC9B;">Today&rsquo;s potential &middot; good reserves <span class="chip" style="margin-left:4px;">&#9679; 4d</span></div>
+      <div class="bar"><span style="width:72%"></span></div>
+    </div>
+    <div class="num">72</div>
+    <div style="color:#8A94A6; font-size:13px;">&#9662;</div>
+  </div>
+</div>
+<p class="cap"><strong>B.</strong> Zero extra height &mdash; the collapsed strip stays one line. But the streak is reduced to a number with no sense of the week, and it crowds a row that already holds four things.</p>
+
+<h3 class="sec">C · Streak tied to what it buys you</h3>
+<div class="wy">
+  <div class="strip">
+    <div style="font-size:15px;">&#9788;</div>
+    <div style="flex:1;">
+      <div class="wy-lab" style="color:#2ECC9B;">Today&rsquo;s potential &middot; good reserves</div>
+      <div class="bar"><span style="width:72%"></span></div>
+    </div>
+    <div class="num">72</div>
+    <div style="color:#8A94A6; font-size:13px;">&#9662;</div>
+  </div>
+  <div class="streak-row">
+    <div class="days">
+      <div class="d"></div><div class="d"></div><div class="d miss"></div><div class="d"></div><div class="d"></div><div class="d"></div><div class="d today"></div>
+    </div>
+    <div class="streak-txt"><b>4 mornings</b> in a row</div>
+  </div>
+  <div class="mini"><span style="width:68%"></span></div>
+  <div class="streak-txt" style="margin-top:6px;">41 of 60 readings &mdash; <b>your range sharpens</b> as this fills</div>
+</div>
+<p class="cap"><strong>C.</strong> The streak plus a second, slower bar toward a fuller baseline. The nudge is honest &mdash; more mornings genuinely make the score more accurate &mdash; instead of a points game. Costs two extra rows.</p>
+
+<h3 class="sec">The nudge states (shown on pattern A)</h3>
+<div class="grid2">
+  <div>
+    <div class="wy">
+      <div class="strip" style="background:rgba(255,255,255,.045); border-color:rgba(255,255,255,.10);">
+        <div style="font-size:15px; color:#8A94A6;">&#9788;</div>
+        <div style="flex:1;">
+          <div class="wy-lab">Today&rsquo;s potential &middot; not read yet</div>
+          <div class="bar"><span style="width:100%; background:repeating-linear-gradient(90deg,rgba(255,255,255,.16) 0 6px,transparent 6px 12px);"></span></div>
+        </div>
+        <div class="num" style="color:#5C6474;">&mdash;</div>
+      </div>
+      <div class="streak-row">
+        <div class="days">
+          <div class="d"></div><div class="d"></div><div class="d miss"></div><div class="d"></div><div class="d"></div><div class="d"></div><div class="d pending"></div>
+        </div>
+        <div class="streak-txt" style="color:#FF9F3C;"><b>4-morning</b> run going</div>
+      </div>
+      <div class="cta"><span style="color:#FF9F3C;">&#9788;</span><div>Three quiet minutes with the strap on keeps it going.</div></div>
+    </div>
+    <p class="cap"><strong>Today still open.</strong> The only moment a nudge appears. Today&rsquo;s dot is an amber ring, and the ask is specific and small &mdash; three minutes, not "log your morning".</p>
+  </div>
+
+  <div>
+    <div class="wy">
+      <div class="strip">
+        <div style="font-size:15px;">&#9788;</div>
+        <div style="flex:1;">
+          <div class="wy-lab" style="color:#2ECC9B;">Today&rsquo;s potential &middot; good reserves</div>
+          <div class="bar"><span style="width:72%"></span></div>
+        </div>
+        <div class="num">72</div>
+        <div style="color:#8A94A6; font-size:13px;">&#9662;</div>
+      </div>
+      <div class="streak-row">
+        <div class="days">
+          <div class="d miss"></div><div class="d"></div><div class="d"></div><div class="d"></div><div class="d"></div><div class="d"></div><div class="d today"></div>
+        </div>
+        <div class="streak-txt"><b>6 mornings</b> &mdash; your best run yet</div>
+      </div>
+    </div>
+    <p class="cap"><strong>Logged.</strong> No call to action at all once the read is in &mdash; the nudge disappears the moment it&rsquo;s satisfied. A personal best is the one thing worth remarking on.</p>
+  </div>
+</div>
+
+<h3 class="sec">Which one?</h3>
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content"><h3>Dots + streak line</h3><p>Simplest honest version. One extra row, week visible, nudge only when today is open.</p></div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content"><h3>Dots + baseline progress bar</h3><p>Adds the "your range sharpens" bar so the nudge points at real value, not a points game. Two extra rows.</p></div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content"><h3>Inline chip only</h3><p>Keeps the strip to a single line. Least motivating, least clutter.</p></div>
+  </div>
+</div>
+
+<p class="cap" style="margin-top:20px;"><strong>One rule to settle either way:</strong> does a single missed morning reset the streak to zero? Strict streaks punish travel and illness &mdash; exactly the days the data matters most &mdash; and people who break one often stop entirely. A forgiving version (one skip allowed per week, shown as a hollow dot that doesn&rsquo;t break the run) keeps the habit without the guilt.</p>

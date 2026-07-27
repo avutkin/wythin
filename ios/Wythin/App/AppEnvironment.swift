@@ -94,6 +94,10 @@ final class AppEnvironment {
     // MARK: Private
 
     private let modelContainer: ModelContainer
+
+    /// Main-actor context for stores that own their own persistence
+    /// (e.g. `DayPotentialStore` reading and writing `DailyAnchor`).
+    var modelContext: ModelContext { modelContainer.mainContext }
     private var autoSession:    HRVSession?
     private var cancellables = Set<AnyCancellable>()
     private var metricsTask:  Task<Void, Never>?
