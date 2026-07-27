@@ -555,7 +555,7 @@ private struct MetricChartCard: View {
                             startPoint: .top, endPoint: .bottom
                         )
                     )
-                    .interpolationMethod(.catmullRom)
+                    .interpolationMethod(.monotone)
                 }
 
                 ForEach(refs.indices, id: \.self) { i in
@@ -578,7 +578,7 @@ private struct MetricChartCard: View {
                         series: .value("seg", pt.segment)
                     )
                     .foregroundStyle(markColor(pt))
-                    .interpolationMethod(.catmullRom)
+                    .interpolationMethod(.monotone)
                     .lineStyle(StrokeStyle(lineWidth: 1.5))
                 }
 
