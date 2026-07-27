@@ -212,7 +212,8 @@ final class AppEnvironment {
     // After `offBodyStandbySeconds` of continuous off-body ticks we drop the
     // strap into low-power standby (auto-reconnects when worn again).
     private var offBodySince: Date?
-    private let offBodyStandbySeconds: TimeInterval = 60    // trip within ~1 minute of removal
+    private let offBodyStandbySeconds:     TimeInterval = 60   // borderline consensus (score 2)
+    private let offBodyStandbyFastSeconds: TimeInterval = 20   // strong agreement (score ≥ 3)
 
     // Accelerometer motion: worn straps always jitter a little (breathing,
     // ballistocardiogram, posture); a strap set down is dead-still. Rolling
@@ -315,25 +316,34 @@ final class AppEnvironment {
                 }.value
 
                 // ── Off-body detection → low-power standby ────────────────────
-                // Cues: (1) the Polar's own skin-contact bit; (2) ECG poor —
-                // lead-off OR white noise (no QRS); (3) RR mostly invalid; and
-                // (4) the accelerometer dead-still. A worn strap always jitters a
-                // little (breathing/BCG/posture), so a bad signal that is ALSO
-                // physically still is a strong "set down on a table" signature.
-                // Contact-loss alone is enough; otherwise require bad signal AND
-                // stillness — falling back to signal-only when ACC is unavailable —
-                // so a worn-but-noisy strap isn't wrongly disconnected. Trips
-                // after `offBodyStandbySeconds` (~1 min) of continuous off-body.
+                // Fuse four cues into a confidence score so no single cue can
+                // wrongly trip (false positive) or be missed:
+                //   • skin-contact bit — authoritative: worn (−1) / off (+3)
+                //   • ECG poor — lead-off OR white noise (no QRS): +1
+                //   • RR mostly invalid (signalQuality < 0.5): +1
+                //   • accelerometer dead-still (worn straps always jitter): +1
+                // score ≥ 2 ⇒ off-body. A strong score (≥3 — contact reports off,
+                // or all signal cues agree) trips fast (~20 s); a borderline
+                // consensus needs the full ~60 s. "contact = worn" (−1) suppresses
+                // false positives when only one cue fires, yet the signal cues can
+                // still override a stuck "contact = true" (score reaches 2).
                 accMotion = computeAccMotion()
-                let contactLost = ble.sensorContact == false
-                let badSignal   = tick.ecgQuality?.tier == .poor || (tick.signalQuality ?? 1) < 0.5
-                let still       = accMotion.map { $0 < accStillnessThreshold } ?? false
-                let noACC       = accMotion == nil
-                let offBody = contactLost || (badSignal && (still || noACC))
-                if offBody {
+                let contact = ble.sensorContact
+                let ecgPoor = tick.ecgQuality?.tier == .poor
+                let rrBad   = (tick.signalQuality ?? 1) < 0.5
+                let still   = accMotion.map { $0 < accStillnessThreshold } ?? false
+
+                var score = 0
+                if contact == false { score += 3 } else if contact == true { score -= 1 }
+                if ecgPoor { score += 1 }
+                if rrBad   { score += 1 }
+                if still   { score += 1 }
+
+                if score >= 2 {
                     let since = offBodySince ?? Date()
                     offBodySince = since
-                    if Date().timeIntervalSince(since) >= offBodyStandbySeconds {
+                    let needed = score >= 3 ? offBodyStandbyFastSeconds : offBodyStandbySeconds
+                    if Date().timeIntervalSince(since) >= needed {
                         ble.enterStandby()
                         offBodySince = nil
                     }
