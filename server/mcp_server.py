@@ -11,11 +11,20 @@ from datetime import datetime
 from typing import Optional
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from .auth_user import resolve_bearer
 from .db import get_pool
 
-mcp = FastMCP(name="Wythin", stateless_http=True, streamable_http_path="/")
+# This is a public, TLS-terminated (Caddy) endpoint authenticated per request by
+# a Bearer token — that token is the access control. The SDK's DNS-rebinding
+# Host check defends *local* servers from browser attacks and would otherwise
+# reject (421 Misdirected Request) every request forwarded with the public Host
+# header, so it is disabled here.
+_MCP_SECURITY = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+mcp = FastMCP(name="Wythin", stateless_http=True, streamable_http_path="/",
+              transport_security=_MCP_SECURITY)
 
 _MAX_SESSIONS = 200
 _MAX_SAMPLES = 5000
