@@ -28,6 +28,7 @@ final class AppEnvironment {
     let ble        = BLEService()
     let dataBuffer = DataBuffer()
     let sync:        SyncService
+    let metricSync:  MetricSyncService
 
     // MARK: Waveform display (updated at ~30 fps, isolated so chart views stay at 2 s)
 
@@ -77,13 +78,15 @@ final class AppEnvironment {
         set { UserDefaults.standard.set(newValue.absoluteString, forKey: "serverURL") }
     }
 
-    var userID: String {
-        get {
-            if let id = UserDefaults.standard.string(forKey: "userID") { return id }
-            let id = UUID().uuidString
-            UserDefaults.standard.set(id, forKey: "userID")
-            return id
-        }
+    var userID: String { AppEnvironment.currentUserID() }
+
+    /// Static so it can be read during `init`, before `self` is fully formed
+    /// (the `userID` computed property can't be called that early).
+    fileprivate static func currentUserID() -> String {
+        if let id = UserDefaults.standard.string(forKey: "userID") { return id }
+        let id = UUID().uuidString
+        UserDefaults.standard.set(id, forKey: "userID")
+        return id
     }
 
     // MARK: Private
@@ -99,6 +102,7 @@ final class AppEnvironment {
     private let saveInterval    = 30       // persist to disk every 60 s (30 ticks × 2 s)
     private var pendingSaveCount = 0       // ticks accumulated since last save
     private var lastBackgroundTick: Date = .distantPast  // throttles bg computation to 30 s
+    private var lastMetricSyncAt: Date = .distantPast     // throttles cloud sync attempts to ~120 s
 
     // MARK: Init
 
@@ -106,6 +110,8 @@ final class AppEnvironment {
         self.modelContainer = modelContainer
         self.sync = SyncService(serverURL: UserDefaults.standard.string(forKey: "serverURL")
             .flatMap(URL.init) ?? URL(string: "https://api.77.42.73.250.sslip.io")!)
+        self.metricSync = MetricSyncService(client: sync.client, userID: AppEnvironment.currentUserID(),
+                                             container: modelContainer)
 
         bindBLE()
         loadHistory()
@@ -302,6 +308,13 @@ final class AppEnvironment {
                         self.tickHistory.removeFirst(self.trimBatch)
                     }
                     self.sync.sendTick(tick, userID: self.userID)
+                }
+
+                // ── Best-effort: incremental cloud sync (opt-in, throttled ~120 s) ──
+                // No-ops internally when the user hasn't enabled cloud sync.
+                if Date().timeIntervalSince(self.lastMetricSyncAt) >= 120 {
+                    self.lastMetricSyncAt = Date()
+                    Task { await self.metricSync.syncIfEnabled() }
                 }
 
                 // ── Always: persist to SwiftData ──────────────────────────────

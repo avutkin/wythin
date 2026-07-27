@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 // MARK: - Wire types (Codable)
 
@@ -123,6 +124,14 @@ enum MCPSetup {
     }
 }
 
+struct MetricSamplePayload: Codable {
+    let ts: String
+    let mean_bpm, rmssd, sdnn, pnn50, lf_hf, rsa_ms: Float?
+    let coherence, cbi, breath_bpm, dfa1, rcmse, pip, dc, vti: Float?
+}
+struct MetricsUploadPayload: Codable { let samples: [MetricSamplePayload] }
+struct MetricsUploadResponse: Codable { let stored: Int }
+
 struct ServerSession: Codable {
     let id:           String
     let startedAt:    String
@@ -192,6 +201,22 @@ struct APIClient {
         _ = try await session.data(for: req)
     }
 
+    // MARK: Continuous metric sync
+
+    func uploadMetrics(_ payload: MetricsUploadPayload, userID: String) async throws -> MetricsUploadResponse {
+        var req = request(path: "/v1/metrics", method: "POST")
+        req.addValue(userID, forHTTPHeaderField: "X-User-ID")
+        req.httpBody = try JSONEncoder().encode(payload)
+        let (data, _) = try await session.data(for: req)
+        return try JSONDecoder().decode(MetricsUploadResponse.self, from: data)
+    }
+
+    func deleteMyData(token: String) async throws {
+        var req = request(path: "/v1/me/data", method: "DELETE")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        _ = try await session.data(for: req)
+    }
+
     // MARK: Insights
 
     func generateInsight(_ payload: InsightPayload) async throws -> InsightResponse {
@@ -217,6 +242,52 @@ struct APIClient {
         r.addValue(APIConfig.apiKey, forHTTPHeaderField: "X-API-Key")
         r.timeoutInterval = 15
         return r
+    }
+}
+
+// MARK: - MetricSyncService
+//
+// Opt-in, incremental uploader for continuous HRV metrics. Reads a batch of
+// `HRVSample` rows newer than the last-synced watermark, uploads them, and
+// only advances the watermark on success — so a failed upload is retried
+// (not skipped) on the next call. No-ops entirely while the user has the
+// cloud-sync toggle off.
+
+import SwiftUI
+
+@MainActor
+final class MetricSyncService {
+    private let client: APIClient
+    private let userID: String
+    private let container: ModelContainer
+    @AppStorage("cloudSyncEnabled") private var enabled = false
+    @AppStorage("metricsLastSyncedAt") private var lastSyncedISO = ""
+    private let iso = ISO8601DateFormatter()
+    private let batch = 2000
+
+    init(client: APIClient, userID: String, container: ModelContainer) {
+        self.client = client; self.userID = userID; self.container = container
+    }
+
+    func syncIfEnabled() async {
+        guard enabled else { return }
+        let after = iso.date(from: lastSyncedISO) ?? Date.distantPast
+        let ctx = ModelContext(container)
+        var desc = FetchDescriptor<HRVSample>(
+            predicate: #Predicate { $0.timestamp > after },
+            sortBy: [SortDescriptor(\.timestamp)])
+        desc.fetchLimit = batch
+        guard let samples = try? ctx.fetch(desc), !samples.isEmpty else { return }
+        let payload = MetricsUploadPayload(samples: samples.map { s in
+            MetricSamplePayload(ts: iso.string(from: s.timestamp),
+                mean_bpm: s.meanBPM, rmssd: s.rmssd, sdnn: s.sdnn, pnn50: s.pnn50,
+                lf_hf: s.lfHF, rsa_ms: s.rsaMs, coherence: s.coherence, cbi: s.cbi,
+                breath_bpm: s.breathBPM, dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip,
+                dc: s.dc, vti: s.vti) })
+        if (try? await client.uploadMetrics(payload, userID: userID)) != nil,
+           let last = samples.last {
+            lastSyncedISO = iso.string(from: last.timestamp)
+        }
     }
 }
 

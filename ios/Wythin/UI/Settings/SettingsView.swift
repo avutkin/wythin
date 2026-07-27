@@ -10,6 +10,9 @@ struct SettingsView: View {
     @State private var isWorking = false
     @State private var accessError: String?
 
+    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = false
+    @State private var isDeletingCloudData = false
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -112,6 +115,28 @@ struct SettingsView: View {
                                 } label: { Label("Revoke", systemImage: "trash") }
                             }
                         }
+
+                        Divider()
+
+                        Toggle(isOn: $cloudSyncEnabled) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Sync my data to the cloud").font(Theme.monoBody).foregroundStyle(Theme.text)
+                                Text("Lets Claude Code read your continuous metrics. Off = data stays on this device.")
+                                    .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+                            }
+                        }
+                        .tint(Theme.accent)
+
+                        if cloudSyncEnabled {
+                            Button(role: .destructive) {
+                                Task { await deleteCloudData() }
+                            } label: {
+                                Text(isDeletingCloudData ? "Deleting…" : "Delete my cloud data")
+                                    .font(Theme.monoBody)
+                                    .foregroundStyle(Theme.warn)
+                            }
+                            .disabled(isDeletingCloudData)
+                        }
                     }
                     .listRowBackground(Theme.card)
 
@@ -206,6 +231,22 @@ struct SettingsView: View {
             await loadTokens()
         } catch {
             accessError = "Couldn't revoke token."
+        }
+    }
+
+    /// Erases the caller's data server-side. Mints a short-lived token to
+    /// authorize the Bearer-scoped delete call, then revokes it immediately
+    /// afterward — no token is left persisted just for this one-off action.
+    private func deleteCloudData() async {
+        isDeletingCloudData = true; accessError = nil
+        defer { isDeletingCloudData = false }
+        do {
+            let created = try await env.sync.client.createToken(name: "delete-my-data", userID: env.userID)
+            try await env.sync.client.deleteMyData(token: created.token)
+            try? await env.sync.client.revokeToken(id: created.id, userID: env.userID)
+            await loadTokens()
+        } catch {
+            accessError = "Couldn't delete cloud data. Check the server URL and try again."
         }
     }
 
