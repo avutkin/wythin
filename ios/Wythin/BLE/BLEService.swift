@@ -758,9 +758,12 @@ extension BLEService: CBPeripheralDelegate {
                     self.sensorContact = frame.contact
                     // Live data means we ARE connected — keep the top-bar indicator
                     // honest if the state drifted (an ineffective disconnect, or an
-                    // OS-level reconnect after the strap was worn again). Never
-                    // override an intentional off-body standby.
+                    // OS-level reconnect after the strap was worn again). Treat it as
+                    // a real, managed connection (clear the user-disconnect latch) so
+                    // it's maintained in the background too — not just while open.
+                    // Never override an intentional off-body standby.
                     if !self.inStandby {
+                        self.userDisconnected = false
                         if case .connected = self.state {} else {
                             self.state = .connected(name: name)
                         }
