@@ -59,6 +59,28 @@ class ActivitySchema(BaseModel):
     before_dfa1:   Optional[float] = None; during_dfa1:   Optional[float] = None; after_dfa1:   Optional[float] = None
 
 
+class MetricSample(BaseModel):
+    ts: str
+    mean_bpm: Optional[float] = None
+    rmssd: Optional[float] = None
+    sdnn: Optional[float] = None
+    pnn50: Optional[float] = None
+    lf_hf: Optional[float] = None
+    rsa_ms: Optional[float] = None
+    coherence: Optional[float] = None
+    cbi: Optional[float] = None
+    breath_bpm: Optional[float] = None
+    dfa1: Optional[float] = None
+    rcmse: Optional[float] = None
+    pip: Optional[float] = None
+    dc: Optional[float] = None
+    vti: Optional[float] = None
+
+
+class MetricsUpload(BaseModel):
+    samples: list[MetricSample]
+
+
 class UploadResponse(BaseModel):
     id: str
 

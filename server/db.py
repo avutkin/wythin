@@ -99,6 +99,16 @@ CREATE TABLE IF NOT EXISTS activities (
     created_at         TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS metric_samples (
+    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ts          TIMESTAMPTZ NOT NULL,
+    mean_bpm REAL, rmssd REAL, sdnn REAL, pnn50 REAL, lf_hf REAL, rsa_ms REAL,
+    coherence REAL, cbi REAL, breath_bpm REAL,
+    dfa1 REAL, rcmse REAL, pip REAL, dc REAL, vti REAL,
+    PRIMARY KEY (user_id, ts)
+);
+CREATE INDEX IF NOT EXISTS metric_samples_user_ts ON metric_samples(user_id, ts);
+
 CREATE INDEX IF NOT EXISTS hrv_samples_session_ts ON hrv_samples(session_id, ts);
 CREATE INDEX IF NOT EXISTS sessions_user_started   ON sessions(user_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS activities_user_started ON activities(user_id, started_at DESC);

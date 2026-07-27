@@ -23,3 +23,16 @@ async def me(user_id: str = Depends(current_user_id)):
         "display_name": row["display_name"],
         "created_at": row["created_at"].isoformat(),
     }
+
+
+@router.delete("/data")
+async def delete_my_data(user_id: str = Depends(current_user_id)):
+    async with get_pool().acquire() as conn:
+        async def _del(table: str) -> int:
+            tag = await conn.execute(f"DELETE FROM {table} WHERE user_id = $1", user_id)
+            return int(tag.split()[-1]) if tag.startswith("DELETE") else 0
+        return {
+            "metric_samples": await _del("metric_samples"),
+            "sessions":       await _del("sessions"),
+            "activities":     await _del("activities"),
+        }
