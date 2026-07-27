@@ -7,6 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AT19 /* DayLoadSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT19 /* DayLoadSummaryTests.swift */; };
+		AT18 /* DayPotentialInsightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT18 /* DayPotentialInsightTests.swift */; };
+		AT17 /* TrendShapeComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT17 /* TrendShapeComputeTests.swift */; };
+		AT16 /* StreakComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT16 /* StreakComputeTests.swift */; };
+		AT15 /* PotentialScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT15 /* PotentialScoreTests.swift */; };
+		AT14 /* AnchorBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT14 /* AnchorBaselineTests.swift */; };
+		A218 /* DayLoadSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F218 /* DayLoadSummary.swift */; };
+		A217 /* DayPotentialInsight.swift in Sources */ = {isa = PBXBuildFile; fileRef = F217 /* DayPotentialInsight.swift */; };
+		A216 /* TrendShapeCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F216 /* TrendShapeCompute.swift */; };
+		A215 /* StreakCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F215 /* StreakCompute.swift */; };
+		A214 /* PotentialScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F214 /* PotentialScore.swift */; };
+		A213 /* AnchorBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F213 /* AnchorBaseline.swift */; };
+		A211 /* DailyAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F211 /* DailyAnchor.swift */; };
 		AT13 /* AnchorDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT13 /* AnchorDetectorTests.swift */; };
 		A210 /* AnchorDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F210 /* AnchorDetector.swift */; };
 		A101 /* WythinApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F101 /* WythinApp.swift */; };
@@ -103,6 +116,19 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		FT19 /* DayLoadSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLoadSummaryTests.swift; sourceTree = "<group>"; };
+		FT18 /* DayPotentialInsightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsightTests.swift; sourceTree = "<group>"; };
+		FT17 /* TrendShapeComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendShapeComputeTests.swift; sourceTree = "<group>"; };
+		FT16 /* StreakComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakComputeTests.swift; sourceTree = "<group>"; };
+		FT15 /* PotentialScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScoreTests.swift; sourceTree = "<group>"; };
+		FT14 /* AnchorBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaselineTests.swift; sourceTree = "<group>"; };
+		F218 /* DayLoadSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLoadSummary.swift; sourceTree = "<group>"; };
+		F217 /* DayPotentialInsight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsight.swift; sourceTree = "<group>"; };
+		F216 /* TrendShapeCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendShapeCompute.swift; sourceTree = "<group>"; };
+		F215 /* StreakCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakCompute.swift; sourceTree = "<group>"; };
+		F214 /* PotentialScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScore.swift; sourceTree = "<group>"; };
+		F213 /* AnchorBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaseline.swift; sourceTree = "<group>"; };
+		F211 /* DailyAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyAnchor.swift; sourceTree = "<group>"; };
 		FT13 /* AnchorDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetectorTests.swift; sourceTree = "<group>"; };
 		F210 /* AnchorDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetector.swift; sourceTree = "<group>"; };
 		F101 /* WythinApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WythinApp.swift; sourceTree = "<group>"; };
@@ -298,6 +324,12 @@
 		GAPP_MET /* Metrics */ = {
 			isa = PBXGroup;
 			children = (
+				F218 /* DayLoadSummary.swift */,
+				F217 /* DayPotentialInsight.swift */,
+				F216 /* TrendShapeCompute.swift */,
+				F215 /* StreakCompute.swift */,
+				F214 /* PotentialScore.swift */,
+				F213 /* AnchorBaseline.swift */,
 				F210 /* AnchorDetector.swift */,
 				F106 /* MetricsEngine.swift */,
 				F107 /* HRVCompute.swift */,
@@ -321,6 +353,7 @@
 		GAPP_MOD /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				F211 /* DailyAnchor.swift */,
 				F114 /* HRVSession.swift */,
 				F115 /* HRVSample.swift */,
 				F116 /* ResonanceResult.swift */,
@@ -429,6 +462,12 @@
 		GTESTS /* WythinTests */ = {
 			isa = PBXGroup;
 			children = (
+				FT19 /* DayLoadSummaryTests.swift */,
+				FT18 /* DayPotentialInsightTests.swift */,
+				FT17 /* TrendShapeComputeTests.swift */,
+				FT16 /* StreakComputeTests.swift */,
+				FT15 /* PotentialScoreTests.swift */,
+				FT14 /* AnchorBaselineTests.swift */,
 				FT13 /* AnchorDetectorTests.swift */,
 				FT01 /* MetricsTests.swift */,
 				FT02 /* BLETests.swift */,
@@ -536,6 +575,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A218 /* DayLoadSummary.swift in Sources */,
+				A217 /* DayPotentialInsight.swift in Sources */,
+				A216 /* TrendShapeCompute.swift in Sources */,
+				A215 /* StreakCompute.swift in Sources */,
+				A214 /* PotentialScore.swift in Sources */,
+				A213 /* AnchorBaseline.swift in Sources */,
+				A211 /* DailyAnchor.swift in Sources */,
 				A210 /* AnchorDetector.swift in Sources */,
 				A101 /* WythinApp.swift in Sources */,
 				A102 /* AppEnvironment.swift in Sources */,
@@ -613,6 +659,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AT19 /* DayLoadSummaryTests.swift in Sources */,
+				AT18 /* DayPotentialInsightTests.swift in Sources */,
+				AT17 /* TrendShapeComputeTests.swift in Sources */,
+				AT16 /* StreakComputeTests.swift in Sources */,
+				AT15 /* PotentialScoreTests.swift in Sources */,
+				AT14 /* AnchorBaselineTests.swift in Sources */,
 				AT13 /* AnchorDetectorTests.swift in Sources */,
 				AT01 /* MetricsTests.swift in Sources */,
 				AT02 /* BLETests.swift in Sources */,
