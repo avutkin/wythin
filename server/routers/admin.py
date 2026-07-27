@@ -289,6 +289,19 @@ async def user_metrics(user_id: str, window: str = "24h"):
     }
 
 
+@router.get("/activities/{activity_id}")
+async def activity_detail(activity_id: str):
+    """One activity's full before/during/after metric grid + impact score."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM activities WHERE id = $1::uuid", activity_id
+        )
+    if row is None:
+        raise HTTPException(status_code=404, detail="activity not found")
+    return _activity_row(row)
+
+
 @router.get("/sessions/{session_id}/samples")
 async def session_samples(session_id: str):
     """Per-tick metric series for one session — the same signals the app charts

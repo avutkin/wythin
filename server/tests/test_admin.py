@@ -165,3 +165,33 @@ async def test_user_metrics_series():
     assert body["window"] == "24h"
     assert isinstance(body["samples"], list) and body["samples"], "expected bucketed samples"
     assert {"ts", "mean_bpm", "rmssd", "coherence", "dc", "dfa1"} <= set(body["samples"][0])
+
+
+@pytest.mark.asyncio
+async def test_activity_detail():
+    """Upload an activity, then fetch its before/during/after detail by SERVER id
+    (the upload returns the server id, distinct from the client id)."""
+    act = {
+        "id":               "00000000-0000-0000-0000-0000000000b1",
+        "activity_type":    "Meditation",
+        "activity_subtype": "Vipassana",
+        "started_at":       "2025-04-01T08:00:00Z",
+        "ended_at":         "2025-04-01T08:12:00Z",
+        "impact_score":     62,
+        "before_rsa": 20.0, "during_rsa": 30.0, "after_rsa": 26.0,
+    }
+    async with _client() as client:
+        up = await client.post("/activities", headers={"X-User-ID": "test-act-user"}, json=act)
+        assert up.status_code == 200, up.text
+        sid = up.json()["id"]
+        r = await client.get(f"/admin/activities/{sid}")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["activity_subtype"] == "Vipassana"
+    assert d["impact_score"] == 62
+    assert d["during_rsa"] == 30.0 and d["before_rsa"] == 20.0
+
+    # A missing activity is a clean 404.
+    async with _client() as client:
+        nf = await client.get("/admin/activities/00000000-0000-0000-0000-0000000000fe")
+        assert nf.status_code == 404
