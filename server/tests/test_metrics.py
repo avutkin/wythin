@@ -69,3 +69,27 @@ async def test_new_metric_columns_exist_and_round_trip():
         assert row["ecg_quality_tier"] == 2
         assert row["hf_power"] == pytest.approx(400.0)
         assert row["signal_quality"] == pytest.approx(0.93)
+
+
+@pytest.mark.asyncio
+async def test_reupload_enriches_without_erasing():
+    from server.db import get_pool
+    ts = "2026-07-28T09:30:00Z"
+    async with _client() as c:
+        # First upload: the old 14-field shape (no motion, no quality).
+        await c.post("/v1/metrics", headers={"X-User-ID": "ms-enrich"},
+                     json={"samples": [{"ts": ts, "mean_bpm": 60.0, "rmssd": 41.0}]})
+        # Second upload: same ts, adds the new fields, omits rmssd entirely.
+        await c.post("/v1/metrics", headers={"X-User-ID": "ms-enrich"},
+                     json={"samples": [{"ts": ts, "mean_bpm": 60.0,
+                                        "motion": 8.25, "ecg_quality_tier": 1}]})
+
+        async with get_pool().acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT rmssd, motion, ecg_quality_tier FROM metric_samples ms "
+                "JOIN users u ON u.id = ms.user_id "
+                "WHERE u.device_id = 'ms-enrich' AND ms.ts = $1",
+                __import__("datetime").datetime.fromisoformat(ts.replace("Z", "+00:00")))
+        assert row["motion"] == pytest.approx(8.25), "new field was not written on conflict"
+        assert row["ecg_quality_tier"] == 1
+        assert row["rmssd"] == pytest.approx(41.0), "omitted field was erased by the re-upload"

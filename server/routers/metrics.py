@@ -34,9 +34,15 @@ async def upload_metrics(body: MetricsUpload, x_user_id: str = Header(..., alias
     if not rows:
         return {"stored": 0}
     placeholders = ", ".join(f"${i}" for i in range(1, len(_COLS) + 3))
+    # COALESCE, not a bare EXCLUDED: a re-upload that omits a column must leave
+    # the stored value alone. Bare EXCLUDED would null it out.
+    updates = ", ".join(
+        f"{c} = COALESCE(EXCLUDED.{c}, metric_samples.{c})" for c in _COLS
+    )
     sql = (
         f"INSERT INTO metric_samples (user_id, ts, {', '.join(_COLS)}) "
-        f"VALUES ({placeholders}) ON CONFLICT (user_id, ts) DO NOTHING"
+        f"VALUES ({placeholders}) "
+        f"ON CONFLICT (user_id, ts) DO UPDATE SET {updates}"
     )
     async with get_pool().acquire() as conn:
         await conn.executemany(sql, rows)
