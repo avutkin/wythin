@@ -168,6 +168,7 @@ final class DayPotentialStore {
             // A baseline now exists from one anchor, so its presence no longer
             // means it is trustworthy — `provisional` is what carries that.
             baselineSufficient: !(baseline?.provisional ?? true),
+            provisional: baseline?.provisional ?? false,
             recent: recent,
             streakCurrent: streak?.current ?? 0,
             streakBest: streak?.best ?? 0,

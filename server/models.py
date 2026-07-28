@@ -171,6 +171,10 @@ class InsightRequest(BaseModel):
     baseline_anchors:    Optional[int] = None
     baseline_target:     Optional[int] = None
     baseline_sufficient: Optional[bool] = None
+    # A score exists but the range is still forming. Distinct from
+    # `not baseline_sufficient`, which also covers the very first morning —
+    # where there is no reference day at all and so no score.
+    provisional:         Optional[bool] = None
     recent:     Optional[list[int]] = None
     streak_current: Optional[int] = None
     streak_best:    Optional[int] = None

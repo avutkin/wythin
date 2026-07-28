@@ -98,13 +98,17 @@ struct DayPotentialPayload: Codable {
     let baselineAnchors: Int
     let baselineTarget: Int
     let baselineSufficient: Bool
+    /// A score exists but the range is still forming. Distinct from
+    /// `!baselineSufficient`, which also covers the first morning — no
+    /// reference day, so no score.
+    let provisional: Bool
     let recent: [Int]
     let streakCurrent: Int
     let streakBest: Int
     let graceUsed: Bool
 
     enum CodingKeys: String, CodingKey {
-        case mode, score, band, components, modifiers, recent, late, confidence
+        case mode, score, band, components, modifiers, recent, late, confidence, provisional
         case anchorHour = "anchor_hour"
         case anchorDurationMin = "anchor_duration_min"
         case baselineAnchors = "baseline_anchors"
@@ -174,6 +178,17 @@ struct MetricSamplePayload: Codable {
 }
 struct MetricsUploadPayload: Codable { let samples: [MetricSamplePayload] }
 struct MetricsUploadResponse: Codable { let stored: Int }
+
+/// Onboarding profile sent to the server (keys match the server's ProfileUpload).
+struct ProfilePayload: Codable {
+    let phone:     String
+    let email:     String
+    let age_range: String?
+    let gender:    String?
+    let goals:     [String]
+    let practices: [String]
+    let devices:   [String]
+}
 
 struct ServerSession: Codable {
     let id:           String
@@ -260,6 +275,13 @@ struct APIClient {
         _ = try await session.data(for: req)
     }
 
+    func uploadProfile(_ payload: ProfilePayload, userID: String) async throws {
+        var req = request(path: "/v1/profile", method: "POST")
+        req.addValue(userID, forHTTPHeaderField: "X-User-ID")
+        req.httpBody = try JSONEncoder().encode(payload)
+        _ = try await session.data(for: req)
+    }
+
     // MARK: Insights
 
     func generateInsight(_ payload: InsightPayload) async throws -> InsightResponse {
@@ -313,6 +335,7 @@ final class MetricSyncService {
     private let iso = ISO8601DateFormatter()
     private let batch = 2000
     private var isSyncing = false
+    private var profileSynced = false
 
     init(client: APIClient, userID: String, container: ModelContainer) {
         self.client = client; self.userID = userID; self.container = container
@@ -323,6 +346,19 @@ final class MetricSyncService {
         guard !isSyncing else { return }
         isSyncing = true
         defer { isSyncing = false }
+
+        // Once per launch: push the onboarding profile so the server's "who I am"
+        // is complete. Gated by the cloud-sync toggle above (it carries PII).
+        if !profileSynced {
+            let p = ClientProfileStore().load()
+            let profile = ProfilePayload(
+                phone: p.phone, email: p.email, age_range: p.ageRange, gender: p.gender,
+                goals: p.goals, practices: p.practices, devices: p.devices)
+            if (try? await client.uploadProfile(profile, userID: userID)) != nil {
+                profileSynced = true
+            }
+        }
+
         let after = iso.date(from: lastSyncedISO) ?? Date.distantPast
         let ctx = ModelContext(container)
         var desc = FetchDescriptor<HRVSample>(
