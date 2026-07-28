@@ -12,7 +12,9 @@
 
 ## Global Constraints
 
-- Server tests run with: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test /Users/alexutkin/.venv313/bin/python -m pytest <path> -v` (run from `/Users/alexutkin`). The `wythin_test` database already exists.
+- **Work happens in the worktree `/Users/alexutkin/.claude/worktrees/block-a-metrics` on branch `feat/block-a-full-fidelity-metrics`.** Run every command from that directory. The main checkout at `/Users/alexutkin` has unrelated uncommitted work in these same files — do not touch it.
+- Server tests run with: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test_blocka /Users/alexutkin/.venv313/bin/python -m pytest <path> -v`. This database is dedicated to this worktree and already exists; baseline is 40 passed, 0 failed.
+- Do NOT use the `wythin_test` database. It is shared with the main checkout, accumulates rows between runs, and currently fails `test_mcp.py::test_tool_helpers_scope_to_user` for that reason.
 - Never use `/Users/alexutkin/.venv` — it is Python 3.9 and lacks the deps. Use `.venv313`.
 - `metric_samples` already exists in production. New columns MUST be added via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in `SCHEMA_SQL`, not only by editing the `CREATE TABLE` (which is `IF NOT EXISTS` and therefore a no-op on existing databases).
 - The 12 new columns, in this exact order and spelling, used identically in `db.py`, `models.py`, `routers/metrics.py`, `mcp_server.py`, and the Swift payload: `rsa_idx`, `ie_ratio`, `ials`, `motion`, `signal_quality`, `rr_invalid_rate`, `rr_corrected_rate`, `ecg_quality_tier`, `ulf_power`, `vlf_power`, `lf_power`, `hf_power`.
@@ -73,7 +75,7 @@ async def test_new_metric_columns_exist_and_round_trip():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test /Users/alexutkin/.venv313/bin/python -m pytest server/tests/test_metrics.py::test_new_metric_columns_exist_and_round_trip -v`
+Run: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test_blocka /Users/alexutkin/.venv313/bin/python -m pytest server/tests/test_metrics.py::test_new_metric_columns_exist_and_round_trip -v`
 
 Expected: FAIL — `asyncpg.exceptions.UndefinedColumnError: column "rsa_idx" does not exist`.
 
@@ -144,7 +146,7 @@ No other change to that file in this task — the `placeholders` expression alre
 
 - [ ] **Step 6: Run the test to verify it passes**
 
-Run: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test /Users/alexutkin/.venv313/bin/python -m pytest server/tests/test_metrics.py -v`
+Run: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test_blocka /Users/alexutkin/.venv313/bin/python -m pytest server/tests/test_metrics.py -v`
 
 Expected: PASS, all tests in the file (the two pre-existing ones must still pass).
 
@@ -200,7 +202,7 @@ async def test_reupload_enriches_without_erasing():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test /Users/alexutkin/.venv313/bin/python -m pytest server/tests/test_metrics.py::test_reupload_enriches_without_erasing -v`
+Run: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test_blocka /Users/alexutkin/.venv313/bin/python -m pytest server/tests/test_metrics.py::test_reupload_enriches_without_erasing -v`
 
 Expected: FAIL — `assert None == approx(8.25)`, because `DO NOTHING` discarded the second upload.
 
@@ -224,7 +226,7 @@ In `server/routers/metrics.py`, replace the `sql` assignment (currently lines 33
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test /Users/alexutkin/.venv313/bin/python -m pytest server/tests/test_metrics.py -v`
+Run: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test_blocka /Users/alexutkin/.venv313/bin/python -m pytest server/tests/test_metrics.py -v`
 
 Expected: PASS — 4 tests. `test_upload_is_idempotent_and_scoped` must still pass (an unchanged re-upload is still a no-op in effect).
 
@@ -289,7 +291,7 @@ async def test_new_metrics_resolve_and_aggregate():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test /Users/alexutkin/.venv313/bin/python -m pytest server/tests/test_mcp.py::test_new_metrics_resolve_and_aggregate -v`
+Run: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test_blocka /Users/alexutkin/.venv313/bin/python -m pytest server/tests/test_mcp.py::test_new_metrics_resolve_and_aggregate -v`
 
 Expected: FAIL — `ValueError: unknown metric 'motion'`.
 
@@ -314,13 +316,13 @@ _METRIC_ALIASES = {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test /Users/alexutkin/.venv313/bin/python -m pytest server/tests/test_mcp.py -v`
+Run: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test_blocka /Users/alexutkin/.venv313/bin/python -m pytest server/tests/test_mcp.py -v`
 
 Expected: PASS — all tests in the file.
 
 - [ ] **Step 5: Run the whole server suite**
 
-Run: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test /Users/alexutkin/.venv313/bin/python -m pytest server/tests -v`
+Run: `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test_blocka /Users/alexutkin/.venv313/bin/python -m pytest server/tests -v`
 
 Expected: PASS, except `server/tests/test_usage.py`, which is a pre-existing red suite for Block E (no `/v1/usage` router exists yet). Do not fix it here.
 
@@ -608,7 +610,7 @@ git commit -m "feat(sync): one-time backfill drain so stored rows gain the new f
 - [ ] **Step 1: Start the local server**
 
 ```bash
-cd /Users/alexutkin && DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test \
+cd /Users/alexutkin/.claude/worktrees/block-a-metrics && DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test_blocka \
   /Users/alexutkin/.venv313/bin/python -m uvicorn server.main:app --port 8000
 ```
 
@@ -627,7 +629,7 @@ Expected: `{"stored":1}`.
 - [ ] **Step 3: Confirm the new columns are queryable**
 
 ```bash
-DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test /Users/alexutkin/.venv313/bin/python -c "
+DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test_blocka /Users/alexutkin/.venv313/bin/python -c "
 import asyncio
 from server.db import init_pool, get_or_create_user
 from server.mcp_server import _day_summary
