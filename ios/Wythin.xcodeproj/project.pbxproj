@@ -10,6 +10,7 @@
 		A220 /* DayPotentialStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F220 /* DayPotentialStrip.swift */; };
 		A219 /* DayPotentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F219 /* DayPotentialStore.swift */; };
 		AT19 /* DayLoadSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT19 /* DayLoadSummaryTests.swift */; };
+		AT20 /* DayPotentialStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT20 /* DayPotentialStateTests.swift */; };
 		AT18 /* DayPotentialInsightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT18 /* DayPotentialInsightTests.swift */; };
 		AT17 /* TrendShapeComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT17 /* TrendShapeComputeTests.swift */; };
 		AT16 /* StreakComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT16 /* StreakComputeTests.swift */; };
@@ -121,6 +122,7 @@
 		F220 /* DayPotentialStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStrip.swift; sourceTree = "<group>"; };
 		F219 /* DayPotentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStore.swift; sourceTree = "<group>"; };
 		FT19 /* DayLoadSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLoadSummaryTests.swift; sourceTree = "<group>"; };
+		FT20 /* DayPotentialStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStateTests.swift; sourceTree = "<group>"; };
 		FT18 /* DayPotentialInsightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsightTests.swift; sourceTree = "<group>"; };
 		FT17 /* TrendShapeComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendShapeComputeTests.swift; sourceTree = "<group>"; };
 		FT16 /* StreakComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakComputeTests.swift; sourceTree = "<group>"; };
@@ -469,6 +471,7 @@
 			isa = PBXGroup;
 			children = (
 				FT19 /* DayLoadSummaryTests.swift */,
+				FT20 /* DayPotentialStateTests.swift */,
 				FT18 /* DayPotentialInsightTests.swift */,
 				FT17 /* TrendShapeComputeTests.swift */,
 				FT16 /* StreakComputeTests.swift */,
@@ -668,6 +671,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AT19 /* DayLoadSummaryTests.swift in Sources */,
+				AT20 /* DayPotentialStateTests.swift in Sources */,
 				AT18 /* DayPotentialInsightTests.swift in Sources */,
 				AT17 /* TrendShapeComputeTests.swift in Sources */,
 				AT16 /* StreakComputeTests.swift in Sources */,
