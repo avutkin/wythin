@@ -36,3 +36,36 @@ async def test_delete_my_data_scoped_to_token_user():
         r = await c.delete("/v1/me/data", headers={"Authorization": f"Bearer {tok}"})
         assert r.status_code == 200
         assert r.json()["metric_samples"] >= 1
+
+
+_NEW_COLS = ["rsa_idx", "ie_ratio", "ials", "motion", "signal_quality",
+             "rr_invalid_rate", "rr_corrected_rate", "ecg_quality_tier",
+             "ulf_power", "vlf_power", "lf_power", "hf_power"]
+
+
+@pytest.mark.asyncio
+async def test_new_metric_columns_exist_and_round_trip():
+    from server.db import get_pool
+    async with _client() as c:
+        body = {"samples": [{
+            "ts": "2026-07-28T09:00:00Z",
+            "mean_bpm": 61.0,
+            "rsa_idx": 0.42, "ie_ratio": 1.6, "ials": 0.21, "motion": 12.5,
+            "signal_quality": 0.93, "rr_invalid_rate": 0.01,
+            "rr_corrected_rate": 0.02, "ecg_quality_tier": 2,
+            "ulf_power": 100.0, "vlf_power": 200.0,
+            "lf_power": 300.0, "hf_power": 400.0,
+        }]}
+        r = await c.post("/v1/metrics", json=body, headers={"X-User-ID": "ms-wide"})
+        assert r.status_code == 200, r.text
+
+        async with get_pool().acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT " + ", ".join(_NEW_COLS) + " FROM metric_samples ms "
+                "JOIN users u ON u.id = ms.user_id "
+                "WHERE u.device_id = 'ms-wide' AND ms.ts = '2026-07-28T09:00:00Z'")
+        assert row is not None, "sample row was not stored"
+        assert row["motion"] == pytest.approx(12.5)
+        assert row["ecg_quality_tier"] == 2
+        assert row["hf_power"] == pytest.approx(400.0)
+        assert row["signal_quality"] == pytest.approx(0.93)

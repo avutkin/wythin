@@ -75,6 +75,18 @@ class MetricSample(BaseModel):
     pip: Optional[float] = None
     dc: Optional[float] = None
     vti: Optional[float] = None
+    rsa_idx: Optional[float] = None
+    ie_ratio: Optional[float] = None
+    ials: Optional[float] = None
+    motion: Optional[float] = None
+    signal_quality: Optional[float] = None
+    rr_invalid_rate: Optional[float] = None
+    rr_corrected_rate: Optional[float] = None
+    ecg_quality_tier: Optional[int] = None
+    ulf_power: Optional[float] = None
+    vlf_power: Optional[float] = None
+    lf_power: Optional[float] = None
+    hf_power: Optional[float] = None
 
 
 class MetricsUpload(BaseModel):
