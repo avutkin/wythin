@@ -50,6 +50,12 @@ final class AppEnvironment {
     /// to avoid O(n) removeFirst on every append once the buffer is full.
     var tickHistory: [MetricsHistoryPoint] = []
 
+    /// Bumped when `tickHistory` is bulk-(re)loaded — the initial async load and
+    /// the foreground merge — but NOT on live 2-s appends. Lets the today charts
+    /// refresh exactly when history lands, without re-rendering all 9 charts every
+    /// tick (which the 15 s snapshot cadence deliberately avoids).
+    var historyRevision: Int = 0
+
     var isInForeground: Bool = true {
         didSet {
             if !isInForeground {
@@ -66,6 +72,9 @@ final class AppEnvironment {
                 retryPendingInsights()
                 // Make sure the paired strap is (re)armed for seamless auto-connect.
                 ble.ensureAutoConnect()
+                // tickHistory is kept current in the background now, so refresh the
+                // charts from it immediately on open (no fetch/refill wait).
+                historyRevision += 1
             }
         }
     }
@@ -107,6 +116,7 @@ final class AppEnvironment {
     private let trimBatch       = 600      // trim this many entries at once (amortises O(n) shift)
     private let saveInterval    = 30       // persist to disk every 60 s (30 ticks × 2 s)
     private var pendingSaveCount = 0       // ticks accumulated since last save
+    private var lastSaveAt: Date = .distantPast   // wall-clock cap so bg saves land ≤2 min
     private var lastBackgroundTick: Date = .distantPast  // throttles bg computation to 30 s
     private var lastMetricSyncAt: Date = .distantPast     // throttles cloud sync attempts to ~120 s
 
@@ -174,15 +184,26 @@ final class AppEnvironment {
     // MARK: Private — History loading
 
     private func loadHistory() {
-        let context = modelContainer.mainContext
-        let cutoff  = Date().addingTimeInterval(-86_400)
-        var descriptor = FetchDescriptor<HRVSample>(
-            predicate: #Predicate { $0.timestamp >= cutoff },
-            sortBy:    [SortDescriptor(\.timestamp)]
-        )
-        descriptor.fetchLimit = maxTickHistory
-        let samples = (try? context.fetch(descriptor)) ?? []
-        tickHistory = samples.map { MetricsHistoryPoint(from: $0) }
+        // Fetch + map up to ~43k rows OFF the main thread so app launch isn't
+        // blocked; publish on the main actor and bump the revision so the today
+        // charts fill the instant the data lands (no wait for the 15 s poll).
+        let container = modelContainer
+        let cutoff    = Date().addingTimeInterval(-86_400)
+        let limit     = maxTickHistory
+        Task { @MainActor in
+            let pts: [MetricsHistoryPoint] = await Task.detached {
+                let ctx = ModelContext(container)
+                var descriptor = FetchDescriptor<HRVSample>(
+                    predicate: #Predicate { $0.timestamp >= cutoff },
+                    sortBy:    [SortDescriptor(\.timestamp)]
+                )
+                descriptor.fetchLimit = limit
+                let samples = (try? ctx.fetch(descriptor)) ?? []
+                return samples.map { MetricsHistoryPoint(from: $0) }
+            }.value
+            self.tickHistory = pts
+            self.historyRevision += 1
+        }
     }
 
     /// Merge samples written during background into tickHistory.
@@ -203,6 +224,7 @@ final class AppEnvironment {
         if tickHistory.count > maxTickHistory + trimBatch {
             tickHistory.removeFirst(tickHistory.count - maxTickHistory)
         }
+        historyRevision += 1
     }
 
     /// Retry any activities that finished without a generated insight,
@@ -343,7 +365,7 @@ final class AppEnvironment {
                 let contact = ble.sensorContact
                 let ecgPoor = tick.ecgQuality?.tier == .poor
                 let rrBad   = (tick.signalQuality ?? 1) < 0.5
-                let still   = accMotion.map { $0 < accStillnessThreshold } ?? false
+                let still   = accMotion.map { $0 < self.accStillnessThreshold } ?? false
 
                 var score = 0
                 if contact == false { score += 3 } else if contact == true { score -= 1 }
@@ -363,13 +385,17 @@ final class AppEnvironment {
                     offBodySince = nil
                 }
 
-                // ── Foreground-only: update live display ──────────────────────
+                // Keep the chart history current in BOTH foreground and background
+                // so the charts are already up-to-date the instant the app is
+                // opened — no post-foreground fetch/refill delay.
+                self.tickHistory.append(MetricsHistoryPoint(from: tick))
+                if self.tickHistory.count > self.maxTickHistory + self.trimBatch {
+                    self.tickHistory.removeFirst(self.trimBatch)
+                }
+
+                // ── Foreground-only: live table + live cloud stream ───────────
                 if inForeground {
                     self.latestTick = tick
-                    self.tickHistory.append(MetricsHistoryPoint(from: tick))
-                    if self.tickHistory.count > self.maxTickHistory + self.trimBatch {
-                        self.tickHistory.removeFirst(self.trimBatch)
-                    }
                     self.sync.sendTick(tick, userID: self.userID)
                 }
 
@@ -393,9 +419,14 @@ final class AppEnvironment {
                 let activeSession = self.currentSession ?? self.autoSession!
                 activeSession.samples.append(HRVSample(from: tick))
                 self.pendingSaveCount += 1
-                if self.pendingSaveCount >= self.saveInterval {
+                // Save every `saveInterval` ticks OR at least every 2 minutes of
+                // wall-clock — so background data (30 s ticks) reaches disk within
+                // ~2 min instead of ~15, and re-opening shows recent data.
+                if self.pendingSaveCount >= self.saveInterval
+                    || Date().timeIntervalSince(self.lastSaveAt) >= 120 {
                     try? context.save()
                     self.pendingSaveCount = 0
+                    self.lastSaveAt = Date()
                 }
             }
         }

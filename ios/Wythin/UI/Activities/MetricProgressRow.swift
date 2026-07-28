@@ -12,7 +12,8 @@ struct MetricProgressRow: View {
     let startedAt:      Date
     let endedAt:        Date
 
-    @State private var expanded = false
+    // Charts are open by default in the activity detail; tap the row to collapse.
+    @State private var expanded = true
 
     /// Benefit-signed uplift this session (during vs before).
     private var uplift: Double? { stats.avgUpliftPct }

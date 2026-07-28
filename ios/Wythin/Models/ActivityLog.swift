@@ -224,16 +224,29 @@ final class ActivityLog {
     /// entries with no samples in range simply stay nil, and re-running
     /// produces the same values for entries already filled.
     static func backfillMissingWindows(context: ModelContext) {
-        let desc = FetchDescriptor<ActivityLog>(
-            predicate: #Predicate { $0.isManual == false }
-        )
-        guard let all = try? context.fetch(desc) else { return }
-        let needsFill = all.filter { $0.endedAt != nil && ($0.duringStress == nil || $0.impactScore == nil) }
-        guard !needsFill.isEmpty else { return }
-        for entry in needsFill {
-            entry.computeHRVWindows(context: context)
+        // Bump when the stored metric set changes. v2 adds DC / DFA1 / RCMSE / PIP,
+        // which the original nil-Stress guard never backfilled — so older entries
+        // showed "—" for e.g. Vagal Tone in the row while the detail (which
+        // recomputes live) still had the value. On a version bump we recompute
+        // every finished entry once from the samples still in store, then fall back
+        // to the cheap ongoing guard.
+        let currentVersion = 2
+        let versionKey = "activityBackfillVersion"
+        let migrating = UserDefaults.standard.integer(forKey: versionKey) < currentVersion
+
+        guard let all = try? context.fetch(FetchDescriptor<ActivityLog>()) else { return }
+        let needsFill = all.filter { entry in
+            guard entry.endedAt != nil else { return false }
+            if migrating { return true }
+            return entry.duringStress == nil || entry.impactScore == nil
         }
-        try? context.save()
+        if !needsFill.isEmpty {
+            for entry in needsFill {
+                entry.computeHRVWindows(context: context)
+            }
+            try? context.save()
+        }
+        UserDefaults.standard.set(currentVersion, forKey: versionKey)
     }
 
     // MARK: HRV window computation
@@ -252,7 +265,7 @@ final class ActivityLog {
             predicate: allPredicate,
             sortBy: [SortDescriptor(\.timestamp)]
         )
-        desc.fetchLimit = 2_000
+        desc.fetchLimit = 10_000   // match the detail chart's fetch so long sessions aren't truncated
         guard let rawSamples = try? context.fetch(desc) else { return }
         // Gate samples through the same wear/artifact quality filter the Live
         // view and the activity detail charts use, so these stored window

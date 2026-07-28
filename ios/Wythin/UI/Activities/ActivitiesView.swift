@@ -798,6 +798,10 @@ struct ActivityDetailView: View {
                 loadChartPoints()
                 loadTwoMonthAverages()
             }
+            // If the activity's timing is edited, reload the sample series so the
+            // charts and stats follow the new window (not just on next reopen).
+            .onChange(of: entry.startedAt) { loadChartPoints(); loadTwoMonthAverages() }
+            .onChange(of: entry.endedAt)   { loadChartPoints(); loadTwoMonthAverages() }
         }
     }
 

@@ -9,24 +9,38 @@ struct LiveView: View {
     @Environment(\.modelContext) var ctx
     @State private var showBLESheet  = false
     @State private var keepAwake     = false
-    @State private var pageIndex:    Int = LiveView.todayIndex
+    @State private var days:      [Date] = LiveView.makeDays()
+    @State private var pageIndex: Int    = LiveView.dayCount - 1   // today
     // Shared chart window for every chart on every day-page; persisted.
     @AppStorage("liveChartWindow") private var chartWindow: TimeWindow = .h24
+    @Environment(\.scenePhase) private var scenePhase
 
-    // 90-day window: index 0 = oldest, todayIndex = today.
-    // Static so it's computed once; acceptable to require app restart at midnight.
-    private static let days: [Date] = {
+    // 90-day window: index 0 = oldest, last = today. Rebuilt on day-change /
+    // foreground so the "today" page rolls over at midnight without an app restart.
+    static let dayCount = 90
+    static func makeDays() -> [Date] {
         let cal   = Calendar.current
         let today = cal.startOfDay(for: .now)
-        return (0..<90).map { cal.date(byAdding: .day, value: -$0, to: today)! }.reversed()
-    }()
-    private static var todayIndex: Int { days.count - 1 }
+        return (0..<dayCount).map { cal.date(byAdding: .day, value: -$0, to: today)! }.reversed()
+    }
 
-    private var isToday:      Bool { pageIndex == LiveView.todayIndex }
-    private var selectedDate: Date { LiveView.days[pageIndex] }
+    private var todayIndex:   Int  { days.count - 1 }
+    private var isToday:      Bool { pageIndex == todayIndex }
+    private var selectedDate: Date { days[pageIndex] }
 
     private func goBack()    { if pageIndex > 0 { pageIndex -= 1 } }
     private func goForward() { if !isToday      { pageIndex += 1 } }
+
+    /// If the calendar day has advanced (e.g. crossed midnight while backgrounded),
+    /// rebuild the day window; if we were on "today", follow it to the new today so
+    /// the first morning reading shows on today's page, not yesterday's.
+    private func refreshForDayChange() {
+        let newDays = LiveView.makeDays()
+        guard newDays.last != days.last else { return }
+        let wasToday = (pageIndex == days.count - 1)
+        days = newDays
+        if wasToday { pageIndex = newDays.count - 1 }
+    }
 
     private var currentQuality: CombinedSignalQuality? {
         ECGQualityCompute.combinedTier(
@@ -54,8 +68,8 @@ struct LiveView: View {
                     // ── One page per day. TabView handles horizontal swiping
                     //    natively; SwiftUI disambiguates H vs V gestures for us.
                     TabView(selection: $pageIndex) {
-                        ForEach(0..<LiveView.days.count, id: \.self) { i in
-                            DayScrollView(date: LiveView.days[i], window: chartWindow)
+                        ForEach(0..<LiveView.dayCount, id: \.self) { i in
+                            DayScrollView(date: days[i], window: chartWindow)
                                 .tag(i)
                         }
                     }
@@ -87,6 +101,21 @@ struct LiveView: View {
             }
             .sheet(isPresented: $showBLESheet) {
                 BLEConnectionSheet(ble: env.ble, quality: currentQuality, motion: env.accMotion)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { refreshForDayChange() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+                refreshForDayChange()
+            }
+            .task {
+                // Runs on appear and self-heals every 60 s while Live is visible —
+                // catches the midnight rollover even if scenePhase or the day-change
+                // notification don't fire (backgrounded / coalesced / other tab).
+                while !Task.isCancelled {
+                    refreshForDayChange()
+                    try? await Task.sleep(for: .seconds(60))
+                }
             }
         }
     }
@@ -212,6 +241,12 @@ private struct DayScrollView: View {
                 guard !Task.isCancelled else { return }
                 await loadDayHistory()
             }
+        }
+        // History is now loaded asynchronously at launch and merged on foreground;
+        // refresh today's charts the instant it lands rather than waiting for the
+        // next 15 s poll (bumps only on bulk loads, not on live 2 s appends).
+        .onChange(of: env.historyRevision) {
+            if isToday { refreshLiveCharts() }
         }
     }
 
@@ -790,11 +825,11 @@ private struct MetricsTableView: View {
             MetricTile(label: "Harmony",               techLabel: "DFA α1",  value: dfa1String,                       unit: "",    delta: delta(tick?.dfa1,    comparison?.dfa1),    higherBetter: false)
             MetricTile(label: "Conscious Breathing",  techLabel: "RSA",     value: MetricFormat.ms(tick?.rsaMs),    unit: "ms",  delta: delta(tick?.rsaMs,   comparison?.rsaMs),   higherBetter: true)
             MetricTile(label: "Energy Reserve",       techLabel: "HRV",     value: MetricFormat.ms(tick?.rmssd),    unit: "ms",  delta: delta(tick?.rmssd,   comparison?.rmssd),   higherBetter: true)
-            MetricTile(label: "Adaptive Power",       techLabel: "RCMSE",   value: rcmseString,                      unit: "",    delta: delta(tick?.rcmse,   comparison?.rcmse),   higherBetter: true)
+            MetricTile(label: "Adaptive Capacity",    techLabel: "RCMSE",   value: rcmseString,                      unit: "",    delta: delta(tick?.rcmse,   comparison?.rcmse),   higherBetter: true)
             MetricTile(label: "Inner Noise",          techLabel: "PIP",     value: pipString,                        unit: "%",   delta: delta(tick?.pip,     comparison?.pip),     higherBetter: false)
             MetricTile(label: "Vagal Tone",           techLabel: "DC",      value: dcString,                         unit: "ms",  delta: delta(tick?.dc,      comparison?.dc),      higherBetter: true)
             MetricTile(label: "Calm Power",           techLabel: "VTI",     value: MetricFormat.ratio(tick?.vti),   unit: "",    delta: delta(tick?.vti,     comparison?.vti),     higherBetter: true)
-            MetricTile(label: "Stress Balance",       techLabel: "LF/HF",   value: MetricFormat.ratio(tick?.lfHF), unit: "",    delta: delta(tick?.lfHF,    comparison?.lfHF),    higherBetter: false)
+            MetricTile(label: "Stress Balance",       techLabel: "SNS",     value: stressString,                     unit: "%",   delta: delta(stressBalance(tick), stressBalance(comparison)), higherBetter: false)
             MetricTile(label: "Pulse",                techLabel: "HR",      value: MetricFormat.bpm(tick?.meanBPM), unit: "bpm", delta: delta(tick?.meanBPM, comparison?.meanBPM), higherBetter: false)
         }
     }
@@ -803,6 +838,17 @@ private struct MetricsTableView: View {
     private var rcmseString: String { tick?.rcmse.map { String(format: "%.2f", $0) } ?? "—" }
     private var pipString:   String { tick?.pip.map   { String(format: "%.1f", $0) } ?? "—" }
     private var dcString:    String { tick?.dc.map    { String(format: "%.1f", $0) } ?? "—" }
+    private var stressString: String { stressBalance(tick).map { String(format: "%.0f", $0) } ?? "—" }
+
+    /// Breathing-robust 0–100 stress dial (SNS %), the same signal the Stress
+    /// Balance chart plots — NOT the raw LF/HF ratio, which misleads during
+    /// slow breathing.
+    private func stressBalance(_ t: MetricsTick?) -> Float? {
+        guard let t else { return nil }
+        return AutonomicCompute.balance(rmssd: t.rmssd, lf: t.lfPower, hf: t.hfPower,
+                                        breathBPM: t.breathBPM, meanBPM: t.meanBPM,
+                                        baselineRmssd: nil).map { $0.sns * 100 }
+    }
 
     private func delta(_ live: Float?, _ avg: Float?) -> Float? {
         guard let l = live, let a = avg else { return nil }
