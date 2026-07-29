@@ -37,6 +37,7 @@
 		A127 /* MetricsHistoryPoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = F127 /* MetricsHistoryPoint.swift */; };
 		A240 /* DailyRollup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F240 /* DailyRollup.swift */; };
 		A241 /* TrackCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F241 /* TrackCache.swift */; };
+		A242 /* TrackPeriod.swift in Sources */ = {isa = PBXBuildFile; fileRef = F242 /* TrackPeriod.swift */; };
 		A128 /* MetricsChartsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F128 /* MetricsChartsView.swift */; };
 		A129 /* ACCWaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F129 /* ACCWaveformView.swift */; };
 		A130 /* RRTachogramView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F130 /* RRTachogramView.swift */; };
@@ -110,6 +111,7 @@
 		AT16 /* StreakComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT16 /* StreakComputeTests.swift */; };
 		AT30 /* DailyRollupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT30 /* DailyRollupTests.swift */; };
 		AT31 /* TrackCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT31 /* TrackCacheTests.swift */; };
+		AT32 /* TrackPeriodTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT32 /* TrackPeriodTests.swift */; };
 		AT17 /* TrendShapeComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT17 /* TrendShapeComputeTests.swift */; };
 		AT18 /* DayPotentialInsightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT18 /* DayPotentialInsightTests.swift */; };
 		AT19 /* DayLoadSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT19 /* DayLoadSummaryTests.swift */; };
@@ -165,6 +167,7 @@
 		F127 /* MetricsHistoryPoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsHistoryPoint.swift; sourceTree = "<group>"; };
 		F240 /* DailyRollup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyRollup.swift; sourceTree = "<group>"; };
 		F241 /* TrackCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackCache.swift; sourceTree = "<group>"; };
+		F242 /* TrackPeriod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPeriod.swift; sourceTree = "<group>"; };
 		F128 /* MetricsChartsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsChartsView.swift; sourceTree = "<group>"; };
 		F129 /* ACCWaveformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ACCWaveformView.swift; sourceTree = "<group>"; };
 		F130 /* RRTachogramView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RRTachogramView.swift; sourceTree = "<group>"; };
@@ -241,6 +244,7 @@
 		FT16 /* StreakComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakComputeTests.swift; sourceTree = "<group>"; };
 		FT30 /* DailyRollupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyRollupTests.swift; sourceTree = "<group>"; };
 		FT31 /* TrackCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackCacheTests.swift; sourceTree = "<group>"; };
+		FT32 /* TrackPeriodTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPeriodTests.swift; sourceTree = "<group>"; };
 		FT17 /* TrendShapeComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendShapeComputeTests.swift; sourceTree = "<group>"; };
 		FT18 /* DayPotentialInsightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsightTests.swift; sourceTree = "<group>"; };
 		FT19 /* DayLoadSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLoadSummaryTests.swift; sourceTree = "<group>"; };
@@ -401,6 +405,7 @@
 				F221 /* NudgeSampleBuffer.swift */,
 				F240 /* DailyRollup.swift */,
 				F241 /* TrackCache.swift */,
+				F242 /* TrackPeriod.swift */,
 			);
 			path = Metrics;
 			sourceTree = "<group>";
@@ -537,6 +542,7 @@
 				FT12 /* MotionComputeTests.swift */,
 				FT30 /* DailyRollupTests.swift */,
 				FT31 /* TrackCacheTests.swift */,
+				FT32 /* TrackPeriodTests.swift */,
 			);
 			path = WythinTests;
 			sourceTree = "<group>";
@@ -664,6 +670,7 @@
 				A127 /* MetricsHistoryPoint.swift in Sources */,
 				A240 /* DailyRollup.swift in Sources */,
 				A241 /* TrackCache.swift in Sources */,
+				A242 /* TrackPeriod.swift in Sources */,
 				A117 /* Theme.swift in Sources */,
 				A118 /* WaveformRenderer.swift in Sources */,
 				A132 /* SplashView.swift in Sources */,
@@ -738,6 +745,7 @@
 				AT16 /* StreakComputeTests.swift in Sources */,
 				AT30 /* DailyRollupTests.swift in Sources */,
 				AT31 /* TrackCacheTests.swift in Sources */,
+				AT32 /* TrackPeriodTests.swift in Sources */,
 				AT15 /* PotentialScoreTests.swift in Sources */,
 				AT14 /* AnchorBaselineTests.swift in Sources */,
 				AT13 /* AnchorDetectorTests.swift in Sources */,
