@@ -32,6 +32,7 @@ _PAYLOAD = {
     "ended_at":         "2025-04-01T07:15:00Z",
     "is_manual":        False,
     "impact_score":     72,
+    "impact_delta_pct": 8.4,
     "before_rmssd":     40.0, "during_rmssd": 52.0, "after_rmssd": 48.0,
     "before_hr":        64.0, "during_hr":    60.0, "after_hr":    62.0,
 }
@@ -69,3 +70,30 @@ async def test_activity_upload_is_idempotent():
         await client.post("/activities", json=_PAYLOAD, headers={"X-User-ID": "test-activity-user"})
         acts = await _user_activities(client, "test-activity-user")
         assert len([a for a in acts if a["client_activity_id"] == _PAYLOAD["id"]]) == 1
+
+
+@pytest.mark.asyncio
+async def test_impact_delta_pct_round_trips():
+    async with _client() as client:
+        payload = dict(_PAYLOAD)
+        payload["id"] = "00000000-0000-0000-0000-0000000000c4"
+        payload["impact_delta_pct"] = -12.5
+        up = await client.post("/activities", json=payload,
+                               headers={"X-User-ID": "test-activity-user"})
+        assert up.status_code == 200
+
+        acts = await _user_activities(client, "test-activity-user")
+        mine = next(a for a in acts if a["client_activity_id"] == payload["id"])
+        assert mine["impact_delta_pct"] == -12.5
+
+
+@pytest.mark.asyncio
+async def test_impact_delta_pct_is_optional():
+    # Builds shipped before this field must keep uploading successfully.
+    async with _client() as client:
+        payload = dict(_PAYLOAD)
+        payload["id"] = "00000000-0000-0000-0000-0000000000c5"
+        payload.pop("impact_delta_pct", None)
+        up = await client.post("/activities", json=payload,
+                               headers={"X-User-ID": "test-activity-user"})
+        assert up.status_code == 200

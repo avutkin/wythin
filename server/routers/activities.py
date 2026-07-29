@@ -35,13 +35,14 @@ async def save_activity(
 
     base_cols = [
         "client_activity_id", "user_id", "activity_type", "activity_subtype",
-        "custom_name", "started_at", "ended_at", "is_manual", "impact_score", "notes",
+        "custom_name", "started_at", "ended_at", "is_manual", "impact_score",
+        "impact_delta_pct", "notes",
     ]
     cols = base_cols + _METRIC_COLS
     vals = [
         activity.id, user_db_id, activity.activity_type, activity.activity_subtype,
         activity.custom_name, _parse_dt(activity.started_at), _parse_dt(activity.ended_at),
-        activity.is_manual, activity.impact_score, activity.notes,
+        activity.is_manual, activity.impact_score, activity.impact_delta_pct, activity.notes,
     ] + [getattr(activity, c) for c in _METRIC_COLS]
 
     placeholders = ", ".join(f"${i + 1}" for i in range(len(cols)))

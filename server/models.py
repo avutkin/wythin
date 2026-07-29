@@ -44,6 +44,7 @@ class ActivitySchema(BaseModel):
     ended_at:         Optional[str] = None
     is_manual:        bool = False
     impact_score:     Optional[int] = None
+    impact_delta_pct: Optional[float] = None
     notes:            Optional[str] = None
 
     before_hr:     Optional[float] = None; during_hr:     Optional[float] = None; after_hr:     Optional[float] = None

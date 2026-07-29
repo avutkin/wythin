@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS activities (
     ended_at           TIMESTAMPTZ,
     is_manual          BOOLEAN DEFAULT FALSE,
     impact_score       INT,
+    impact_delta_pct   REAL,
     notes              TEXT,
     -- before / during / after grid, mirroring ActivityLog's stored averages
     before_hr     REAL, during_hr     REAL, after_hr     REAL,
@@ -148,6 +149,12 @@ CREATE TABLE IF NOT EXISTS usage_events (
     created_at       TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS usage_events_user_ts ON usage_events(user_id, ts);
+
+-- Additive migrations. SCHEMA_SQL runs on every boot, and each statement here
+-- is idempotent, so this block is safe to re-run and safe to grow. Columns
+-- added to a CREATE TABLE body above only reach a database that does not yet
+-- exist; existing deployments need them stated here as well.
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS impact_delta_pct REAL;
 """
 
 

@@ -15,7 +15,7 @@ struct ActivityUploadPayload: Codable {
     let startedAt:       String   // ISO8601
     let endedAt:         String?
     let isManual:        Bool
-    let impactScore:     Int?
+    let impactDeltaPct:  Float?
     let notes:           String?
 
     let beforeHR: Float?;     let duringHR: Float?;     let afterHR: Float?
@@ -38,7 +38,7 @@ struct ActivityUploadPayload: Codable {
         case startedAt       = "started_at"
         case endedAt         = "ended_at"
         case isManual        = "is_manual"
-        case impactScore     = "impact_score"
+        case impactDeltaPct  = "impact_delta_pct"
         case notes
         case beforeHR = "before_hr",         duringHR = "during_hr",         afterHR = "after_hr"
         case beforeRMSSD = "before_rmssd",   duringRMSSD = "during_rmssd",   afterRMSSD = "after_rmssd"
@@ -62,11 +62,7 @@ struct ActivityUploadPayload: Codable {
         startedAt       = iso.string(from: e.startedAt)
         endedAt         = e.endedAt.map { iso.string(from: $0) }
         isManual        = e.isManual
-        // ActivityLog no longer stores a 0–100 score (Task 7 replaced it with
-        // the computed impactDeltaPct, a different unit/shape). Send nil here
-        // rather than conflate the two; Task 9 reworks this payload field to
-        // carry the delta properly.
-        impactScore     = nil
+        impactDeltaPct  = e.impactDeltaPct.map(Float.init)
         notes           = e.notes
         beforeHR = e.beforeHR;         duringHR = e.duringHR;         afterHR = e.afterHR
         beforeRMSSD = e.beforeRMSSD;   duringRMSSD = e.duringRMSSD;   afterRMSSD = e.afterRMSSD
