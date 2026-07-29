@@ -334,4 +334,20 @@ final class AnchorDetectorTests: XCTestCase {
         XCTAssertEqual(a?.restingHR ?? 0, 75, accuracy: 0.001)
     }
 
+    func testOvernightRunIsNotTheMorningAnchor() {
+        // Sleep is stiller and cleaner than any waking rest, so an overnight
+        // background stretch wins the "first qualifying run" race outright — and
+        // would be labelled MORNING READ at hour 1, an hour no later day is
+        // comparable to.
+        let cal = Calendar.current
+        let a = AnchorDetector.detect(stillPoints(minutes: 40, hour: 1, hr: 48, spacing: 30)
+                                    + stillPoints(minutes: 10, hour: 7, spacing: 30))
+        XCTAssertNotNil(a, "the 07:00 rest still anchors the day")
+        XCTAssertEqual(cal.component(.hour, from: a?.startedAt ?? .distantPast), 7)
+        XCTAssertEqual(a?.restingHR ?? 0, 60, accuracy: 0.001)
+    }
+
+    func testOvernightOnlyDayHasNoAnchor() {
+        XCTAssertNil(AnchorDetector.detect(stillPoints(minutes: 40, hour: 1, hr: 48, spacing: 30)))
+    }
 }

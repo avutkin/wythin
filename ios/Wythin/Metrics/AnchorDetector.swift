@@ -22,6 +22,16 @@ enum AnchorThresholds {
     static let minSec: Double = 180
     /// Windows starting before this hour are preferred over later ones.
     static let morningCutoffHour: Int = 12
+    /// Runs starting before this hour are not candidates at all. Sleep is the
+    /// stillest, cleanest signal there is, so an overnight stretch outscores
+    /// every waking rest and would be labelled the morning read — and a history
+    /// mixing hour≈1 and hour≈7 anchors fails `PotentialScore`'s hour-tolerance
+    /// check, which is how a clean signal turns into `notComparable`.
+    ///
+    /// A run that *starts* before the floor is skipped whole rather than
+    /// trimmed: its head is the part the medians would come from, and that head
+    /// is the asleep part.
+    static let earliestAnchorHour: Int = 4
     /// Rejected samples tolerated inside a run before it counts as broken. A
     /// stir of one or two ticks is not the end of a rest; a sustained one is.
     static let maxRejectedInGap: Int = 2
@@ -84,6 +94,7 @@ enum AnchorDetector {
         let all = points.sorted { $0.timestamp < $1.timestamp }
         guard !all.isEmpty else { return nil }
 
+        let cal = Calendar.current
         let runs = continuousRuns(all).filter { run in
             // Every gate is applied to the leading window — the span the
             // medians actually come from — not to the whole rest. Two reasons:
@@ -95,11 +106,11 @@ enum AnchorDetector {
             let window = leadingWindow(run)
             return window.count >= AnchorThresholds.minSamples
                 && duration(run) >= AnchorThresholds.minSec
+                && cal.component(.hour, from: run[0].timestamp) >= AnchorThresholds.earliestAnchorHour
                 && passesRunGates(window)
         }
         guard !runs.isEmpty else { return nil }
 
-        let cal = Calendar.current
         let morning = runs.first { run in
             cal.component(.hour, from: run[0].timestamp) < AnchorThresholds.morningCutoffHour
         }
