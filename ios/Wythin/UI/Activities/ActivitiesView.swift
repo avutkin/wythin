@@ -63,10 +63,6 @@ struct ActivitiesView: View {
         allEntries.first(where: { $0.isActive })
     }
 
-    private var suggested: [ActivityType] {
-        suggestedActivities()
-    }
-
     var body: some View {
         NavigationStack {
             logSection
@@ -102,61 +98,40 @@ struct ActivitiesView: View {
                 .listRowInsets(.init(top: 8, leading: 16, bottom: 0, trailing: 16))
             }
 
-            // ── Suggestions + action buttons (hidden while recording) ──
+            // ── Action buttons (hidden while recording) ──
             if activeEntry == nil {
                 Section {
-                    VStack(spacing: 10) {
-                        HStack {
-                            Text("SUGGESTED NOW")
-                                .font(Theme.monoLabel)
-                                .foregroundStyle(Theme.dim)
-                            Spacer()
-                            Text(hourLabel())
-                                .font(Theme.monoLabel)
-                                .foregroundStyle(Theme.dim.opacity(0.6))
+                    HStack(spacing: 12) {
+                        Button {
+                            activeSheet = .start
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "play.fill")
+                                Text("START NOW")
+                            }
+                            .font(Theme.monoLabel)
+                            .foregroundStyle(Theme.bg)
+                            .padding(.vertical, 7)
+                            .frame(maxWidth: .infinity)
+                            .background(Theme.accent)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
 
-                        HStack(spacing: 10) {
-                            ForEach(suggested, id: \.self) { type in
-                                SuggestionChip(type: type) {
-                                    env.pendingTabRequest = .train
-                                }
+                        Button {
+                            activeSheet = .logPast
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "clock.arrow.circlepath")
+                                Text("LOG PAST ACTIVITY")
                             }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                        HStack(spacing: 12) {
-                            Button {
-                                activeSheet = .start
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "play.fill")
-                                    Text("START")
-                                }
-                                .font(Theme.monoLabel)
-                                .foregroundStyle(Theme.bg)
-                                .padding(.vertical, 7)
-                                .frame(maxWidth: .infinity)
-                                .background(Theme.accent)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                            }
-
-                            Button {
-                                activeSheet = .logPast
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "clock.arrow.circlepath")
-                                    Text("LOG PAST")
-                                }
-                                .font(Theme.monoLabel)
-                                .foregroundStyle(Theme.accent)
-                                .padding(.vertical, 7)
-                                .frame(maxWidth: .infinity)
-                                .background(Theme.accent.opacity(0.08))
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                                .overlay(RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(Theme.accent.opacity(0.3), lineWidth: 0.5))
-                            }
+                            .font(Theme.monoLabel)
+                            .foregroundStyle(Theme.accent)
+                            .padding(.vertical, 7)
+                            .frame(maxWidth: .infinity)
+                            .background(Theme.accent.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(Theme.accent.opacity(0.3), lineWidth: 0.5))
                         }
                     }
                     .cardStyle()
@@ -231,43 +206,6 @@ struct ActivitiesView: View {
         }
     }
 
-    // MARK: - Helpers
-
-    private func hourLabel() -> String {
-        let h = Calendar.current.component(.hour, from: Date())
-        switch h {
-        case 5..<12:  return "MORNING"
-        case 12..<17: return "AFTERNOON"
-        case 17..<21: return "EVENING"
-        default:      return "NIGHT"
-        }
-    }
-
-    private func suggestedActivities() -> [ActivityType] {
-        let hour = Calendar.current.component(.hour, from: Date())
-        let bucket = hour / 3
-
-        // Build frequency map from history
-        var freq: [ActivityType: Int] = [:]
-        for entry in allEntries {
-            guard let type = ActivityType(rawValue: entry.activityType) else { continue }
-            let entryBucket = Calendar.current.component(.hour, from: entry.startedAt) / 3
-            if entryBucket == bucket { freq[type, default: 0] += 1 }
-        }
-
-        if !freq.isEmpty {
-            let sorted = freq.sorted { $0.value > $1.value }.prefix(2).map(\.key)
-            if !sorted.isEmpty { return sorted }
-        }
-
-        // Fallback: hard-coded defaults by hour
-        return ActivityType.allCases
-            .filter { $0 != .custom && $0.defaultHours.contains(hour) }
-            .prefix(2)
-            .asArray()
-            .ifEmpty(fallback: [.meditation, .breathwork])
-    }
-
     // MARK: - Activity CRUD
 
     private func beginActivity(type: ActivityType, subtype: String?, customName: String?) {
@@ -289,30 +227,6 @@ struct ActivitiesView: View {
         try? ctx.save()
     }
 
-}
-
-// MARK: - SuggestionChip
-
-private struct SuggestionChip: View {
-    let type:   ActivityType
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: type.icon)
-                    .font(.system(size: 11))
-                Text(type.rawValue)
-                    .font(Theme.monoLabel)
-            }
-            .foregroundStyle(type.color)
-            .padding(.vertical, 5)
-            .padding(.horizontal, 10)
-            .background(type.color.opacity(0.12))
-            .clipShape(Capsule())
-            .overlay(Capsule().strokeBorder(type.color.opacity(0.3), lineWidth: 0.5))
-        }
-    }
 }
 
 // MARK: - ActiveActivityBanner
@@ -550,26 +464,6 @@ private struct LogMetricCell: View {
         .padding(.vertical, 6)
         .background(Theme.surface.opacity(0.4))
         .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-}
-
-// MARK: - DeltaChip
-
-private struct DeltaChip: View {
-    let value: Float
-    let unit:  String
-
-    private var color: Color { value >= 0 ? Theme.accent : Theme.warn }
-    private var sign:  String { value >= 0 ? "+" : "" }
-
-    var body: some View {
-        Text("\(sign)\(Int(value.rounded())) \(unit)")
-            .font(Theme.monoLabel)
-            .foregroundStyle(color)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(color.opacity(0.12))
-            .clipShape(Capsule())
     }
 }
 
@@ -1265,15 +1159,4 @@ private struct EditActivitySheet: View {
             }
         }
     }
-}
-
-// MARK: - Collection helpers
-
-private extension Array {
-    func asArray() -> [Element] { Array(self) }
-    func ifEmpty(fallback: [Element]) -> [Element] { isEmpty ? fallback : self }
-}
-
-private extension ArraySlice {
-    func asArray() -> [Element] { Array(self) }
 }

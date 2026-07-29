@@ -78,23 +78,6 @@ enum ActivityType: String, CaseIterable, Codable {
             return []
         }
     }
-
-    // Hour ranges (start inclusive) for time-of-day fallback pre-selection
-    var defaultHours: [Int] {
-        switch self {
-        case .meditation:   return [5, 6, 7, 8, 21, 22]
-        case .walk:         return [7, 8, 9, 16, 17, 18]
-        case .exercise:     return [9, 10, 15, 16, 17]
-        case .run:          return [6, 7, 8, 17, 18]
-        case .meal:         return [7, 8, 12, 13, 18, 19, 20]
-        case .breathwork:   return [6, 7, 21, 22]
-        case .nap:          return [13, 14, 15]
-        case .coldExposure: return [7, 8, 9]
-        case .sauna:        return [18, 19, 20]
-        case .alcohol:      return [19, 20, 21]
-        case .custom:       return []
-        }
-    }
 }
 
 // MARK: - ActivityLog
