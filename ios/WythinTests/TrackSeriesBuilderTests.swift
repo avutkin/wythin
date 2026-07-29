@@ -19,11 +19,12 @@ final class TrackSeriesBuilderTests: XCTestCase {
         TrackMetrics.all.first { $0.def.label == label }!
     }
 
-    /// A rollup with `dc` and `pip` set; other fields nil.
+    /// A rollup with `dc`, `pip` and `dfa1` set; other fields nil.
     private func rollup(_ day: Date, dc: Double? = nil, pip: Double? = nil,
+                        dfa1: Double? = nil,
                         wearSeconds: Double = 400) -> DailyRollup {
         DailyRollup(day: day, dc: dc, rmssd: nil, rsaMs: nil, rcmse: nil,
-                    pip: pip, dfa1: nil, stressBalance: nil, vti: nil, meanBPM: nil,
+                    pip: pip, dfa1: dfa1, stressBalance: nil, vti: nil, meanBPM: nil,
                     sampleCount: 200, wearSeconds: wearSeconds)
     }
 
@@ -144,6 +145,81 @@ final class TrackSeriesBuilderTests: XCTestCase {
         XCTAssertNotNil(s.average)
     }
 
+    // MARK: delta — .target(1.0)
+
+    /// Harmony is the only `.target` metric, and the only one where "better"
+    /// is neither up nor down. Moving *toward* 1.0 must read as positive
+    /// whichever side it starts on.
+    func testDeltaIsBenefitSignedForTargetDirection() {
+        let today = date(2026, 7, 28)
+        // benefit(x) = -|x - 1|. Prior 0.8 → -0.2, current 0.9 → -0.1.
+        // (-0.1 - -0.2) / 0.2 = +50%.
+        let rollups = week(0, today: today).days.map { rollup($0, dfa1: 0.9) }
+                    + week(1, today: today).days.map { rollup($0, dfa1: 0.8) }
+        let s = TrackSeriesBuilder.series(spec: spec("Harmony"),
+                                          range: week(0, today: today),
+                                          priorRange: week(1, today: today),
+                                          rollups: rollups, asOf: today, calendar: cal)
+        XCTAssertEqual(s.deltaPct!, 50, accuracy: 0.001)
+    }
+
+    /// Approaching 1.0 from above is an improvement too — a plain "higher is
+    /// better" or "lower is better" rule would get one of these two backwards.
+    func testDeltaIsPositiveApproachingTheTargetFromAbove() {
+        let today = date(2026, 7, 28)
+        // Prior 1.4 → -0.4, current 1.2 → -0.2. (-0.2 - -0.4) / 0.4 = +50%.
+        let rollups = week(0, today: today).days.map { rollup($0, dfa1: 1.2) }
+                    + week(1, today: today).days.map { rollup($0, dfa1: 1.4) }
+        let s = TrackSeriesBuilder.series(spec: spec("Harmony"),
+                                          range: week(0, today: today),
+                                          priorRange: week(1, today: today),
+                                          rollups: rollups, asOf: today, calendar: cal)
+        XCTAssertEqual(s.deltaPct!, 50, accuracy: 0.001)
+        XCTAssertEqual(s.average!, 1.2, accuracy: 0.001)
+    }
+
+    /// Equally far from 1.0 on the other side is no change at all, even though
+    /// the raw value moved by 0.4.
+    func testDeltaIsZeroWhenTheDistanceToTargetIsUnchanged() {
+        let today = date(2026, 7, 28)
+        let rollups = week(0, today: today).days.map { rollup($0, dfa1: 1.2) }
+                    + week(1, today: today).days.map { rollup($0, dfa1: 0.8) }
+        let s = TrackSeriesBuilder.series(spec: spec("Harmony"),
+                                          range: week(0, today: today),
+                                          priorRange: week(1, today: today),
+                                          rollups: rollups, asOf: today, calendar: cal)
+        XCTAssertEqual(s.deltaPct!, 0, accuracy: 0.001)
+    }
+
+    /// The ill-conditioned case `benefitDelta` guards: a prior average sitting
+    /// exactly on the target has benefit 0, so the percentage would divide by
+    /// zero. No chip is better than an infinite one.
+    func testDeltaIsNilWhenThePriorAverageIsExactlyOnTarget() {
+        let today = date(2026, 7, 28)
+        let rollups = week(0, today: today).days.map { rollup($0, dfa1: 1.3) }
+                    + week(1, today: today).days.map { rollup($0, dfa1: 1.0) }
+        let s = TrackSeriesBuilder.series(spec: spec("Harmony"),
+                                          range: week(0, today: today),
+                                          priorRange: week(1, today: today),
+                                          rollups: rollups, asOf: today, calendar: cal)
+        XCTAssertNil(s.deltaPct)
+        XCTAssertNotNil(s.average)
+    }
+
+    /// Near the target a small absolute move blows the percentage up; the
+    /// ±100 clamp is what keeps the chip from reading "▼ 900%".
+    func testDeltaIsClampedNearTheTarget() {
+        let today = date(2026, 7, 28)
+        // Prior 0.99 → -0.01, current 0.89 → -0.11. Raw: -1000%.
+        let rollups = week(0, today: today).days.map { rollup($0, dfa1: 0.89) }
+                    + week(1, today: today).days.map { rollup($0, dfa1: 0.99) }
+        let s = TrackSeriesBuilder.series(spec: spec("Harmony"),
+                                          range: week(0, today: today),
+                                          priorRange: week(1, today: today),
+                                          rollups: rollups, asOf: today, calendar: cal)
+        XCTAssertEqual(s.deltaPct!, -100, accuracy: 0.001)
+    }
+
     // MARK: summary
 
     func testSummaryCountsInTheBenefitDirection() {
@@ -209,6 +285,10 @@ final class TrackSeriesBuilderTests: XCTestCase {
         XCTAssertEqual(s.overlay.first!.value, 8, accuracy: 0.001)
     }
 
+    /// The weekly overlay is a month-view device only. Both non-month periods
+    /// are built here: with only the week case covered, a gate written
+    /// `!= .week` instead of `== .month` would pass while shipping ~26 stray
+    /// weekly rules across the 6M chart.
     func testWeekAndSixMonthSeriesHaveNoOverlay() {
         let today = date(2026, 7, 28)
         let rollups = week(0, today: today).days.map { rollup($0, dc: 8) }
@@ -216,5 +296,19 @@ final class TrackSeriesBuilderTests: XCTestCase {
                                           priorRange: week(1, today: today),
                                           rollups: rollups, asOf: today, calendar: cal)
         XCTAssertTrue(w.overlay.isEmpty)
+
+        let six      = TrackRangeBuilder.range(period: .sixMonth, offset: 0,
+                                               today: today, calendar: cal)
+        let sixPrior = TrackRangeBuilder.range(period: .sixMonth, offset: 1,
+                                               today: today, calendar: cal)
+        let sixRollups = six.days.map { rollup($0, dc: 8) }
+        let s = TrackSeriesBuilder.series(spec: spec("Vagal Tone"), range: six,
+                                          priorRange: sixPrior,
+                                          rollups: sixRollups, asOf: today, calendar: cal)
+        // Data is genuinely present, so an empty overlay is the gate at work
+        // rather than there being nothing to group.
+        XCTAssertEqual(s.bars.count, 6)
+        XCTAssertNotNil(s.bars.first!.value)
+        XCTAssertTrue(s.overlay.isEmpty)
     }
 }

@@ -52,16 +52,37 @@ struct MacroReadCard: View {
 /// Cached text for this page, or a fresh call. Returns nil on any failure so
 /// the card simply does not render; the next appear retries.
 ///
-/// The cache key includes a fingerprint of the page's rollup *values*, so
-/// paging back to a past period is free while a period whose data actually
-/// changed regenerates.
+/// The key has four parts, and each one exists for a reason:
+///
+/// - **revision** (`TrackCache.macroReadRevision`) — a shipped prompt or
+///   formatter fix must reach periods that are already cached. Without it a
+///   past week, whose rollups will never change again, serves its original
+///   text forever.
+/// - **period** — a week and a month can share a start date, and their reads
+///   are not interchangeable.
+/// - **range start** — which page this is.
+/// - **reference kind** — one character per metric, `1` when that metric's
+///   reference line is the person's own 90-day baseline and `0` when it is
+///   still the fixed norm. The rollups behind a past week stop changing, but
+///   the *reference* they are described against does not: on day 10 a user
+///   has too little history, so the read is phrased around "typical"; by day
+///   25 the same week is charted against "your 90d". Without this the stale
+///   "typical" text outlives the switch and contradicts the chart drawn
+///   directly beneath it.
+/// - **fingerprint** — a hash of the page's rollup *values*, so a period
+///   whose data actually changed regenerates and one that did not is free.
 @MainActor
 func macroRead(for period: TrackPeriod,
                range: TrackRange,
                series: [(spec: TrackMetricSpec, series: TrackSeries)],
                cache: TrackCache,
                client: APIClient) async -> String? {
-    let key = "\(period.apiValue)|\(range.start.timeIntervalSince1970)|\(cache.fingerprint(for: range.days))"
+    let referenceKind = series.map { $0.series.referenceIsPersonal ? "1" : "0" }.joined()
+    let key = "v\(TrackCache.macroReadRevision)"
+            + "|\(period.apiValue)"
+            + "|\(range.start.timeIntervalSince1970)"
+            + "|\(referenceKind)"
+            + "|\(cache.fingerprint(for: range.days))"
     if let cached = cache.macroRead(key: key) { return cached }
 
     let payload = MacroTrendPayload(period: period, rangeLabel: range.label, series: series)

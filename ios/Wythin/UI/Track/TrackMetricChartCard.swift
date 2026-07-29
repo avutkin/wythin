@@ -76,9 +76,15 @@ struct TrackMetricChartCard: View {
         return f
     }
 
+    /// Below this the chip is suppressed. The label rounds to whole percent,
+    /// so -0.4 and +0.2 both print "0%" — but one draws a red ▼ and the other
+    /// a green ▲, giving two opposite-looking verdicts for a change the user
+    /// cannot distinguish. Nothing is a truer read than a coin-flip arrow.
+    private static let minDeltaPct: Double = 0.5
+
     @ViewBuilder
     private var deltaChip: some View {
-        if let d = series.deltaPct {
+        if let d = series.deltaPct, abs(d) >= Self.minDeltaPct {
             let better = d >= 0
             Text("\(better ? "▲" : "▼") \(abs(d), specifier: "%.0f")% vs prior \(period.priorNoun)")
                 .font(.system(size: 9, design: .monospaced))
@@ -184,8 +190,11 @@ struct TrackMetricChartCard: View {
                 // label runs past the plot's layout bounds and is hard-clipped
                 // by `.cardStyle()`'s `.clipShape`. Sized to the longer of the
                 // two labels ("your 90d", 8 monospaced points) plus a small
-                // gap from the plotted bars.
-                .padding(.trailing, 42)
+                // gap from the plotted bars. That label measures 38.4pt, so 42
+                // left only ~3.6pt of slack — one glyph-metric change away
+                // from clipping again. 48 keeps a real margin; the cost is
+                // ~6pt of plot width, which even the 31-bar month view has.
+                .padding(.trailing, 48)
         }
     }
 
