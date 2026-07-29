@@ -2,7 +2,7 @@
 
 **Goal:** Watch the live metric stream on-device and, a few times a day at most, either suggest an evidence-backed intervention when the user's regulatory state has meaningfully deteriorated, or tell them — quietly — that they are in a rare clear window worth spending on their hardest task.
 
-**Status:** Draft, revision 2 — realigned against the primary literature. Revision 1's trigger set is superseded; see §3.6 for what changed and why.
+**Status:** Draft, revision 3 — literature-aligned trigger set (§3.6), delivery mechanics (§10.1), and the anchor gate revised to follow the baseline rework in `504a882` (§9). Phase 1 partially implemented.
 
 **Depends on:** the anchor baseline (`AnchorBaseline` / `DailyAnchor` / `AnchorDetector`), `LiveStateTrendCompute`, `AutonomicCompute`, and the continuous background tick loop in `AppEnvironment`. No server change. No new sync.
 
@@ -24,7 +24,7 @@ The metric stream is already continuous. `AppEnvironment.swift:302-401` computes
 | Downshift target | A **menu**, not a prescription: an evidence-chosen primary plus alternates the user can pick by context. Six options (§5.1), four of which need no pacer work. |
 | Movement target | `ActivityLogging.begin(type: .walk)` — a *live* activity, so the impact pipeline can report afterwards whether it helped. Same for every other option, which is what later makes per-user ranking possible. |
 | Focus window | **Silent.** No push. A past-tense card waiting in-app on next open — see §6. |
-| Budget | ≤3 downshift/day, ≥90 min apart, ≤1 focus/day, quiet hours 22:00–07:00, suppressed during a logged activity, during BLE `.standby`, and below 7 baseline anchors. |
+| Budget | ≤3 downshift/day, ≥90 min apart, ≤1 focus/day, quiet hours 22:00–07:00, suppressed during a logged activity, during BLE `.standby`, and when no baseline exists at all. |
 | Rollout | Shadow mode first. |
 
 ### The governing constraint
@@ -452,9 +452,17 @@ AND slow30.rsa.direction != "falling"
 
 ### Cold start
 
-Below `AnchorBaseline.minimumAnchors = 7` (`Metrics/AnchorBaseline.swift:38,53`) the engine hard-suppresses and returns a *reason*, not a bool, so the UI can explain itself. A second cold start applies: the buffer is not persisted, so every cold launch costs a 30-minute warm-up.
+**Revised in light of the baseline rework (commit `504a882`).** Revision 2 of this spec specified hard suppression below seven anchors. That threshold no longer exists: `minimumAnchors` was replaced by `AnchorBaseline.firmAnchors`, documented as *"a **label** threshold, not a compute gate — scoring starts at one prior anchor"*, backed by a shrinkage prior (`BaselinePrior`) that blends a thin personal SD toward literature-informed constants and widens it by the prediction factor `√(1 + 1/n)`.
 
-Surfaced two ways: a line under the existing `DayPotentialStrip` "LEARNING YOUR RANGE" state (`:74-75`) reading *"Nudges start once I've learned your range — n of 7 mornings"* with the 7 read from the constant; and a `NUDGES` section in `SettingsView` showing state / today's count / next eligible time / current suppression reason.
+That is a better answer than suppression, and the nudge engine follows it rather than the older spec text:
+
+- `dzSlow` divides by `BaselineStat.sdBlended(prior:)`, the same denominator `z(_:prior:)` uses. Nudges therefore work from the **first** anchor.
+- Early baselines are not merely permitted, they are *conservative by construction*: at n = 1 the denominator is the prior widened by √2 (a 1.41× multiplier, fading to 1.07× by n = 7), so the same physiological change yields a visibly smaller dz and clears a threshold less readily. There is a test asserting exactly this.
+- The engine suppresses only when there is **no** baseline at all — no anchors recorded yet.
+
+A second cold start still applies and is unchanged: the buffer is not persisted, so every cold launch costs a 30-minute warm-up.
+
+Surfaced two ways: the existing `DayPotentialStrip` "LEARNING YOUR RANGE" state (`:74-75`) already communicates a provisional baseline, so nudge copy should say the reading is *early* rather than absent; and a `NUDGES` section in `SettingsView` showing state / today's count / next eligible time / current suppression reason. `NudgeSuppression.evaluate` returns a *reason* rather than a bool precisely so that row can be written.
 
 ### Copy
 
@@ -545,7 +553,7 @@ Highest-value tests: one near-miss array per clause per trigger; a synthetic run
 3. **How many alternates before the menu becomes friction?** The spec offers three. A nudge is an interruption; a menu makes the interruption longer. An alternative shape is primary + a single "Something else" that cycles, rather than a list. Worth testing in Phase 2 rather than deciding now.
 4. **Should `stretch` copy include actual stretch suggestions, or stay abstract?** Naming specific stretches risks drifting into active stretching, which is autonomically the wrong direction (§3.4). Abstract copy ("something gentle you can hold, relaxed") is safer but vaguer.
 5. **Work-hours definition for F1** — hardcode 09:00–18:00 Mon–Fri, ask at onboarding, or infer from when the strap is habitually worn?
-6. **Day-1 users.** D3 needs no baseline at all — it is motion and duration only. Allow it before 7 anchors so new users get something, or hard-suppress everything for consistency?
+6. ~~**Day-1 users.**~~ **Resolved** by the baseline rework — see §9. Scoring starts at one anchor with a prior-widened denominator, so no anchor-count gate is needed and D3 is not a special case.
 7. **Should the balance dial become personal?** Passing `exp(baseline.lnRMSSD.mean)` as `baselineRmssd` would make the user's own baseline read exactly 50 (`AutonomicCompute.swift:79-80`) — a better nudge input, but then the nudge's dial and the chart's dial disagree.
 8. **Shadow-mode exit criteria.** Two weeks is a guess. What fire rate counts as correct?
 
