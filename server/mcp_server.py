@@ -157,11 +157,16 @@ async def get_session_samples(ctx: Context, session_id: str, limit: int = 2000) 
 # ---- metric_samples aggregate tools ----
 
 _METRIC_COLS = {"mean_bpm", "rmssd", "sdnn", "pnn50", "lf_hf", "rsa_ms", "coherence",
-                "cbi", "breath_bpm", "dfa1", "rcmse", "pip", "dc", "vti"}
+                "cbi", "breath_bpm", "dfa1", "rcmse", "pip", "dc", "vti",
+                "rsa_idx", "ie_ratio", "ials", "motion", "signal_quality",
+                "rr_invalid_rate", "rr_corrected_rate", "ecg_quality_tier",
+                "ulf_power", "vlf_power", "lf_power", "hf_power"}
 _METRIC_ALIASES = {
     "hr": "mean_bpm", "heart_rate": "mean_bpm", "pulse": "mean_bpm",
     "inner_noise": "pip", "harmony": "dfa1", "vagal_tone": "dc",
     "calm_power": "vti", "hrv": "rmssd", "stress_balance": "lf_hf",
+    "stillness": "motion", "quality": "signal_quality",
+    "breathing_ratio": "ie_ratio", "fragmentation": "ials",
 }
 
 

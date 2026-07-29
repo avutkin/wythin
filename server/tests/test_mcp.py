@@ -121,3 +121,38 @@ def test_resolve_metric_alias_and_reject():
     assert _resolve_metric("pip") == "pip"
     with pytest.raises(ValueError):
         _resolve_metric("; DROP TABLE")
+
+
+@pytest.mark.asyncio
+async def test_new_metrics_resolve_and_aggregate():
+    from server.db import get_or_create_user
+    from server.mcp_server import _resolve_metric, _metric_stats, _day_summary
+    async with _client() as c:
+        # Column names resolve directly.
+        assert _resolve_metric("motion") == "motion"
+        assert _resolve_metric("hf_power") == "hf_power"
+        assert _resolve_metric("ecg_quality_tier") == "ecg_quality_tier"
+        # Friendly aliases resolve to columns.
+        assert _resolve_metric("stillness") == "motion"
+        assert _resolve_metric("quality") == "signal_quality"
+        assert _resolve_metric("breathing_ratio") == "ie_ratio"
+        assert _resolve_metric("fragmentation") == "ials"
+        # Unknown names are still rejected (no SQL-column injection).
+        with pytest.raises(ValueError):
+            _resolve_metric("motion; DROP TABLE users")
+
+        await c.post("/v1/metrics", headers={"X-User-ID": "mcp-wide"}, json={"samples": [
+            {"ts": "2026-07-28T12:00:00Z", "motion": 10.0, "signal_quality": 0.9},
+            {"ts": "2026-07-28T12:00:02Z", "motion": 20.0, "signal_quality": 0.8},
+        ]})
+        uid = await get_or_create_user("mcp-wide")
+
+        stats = await _metric_stats(uid, "stillness",
+                                    "2026-07-28T00:00:00Z", "2026-07-29T00:00:00Z")
+        assert stats["metric"] == "motion"
+        assert stats["n"] == 2
+        assert stats["avg"] == pytest.approx(15.0)
+
+        summary = await _day_summary(uid, "2026-07-28")
+        assert "motion" in summary, "day summary must cover the new columns"
+        assert summary["signal_quality"]["n"] == 2
