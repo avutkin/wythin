@@ -5,12 +5,18 @@ import SwiftData
 /// wear sessions) to the backend. Called after logging an event and on app
 /// foreground. Idempotent: the server dedupes on `clientEventId`, and rows are
 /// marked synced locally so retries don't re-send.
-actor UsageUploader {
+/// Main-actor isolated, deliberately: `flushPending` takes the caller's
+/// `ModelContext`, which is `AppEnvironment`'s main context. `ModelContext` is
+/// not thread-safe, so an `actor` here would run the fetch, the mutation and the
+/// save on a background executor and crash the moment a race was lost. The
+/// network call still suspends without blocking the main thread.
+@MainActor
+final class UsageUploader {
 
-    private let client: APIClient
+    private let client: UsageAPIClient
     private let userID: String
 
-    init(client: APIClient, userID: String) {
+    init(client: UsageAPIClient, userID: String) {
         self.client = client
         self.userID = userID
     }

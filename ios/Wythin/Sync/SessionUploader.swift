@@ -3,7 +3,11 @@ import SwiftData
 
 /// Uploads sessions that failed to sync while offline.
 /// Called on app foreground and after each successful server connection.
-actor SessionUploader {
+/// Main-actor isolated for the same reason as `UsageUploader`: it operates on
+/// the caller's `ModelContext`, which is not thread-safe and belongs to the main
+/// actor. An `actor` here would do SwiftData work on a background executor.
+@MainActor
+final class SessionUploader {
 
     private let client: APIClient
     private let userID: String

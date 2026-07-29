@@ -87,7 +87,11 @@ struct ActivityUploadPayload: Codable {
 /// COALESCEs that column on conflict so an absent value never clears a real
 /// historical score written by an older build. On the first run the watermark
 /// is `.distantPast`, so it backfills existing activities.
-actor ActivityUploader {
+/// Main-actor isolated for the same reason as `UsageUploader`: it operates on
+/// the caller's `ModelContext`, which is not thread-safe and belongs to the main
+/// actor. An `actor` here would do SwiftData work on a background executor.
+@MainActor
+final class ActivityUploader {
 
     private let client: APIClient
     private let userID: String

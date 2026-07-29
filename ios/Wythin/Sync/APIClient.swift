@@ -410,6 +410,14 @@ protocol InsightAPIClient {
 
 extension APIClient: InsightAPIClient {}
 
+/// Narrow protocol over `APIClient.uploadUsage` so `UsageUploader` can be
+/// tested with a fake instead of a real network call.
+protocol UsageAPIClient {
+    func uploadUsage(_ payload: UsageUploadPayload, userID: String) async throws
+}
+
+extension APIClient: UsageAPIClient {}
+
 // MARK: - Payload builders
 
 extension SessionPayload {
