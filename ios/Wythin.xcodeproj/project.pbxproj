@@ -41,6 +41,8 @@
 		A243 /* TrackMetricSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = F243 /* TrackMetricSpec.swift */; };
 		A244 /* TrackSeriesBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F244 /* TrackSeriesBuilder.swift */; };
 		A245 /* ConsistencySummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F245 /* ConsistencySummary.swift */; };
+		A246 /* TrackPeriodBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F246 /* TrackPeriodBar.swift */; };
+		A247 /* MacroReadCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F247 /* MacroReadCard.swift */; };
 		A128 /* MetricsChartsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F128 /* MetricsChartsView.swift */; };
 		A129 /* ACCWaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F129 /* ACCWaveformView.swift */; };
 		A130 /* RRTachogramView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F130 /* RRTachogramView.swift */; };
@@ -177,6 +179,8 @@
 		F243 /* TrackMetricSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackMetricSpec.swift; sourceTree = "<group>"; };
 		F244 /* TrackSeriesBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackSeriesBuilder.swift; sourceTree = "<group>"; };
 		F245 /* ConsistencySummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencySummary.swift; sourceTree = "<group>"; };
+		F246 /* TrackPeriodBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPeriodBar.swift; sourceTree = "<group>"; };
+		F247 /* MacroReadCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroReadCard.swift; sourceTree = "<group>"; };
 		F128 /* MetricsChartsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsChartsView.swift; sourceTree = "<group>"; };
 		F129 /* ACCWaveformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ACCWaveformView.swift; sourceTree = "<group>"; };
 		F130 /* RRTachogramView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RRTachogramView.swift; sourceTree = "<group>"; };
@@ -368,6 +372,15 @@
 			path = History;
 			sourceTree = "<group>";
 		};
+		GAPP_TRK /* Track */ = {
+			isa = PBXGroup;
+			children = (
+				F246 /* TrackPeriodBar.swift */,
+				F247 /* MacroReadCard.swift */,
+			);
+			path = Track;
+			sourceTree = "<group>";
+		};
 		GAPP_LIV /* Live */ = {
 			isa = PBXGroup;
 			children = (
@@ -504,6 +517,7 @@
 				GAPP_ACT /* Activities */,
 				GAPP_RES /* Resonate */,
 				GAPP_HIS /* History */,
+				GAPP_TRK /* Track */,
 				GAPP_SET /* Settings */,
 			);
 			path = UI;
@@ -692,6 +706,8 @@
 				A243 /* TrackMetricSpec.swift in Sources */,
 				A244 /* TrackSeriesBuilder.swift in Sources */,
 				A245 /* ConsistencySummary.swift in Sources */,
+				A246 /* TrackPeriodBar.swift in Sources */,
+				A247 /* MacroReadCard.swift in Sources */,
 				A117 /* Theme.swift in Sources */,
 				A118 /* WaveformRenderer.swift in Sources */,
 				A132 /* SplashView.swift in Sources */,
