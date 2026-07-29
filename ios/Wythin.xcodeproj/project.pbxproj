@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		A220 /* DayPotentialStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F220 /* DayPotentialStrip.swift */; };
 		A219 /* DayPotentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F219 /* DayPotentialStore.swift */; };
+		AT21 /* MetricSyncBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT21 /* MetricSyncBackfillTests.swift */; };
 		AT19 /* DayLoadSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT19 /* DayLoadSummaryTests.swift */; };
 		AT20 /* DayPotentialStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT20 /* DayPotentialStateTests.swift */; };
 		AT18 /* DayPotentialInsightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT18 /* DayPotentialInsightTests.swift */; };
@@ -121,6 +122,7 @@
 /* Begin PBXFileReference section */
 		F220 /* DayPotentialStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStrip.swift; sourceTree = "<group>"; };
 		F219 /* DayPotentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStore.swift; sourceTree = "<group>"; };
+		FT21 /* MetricSyncBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricSyncBackfillTests.swift; sourceTree = "<group>"; };
 		FT19 /* DayLoadSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLoadSummaryTests.swift; sourceTree = "<group>"; };
 		FT20 /* DayPotentialStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStateTests.swift; sourceTree = "<group>"; };
 		FT18 /* DayPotentialInsightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsightTests.swift; sourceTree = "<group>"; };
@@ -470,6 +472,7 @@
 		GTESTS /* WythinTests */ = {
 			isa = PBXGroup;
 			children = (
+				FT21 /* MetricSyncBackfillTests.swift */,
 				FT19 /* DayLoadSummaryTests.swift */,
 				FT20 /* DayPotentialStateTests.swift */,
 				FT18 /* DayPotentialInsightTests.swift */,
@@ -670,6 +673,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AT21 /* MetricSyncBackfillTests.swift in Sources */,
 				AT19 /* DayLoadSummaryTests.swift in Sources */,
 				AT20 /* DayPotentialStateTests.swift in Sources */,
 				AT18 /* DayPotentialInsightTests.swift in Sources */,

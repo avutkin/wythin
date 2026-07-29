@@ -340,7 +340,19 @@ final class MetricSyncService {
     @AppStorage("cloudSyncEnabled") private var enabled = true
     @AppStorage("metricsLastSyncedAt") private var lastSyncedISO = ""
     private let iso = ISO8601DateFormatter()
-    private let batch = 2000
+    /// Bumped whenever the uploaded payload gains fields. A device whose stored
+    /// version is lower re-walks its local history once so already-uploaded rows
+    /// gain the new columns (the server upsert enriches in place).
+    static let currentSchemaVersion = 1
+    static let normalBatchSize = 2000
+    /// The server rejects more than 5000 samples per request with 413.
+    static let backfillBatchSize = 5000
+
+    nonisolated static func needsBackfill(storedVersion: Int) -> Bool {
+        storedVersion < currentSchemaVersion
+    }
+
+    @AppStorage("metricsSyncSchemaVersion") private var storedSchemaVersion = 0
     private var isSyncing = false
     private var profileSynced = false
 
@@ -366,18 +378,44 @@ final class MetricSyncService {
             }
         }
 
-        let after = iso.date(from: lastSyncedISO) ?? Date.distantPast
-        let ctx = ModelContext(container)
-        var desc = FetchDescriptor<HRVSample>(
-            predicate: #Predicate { $0.timestamp > after },
-            sortBy: [SortDescriptor(\.timestamp)])
-        desc.fetchLimit = batch
-        guard let samples = try? ctx.fetch(desc), !samples.isEmpty else { return }
-        let payload = MetricsUploadPayload(
-            samples: samples.map { MetricSamplePayload(from: $0, iso: iso) })
-        if (try? await client.uploadMetrics(payload, userID: userID)) != nil,
-           let last = samples.last {
+        // A device that has never uploaded the widened payload re-walks its
+        // whole local history once. Reset the watermark, then drain.
+        let backfilling = Self.needsBackfill(storedVersion: storedSchemaVersion)
+        if backfilling { lastSyncedISO = "" }
+
+        let batchSize = backfilling ? Self.backfillBatchSize : Self.normalBatchSize
+        var drained = false
+
+        // Normal passes send one batch and wait for the next tick-driven call.
+        // Backfill loops until the store is drained — at one batch per 120 s a
+        // month of 2 s ticks would take ~21 h of foreground time.
+        repeat {
+            let after = iso.date(from: lastSyncedISO) ?? Date.distantPast
+            let ctx = ModelContext(container)
+            var desc = FetchDescriptor<HRVSample>(
+                predicate: #Predicate { $0.timestamp > after },
+                sortBy: [SortDescriptor(\.timestamp)])
+            desc.fetchLimit = batchSize
+            guard let samples = try? ctx.fetch(desc), !samples.isEmpty else {
+                drained = true
+                break
+            }
+            let payload = MetricsUploadPayload(
+                samples: samples.map { MetricSamplePayload(from: $0, iso: iso) })
+            guard (try? await client.uploadMetrics(payload, userID: userID)) != nil,
+                  let last = samples.last else {
+                // Leave the watermark where it is; the next pass retries.
+                break
+            }
             lastSyncedISO = iso.string(from: last.timestamp)
+            if samples.count < batchSize { drained = true }
+            await Task.yield()   // don't monopolise the main actor
+        } while backfilling && !drained
+
+        // Only stamp the version once the history is fully drained, so an
+        // interrupted backfill resumes on the next pass instead of being lost.
+        if backfilling && drained {
+            storedSchemaVersion = Self.currentSchemaVersion
         }
     }
 }
