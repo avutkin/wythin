@@ -179,4 +179,77 @@ final class AnchorBackfillTests: XCTestCase {
                        accuracy: 0.001,
                        "outside the baseline window a recompute buys nothing, so the row is left as it is")
     }
+
+    // MARK: - When the store fails
+
+    private struct StoreFailure: Error {}
+
+    /// A live store with one operation swapped for a throw. An in-memory
+    /// `ModelContainer` has no reachable way to make a real fetch or save fail,
+    /// so this is the only way to reach the branches that decide whether the
+    /// version flag advances.
+    private func failingStore(_ ctx: ModelContext,
+                              samples: Bool = false,
+                              anchors: Bool = false,
+                              save:    Bool = false,
+                              onInsert: @escaping (DailyAnchor) -> Void = { _ in })
+    -> AnchorBackfill.Store {
+        var store = AnchorBackfill.Store.live(ctx)
+        if samples { store.samples = { _ in throw StoreFailure() } }
+        if anchors { store.anchors = { throw StoreFailure() } }
+        if save    { store.save    = { throw StoreFailure() } }
+        let insert = store.insert
+        store.insert = { insert($0); onInsert($0) }
+        return store
+    }
+
+    func testAFailedSampleFetchIsNotAnEmptyStore() {
+        let ctx = ModelContext(container)
+        insertRest(day: day(5), hour: 7, count: 20, spacing: 30, hr: 60, motion: 5, into: ctx)
+        try! ctx.save()
+
+        let outcome = AnchorBackfill.replay(failingStore(ctx, samples: true))
+
+        XCTAssertFalse(outcome.saved,
+                       "an empty store is done; a store that would not answer is not")
+        XCTAssertEqual(outcome.anchorsWritten, 0)
+    }
+
+    func testAFailedAnchorFetchWritesNothing() {
+        let ctx = ModelContext(container)
+        insertRest(day: day(5), hour: 7, count: 20, spacing: 30, hr: 60, motion: 5, into: ctx)
+        insertAnchor(day: day(5), restingHR: 99, into: ctx)
+        try! ctx.save()
+
+        var inserted = 0
+        let outcome = AnchorBackfill.replay(
+            failingStore(ctx, anchors: true, onInsert: { _ in inserted += 1 }))
+
+        XCTAssertFalse(outcome.saved)
+        XCTAssertEqual(inserted, 0,
+                       "an unread anchor list deletes nothing, so inserting would leave two "
+                       + "rows for the day — `DailyAnchor` has no unique constraint on `day`")
+    }
+
+    func testAFailedSaveDoesNotCountAsSaved() {
+        let ctx = ModelContext(container)
+        insertRest(day: day(5), hour: 7, count: 20, spacing: 30, hr: 60, motion: 5, into: ctx)
+        try! ctx.save()
+
+        let outcome = AnchorBackfill.replay(failingStore(ctx, save: true))
+
+        XCTAssertEqual(outcome.anchorsWritten, 1, "it got as far as building the anchor")
+        XCTAssertFalse(outcome.saved, "but nothing reached the store")
+    }
+
+    func testTheFlagFollowsSavedAndNothingElse() {
+        AnchorBackfill.record(AnchorBackfill.Outcome(daysConsidered: 30, anchorsWritten: 25,
+                                                    anchorsDropped: 2, saved: false),
+                              in: defaults)
+        XCTAssertEqual(defaults.integer(forKey: AnchorBackfill.flagKey), 0,
+                       "a replay that did not land must be retried on the next launch")
+
+        AnchorBackfill.record(AnchorBackfill.Outcome(saved: true), in: defaults)
+        XCTAssertEqual(defaults.integer(forKey: AnchorBackfill.flagKey), AnchorBackfill.version)
+    }
 }

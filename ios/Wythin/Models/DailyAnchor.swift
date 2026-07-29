@@ -80,6 +80,36 @@ enum AnchorBackfill {
         var saved           = false
     }
 
+    /// Every store operation the replay can fail on, behind closures.
+    ///
+    /// The seam exists because these failures decide whether the version flag
+    /// advances, and a wrongly-advanced flag is permanent: there is no second
+    /// attempt and no undo. An in-memory `ModelContainer` has no reachable way
+    /// to make a real fetch or save throw, so without this the failure branches
+    /// could only be argued about, not tested.
+    struct Store {
+        var samples: (Date) throws -> [HRVSample]
+        var anchors: () throws -> [DailyAnchor]
+        var delete:  (DailyAnchor) -> Void
+        var insert:  (DailyAnchor) -> Void
+        var save:    () throws -> Void
+
+        static func live(_ context: ModelContext) -> Store {
+            Store(
+                // Fetched directly rather than through sessions: continuous
+                // background samples hang off an auto-created session, and an
+                // orphaned sample would otherwise be invisible here.
+                samples: { cutoff in
+                    try context.fetch(
+                        FetchDescriptor<HRVSample>(predicate: #Predicate { $0.timestamp >= cutoff }))
+                },
+                anchors: { try context.fetch(FetchDescriptor<DailyAnchor>()) },
+                delete:  { context.delete($0) },
+                insert:  { context.insert($0) },
+                save:    { try context.save() })
+        }
+    }
+
     static func runIfNeeded(container: ModelContainer,
                             defaults: UserDefaults = .standard) async {
         guard defaults.integer(forKey: flagKey) < version else { return }
@@ -90,15 +120,20 @@ enum AnchorBackfill {
         // on Live-tab appearance, where a main-thread stall of that size is a
         // watchdog kill. Same shape as `AppEnvironment.loadHistory`.
         let outcome = await Task.detached(priority: .utility) {
-            replay(in: ModelContext(container))
+            replay(.live(ModelContext(container)))
         }.value
 
-        // The flag advances only on a save that actually landed. Setting it
-        // unconditionally would strand the user on the old anchors *and* claim
-        // the rebuild was done, with no retry — the exact inconsistent baseline
-        // this exists to remove.
+        record(outcome, in: defaults)
+    }
+
+    /// The flag advances only on a replay that actually landed. Split out from
+    /// `runIfNeeded` so the decision is testable without a store: setting the
+    /// flag after a failure would strand the user on the old anchors *and*
+    /// claim the rebuild was done, with no retry — the exact inconsistent
+    /// baseline this exists to remove.
+    static func record(_ outcome: Outcome, in defaults: UserDefaults) {
         guard outcome.saved else {
-            print("⚠️ AnchorBackfill: save failed — will retry on next launch")
+            print("⚠️ AnchorBackfill: incomplete — will retry on next launch")
             return
         }
         defaults.set(version, forKey: flagKey)
@@ -107,7 +142,7 @@ enum AnchorBackfill {
     }
 
     /// Pure of UserDefaults so the caller owns the flag. Returns what it did.
-    private static func replay(in context: ModelContext) -> Outcome {
+    static func replay(_ store: Store) -> Outcome {
         var outcome = Outcome()
 
         // Bounded to the baseline window: `AnchorBaseline.build` cuts at
@@ -118,11 +153,16 @@ enum AnchorBackfill {
         let cutoff = cal.startOfDay(
             for: cal.date(byAdding: .day, value: -AnchorBaseline.windowDays, to: .now) ?? .distantPast)
 
-        // Fetched directly rather than through sessions: continuous background
-        // samples hang off an auto-created session, and an orphaned sample would
-        // otherwise be invisible here.
-        let descriptor = FetchDescriptor<HRVSample>(predicate: #Predicate { $0.timestamp >= cutoff })
-        let samples = (try? context.fetch(descriptor)) ?? []
+        let samples: [HRVSample]
+        do {
+            samples = try store.samples(cutoff)
+        } catch {
+            // A throwing fetch is not an empty store. Treating it as one would
+            // report "nothing to replay, we are done" and advance the flag,
+            // freezing the user on v1 anchors forever.
+            print("❌ AnchorBackfill: sample fetch — \(error)")
+            return outcome
+        }
         guard !samples.isEmpty else {
             // Nothing to replay is a finished backfill, not a failed one —
             // anything written from here on is written by the current rules.
@@ -146,11 +186,22 @@ enum AnchorBackfill {
         // are gone — or that fell out of the window — keeps whatever was
         // stored: a stale anchor beats no anchor, and there is nothing to
         // rebuild it from.
-        let stored = (try? context.fetch(FetchDescriptor<DailyAnchor>())) ?? []
+        let stored: [DailyAnchor]
+        do {
+            stored = try store.anchors()
+        } catch {
+            // Must not fall through to the insert loop on an empty `stored`:
+            // nothing would be deleted but a fresh anchor would still be
+            // written for every replayable day, and `DailyAnchor` has no unique
+            // constraint on `day`. Two rows per day, saved, flag advanced,
+            // never retried — and both rows counted by `AnchorBaseline.build`.
+            print("❌ AnchorBackfill: anchor fetch — \(error)")
+            return outcome
+        }
         var hadAnchor: Set<Date> = []
         for anchor in stored where byDay[anchor.day] != nil {
             hadAnchor.insert(anchor.day)
-            context.delete(anchor)
+            store.delete(anchor)
         }
 
         for (day, dayPoints) in byDay {
@@ -158,12 +209,12 @@ enum AnchorBackfill {
                 if hadAnchor.contains(day) { outcome.anchorsDropped += 1 }
                 continue
             }
-            context.insert(DailyAnchor(from: reading))
+            store.insert(DailyAnchor(from: reading))
             outcome.anchorsWritten += 1
         }
 
         do {
-            try context.save()
+            try store.save()
             outcome.saved = true
         } catch {
             // Leave the flag where it is; the deletes go with the unsaved
