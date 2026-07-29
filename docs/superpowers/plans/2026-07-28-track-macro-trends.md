@@ -291,7 +291,7 @@ Run:
 ```bash
 cd /Users/alexutkin/ios && xcodebuild test -project Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:WythinTests/DailyRollupTests 2>&1 | tail -30
 ```
-Expected: `Executed 9 tests, with 0 failures`.
+Expected: every test in the class passes (`with 0 failures`). If the count surprises you, count the test methods in the file — do not delete or weaken a test to make the run green.
 
 - [ ] **Step 7: Commit**
 
@@ -591,7 +591,7 @@ Run:
 ```bash
 cd /Users/alexutkin/ios && xcodebuild test -project Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:WythinTests/TrackCacheTests 2>&1 | tail -30
 ```
-Expected: `Executed 11 tests, with 0 failures`.
+Expected: every test in the class passes (`with 0 failures`). If the count surprises you, count the test methods in the file — do not delete or weaken a test to make the run green.
 
 - [ ] **Step 7: Commit**
 
@@ -614,7 +614,7 @@ git commit -m "feat(track): TrackCache — JSON rollup cache with incremental re
 - Produces:
   - `enum TrackPeriod: String, CaseIterable, Identifiable { case week = "W", month = "M", sixMonth = "6M" }`
   - `struct TrackBucket: Equatable, Identifiable { let start: Date; let end: Date; let label: String; var id: Date { start } }` — `start` inclusive, `end` exclusive.
-  - `struct TrackRange: Equatable { let period: TrackPeriod; let offset: Int; let start: Date; let end: Date; let buckets: [TrackBucket]; let label: String }` — `start` inclusive, `end` exclusive.
+  - `struct TrackRange: Equatable { let period: TrackPeriod; let offset: Int; let start: Date; let end: Date; let days: [Date]; let buckets: [TrackBucket]; let label: String }` — `start` inclusive, `end` exclusive. `days` is **stored, not computed**: it must be enumerated with the same calendar the range was built from, or a caller passing an injected calendar would silently get local-timezone day boundaries that don't line up with the buckets.
   - `enum TrackRangeBuilder { static func range(period:offset:today:calendar:) -> TrackRange; static var dayFormatter/monthFormatter ... }`
 
 - [ ] **Step 1: Write the failing test**
@@ -731,6 +731,19 @@ final class TrackPeriodTests: XCTestCase {
         XCTAssertEqual(s.label, "FEB – JUL 2026")
     }
 
+    func testDaysUseTheInjectedCalendarNotTheLocalOne() {
+        // `days` must line up exactly with the bucket starts, or every
+        // rollup lookup misses by a timezone offset.
+        let w = TrackRangeBuilder.range(period: .week, offset: 0, today: date(2026, 7, 28), calendar: cal)
+        XCTAssertEqual(w.days, w.buckets.map(\.start))
+
+        // 6M buckets are months, but `days` is still every day in the span.
+        let s = TrackRangeBuilder.range(period: .sixMonth, offset: 0, today: date(2026, 7, 28), calendar: cal)
+        XCTAssertEqual(s.days.count, 181)          // Feb 1 – Jul 31 2026
+        XCTAssertEqual(s.days.first, s.start)
+        XCTAssertEqual(s.days.last, cal.startOfDay(for: date(2026, 7, 31)))
+    }
+
     func testDayBucketLabels() {
         let w = TrackRangeBuilder.range(period: .week, offset: 0, today: date(2026, 7, 28), calendar: cal)
         XCTAssertEqual(w.buckets.map(\.label), ["M", "T", "W", "T", "F", "S", "S"])
@@ -801,21 +814,15 @@ struct TrackRange: Equatable {
     let offset:  Int
     let start:   Date
     let end:     Date
+    /// Every local day the page covers — what `TrackCache.refresh` needs.
+    ///
+    /// Stored rather than computed on demand: enumerating days here with
+    /// `Calendar.current` while the range itself was built from an injected
+    /// calendar would produce day boundaries that don't line up with the
+    /// buckets — silently, and only in whatever timezone differs.
+    let days:    [Date]
     let buckets: [TrackBucket]
     let label:   String
-
-    /// Every local day the page covers — what `TrackCache.refresh` needs.
-    var days: [Date] {
-        var out: [Date] = []
-        var d = start
-        let cal = Calendar.current
-        while d < end {
-            out.append(d)
-            guard let next = cal.date(byAdding: .day, value: 1, to: d) else { break }
-            d = next
-        }
-        return out
-    }
 
     var isCurrent: Bool { offset == 0 }
 }
@@ -844,7 +851,7 @@ enum TrackRangeBuilder {
         }
         let last = cal.date(byAdding: .day, value: -1, to: end)!
         return TrackRange(period: .week, offset: offset, start: start, end: end,
-                          buckets: buckets,
+                          days: buckets.map(\.start), buckets: buckets,
                           label: "\(fmt("MMM d", cal).string(from: start).uppercased()) – "
                                + "\(fmt("MMM d", cal).string(from: last).uppercased())")
     }
@@ -860,7 +867,7 @@ enum TrackRangeBuilder {
             String(cal.component(.day, from: d))
         }
         return TrackRange(period: .month, offset: offset, start: start, end: end,
-                          buckets: buckets,
+                          days: buckets.map(\.start), buckets: buckets,
                           label: fmt("MMMM yyyy", cal).string(from: start).uppercased())
     }
 
@@ -880,7 +887,10 @@ enum TrackRangeBuilder {
             m = next
         }
         let last = cal.date(byAdding: .month, value: -1, to: end)!
+        // Buckets are months here, but `days` is still every day in the span —
+        // the rollup cache is day-granular whatever the bucket size.
         return TrackRange(period: .sixMonth, offset: offset, start: start, end: end,
+                          days: dayStarts(from: start, to: end, calendar: cal),
                           buckets: buckets,
                           label: "\(fmt("MMM", cal).string(from: start).uppercased()) – "
                                + "\(fmt("MMM yyyy", cal).string(from: last).uppercased())")
@@ -897,6 +907,18 @@ enum TrackRangeBuilder {
         while d < end {
             let next = cal.date(byAdding: .day, value: 1, to: d)!
             out.append(TrackBucket(start: d, end: next, label: label(d)))
+            d = next
+        }
+        return out
+    }
+
+    /// Day-start dates spanning `[start, end)`, on the given calendar.
+    static func dayStarts(from start: Date, to end: Date, calendar cal: Calendar) -> [Date] {
+        var out: [Date] = []
+        var d = start
+        while d < end {
+            out.append(d)
+            guard let next = cal.date(byAdding: .day, value: 1, to: d) else { break }
             d = next
         }
         return out
@@ -923,7 +945,7 @@ Run:
 ```bash
 cd /Users/alexutkin/ios && xcodebuild test -project Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:WythinTests/TrackPeriodTests 2>&1 | tail -30
 ```
-Expected: `Executed 11 tests, with 0 failures`.
+Expected: every test in the class passes (`with 0 failures`). If the count surprises you, count the test methods in the file — do not delete or weaken a test to make the run green.
 
 - [ ] **Step 7: Commit**
 
@@ -1109,7 +1131,7 @@ Run:
 ```bash
 cd /Users/alexutkin/ios && xcodebuild test -project Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:WythinTests/TrackMetricSpecTests 2>&1 | tail -30
 ```
-Expected: `Executed 7 tests, with 0 failures`.
+Expected: every test in the class passes (`with 0 failures`). If the count surprises you, count the test methods in the file — do not delete or weaken a test to make the run green.
 
 - [ ] **Step 7: Commit**
 
@@ -1549,7 +1571,7 @@ Run:
 ```bash
 cd /Users/alexutkin/ios && xcodebuild test -project Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:WythinTests/TrackSeriesBuilderTests 2>&1 | tail -30
 ```
-Expected: `Executed 15 tests, with 0 failures`.
+Expected: every test in the class passes (`with 0 failures`). If the count surprises you, count the test methods in the file — do not delete or weaken a test to make the run green.
 
 - [ ] **Step 7: Commit**
 
@@ -1780,7 +1802,7 @@ enum ConsistencyBuilder {
             rollups.map { ($0.day, $0.wearSeconds / 3600) })
 
         let buckets = range.buckets.map { bucket -> ConsistencySummary.Bucket in
-            let days = strideDays(from: bucket.start, to: bucket.end, calendar: cal)
+            let days = TrackRangeBuilder.dayStarts(from: bucket.start, to: bucket.end, calendar: cal)
             return ConsistencySummary.Bucket(
                 bucket:          bucket,
                 practiceMinutes: days.reduce(0) { $0 + (minutesByDay[$1] ?? 0) },
@@ -1798,18 +1820,6 @@ enum ConsistencyBuilder {
             streak:               StreakCompute.evaluate(days: practiceDays,
                                                          today: today, calendar: cal))
     }
-
-    private static func strideDays(from start: Date, to end: Date,
-                                   calendar cal: Calendar) -> [Date] {
-        var out: [Date] = []
-        var d = start
-        while d < end {
-            out.append(d)
-            guard let next = cal.date(byAdding: .day, value: 1, to: d) else { break }
-            d = next
-        }
-        return out
-    }
 }
 ```
 
@@ -1823,7 +1833,7 @@ Run:
 ```bash
 cd /Users/alexutkin/ios && xcodebuild test -project Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:WythinTests/ConsistencySummaryTests 2>&1 | tail -30
 ```
-Expected: `Executed 9 tests, with 0 failures`.
+Expected: every test in the class passes (`with 0 failures`). If the count surprises you, count the test methods in the file — do not delete or weaken a test to make the run green.
 
 - [ ] **Step 7: Commit**
 
@@ -2977,12 +2987,14 @@ struct TrackView: View {
         cache.load()
 
         let cal = Calendar.current
+        // The visible page may be 7 days, but the personal reference line needs
+        // 90 — without this tail every chart would silently read "typical".
         let baselineStart = cal.date(byAdding: .day,
                                      value: -TrackSeriesBuilder.baselineWindowDays,
                                      to: today) ?? range.start
-        let needed = TrackRange(period: period, offset: offset,
-                                start: min(range.start, baselineStart),
-                                end: range.end, buckets: [], label: "").days
+        let fetchStart = min(range.start, baselineStart)
+        let fetchEnd   = max(range.end, cal.date(byAdding: .day, value: 1, to: today) ?? range.end)
+        let needed = TrackRangeBuilder.dayStarts(from: fetchStart, to: fetchEnd, calendar: cal)
 
         cache.refresh(days: needed, today: today) { day in
             let end = cal.date(byAdding: .day, value: 1, to: day)!
@@ -2995,8 +3007,7 @@ struct TrackView: View {
             return ((try? ctx.fetch(desc)) ?? []).map { MetricsHistoryPoint(from: $0) }
         }
 
-        let lastDay = cal.date(byAdding: .day, value: -1, to: range.end) ?? range.end
-        rollups = cache.rollups(in: min(range.start, baselineStart)...max(lastDay, today))
+        rollups = cache.rollups(in: fetchStart...(needed.last ?? fetchStart))
         isLoading = false
     }
 
@@ -3034,7 +3045,7 @@ with:
 
 - [ ] **Step 3: Move the train session list to the Practice tab**
 
-Cut the `TrainSessionRow` struct verbatim from `ios/Wythin/UI/History/HistoryView.swift:599-645` and paste it at the end of `ios/Wythin/UI/Train/PracticeHubView.swift`, changing `private struct TrainSessionRow` to `private struct TrainSessionRow` (it is already private and stays so).
+Cut the `TrainSessionRow` struct verbatim from `ios/Wythin/UI/History/HistoryView.swift:599-645` and paste it at the end of `ios/Wythin/UI/Train/PracticeHubView.swift`. It is already `private struct TrainSessionRow` and stays private — do not change its body, only its home file.
 
 In `PracticeHubView`, add the query near the other properties:
 
