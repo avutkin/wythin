@@ -81,7 +81,11 @@ enum AnchorDetector {
         let runs = continuousRuns(all).filter { run in
             run.count >= AnchorThresholds.minSamples
                 && duration(run) >= AnchorThresholds.minSec
-                && passesRunGates(run)
+                // The run gates validate the span the medians actually come
+                // from — the leading window — not the whole rest. Otherwise a
+                // run can pass on motion known somewhere in its tail while the
+                // window the anchor is built from never had it.
+                && passesRunGates(leadingWindow(run))
         }
         guard !runs.isEmpty else { return nil }
 

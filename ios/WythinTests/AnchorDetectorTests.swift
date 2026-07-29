@@ -230,4 +230,27 @@ final class AnchorDetectorTests: XCTestCase {
         XCTAssertNil(a?.dc)
         XCTAssertEqual(a?.confidence, .medium)
     }
+
+    func testConfidenceDescribesTheWindowNotTheWholeRun() {
+        // Motion is unknown for the leading 300 s but known for the tail. HR
+        // stays constant throughout so the run clears the gates on the
+        // HR-stability fallback either way — this isolates confidence, not
+        // acceptance. The reading must still read as motion-unverified,
+        // because that is genuinely true of the span the medians came from.
+        let cal = Calendar.current
+        var comps = DateComponents(year: 2026, month: 7, day: 20); comps.hour = 7
+        let start = cal.date(from: comps)!
+        let points = (0..<300).map { i -> MetricsHistoryPoint in
+            let t = Double(i) * 2
+            return MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(t),
+                                       meanBPM: 60, vti: 3.6, dc: 7.5, pip: 42, dfa1: 1.0,
+                                       breathBPM: 13, motion: t <= 300 ? nil : 5,
+                                       signalQuality: 0.98, rrInvalidRate: 0.01,
+                                       ecgQualityTier: 2)
+        }
+        let a = AnchorDetector.detect(points)
+        XCTAssertNotNil(a)
+        XCTAssertFalse(a?.motionKnown ?? true)
+        XCTAssertEqual(a?.confidence, .low)
+    }
 }
