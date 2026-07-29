@@ -161,6 +161,10 @@ class MacroTrend(BaseModel):
     on-device; the model receives them and supplies language only."""
     avg:        float
     baseline:   Optional[float] = None
+    # Whether `baseline` is this person's own 90-day median, versus a fixed
+    # physiological norm used when they don't yet have enough history.
+    # Optional so an older client that omits it still validates.
+    baseline_is_personal: Optional[bool] = None
     # Benefit-signed: positive always means improvement, including for metrics
     # where the raw value fell (Inner Noise, Stress Balance).
     delta_pct:  Optional[float] = None

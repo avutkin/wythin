@@ -144,6 +144,28 @@ extension PayloadBuilderTests {
         XCTAssertEqual(pip["days_above"] as? Int, 6)
         XCTAssertEqual(pip["days_total"] as? Int, 7)
         XCTAssertEqual(pip["direction"] as? String, "lower")
+        XCTAssertEqual(pip["baseline_is_personal"] as? Bool, true)
+    }
+
+    /// When the person doesn't yet have enough of their own history,
+    /// `TrackSeriesBuilder.baseline` falls back to a generic physiological
+    /// norm and marks `referenceIsPersonal` false. That flag must cross the
+    /// wire so the server never narrates a generic norm as personal history.
+    func testMacroTrendPayloadEncodesBaselineIsPersonalFalse() throws {
+        let spec = TrackMetrics.all.first { $0.def.label == "Inner Noise" }!
+        let series = TrackSeries(
+            bars: [], average: 52, deltaPct: 9, reference: 55,
+            referenceIsPersonal: false, overlay: [],
+            betterCount: 3, presentCount: 6,
+            summary: "3 of 6 days better than typical.")
+
+        let payload = MacroTrendPayload(period: .week, rangeLabel: "X",
+                                        series: [(spec, series)])
+        let json = try JSONSerialization.jsonObject(
+            with: try JSONEncoder().encode(payload)) as! [String: Any]
+        let trends = json["trends"] as! [String: [String: Any]]
+        let pip = try XCTUnwrap(trends["pip"])
+        XCTAssertEqual(pip["baseline_is_personal"] as? Bool, false)
     }
 
     func testMacroTrendPayloadSkipsMetricsWithNoAverage() throws {

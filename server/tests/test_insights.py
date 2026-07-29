@@ -437,3 +437,73 @@ def test_macro_trend_prompt_uses_friendly_metric_names():
     # Stress Balance must not be glossed as a raw LF/HF ratio.
     assert "stress_balance" not in text
     assert "LF/HF" not in text
+
+
+def test_macro_trend_format_uses_personal_wording_when_baseline_is_personal():
+    """A metric with 90 days of the person's own history must be described as
+    their own baseline — never softened into a generic 'typical' claim."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_macro_trend
+
+    payload = {
+        "mode": "macro_trend", "period": "week", "range_label": "X",
+        "trends": {
+            "pip": {"avg": 52.0, "baseline": 57.0, "baseline_is_personal": True,
+                    "delta_pct": 9.0, "days_above": 6, "days_total": 7,
+                    "direction": "lower"},
+        },
+    }
+    text = _format_macro_trend(InsightRequest(**payload))
+    assert "own baseline" in text.lower()
+    assert "typical" not in text.lower()
+
+
+def test_macro_trend_format_uses_generic_wording_when_baseline_is_not_personal():
+    """A new user with too little history for a personal baseline must never
+    be told they beat 'their own baseline' — only a generic typical range."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_macro_trend
+
+    payload = {
+        "mode": "macro_trend", "period": "week", "range_label": "X",
+        "trends": {
+            "pip": {"avg": 52.0, "baseline": 57.0, "baseline_is_personal": False,
+                    "delta_pct": 9.0, "days_above": 6, "days_total": 7,
+                    "direction": "lower"},
+        },
+    }
+    text = _format_macro_trend(InsightRequest(**payload))
+    assert "typical" in text.lower()
+    assert "own baseline" not in text.lower()
+
+
+def test_macro_trend_format_defaults_to_generic_when_flag_omitted():
+    """An older client that omits the flag must not accidentally grant
+    personal-history phrasing — the safe default is generic."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_macro_trend
+
+    payload = {
+        "mode": "macro_trend", "period": "week", "range_label": "X",
+        "trends": {
+            "pip": {"avg": 52.0, "baseline": 57.0,
+                    "delta_pct": 9.0, "days_above": 6, "days_total": 7,
+                    "direction": "lower"},
+        },
+    }
+    text = _format_macro_trend(InsightRequest(**payload))
+    assert "typical" in text.lower()
+    assert "own baseline" not in text.lower()
+
+
+def test_macro_trend_prompt_does_not_assert_baseline_is_always_personal():
+    """The system prompt must not unconditionally tell the model the baseline
+    is the person's own history — it may be a generic reference instead, and
+    the prompt must say the input distinguishes the two."""
+    from server.routers.insights import _MACRO_TREND_SYSTEM_PROMPT as p
+
+    assert "generic" in p.lower()
+    assert "typical" in p.lower()
+    assert "the person's own baseline, a" not in p, (
+        "must not unconditionally assert the baseline is personal"
+    )

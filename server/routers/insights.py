@@ -349,11 +349,16 @@ def _format_day_potential(req: InsightRequest) -> str:
 _MACRO_TREND_SYSTEM_PROMPT = (
     "You are an expert physiologist writing the 'macro read' at the top of a "
     "long-term trends screen for a person wearing a chest strap. You are given "
-    "each metric's average over the period, the person's own baseline, a "
+    "each metric's average over the period, a baseline for comparison, a "
     "benefit-signed change versus the previous period, and how many buckets "
-    "beat the baseline. Every number was computed by the app: never compute, "
-    "restate more precisely, or contradict one, and never invent a metric you "
-    "were not given.\n\n"
+    "beat the baseline. The baseline is EITHER the person's own 90-day history "
+    "OR, when they don't yet have enough of their own data, a generic typical "
+    "range — the input tells you which, per metric. Only speak of 'their own "
+    "baseline' or their personal history when the input marks that metric's "
+    "baseline as personal; when it is generic, call it a typical or usual "
+    "range instead and do NOT claim it reflects their history. Every number "
+    "was computed by the app: never compute, restate more precisely, or "
+    "contradict one, and never invent a metric you were not given.\n\n"
     "Reply in EXACTLY this plain-text structure:\n"
     "Two sentences reading the period as a whole. Name at most three metrics "
     "by their plain-English names. Say what the pattern is, not what each "
@@ -386,13 +391,20 @@ def _format_macro_trend(req: InsightRequest) -> str:
     ]
     for key, t in (req.trends or {}).items():
         label = _METRIC_NAMES.get(key, key)
+        # A missing flag (older client) is treated as generic, not personal —
+        # the safe default is to under-claim personalization, never over-claim it.
+        personal = bool(t.baseline_is_personal)
         parts = [f"avg={t.avg:.2f}"]
         if t.baseline is not None:
-            parts.append(f"baseline={t.baseline:.2f}")
+            if personal:
+                parts.append(f"baseline={t.baseline:.2f} (the person's own 90-day baseline)")
+            else:
+                parts.append(f"typical={t.baseline:.2f} (a generic reference range, not personal history)")
         if t.delta_pct is not None:
             parts.append(f"vs prior={t.delta_pct:+.0f}% (benefit-signed)")
         if t.days_above is not None and t.days_total is not None:
-            parts.append(f"{t.days_above} of {t.days_total} {unit} better than baseline")
+            ref = "their own baseline" if personal else "the typical range"
+            parts.append(f"{t.days_above} of {t.days_total} {unit} better than {ref}")
         lines.append(f"{label}:")
         lines.append("  " + " | ".join(parts))
     return "\n".join(lines)

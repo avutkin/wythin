@@ -137,6 +137,10 @@ struct LiveStateInsightPayload: Codable {
 struct MacroTrendEntry: Codable, Equatable {
     let avg:       Double
     let baseline:  Double?
+    /// Whether `baseline` is this person's own 90-day median, versus a fixed
+    /// physiological norm used when they don't yet have enough history. The
+    /// server needs this to avoid claiming personal history it doesn't have.
+    let baselineIsPersonal: Bool?
     /// Benefit-signed: positive always means improvement.
     let deltaPct:  Double?
     let daysAbove: Int?
@@ -145,6 +149,7 @@ struct MacroTrendEntry: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case avg, baseline, direction
+        case baselineIsPersonal = "baseline_is_personal"
         case deltaPct  = "delta_pct"
         case daysAbove = "days_above"
         case daysTotal = "days_total"
@@ -174,6 +179,7 @@ struct MacroTrendPayload: Codable {
             return (pair.spec.trendKey, MacroTrendEntry(
                 avg:       avg,
                 baseline:  pair.series.reference,
+                baselineIsPersonal: pair.series.referenceIsPersonal,
                 deltaPct:  pair.series.deltaPct,
                 daysAbove: pair.series.betterCount,
                 daysTotal: pair.series.presentCount,
