@@ -32,18 +32,29 @@ final class RSAComputeTests: XCTestCase {
 
     // MARK: - The regression itself
 
-    /// LF-dominant variability (0.10 Hz, well inside the 0.04–0.15 Hz LF band,
-    /// far from the 0.15–0.40 Hz HF band RSACompute falls back to without a
-    /// detected breathing frequency). RMSSD lands around 28 ms — comfortably
-    /// past the sibling 1.0 ms flat-tachogram guard — while HF-band power is
-    /// negligible, exactly reproducing the production scenario (strong LF/HF
-    /// imbalance, healthy RMSSD, near-zero-but-positive HF power).
+    /// LF-dominant variability (0.06 Hz, well inside the 0.04–0.15 Hz LF band
+    /// and well clear of the 0.15–0.40 Hz HF band RSACompute falls back to
+    /// without a detected breathing frequency). RMSSD lands around 28 ms —
+    /// comfortably past the sibling 1.0 ms flat-tachogram guard — while
+    /// HF-band power is genuinely negligible, reproducing the production
+    /// scenario (strong LF/HF imbalance, healthy RMSSD, near-zero HF power).
     ///
-    /// Verified against the pre-fix guard (`rsaMs > 0`) that this fixture
-    /// produces a tiny positive rsaMs (~0.16 ms) — i.e. this test fails on the
-    /// old code and only passes once the guard uses a physiological floor.
+    /// Frequency and amplitude were re-picked after `welchPSD`'s N² scale fix
+    /// (see HRVCompute). The original fixture used 0.10 Hz / 80 ms: under the
+    /// broken (too-small) PSD scale that produced a tiny positive rsaMs
+    /// (~0.16 ms, correctly caught by the pre-fix guard), but 0.10 Hz sits
+    /// close enough to the 0.15 Hz HF-band edge that, at this fixture's short
+    /// length, Hann-window spectral leakage puts real (non-negligible) power
+    /// in the HF band — under the corrected scale that leakage alone integrates
+    /// to rsaMs ≈ 10 ms, i.e. the *old* fixture was only "unmeasurable" because
+    /// the scale bug was hiding real leakage, not because HF power was actually
+    /// near zero. Moving the oscillation to 0.06 Hz (twice as far from the HF
+    /// band edge) drops leakage into the HF band to genuinely negligible levels
+    /// (rsaMs stays nil across amplitudes 100–170 ms at this length; verified
+    /// numerically), while 140 ms amplitude reproduces the same ~28 ms RMSSD
+    /// the original fixture targeted, with wide margin on both sides.
     func testLFDominantVariabilityIsUnmeasurable() {
-        let rr = Self.oscillatingRR(count: 30, baseMs: 800, ampMs: 80, freqHz: 0.10)
+        let rr = Self.oscillatingRR(count: 30, baseMs: 800, ampMs: 140, freqHz: 0.06)
 
         // Sanity: RMSSD clears the flat-tachogram guard (1.0 ms) by a wide margin,
         // so it's not that guard doing the suppressing.
