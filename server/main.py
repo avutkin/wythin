@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from .db import init_pool, close_pool, create_schema
 from .auth import key_ok
 from .mcp_server import mcp
-from .routers import sessions, stream, admin, insights, tokens, me, activities, metrics
+from .routers import sessions, stream, admin, insights, tokens, me, activities, metrics, usage
 
 
 @asynccontextmanager
@@ -69,6 +69,7 @@ async def api_key_gate(request: Request, call_next):
 app.include_router(sessions.router)
 app.include_router(stream.router)
 app.include_router(admin.router)
+app.include_router(usage.router)
 app.include_router(insights.router)
 app.include_router(tokens.router)
 app.include_router(me.router)

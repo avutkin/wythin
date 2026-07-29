@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import timedelta
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse, HTMLResponse
@@ -65,6 +66,40 @@ async def usage_stats(days: int = 90):
         )
         users = await conn.fetch(
             """
+            WITH practice_days AS (
+                SELECT DISTINCT user_id, (ts_day)::date AS d FROM (
+                    SELECT user_id, date_trunc('day', started_at) AS ts_day FROM sessions
+                    UNION ALL
+                    SELECT user_id, date_trunc('day', started_at) AS ts_day FROM activities
+                ) x
+            ),
+            islands AS (
+                SELECT user_id, d,
+                       d - (ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY d))::int AS grp
+                FROM practice_days
+            ),
+            streaks AS (
+                SELECT user_id, COUNT(*) AS len, MAX(d) AS last_day
+                FROM islands GROUP BY user_id, grp
+            ),
+            consistency AS (
+                SELECT
+                    pd.user_id,
+                    COALESCE(MAX(s.len) FILTER (WHERE s.last_day >= CURRENT_DATE - 1), 0) AS current_streak,
+                    COUNT(DISTINCT pd.d) FILTER (WHERE pd.d > CURRENT_DATE - 7)          AS days_active_7d,
+                    BOOL_OR(pd.d = CURRENT_DATE)                                          AS practiced_today
+                FROM practice_days pd
+                LEFT JOIN streaks s ON s.user_id = pd.user_id
+                GROUP BY pd.user_id
+            ),
+            usage_agg AS (
+                SELECT user_id,
+                    COUNT(*) FILTER (WHERE event_type = 'foreground')                                AS opens_total,
+                    COALESCE(SUM(duration_ms) FILTER (WHERE event_type = 'foreground'), 0) / 60000.0  AS active_min_total,
+                    COUNT(*) FILTER (WHERE event_type = 'ecg_recording')                             AS ecg_total,
+                    GREATEST(COUNT(DISTINCT date_trunc('day', ts)), 1)                               AS usage_days
+                FROM usage_events GROUP BY user_id
+            )
             SELECT
               u.id, u.device_id, u.display_name,
               u.created_at                       AS first_seen,
@@ -72,16 +107,34 @@ async def usage_stats(days: int = 90):
               COUNT(s.id)                        AS session_count,
               COALESCE(SUM(EXTRACT(EPOCH FROM (s.ended_at - s.started_at)) / 60.0), 0) AS total_minutes,
               AVG(s.avg_coherence)               AS avg_coherence,
-              AVG(s.avg_rsa_ms)                  AS avg_rsa
+              AVG(s.avg_rsa_ms)                  AS avg_rsa,
+              COALESCE(c.current_streak, 0)      AS current_streak,
+              COALESCE(c.days_active_7d, 0)      AS days_active_7d,
+              COALESCE(c.practiced_today, FALSE) AS practiced_today,
+              COALESCE(ua.opens_total::float / ua.usage_days, 0)  AS avg_opens_day,
+              COALESCE(ua.active_min_total / ua.usage_days, 0)    AS avg_active_min_day,
+              COALESCE(ua.ecg_total::float / ua.usage_days, 0)    AS avg_ecg_day
             FROM users u
-            LEFT JOIN sessions s ON s.user_id = u.id
-            GROUP BY u.id
+            LEFT JOIN sessions s    ON s.user_id = u.id
+            LEFT JOIN consistency c ON c.user_id = u.id
+            LEFT JOIN usage_agg ua  ON ua.user_id = u.id
+            GROUP BY u.id, c.current_streak, c.days_active_7d, c.practiced_today,
+                     ua.opens_total, ua.active_min_total, ua.ecg_total, ua.usage_days
             ORDER BY last_seen DESC NULLS LAST
             """
         )
 
     def _f(v):
         return float(v) if v is not None else None
+
+    _streaks = sorted(r["current_streak"] for r in users)
+    if _streaks:
+        _mid = len(_streaks) // 2
+        median_streak = float(
+            _streaks[_mid] if len(_streaks) % 2 else (_streaks[_mid - 1] + _streaks[_mid]) / 2
+        )
+    else:
+        median_streak = 0.0
 
     return {
         "kpis": {
@@ -91,6 +144,7 @@ async def usage_stats(days: int = 90):
             "total_sessions":  kpi["total_sessions"],
             "total_minutes":   round(_f(kpi["total_minutes"]), 1),
             "avg_session_min": round(_f(kpi["avg_session_min"]), 1),
+            "median_streak":   round(median_streak, 1),
         },
         "sessions_per_day": [
             {"day": r["day"].isoformat(), "sessions": r["sessions"]} for r in series
@@ -106,6 +160,12 @@ async def usage_stats(days: int = 90):
                 "total_minutes": round(_f(r["total_minutes"]), 1),
                 "avg_coherence": round(_f(r["avg_coherence"]), 3) if r["avg_coherence"] is not None else None,
                 "avg_rsa":       round(_f(r["avg_rsa"]), 1) if r["avg_rsa"] is not None else None,
+                "current_streak":  r["current_streak"],
+                "days_active_7d":  r["days_active_7d"],
+                "practiced_today": r["practiced_today"],
+                "avg_opens_day":      round(_f(r["avg_opens_day"]), 1),
+                "avg_active_min_day": round(_f(r["avg_active_min_day"]), 1),
+                "avg_ecg_day":        round(_f(r["avg_ecg_day"]), 1),
             }
             for r in users
         ],
@@ -202,6 +262,100 @@ async def user_detail(user_id: str):
             for r in sessions
         ],
         "activities": [_activity_row(r) for r in activities],
+    }
+
+
+_METRIC_WINDOWS = {
+    "24h": (timedelta(hours=24), timedelta(minutes=5)),
+    "7d":  (timedelta(days=7),   timedelta(hours=1)),
+    "30d": (timedelta(days=30),  timedelta(hours=4)),
+}
+_METRIC_COLS = ("mean_bpm", "rmssd", "sdnn", "pnn50", "lf_hf", "rsa_ms",
+                "coherence", "cbi", "breath_bpm", "dfa1", "rcmse", "pip", "dc", "vti")
+
+
+@router.get("/users/{user_id}/metrics")
+async def user_metrics(user_id: str, window: str = "24h"):
+    """Bucketed per-user metric_samples series for the live charts. `window` is
+    one of 24h / 7d / 30d; each column is averaged per time bucket."""
+    span, bucket = _METRIC_WINDOWS.get(window, _METRIC_WINDOWS["24h"])
+    avg_cols = ", ".join(f"AVG({c}) AS {c}" for c in _METRIC_COLS)
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            SELECT date_bin($2::interval, ts, TIMESTAMPTZ 'epoch') AS bucket, {avg_cols}
+            FROM metric_samples
+            WHERE user_id = $1::uuid AND ts > NOW() - $3::interval
+            GROUP BY bucket
+            ORDER BY bucket
+            """,
+            user_id, bucket, span,
+        )
+
+    def _f(v):
+        return float(v) if v is not None else None
+
+    return {
+        "window": window if window in _METRIC_WINDOWS else "24h",
+        "samples": [
+            {"ts": r["bucket"].isoformat(), **{c: _f(r[c]) for c in _METRIC_COLS}}
+            for r in rows
+        ],
+    }
+
+
+@router.get("/activities/{activity_id}")
+async def activity_detail(activity_id: str):
+    """One activity's full before/during/after metric grid + impact score."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM activities WHERE id = $1::uuid", activity_id
+        )
+    if row is None:
+        raise HTTPException(status_code=404, detail="activity not found")
+    return _activity_row(row)
+
+
+@router.get("/users/{user_id}/usage")
+async def user_usage(user_id: str, days: int = 30):
+    """Per-day app-usage series for one user: opens, active minutes, ECG
+    recordings and ECG minutes — plus per-active-day averages."""
+    days = max(1, min(days, 730))
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+              date_trunc('day', ts)::date AS day,
+              COUNT(*) FILTER (WHERE event_type = 'foreground')                                    AS opens,
+              COALESCE(SUM(duration_ms) FILTER (WHERE event_type = 'foreground'), 0) / 60000.0      AS active_min,
+              COUNT(*) FILTER (WHERE event_type = 'ecg_recording')                                 AS ecg_recordings,
+              COALESCE(SUM(duration_ms) FILTER (WHERE event_type = 'ecg_recording'), 0) / 60000.0   AS ecg_min
+            FROM usage_events
+            WHERE user_id = $1::uuid AND ts > NOW() - ($2::int * INTERVAL '1 day')
+            GROUP BY day
+            ORDER BY day
+            """,
+            user_id, days,
+        )
+    series = [
+        {"day": r["day"].isoformat(), "opens": r["opens"],
+         "active_min": round(float(r["active_min"]), 1),
+         "ecg_recordings": r["ecg_recordings"],
+         "ecg_min": round(float(r["ecg_min"]), 1)}
+        for r in rows
+    ]
+    n = len(series) or 1
+    return {
+        "days": days,
+        "series": series,
+        "averages": {
+            "opens_day":      round(sum(s["opens"] for s in series) / n, 1),
+            "active_min_day": round(sum(s["active_min"] for s in series) / n, 1),
+            "ecg_day":        round(sum(s["ecg_recordings"] for s in series) / n, 1),
+        },
     }
 
 

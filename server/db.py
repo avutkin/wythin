@@ -124,6 +124,17 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     revoked_at   TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens(user_id) WHERE revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS usage_events (
+    id               BIGSERIAL PRIMARY KEY,
+    user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_type       TEXT NOT NULL,
+    ts               TIMESTAMPTZ NOT NULL,
+    duration_ms      BIGINT,
+    client_event_id  TEXT UNIQUE,
+    created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS usage_events_user_ts ON usage_events(user_id, ts);
 """
 
 
