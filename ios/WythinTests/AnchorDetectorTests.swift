@@ -143,4 +143,53 @@ final class AnchorDetectorTests: XCTestCase {
         XCTAssertNil(AnchorDetector.detect(before + after),
                      "two 2-minute halves across a 20-minute outage are not one 24-minute rest")
     }
+
+    // MARK: - Legacy rows
+
+    /// Builds a clean 10-minute morning run with the quality fields set
+    /// individually, so rows that predate a field can be simulated.
+    private func legacyPoints(signalQuality: Float?,
+                              rrInvalidRate: Float?,
+                              ecgQualityTier: Int?) -> [MetricsHistoryPoint] {
+        let cal = Calendar.current
+        var comps = DateComponents(year: 2026, month: 7, day: 20); comps.hour = 7
+        let start = cal.date(from: comps)!
+        return (0..<300).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(Double(i) * 2),
+                                meanBPM: 60, vti: 3.6, dc: 7.5, pip: 42, dfa1: 1.0,
+                                breathBPM: 13, motion: 5,
+                                signalQuality: signalQuality,
+                                rrInvalidRate: rrInvalidRate,
+                                ecgQualityTier: ecgQualityTier)
+        }
+    }
+
+    func testAcceptsRowsCarryingOnlySignalQuality() {
+        let a = AnchorDetector.detect(
+            legacyPoints(signalQuality: 0.98, rrInvalidRate: nil, ecgQualityTier: 2))
+        XCTAssertNotNil(a, "signalQuality is 1 - rrInvalidRate; one of the two is enough")
+    }
+
+    func testRejectsRowsWhoseOnlyQualitySignalIsBad() {
+        // signalQuality 0.80 means a 20% invalid rate — over the 5% ceiling.
+        XCTAssertNil(AnchorDetector.detect(
+            legacyPoints(signalQuality: 0.80, rrInvalidRate: nil, ecgQualityTier: 2)))
+    }
+
+    func testRejectsRowsWithNoQualitySignalAtAll() {
+        XCTAssertNil(AnchorDetector.detect(
+            legacyPoints(signalQuality: nil, rrInvalidRate: nil, ecgQualityTier: 2)))
+    }
+
+    func testAbsentECGTierAnchorsAtLowConfidence() {
+        let a = AnchorDetector.detect(
+            legacyPoints(signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: nil))
+        XCTAssertNotNil(a, "an absent tier means the row predates the field, not a poor ECG")
+        XCTAssertEqual(a?.confidence, .low, "and it is paid for in confidence")
+    }
+
+    func testPoorECGTierIsStillRejected() {
+        XCTAssertNil(AnchorDetector.detect(
+            legacyPoints(signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 0)))
+    }
 }

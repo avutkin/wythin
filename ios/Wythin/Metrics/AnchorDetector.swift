@@ -9,7 +9,6 @@ enum AnchorThresholds {
     static let stillnessSD: Float = 20
     /// Fallback when `motion` is absent (backfilled history): SD of HR, bpm.
     static let hrStabilitySD: Float = 3
-    static let minSignalQuality: Float = 0.9
     static let maxInvalidRate: Float = 0.05
     static let minECGTier: Int = 1
     static let breathRange: ClosedRange<Float> = 8...20
@@ -94,9 +93,17 @@ enum AnchorDetector {
     // MARK: Gates
 
     private static func passesPointGates(_ p: MetricsHistoryPoint) -> Bool {
-        guard let q = p.signalQuality, q >= AnchorThresholds.minSignalQuality else { return false }
-        guard let inv = p.rrInvalidRate, inv <= AnchorThresholds.maxInvalidRate else { return false }
-        guard let tier = p.ecgQualityTier, tier >= AnchorThresholds.minECGTier else { return false }
+        // `signalQuality` is defined as `1 - rrInvalidRate` (MetricsEngine), so
+        // the two fields are one measurement stored twice. Rows written before
+        // `rrInvalidRate` existed carry only `signalQuality` — require whichever
+        // is present rather than both, or backfilled history is thrown away for
+        // being old rather than for being bad.
+        guard let invalid = p.rrInvalidRate ?? p.signalQuality.map({ 1 - $0 }),
+              invalid <= AnchorThresholds.maxInvalidRate else { return false }
+        // An absent tier means the row predates the field, not that the ECG was
+        // poor. Tolerated, and paid for in confidence — exactly as absent
+        // `motion` is.
+        if let tier = p.ecgQualityTier, tier < AnchorThresholds.minECGTier { return false }
         guard p.vti != nil, p.meanBPM != nil else { return false }
         if let m = p.motion, m > AnchorThresholds.stillnessSD { return false }
         if let b = p.breathBPM, !AnchorThresholds.breathRange.contains(b) { return false }
@@ -161,13 +168,14 @@ enum AnchorDetector {
         // stable, so a short anchor drops it rather than reporting it noisily.
         let longEnoughForDC = dur >= AnchorThresholds.preferredMinSec
         let motionKnown = run.contains { $0.motion != nil }
+        let ecgKnown    = run.contains { $0.ecgQualityTier != nil }
 
         let cal = Calendar.current
         let hour = Double(cal.component(.hour, from: start))
                  + Double(cal.component(.minute, from: start)) / 60
 
         let confidence: AnchorConfidence
-        if !motionKnown                  { confidence = .low }
+        if !motionKnown || !ecgKnown     { confidence = .low }
         else if longEnoughForDC && !late { confidence = .high }
         else                             { confidence = .medium }
 
