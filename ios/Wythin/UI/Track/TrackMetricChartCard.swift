@@ -107,10 +107,19 @@ struct TrackMetricChartCard: View {
 
             ForEach(series.bars) { bar in
                 if let v = bar.value {
+                    // Anchored at the visible domain's floor rather than a
+                    // bare `y:` value (which Swift Charts always anchors at
+                    // zero). For zero-based metrics the floor *is* zero, so
+                    // this renders identically to before; for index metrics
+                    // (Adaptive Capacity, Harmony) whose domain floor sits
+                    // well above zero, this is what keeps the bar inside the
+                    // plotted band instead of stretching down through it and
+                    // out the bottom of the chart.
                     BarMark(
-                        x: .value("Bucket", bar.bucket.start, unit: xUnit),
-                        y: .value(spec.def.label, v),
-                        width: .ratio(0.6)
+                        x:      .value("Bucket", bar.bucket.start, unit: xUnit),
+                        yStart: .value(spec.def.label, barAnchor),
+                        yEnd:   .value(spec.def.label, v),
+                        width:  .ratio(0.6)
                     )
                     .cornerRadius(2)
                     .foregroundStyle(barColor(bar, value: v))
@@ -131,8 +140,12 @@ struct TrackMetricChartCard: View {
                     // placeholders) renders blank. This keeps every bucket in
                     // the domain the same way a real BarMark would, without
                     // changing how the axis or bars look when data exists.
-                    BarMark(x: .value("Bucket", bar.bucket.start, unit: xUnit),
-                           y: .value(spec.def.label, 0))
+                    // Uses the same domain-floor anchor as the visible bars
+                    // above rather than a bare zero, so it stays inside the
+                    // domain for index metrics too.
+                    BarMark(x:      .value("Bucket", bar.bucket.start, unit: xUnit),
+                            yStart: .value(spec.def.label, barAnchor),
+                            yEnd:   .value(spec.def.label, barAnchor))
                         .opacity(0)
                 }
             }
@@ -195,6 +208,16 @@ struct TrackMetricChartCard: View {
                 // from clipping again. 48 keeps a real margin; the cost is
                 // ~6pt of plot width, which even the 31-bar month view has.
                 .padding(.trailing, 48)
+                // Safety net: even with bars now anchored inside yDomain
+                // (see barAnchor), nothing should be able to draw outside
+                // the plot area and over the footer text below it. Applied
+                // after the trailing padding so the clip rect includes the
+                // reserved margin the "your 90d"/"typical" annotation sits
+                // in, and — being scoped to the plot's own background/border
+                // layer rather than the whole chart — it does not touch the
+                // top-of-bar value annotations or that trailing label, both
+                // of which Charts renders outside this layer by design.
+                .clipShape(Rectangle())
         }
     }
 
@@ -234,6 +257,13 @@ struct TrackMetricChartCard: View {
         return bar.bucket.start == series.bars.filter({ $0.value != nil }).last?.bucket.start
     }
 
+    /// Where bars are anchored, vertically. Always the visible domain's
+    /// floor: for zero-based metrics that floor is 0 (so this matches the
+    /// old zero-anchored look exactly); for index metrics it's the domain's
+    /// actual lower bound, which keeps the bar inside the plotted band
+    /// instead of running to zero and off the bottom of the chart.
+    private var barAnchor: Double { yDomain.lowerBound }
+
     private var yDomain: ClosedRange<Double> {
         let values = series.bars.compactMap(\.value) + [series.reference]
         let hi = values.max() ?? 1
@@ -256,7 +286,7 @@ struct TrackMetricChartCard: View {
             Text(series.summary)
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.text.opacity(0.85))
-            Text(spec.def.why)
+            Text(spec.trendWhy)
                 .font(.system(size: 10))
                 .foregroundStyle(Theme.dim)
                 .fixedSize(horizontal: false, vertical: true)

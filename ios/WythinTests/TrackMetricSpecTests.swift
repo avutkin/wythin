@@ -64,4 +64,32 @@ final class TrackMetricSpecTests: XCTestCase {
             XCTAssertFalse(spec.def.why.isEmpty)
         }
     }
+
+    func testTrendWhyIsNonEmptyForEveryMetric() {
+        for spec in TrackMetrics.all {
+            XCTAssertFalse(spec.trendWhy.isEmpty, "\(spec.def.label) is missing trendWhy")
+        }
+    }
+
+    /// Guards against the Activities session-detail copy (`def.why`) being
+    /// pasted back into the Track-specific `trendWhy`. Track shows daily
+    /// averages across a week/month/6 months, not a single in-progress
+    /// session, so language like "expect it to climb as you settle" or
+    /// "during" restful practice is incoherent there.
+    func testTrendWhyHasNoSessionScopedLanguage() {
+        let bannedPhrases = ["session", "as you settle", "as you relax", "during", "expect it to"]
+        for spec in TrackMetrics.all {
+            let lowered = spec.trendWhy.lowercased()
+            for phrase in bannedPhrases {
+                XCTAssertFalse(lowered.contains(phrase),
+                                "\(spec.def.label) trendWhy contains session-scoped phrase \"\(phrase)\"")
+            }
+        }
+    }
+
+    func testTrendWhyDiffersFromSessionWhy() {
+        for spec in TrackMetrics.all {
+            XCTAssertNotEqual(spec.trendWhy, spec.def.why, "\(spec.def.label) trendWhy was not rewritten")
+        }
+    }
 }
