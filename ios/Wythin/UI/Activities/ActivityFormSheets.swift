@@ -103,6 +103,13 @@ struct LogPastSheet: View {
 
     private var endDate: Date { startDate.addingTimeInterval(durationMins * 60) }
 
+    /// Bridges the non-optional slider value to the preset row's optional
+    /// binding. Writing nil is a no-op — the duration always has a value here.
+    private var presetBinding: Binding<Double?> {
+        Binding(get: { durationMins },
+                set: { if let v = $0 { durationMins = v } })
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -119,16 +126,9 @@ struct LogPastSheet: View {
                             .foregroundStyle(Theme.dim)
                             .tint(Theme.accent)
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text("DURATION")
-                                    .font(Theme.monoLabel)
-                                    .foregroundStyle(Theme.dim)
-                                Spacer()
-                                Text("\(Int(durationMins)) min")
-                                    .font(Theme.monoBody)
-                                    .foregroundStyle(Theme.accent)
-                            }
+                        VStack(alignment: .leading, spacing: 8) {
+                            DurationPresetRow(minutes: presetBinding,
+                                              valueLabel: "\(Int(durationMins)) min")
                             Slider(value: $durationMins, in: 1...180, step: 1)
                                 .tint(Theme.accent)
                         }
@@ -165,6 +165,64 @@ struct LogPastSheet: View {
                     Button("Cancel") { dismiss() }
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - DurationPresetRow
+
+/// Quick-pick minute chips. A shortcut over whatever control sits beside it,
+/// never a mode: selection is derived purely from the bound value, so dragging
+/// a slider to a non-preset number clears the highlight with no extra state.
+struct DurationPresetRow: View {
+    static let presets = [5, 10, 15, 20, 30]
+
+    @Binding var minutes: Double?
+    var title: String = "DURATION"
+    /// Trailing text shown at the row's right edge (e.g. "15 min"). Empty hides it.
+    var valueLabel: String = ""
+
+    static func isSelected(_ preset: Int, minutes: Double?) -> Bool {
+        guard let m = minutes else { return false }
+        return m == Double(preset)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+                Spacer()
+                if !valueLabel.isEmpty {
+                    Text(valueLabel)
+                        .font(Theme.monoBody)
+                        .foregroundStyle(Theme.accent)
+                } else if minutes != nil {
+                    Button("clear") { minutes = nil }
+                        .font(Theme.monoLabel)
+                        .foregroundStyle(Theme.dim.opacity(0.5))
+                }
+            }
+
+            HStack(spacing: 8) {
+                ForEach(Self.presets, id: \.self) { p in
+                    let on = Self.isSelected(p, minutes: minutes)
+                    Button {
+                        minutes = Double(p)
+                    } label: {
+                        Text("\(p)")
+                            .font(Theme.monoLabel)
+                            .foregroundStyle(on ? Theme.bg : Theme.accent)
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity)
+                            .background(on ? Theme.accent : Theme.accent.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(on ? .clear : Theme.accent.opacity(0.25), lineWidth: 0.5))
+                    }
                 }
             }
         }
@@ -324,6 +382,13 @@ struct EditActivitySheet: View {
 
     private var endDate: Date { startDate.addingTimeInterval(durationMins * 60) }
 
+    /// Bridges the non-optional slider value to the preset row's optional
+    /// binding. Writing nil is a no-op — the duration always has a value here.
+    private var presetBinding: Binding<Double?> {
+        Binding(get: { durationMins },
+                set: { if let v = $0 { durationMins = v } })
+    }
+
     init(entry: ActivityLog, onSave: @escaping (ModelContext) -> Void) {
         self.entry  = entry
         self.onSave = onSave
@@ -353,16 +418,9 @@ struct EditActivitySheet: View {
                             .foregroundStyle(Theme.dim)
                             .tint(Theme.accent)
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text("DURATION")
-                                    .font(Theme.monoLabel)
-                                    .foregroundStyle(Theme.dim)
-                                Spacer()
-                                Text("\(Int(durationMins)) min")
-                                    .font(Theme.monoBody)
-                                    .foregroundStyle(Theme.accent)
-                            }
+                        VStack(alignment: .leading, spacing: 8) {
+                            DurationPresetRow(minutes: presetBinding,
+                                              valueLabel: "\(Int(durationMins)) min")
                             Slider(value: $durationMins, in: 1...180, step: 1)
                                 .tint(Theme.accent)
                         }

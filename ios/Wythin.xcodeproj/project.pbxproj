@@ -110,6 +110,7 @@
 		AT18 /* DayPotentialInsightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT18 /* DayPotentialInsightTests.swift */; };
 		AT19 /* DayLoadSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT19 /* DayLoadSummaryTests.swift */; };
 		AT20 /* DayPotentialStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT20 /* DayPotentialStateTests.swift */; };
+		AT23 /* DurationPresetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT23 /* DurationPresetTests.swift */; };
 		BB44FFFA4FD2ED2B440F60EA /* UsageEventLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 679350D1BBA9E9E28C249EC1 /* UsageEventLog.swift */; };
 		AT21 /* NudgeSampleBufferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT21 /* NudgeSampleBufferTests.swift */; };
 		A221 /* NudgeSampleBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F221 /* NudgeSampleBuffer.swift */; };
@@ -234,6 +235,7 @@
 		FT18 /* DayPotentialInsightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsightTests.swift; sourceTree = "<group>"; };
 		FT19 /* DayLoadSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLoadSummaryTests.swift; sourceTree = "<group>"; };
 		FT20 /* DayPotentialStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStateTests.swift; sourceTree = "<group>"; };
+		FT23 /* DurationPresetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DurationPresetTests.swift; sourceTree = "<group>"; };
 		FTST /* WythinTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WythinTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FT21 /* NudgeSampleBufferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeSampleBufferTests.swift; sourceTree = "<group>"; };
 		F221 /* NudgeSampleBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeSampleBuffer.swift; sourceTree = "<group>"; };
@@ -496,6 +498,7 @@
 			children = (
 				FT19 /* DayLoadSummaryTests.swift */,
 				FT20 /* DayPotentialStateTests.swift */,
+				FT23 /* DurationPresetTests.swift */,
 				FT22 /* NudgeSignalsTests.swift */,
 				FT21 /* NudgeSampleBufferTests.swift */,
 				FT18 /* DayPotentialInsightTests.swift */,
@@ -705,6 +708,7 @@
 			files = (
 				AT19 /* DayLoadSummaryTests.swift in Sources */,
 				AT20 /* DayPotentialStateTests.swift in Sources */,
+				AT23 /* DurationPresetTests.swift in Sources */,
 				AT22 /* NudgeSignalsTests.swift in Sources */,
 				AT21 /* NudgeSampleBufferTests.swift in Sources */,
 				AT18 /* DayPotentialInsightTests.swift in Sources */,
