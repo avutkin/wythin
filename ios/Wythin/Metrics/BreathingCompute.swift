@@ -37,7 +37,14 @@ struct BreathPhases {
 enum BreathingCompute {
 
     private static let accFS:         Float = Float(PolarH10Profile.accSampleRate)  // 200 Hz
-    private static let breathBand:    ClosedRange<Float> = 0.10...0.50              // 6–30 br/min
+    // 4.8–30 br/min. With fftLen = 4096 the bin width is fs/4096 ≈ 0.04883 Hz, so a
+    // lower edge of 0.10 Hz (the old value) excluded bin 2 (0.09766 Hz) — the bin a
+    // true 6 br/min (0.1 Hz) peak actually lands closest to — leaving bin 3
+    // (0.14648 Hz ≈ 8.79 br/min) as an artificial floor no slower breath could ever
+    // beat. 0.08 Hz admits bin 2 so genuine slow/resonance breathing (~6 br/min) is
+    // reachable; sub-bin precision below that comes from parabolic interpolation
+    // in `computeRate`, not from the band itself.
+    private static let breathBand:    ClosedRange<Float> = 0.08...0.50
     private static let minAccBreath:  Int   = Int(accFS * 6)    // 6 s of data
     private static let minAccPhases:  Int   = Int(accFS * 20)   // 20 s
 
@@ -64,7 +71,13 @@ enum BreathingCompute {
         guard let peakIdx = bandPSD.indices.max(by: { bandPSD[$0] < bandPSD[$1] }) else {
             return nil
         }
-        let peakHz  = bandFreqs[peakIdx]
+        // The FFT bin grid (Δf ≈ 0.0488 Hz here) is coarse relative to breathing
+        // rates, so the raw argmax bin can sit noticeably off the true peak — this
+        // is exactly what produced the old 8.79 br/min floor. Parabolic
+        // interpolation over the peak bin and its neighbours recovers sub-bin
+        // precision from information the Welch estimate already contains (true
+        // resolution is bounded by 1/T, not by the bin width).
+        let peakHz  = refinePeakHz(freqs: bandFreqs, psd: bandPSD, peakIdx: peakIdx)
         let peakPSD = bandPSD[peakIdx]
         let meanPSD = vDSP.mean(bandPSD)
 
@@ -143,6 +156,42 @@ enum BreathingCompute {
             filtered:   sigSlice,
             filteredT:  tRel
         )
+    }
+
+    // MARK: Peak refinement
+
+    /// Refine a coarse spectral peak to sub-bin precision via quadratic (parabolic)
+    /// interpolation over the peak bin and its immediate neighbours:
+    ///
+    ///   δ = 0.5 · (P[k-1] − P[k+1]) / (P[k-1] − 2·P[k] + P[k+1])
+    ///   refined = (k + δ) · Δf
+    ///
+    /// `freqs`/`psd` are the arrays already restricted to the search band, and
+    /// `peakIdx` is the raw argmax within them — so "edge of the search band"
+    /// and "no neighbour on one side" are the same condition, checked once here.
+    /// Falls back to the raw bin frequency (no NaN, no wild extrapolation) when:
+    ///   - the peak is the first or last element of `psd` (missing a neighbour),
+    ///   - the local spectrum is flat/near-flat (denominator ≈ 0), or
+    ///   - the fit isn't finite.
+    /// `δ` is additionally clamped to ±0.5 bins — a larger value means the
+    /// parabola doesn't fit the local shape and the raw bin is the safer answer.
+    static func refinePeakHz(freqs: [Float], psd: [Float], peakIdx: Int) -> Float {
+        let rawHz = freqs[peakIdx]
+        guard peakIdx > 0, peakIdx < psd.count - 1 else { return rawHz }
+
+        let pPrev = psd[peakIdx - 1]
+        let pPeak = psd[peakIdx]
+        let pNext = psd[peakIdx + 1]
+
+        let denom = pPrev - 2 * pPeak + pNext
+        guard abs(denom) > 1e-12 else { return rawHz }
+
+        var delta = 0.5 * (pPrev - pNext) / denom
+        guard delta.isFinite else { return rawHz }
+        delta = min(max(delta, -0.5), 0.5)
+
+        let binWidth = freqs[peakIdx + 1] - freqs[peakIdx]
+        return rawHz + delta * binWidth
     }
 
     // MARK: DSP helpers

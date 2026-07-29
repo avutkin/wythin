@@ -185,6 +185,81 @@ final class MetricsTests: XCTestCase {
         }
     }
 
+    /// Helper: a pure sinusoid at `hz`, sampled like the real ACC Z-axis feed.
+    private func breathingSignal(hz: Float, seconds: Float = 30, fs: Float = 200) -> [Float] {
+        let n = Int(fs * seconds)
+        return (0..<n).map { i in sin(2 * .pi * hz * Float(i) / fs) }
+    }
+
+    func testBreathingRateNotPinnedToOldFloor() {
+        // The historical bug: any signal below ~8.79 br/min was floored to
+        // 8.7890625 (bin 3 of a 4096-point FFT at 200 Hz) because the search
+        // band excluded bin 2. A genuine 6 br/min signal must now be reported
+        // near 6, and must NOT land on the old floor value.
+        let result = BreathingCompute.computeRate(accZ: breathingSignal(hz: 0.1))
+        XCTAssertNotNil(result)
+        guard let r = result else { return }
+        XCTAssertEqual(r.bpm, 6.0, accuracy: 1.2)
+        XCTAssertGreaterThan(abs(r.bpm - 8.7890625), 1.0,
+                            "Must not be pinned to the old FFT-bin floor")
+    }
+
+    func testBreathingRateMidBandStillAccurate() {
+        // Guard against over-correcting: a normal-range rate (15 br/min = 0.25 Hz)
+        // that already sits well inside the band should stay accurate once
+        // interpolation is applied, not drift away from the true value.
+        let result = BreathingCompute.computeRate(accZ: breathingSignal(hz: 0.25))
+        XCTAssertNotNil(result)
+        guard let r = result else { return }
+        XCTAssertEqual(r.peakHz, 0.25, accuracy: 0.02)
+        XCTAssertEqual(r.bpm, 15.0, accuracy: 1.2)
+    }
+
+    func testBreathingRateAtUpperBandEdgeIsSane() {
+        // A true rate near the top of the searchable band (~29 br/min) puts the
+        // raw peak at the last bin of the band-restricted arrays, which has no
+        // right-hand neighbour for parabolic interpolation. This must fall back
+        // to the raw bin centre rather than producing NaN or extrapolating wildly.
+        let result = BreathingCompute.computeRate(accZ: breathingSignal(hz: 0.483))
+        XCTAssertNotNil(result)
+        guard let r = result else { return }
+        XCTAssertTrue(r.peakHz.isFinite)
+        XCTAssertTrue(r.bpm.isFinite)
+        XCTAssertEqual(r.peakHz, 0.48828125, accuracy: 1e-4,
+                       "Edge bin with no right neighbour falls back to the raw bin centre")
+    }
+
+    func testRefinePeakHzFlatSpectrumFallsBackToRawBin() {
+        // A perfectly flat local spectrum makes the parabolic denominator zero —
+        // must fall back to the raw bin frequency, never NaN.
+        let freqs: [Float] = [0.10, 0.15, 0.20, 0.25, 0.30]
+        let psd:   [Float] = [3, 3, 3, 3, 3]
+        let refined = BreathingCompute.refinePeakHz(freqs: freqs, psd: psd, peakIdx: 2)
+        XCTAssertEqual(refined, freqs[2])
+        XCTAssertTrue(refined.isFinite)
+    }
+
+    func testRefinePeakHzEdgeIndexFallsBackToRawBin() {
+        // No left neighbour at index 0, no right neighbour at the last index —
+        // both degenerate edges must fall back to the raw bin centre.
+        let freqs: [Float] = [0.10, 0.15, 0.20]
+        let psd:   [Float] = [9, 4, 1]
+        XCTAssertEqual(BreathingCompute.refinePeakHz(freqs: freqs, psd: psd, peakIdx: 0), freqs[0])
+
+        let psd2: [Float] = [1, 4, 9]
+        XCTAssertEqual(BreathingCompute.refinePeakHz(freqs: freqs, psd: psd2, peakIdx: 2), freqs[2])
+    }
+
+    func testRefinePeakHzInteriorPeakIsClampedAndFinite() {
+        // A well-formed interior peak should refine to a finite value within
+        // half a bin of the raw bin centre (the documented ±0.5 clamp).
+        let freqs: [Float] = [0.10, 0.15, 0.20, 0.25, 0.30]
+        let psd:   [Float] = [1, 8, 10, 6, 1]
+        let refined = BreathingCompute.refinePeakHz(freqs: freqs, psd: psd, peakIdx: 2)
+        XCTAssertTrue(refined.isFinite)
+        XCTAssertEqual(refined, freqs[2], accuracy: 0.025 /* ±0.5 bin, binWidth 0.05 */)
+    }
+
     // MARK: - Tachogram interpolation
 
     func testInterpTachogramLength() {
