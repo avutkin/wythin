@@ -298,4 +298,72 @@ final class TrackCacheTests: XCTestCase {
         XCTAssertEqual(b.macroRead(key: "week|123|abc"), "Steady week.")
         XCTAssertNil(b.macroRead(key: "week|123|different"))
     }
+
+    // MARK: macro-read pruning (housekeeping B1)
+
+    /// Writing past the cap prunes the store back down, but the entry that
+    /// was *just* written — the page currently being viewed — must survive
+    /// its own write: it always holds the newest recency counter, so pruning
+    /// (which evicts the oldest) can never pick it.
+    func testMacroReadPruningKeepsTheCapAndTheJustWrittenEntry() throws {
+        let cache = TrackCache(fileURL: url)
+        let total = TrackCache.macroReadCap + 10
+        for i in 0..<total {
+            cache.setMacroRead("read \(i)", key: "key\(i)")
+        }
+
+        XCTAssertEqual(cache.macroRead(key: "key\(total - 1)"), "read \(total - 1)")
+        XCTAssertNil(cache.macroRead(key: "key0"))
+
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let macroReads = try XCTUnwrap(json["macroReads"] as? [String: Any])
+        XCTAssertEqual(macroReads.count, TrackCache.macroReadCap)
+    }
+
+    /// Reading an entry counts as "recent" too, so paging back to a page
+    /// already on screen — a cache hit, no write — protects it from the next
+    /// prune, even though it is the very first entry written.
+    func testReadingAnEntryProtectsItFromTheNextPrune() {
+        let cache = TrackCache(fileURL: url)
+        let cap = TrackCache.macroReadCap
+
+        // "keepMe" is written first, so without the read below it would hold
+        // the very lowest recency of anything in the store.
+        cache.setMacroRead("kept", key: "keepMe")
+        for i in 0..<(cap - 1) {
+            cache.setMacroRead("filler \(i)", key: "filler\(i)")
+        }
+        // Store is now exactly at the cap — nothing pruned yet.
+
+        // A read bumps "keepMe" ahead of every filler written so far.
+        XCTAssertEqual(cache.macroRead(key: "keepMe"), "kept")
+
+        // One more write tips the store over the cap by one, forcing exactly
+        // one eviction. Without the read above, "keepMe" — the original
+        // oldest entry — would be the one removed.
+        cache.setMacroRead("tips it over", key: "fillerLast")
+
+        XCTAssertEqual(cache.macroRead(key: "keepMe"), "kept")
+        // "filler0" is now the true oldest instead, and is the one evicted.
+        XCTAssertNil(cache.macroRead(key: "filler0"))
+    }
+
+    /// A cache file written by a build that predates the recency counter has
+    /// `macroReads` as a flat `[String: String]` rather than `{text, seq}`
+    /// objects. It must still load — the same lenient-decode contract
+    /// `testFileWrittenBeforeNoDataDaysStillLoads` proves for `noDataDays` —
+    /// rather than being treated as corrupt and wiping the whole cache.
+    func testMacroReadsInTheOldFlatStringFormatStillLoad() throws {
+        let legacy: [String: Any] = [
+            "rollups": [],
+            "macroReads": ["week|123|abc": "Steady week."],
+            "noDataDays": [],
+        ]
+        try JSONSerialization.data(withJSONObject: legacy).write(to: url)
+
+        let cache = TrackCache(fileURL: url)
+        cache.load()
+        XCTAssertEqual(cache.macroRead(key: "week|123|abc"), "Steady week.")
+    }
 }

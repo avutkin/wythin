@@ -49,8 +49,6 @@ struct TrackRange: Equatable {
     let days:    [Date]
     let buckets: [TrackBucket]
     let label:   String
-
-    var isCurrent: Bool { offset == 0 }
 }
 
 enum TrackRangeBuilder {

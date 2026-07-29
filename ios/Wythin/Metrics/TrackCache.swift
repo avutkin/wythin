@@ -12,10 +12,20 @@ import Foundation
 @MainActor
 final class TrackCache {
 
+    /// One cached macro read plus the recency it was last touched at.
+    ///
+    /// `seq` is a monotonically increasing counter, not a timestamp: the
+    /// codebase has had trouble with non-deterministic wall-clock values in
+    /// tests, and a counter orders "which entry is oldest" exactly as well as
+    /// a timestamp would for pruning purposes.
+    private struct MacroReadEntry: Codable {
+        let text: String
+        let seq:  Int
+    }
+
     private struct File: Codable {
-        var version: Int
         var rollups: [DailyRollup]
-        var macroReads: [String: String]
+        var macroReads: [String: MacroReadEntry]
         /// Days that were computed and produced no rollup — the strap was off,
         /// or the day fell under `DailyRollupCompute.minTicks`. Persisted
         /// alongside the rollups so the knowledge survives relaunch: without
@@ -23,25 +33,44 @@ final class TrackCache {
         /// other 60 on every period switch and every swipe, forever.
         var noDataDays: [Date]
 
-        init(version: Int = 2, rollups: [DailyRollup] = [],
-             macroReads: [String: String] = [:], noDataDays: [Date] = []) {
-            self.version    = version
+        init(rollups: [DailyRollup] = [],
+             macroReads: [String: MacroReadEntry] = [:], noDataDays: [Date] = []) {
             self.rollups    = rollups
             self.macroReads = macroReads
             self.noDataDays = noDataDays
         }
 
         /// Decoded field by field with `decodeIfPresent` so a file written by
-        /// an older build — which has no `noDataDays` key — still loads.
-        /// Swift's synthesized decoder throws on a missing key regardless of
-        /// the property's default, and `load()` treats a throw as corruption
-        /// and empties the cache, which would force exactly the full 90-day
-        /// recompute this field exists to prevent.
+        /// an older build — which has no `noDataDays` key, or whose
+        /// `macroReads` is still a flat `[String: String]` predating the
+        /// recency counter — still loads. Swift's synthesized decoder throws
+        /// on a missing key or a shape mismatch regardless of the property's
+        /// default, and `load()` treats a throw as corruption and empties the
+        /// whole cache — which would force exactly the full 90-day recompute
+        /// `noDataDays` exists to prevent, just to migrate a field that has
+        /// nothing to do with rollups.
+        ///
+        /// `version` was deleted rather than made real: every field here
+        /// already migrates itself independently on its own missing-key or
+        /// wrong-shape case, which is strictly more forgiving than a single
+        /// version number that would wipe the *entire* cache — rollups
+        /// included — on any field it didn't recognize.
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
-            version    = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
-            rollups    = try c.decodeIfPresent([DailyRollup].self, forKey: .rollups) ?? []
-            macroReads = try c.decodeIfPresent([String: String].self, forKey: .macroReads) ?? [:]
+            rollups = try c.decodeIfPresent([DailyRollup].self, forKey: .rollups) ?? []
+            // `decode` (not `decodeIfPresent`) under `try?`: a missing key and
+            // a shape mismatch both simply fail this attempt and fall through
+            // to the next one, rather than needing separate handling.
+            if let entries = try? c.decode([String: MacroReadEntry].self, forKey: .macroReads) {
+                macroReads = entries
+            } else if let legacy = try? c.decode([String: String].self, forKey: .macroReads) {
+                // Pre-recency-counter shape: a flat [String: String]. Every
+                // migrated entry gets seq 0 — they are all equally "oldest",
+                // which is exactly right the first time pruning ever runs.
+                macroReads = legacy.mapValues { MacroReadEntry(text: $0, seq: 0) }
+            } else {
+                macroReads = [:]
+            }
             noDataDays = try c.decodeIfPresent([Date].self, forKey: .noDataDays) ?? []
         }
     }
@@ -49,7 +78,18 @@ final class TrackCache {
     private let fileURL: URL
     private var rollupsByDay: [Date: DailyRollup] = [:]
     private var noDataDays: Set<Date> = []
-    private var macroReads: [String: String] = [:]
+    private var macroReads: [String: MacroReadEntry] = [:]
+    /// Next recency value to hand out. Seeded past whatever was loaded from
+    /// disk so a fresh write is always the most recent, even across relaunch.
+    private var nextSeq = 1
+
+    /// Cap on stored macro reads. Every page — period × range × reference
+    /// state × day — mints its own key, and the *current* page's key changes
+    /// daily as today's rollup shifts its fingerprint, so yesterday's key for
+    /// that same page is orphaned every single day with nothing else to prune
+    /// it. 60 comfortably covers a user paging back many weeks/months across
+    /// all three periods while keeping the file small.
+    static let macroReadCap = 60
 
     init(fileURL: URL = TrackCache.defaultURL) {
         self.fileURL = fileURL
@@ -88,11 +128,13 @@ final class TrackCache {
             rollupsByDay = [:]
             noDataDays   = []
             macroReads   = [:]
+            nextSeq      = 1
             return
         }
         rollupsByDay = Dictionary(uniqueKeysWithValues: file.rollups.map { ($0.day, $0) })
         noDataDays   = Set(file.noDataDays)
         macroReads   = file.macroReads
+        nextSeq      = (macroReads.values.map(\.seq).max() ?? 0) + 1
     }
 
     private func save() {
@@ -216,10 +258,33 @@ final class TrackCache {
 
     // MARK: Macro reads
 
-    func macroRead(key: String) -> String? { macroReads[key] }
+    /// Also refreshes the entry's recency, in memory, so a page the user
+    /// keeps returning to is not pruned out from under them just because
+    /// other pages have been written more often since. Not itself persisted
+    /// — the next `setMacroRead` anywhere will carry it to disk — so this
+    /// stays a cheap dictionary update rather than a write on every read.
+    func macroRead(key: String) -> String? {
+        guard let entry = macroReads[key] else { return nil }
+        macroReads[key] = MacroReadEntry(text: entry.text, seq: nextSeq)
+        nextSeq += 1
+        return entry.text
+    }
 
     func setMacroRead(_ text: String, key: String) {
-        macroReads[key] = text
+        macroReads[key] = MacroReadEntry(text: text, seq: nextSeq)
+        nextSeq += 1
+        pruneMacroReads()
         save()
+    }
+
+    /// Evicts the least-recently-touched entries once the store exceeds
+    /// `macroReadCap`. The entry just written above always holds the highest
+    /// `seq` of anything in the dictionary, so it can never be among the ones
+    /// removed here — pruning cannot evict the page currently being viewed.
+    private func pruneMacroReads() {
+        let over = macroReads.count - Self.macroReadCap
+        guard over > 0 else { return }
+        let oldest = macroReads.sorted { $0.value.seq < $1.value.seq }.prefix(over)
+        for (key, _) in oldest { macroReads.removeValue(forKey: key) }
     }
 }

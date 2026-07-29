@@ -4,8 +4,6 @@ import Foundation
 struct TrackBar: Identifiable, Equatable {
     let bucket: TrackBucket
     let value:  Double?
-    /// Valid days behind the value — 1 for daily buckets, up to 31 for monthly.
-    let dayCount: Int
 
     var id: Date { bucket.start }
 }
@@ -55,13 +53,12 @@ enum TrackSeriesBuilder {
 
             let minDays = range.period == .sixMonth ? minDaysPerMonthBucket : 1
             guard values.count >= minDays else {
-                return TrackBar(bucket: bucket, value: nil, dayCount: values.count)
+                return TrackBar(bucket: bucket, value: nil)
             }
             // Unweighted mean of daily means: a day is a day, so an 18-hour
             // wear day cannot outweigh a 6-hour one.
             return TrackBar(bucket: bucket,
-                            value: values.reduce(0, +) / Double(values.count),
-                            dayCount: values.count)
+                            value: values.reduce(0, +) / Double(values.count))
         }
     }
 
