@@ -40,7 +40,26 @@ struct ConsistencyCard: View {
 
     private func row(title: String, stats: String, values: [Double],
                      color: Color, format: @escaping (Double) -> String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        // Charts anchors BarMark at zero, so a `value == 0` bar has zero
+        // height and is invisible no matter its color — which would defeat
+        // this card's whole purpose of telling "measured zero" apart from
+        // "no data". Plot at least a small stub instead, sized off this
+        // row's own scale (3% of its max) so it reads as proportionally
+        // tiny rather than a real value. `foregroundStyle` and the label
+        // stay keyed on the true `value`, so a stub is still grey and
+        // unlabeled even though its plotted height is nonzero.
+        //
+        // If every value in the row is zero there is no scale to be
+        // proportional to — fall back to a fixed unit purely so the row
+        // renders a visible line of grey stubs instead of a blank plot.
+        // The fallback is chosen so the stub-to-domain ratio matches the
+        // non-degenerate case (3% / 1.25 headroom either way).
+        let rowMax    = values.max() ?? 0
+        let scale     = rowMax > 0 ? rowMax : ConsistencyCard.zeroRowScale
+        let floor     = scale * 0.03
+        let domainTop = scale * 1.25
+
+        return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title)
                     .font(Theme.monoLabel)
@@ -55,7 +74,7 @@ struct ConsistencyCard: View {
                 ForEach(Array(zip(summary.buckets, values)), id: \.0.id) { bucket, value in
                     BarMark(
                         x: .value("Bucket", bucket.bucket.start, unit: xUnit),
-                        y: .value(title, value),
+                        y: .value(title, max(value, floor)),
                         width: .ratio(0.6)
                     )
                     .cornerRadius(2)
@@ -70,6 +89,11 @@ struct ConsistencyCard: View {
                 }
             }
             .frame(height: 54)
+            // Headroom so the tallest bar's value annotation is not
+            // clipped, matching `TrackMetricChartCard.yDomain` — these rows
+            // are 54pt tall versus that card's 132pt, so a top-anchored
+            // label is at greater risk of clipping here, not less.
+            .chartYScale(domain: 0...domainTop)
             .chartYAxis(.hidden)
             .chartXAxis {
                 AxisMarks(values: summary.buckets.map(\.bucket.start)) { value in
@@ -87,6 +111,10 @@ struct ConsistencyCard: View {
         }
     }
 
+    /// Fallback scale for an all-zero row, purely to give the floor/domain
+    /// math something to be proportional to when the real data has none.
+    private static let zeroRowScale: Double = 1
+
     private var xUnit: Calendar.Component { period == .sixMonth ? .month : .day }
 
     /// Thirty labels do not fit across a phone; the month view drops them.
@@ -94,6 +122,15 @@ struct ConsistencyCard: View {
 
     private func showAxisLabel(_ d: Date) -> Bool {
         guard period == .month else { return true }
-        return Calendar.current.component(.day, from: d) % 5 == 1
+        // Every fifth day, so a 31-day axis stays readable — matches
+        // `TrackMetricChartCard.showAxisLabel`.
+        if Calendar.current.component(.day, from: d) % 5 == 1 { return true }
+        // That sibling also ORs in its most recent bar *with a value*, so a
+        // month that isn't a multiple of 5 days long still labels its last
+        // bar. Every bucket here always has a value (possibly zero, never
+        // absent), so the direct analogue is simply the period's last
+        // bucket — there's no "still empty, not yet today" bucket to
+        // exclude the way the sibling excludes a future day.
+        return d == summary.buckets.last?.bucket.start
     }
 }
