@@ -2003,9 +2003,12 @@ In `server/routers/insights.py`, add to `_METRIC_NAMES` (after the `"dfa1"` entr
 
 ```python
     "stress_balance": "Stress balance — breathing-robust 0–100 arousal dial "
-                      "(lower = calmer). Not a raw LF/HF ratio; slow paced "
-                      "breathing correctly reads as calmer, not more stressed",
+                      "(lower = calmer). Not a raw frequency-domain stress "
+                      "ratio; slow paced breathing correctly reads as calmer, "
+                      "not more stressed",
 ```
+
+**Correction (found during Task 7, fixed in `2a45f96`).** This gloss originally read "Not a raw LF/HF ratio", which contradicted this task's own test asserting `"LF/HF" not in text` — `_format_macro_trend` embeds `_METRIC_NAMES` glosses into the prompt, so the gloss tripped the assertion. The gloss was reworded rather than the test relaxed, for two reasons: the test still catches the real regression (aliasing `stress_balance` to `lf_hf` would emit `lf_hf`'s own untouched gloss and fail), and the system prompt separately forbids the model from saying "LF/HF" — putting the banned token in the input, even inside a negation, primes the very output being banned.
 
 Then add, after `_format_day_potential` (line 342):
 
