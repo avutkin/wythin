@@ -466,9 +466,47 @@ Each nudge's "Why it works?" should carry a one-line, plain-language version of 
 
 ---
 
-## 10. Prerequisites and rollout
+## 10. Delivery, prerequisites and rollout
 
-### Prerequisite code changes
+### 10.1 How a nudge reaches the user
+
+**A local notification posted from a process that is already awake.** No push server, no APNs, no `BGTaskScheduler`. The app is already running while backgrounded because `bluetooth-central` keeps it alive on the strap's BLE stream (`AppEnvironment.swift:302-320`), so when a trigger fires the engine calls `UNUserNotificationCenter.current().add(request)` with `trigger: nil` and it delivers immediately, from live code, with the state that caused it still in memory.
+
+This is the architectural payoff of the whole design: most apps need a server to push them awake to notify. Wythin does not, because the strap does it.
+
+**The hard dependency:** no strap → no BLE → no live process → no nudge. That is acceptable — no data means no state to detect — but it means nudges silently become impossible rather than merely quiet, and the `NUDGES` settings section (§9) must distinguish "nothing to say" from "cannot say anything".
+
+**Two presentation paths off one engine.** A local notification posted while the app is in the foreground shows no banner unless the delegate returns `.banner`. Rather than force that:
+
+| App state | Surface |
+|---|---|
+| Backgrounded | Notification banner, with the menu as notification actions |
+| Foregrounded | **No notification.** The in-app card (`RecommendedActionCard` shell, §9) on the Live tab |
+
+Interrupting someone with a banner while they are looking at the screen already showing that information is noise. Same trigger, same copy, different surface.
+
+**The menu maps onto notification actions.** One `UNNotificationCategory` per trigger — each has a different alternate list (§5.1) — with the alternates as `UNNotificationAction`s. Expanding the notification shows them, so the user picks without opening the app:
+
+```
+Something just landed
+Your heart rate jumped without you moving…
+  ┌──────────────────────────┐
+  │ Start 5-minute reset     │  ← default: tap the notification body
+  │ Box breathing            │
+  │ Just observe (10 min)    │
+  │ Not now                  │  ← feeds the ledger (§8)
+  └──────────────────────────┘
+```
+
+Opening the app in order to choose how to calm down is itself friction; this removes it.
+
+**Tap routing.** `UNUserNotificationCenterDelegate.userNotificationCenter(_:didReceive:)` → set `env.pendingNudgeAction` → `ContentView` consumes it, mirroring how `pendingTabRequest` is consumed at `WythinApp.swift:113-117`. Today that path can only switch tabs; it cannot present a specific session view, so it needs extending.
+
+**Permission, and when to ask.** Asking on first launch gets denied reflexively. Ask instead at the *end* of shadow mode, or from the Settings section with evidence — *"you'd have had 11 of these in the last two weeks; want them?"* If denied, the engine keeps running and the foreground card path still works, so the feature degrades rather than dies. Record the authorization status in the settings row so a user who denied it once can find their way back.
+
+Quiet hours suppress rather than queue (§8), so nothing lands at 07:01 about last night's state.
+
+### 10.2 Prerequisite code changes
 
 | File | Change |
 |---|---|
@@ -481,15 +519,18 @@ Each nudge's "Why it works?" should carry a one-line, plain-language version of 
 | `UI/Resonate/PacerCircleView.swift` | **new:** hold phases, enabling both `box` (in/hold/out/hold) and `sighing` (double inhale → extended exhale). Prerequisite for D4's primary (§3.4). The pacer currently models only `cycle = 60/bpm` split by an I:E ratio, with no breath-hold concept |
 | `Models/ActivityLog.swift` | record which option was **offered**, **chosen** and **dismissed** per nudge, so per-user ranking is computable in Phase 3 (§5.1) |
 | `App/AppEnvironment.swift:46` | `pendingNudgeAction` alongside the existing `pendingTabRequest` |
+| **new:** `@UIApplicationDelegateAdaptor` on `WythinApp` | `UNUserNotificationCenterDelegate` needs an AppDelegate; the app is a pure SwiftUI `@main` with none, so tap-handling has nowhere to live today (§10.1) |
+| **new:** `NudgeNotificationService.swift` | permission request, one `UNNotificationCategory` per trigger with the menu as actions, immediate `add(request)` on fire |
+| `App/WythinApp.swift:113-117` | extend the `pendingTabRequest` consumer to route a `pendingNudgeAction` to a specific session view, not just a tab |
 | `Info.plist` + permission flow | `UserNotifications` — Phase 2 only |
 
-### Rollout
+### 10.3 Rollout
 
 **Phase 1 — shadow mode.** Ship the engine with a `NudgeShadowLog` recording every evaluation's candidate set, selection and suppression reason. No notifications, no UI, no permission prompt. Wear it ~2 weeks. Read from the log: how often each trigger *would* have fired, at what hours, how often the exercise veto saved us, and whether F1 ever fires at all.
 
 **Phase 2 — tune, then enable.** Adjust thresholds, add the permission flow and delivery. Target rates: ~0.8–1.5 downshift/day, 1–2 focus windows/week.
 
-### Testability
+### 10.4 Testability
 
 Pure functions over synthetic `[MetricsHistoryPoint]`, following `WythinTests/StreakComputeTests.swift`: `NudgeSignals.derive`, `NudgeSuppression.evaluate` (returns reason), `NudgeTriggers.evaluate`, `NudgePrecedence.select`, `NudgeStateMachine.advance`, `NudgeBudget.allows`, `ExerciseVeto.isLikelyExertion`, `NudgeCopy.render`.
 
