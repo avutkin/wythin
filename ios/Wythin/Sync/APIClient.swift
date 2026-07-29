@@ -332,9 +332,19 @@ struct APIClient {
 // (not skipped) on the next call. No-ops entirely while the user has the
 // cloud-sync toggle off.
 
+/// Narrow protocol over the two `APIClient` calls `MetricSyncService` makes,
+/// so tests can inject a fake uploader (mirrors the `InsightAPIClient`
+/// pattern above `APIClient` itself).
+protocol MetricUploadClient {
+    func uploadMetrics(_ payload: MetricsUploadPayload, userID: String) async throws -> MetricsUploadResponse
+    func uploadProfile(_ payload: ProfilePayload, userID: String) async throws
+}
+
+extension APIClient: MetricUploadClient {}
+
 @MainActor
 final class MetricSyncService {
-    private let client: APIClient
+    private let client: MetricUploadClient
     private let userID: String
     private let container: ModelContainer
     @AppStorage("cloudSyncEnabled") private var enabled = true
@@ -352,11 +362,47 @@ final class MetricSyncService {
         storedVersion < currentSchemaVersion
     }
 
+    /// Whether the watermark should be reset to re-walk history from scratch.
+    /// True exactly once per backfill — the moment it starts. On every later
+    /// pass while the device is still backfilling (an upload failed partway
+    /// through, so the version remains unstamped), this must be false: the
+    /// watermark already points at the correct resume point, and resetting it
+    /// again would restart the whole drain from `Date.distantPast`.
+    nonisolated static func shouldResetWatermark(backfilling: Bool, backfillStarted: Bool) -> Bool {
+        backfilling && !backfillStarted
+    }
+
+    /// What happened when the loop tried to fetch the next history batch.
+    /// Kept as three explicit cases (rather than collapsing into a `try?`
+    /// optional) because a genuine fetch error and a genuinely empty store
+    /// must NOT be treated the same — see `drainAction(for:)`.
+    enum FetchOutcome {
+        case failed
+        case empty
+        case samples([HRVSample])
+    }
+
+    /// Pure decision for how the drain loop reacts to a fetch outcome.
+    /// `.failed` (locked store, in-progress migration, corruption, ...) must
+    /// leave `drained` false, so the version is never stamped and the next
+    /// pass retries the fetch. Only a genuinely empty store means the
+    /// backfill is complete.
+    nonisolated static func drainAction(for outcome: FetchOutcome) -> (stopLoop: Bool, drained: Bool) {
+        switch outcome {
+        case .failed:  return (true, false)
+        case .empty:   return (true, true)
+        case .samples: return (false, false)
+        }
+    }
+
     @AppStorage("metricsSyncSchemaVersion") private var storedSchemaVersion = 0
+    /// Set once the backfill's initial watermark reset has happened; cleared
+    /// again once the version is stamped, so a future schema bump resets once.
+    @AppStorage("metricsBackfillStarted") private var backfillStarted = false
     private var isSyncing = false
     private var profileSynced = false
 
-    init(client: APIClient, userID: String, container: ModelContainer) {
+    init(client: MetricUploadClient, userID: String, container: ModelContainer) {
         self.client = client; self.userID = userID; self.container = container
     }
 
@@ -379,9 +425,15 @@ final class MetricSyncService {
         }
 
         // A device that has never uploaded the widened payload re-walks its
-        // whole local history once. Reset the watermark, then drain.
+        // whole local history once. Reset the watermark exactly once, when the
+        // backfill starts — NOT on every pass, or an upload failure partway
+        // through would restart the drain from scratch on the next call
+        // instead of resuming from the saved watermark.
         let backfilling = Self.needsBackfill(storedVersion: storedSchemaVersion)
-        if backfilling { lastSyncedISO = "" }
+        if Self.shouldResetWatermark(backfilling: backfilling, backfillStarted: backfillStarted) {
+            lastSyncedISO = ""
+            backfillStarted = true
+        }
 
         let batchSize = backfilling ? Self.backfillBatchSize : Self.normalBatchSize
         var drained = false
@@ -396,10 +448,22 @@ final class MetricSyncService {
                 predicate: #Predicate { $0.timestamp > after },
                 sortBy: [SortDescriptor(\.timestamp)])
             desc.fetchLimit = batchSize
-            guard let samples = try? ctx.fetch(desc), !samples.isEmpty else {
-                drained = true
+
+            let outcome: FetchOutcome
+            do {
+                let fetched = try ctx.fetch(desc)
+                outcome = fetched.isEmpty ? .empty : .samples(fetched)
+            } catch {
+                outcome = .failed
+            }
+
+            let action = Self.drainAction(for: outcome)
+            if action.stopLoop {
+                drained = action.drained
                 break
             }
+            guard case .samples(let samples) = outcome else { break }
+
             let payload = MetricsUploadPayload(
                 samples: samples.map { MetricSamplePayload(from: $0, iso: iso) })
             guard (try? await client.uploadMetrics(payload, userID: userID)) != nil,
@@ -416,6 +480,7 @@ final class MetricSyncService {
         // interrupted backfill resumes on the next pass instead of being lost.
         if backfilling && drained {
             storedSchemaVersion = Self.currentSchemaVersion
+            backfillStarted = false
         }
     }
 }
