@@ -130,7 +130,9 @@ final class TrackCache {
     /// gate — is recorded in `noDataDays`, so it is fetched at most once
     /// instead of on every period switch and every swipe for the rest of the
     /// user's life. `today` is exempt from both, since a day in progress can
-    /// still cross the gate later in the afternoon.
+    /// still cross the gate later in the afternoon — and so, for the same
+    /// reason, is any day still ahead of `today`: only a day that is already
+    /// closed (`day < today`) is ever added to `noDataDays`.
     @discardableResult
     func refresh(days: [Date], today: Date,
                  fetchDay: (Date) throws -> [MetricsHistoryPoint]) -> Bool {
@@ -146,9 +148,16 @@ final class TrackCache {
                 // Today can gain data after having had none.
                 if noDataDays.remove(day) != nil { changed = true }
             } else {
-                // Clears a day that lost its data, and remembers the verdict.
+                // Clears a day that lost its data, and remembers the verdict —
+                // but only once the day is closed. `today` and any day still
+                // ahead of it can still gain samples later (the strap goes on
+                // this afternoon, or the day simply hasn't happened yet), so
+                // negatively caching them would blank them forever once they
+                // roll into the past: `refresh` only re-fetches `today`, and a
+                // day that was never `today` while cached never gets another
+                // chance.
                 if rollupsByDay.removeValue(forKey: day) != nil { changed = true }
-                if noDataDays.insert(day).inserted { changed = true }
+                if day < today, noDataDays.insert(day).inserted { changed = true }
             }
         }
         if changed { save() }

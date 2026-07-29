@@ -119,6 +119,46 @@ final class TrackCacheTests: XCTestCase {
         XCTAssertEqual(cache.rollups(in: day(0)...day(0)).first?.dc ?? 0, 9, accuracy: 0.001)
     }
 
+    /// A day that is still `today` when it first computes to nil must not be
+    /// left in `noDataDays` once midnight passes and it becomes a genuinely
+    /// past day. Before the fix, an empty "today" was negatively cached like
+    /// any other nil day — harmless while it stayed `today` (the skip path
+    /// only applies to `day != today`), but the moment it rolled over into
+    /// the past it matched the skip path and was silently dropped forever,
+    /// even though the user wore the strap all day.
+    func testRolledOverTodayIsRecomputed() {
+        let cache = TrackCache(fileURL: url)
+        _ = cache.refresh(days: [day(0)], today: day(0)) { _ in [] }
+        XCTAssertTrue(cache.rollups(in: day(0)...day(0)).isEmpty)
+
+        // Midnight passes: day(0) is no longer "today", and the strap
+        // recorded real samples during it.
+        let tomorrow = day(-1)
+        _ = cache.refresh(days: [day(0)], today: tomorrow) { samples($0, dc: 8) }
+
+        XCTAssertEqual(cache.rollups(in: day(0)...day(0)).first?.dc ?? 0, 8, accuracy: 0.001)
+    }
+
+    /// A day that is still ahead of `today` (has not happened yet) must never
+    /// be negatively cached, for the same reason `today` itself is exempt: it
+    /// can still gain samples once it arrives. `TrackView` fetches through
+    /// the end of the current period, which routinely includes days after
+    /// `today` — e.g. the rest of the current week. This test fails against
+    /// the pre-fix code, which negatively caches any nil day regardless of
+    /// whether it is in the future.
+    func testFutureDayThatLaterGainsDataIsNotPermanentlyBlanked() {
+        let cache = TrackCache(fileURL: url)
+        let future = [day(-1), day(-2), day(-3)] // tomorrow, +2, +3 — all ahead of "today".
+        _ = cache.refresh(days: future, today: day(0)) { _ in [] }
+
+        // Time passes: those days are now closed, and the strap recorded
+        // real samples during them.
+        let laterToday = day(-4)
+        _ = cache.refresh(days: future, today: laterToday) { samples($0) }
+
+        XCTAssertEqual(cache.rollups(in: day(-1)...day(-3)).count, 3)
+    }
+
     /// Negative caching must be invisible to `fingerprint`, or the release
     /// that introduces it would invalidate every stored macro read and re-bill
     /// an LLM call for every period the user has ever opened.
