@@ -149,6 +149,33 @@ final class ConsistencySummaryTests: XCTestCase {
         XCTAssertEqual(s.streak.current, 9)
     }
 
+    /// The streak must not bleed into the *following* page. Practice on the
+    /// page's last three days (Mar 20-22, the tail of the Mar 16-22 week)
+    /// plus the first day of the next page (Mar 23) would report a 4-day
+    /// streak if the anchor were evaluated at `range.end` instead of
+    /// `range.end - 1 day` — `range.end` is exclusive, so it names the next
+    /// page's first day, not this page's last. The correct answer is 3: Mar
+    /// 23's practice belongs to the next page's streak, not this one's.
+    func testStreakDoesNotBleedIntoTheFollowingPage() {
+        let marchWeek = TrackRangeBuilder.range(period: .week, offset: 0,
+                                                today: date(2026, 3, 18), calendar: cal)
+        let lastDayOfPage = cal.date(byAdding: .day, value: -1, to: marchWeek.end)!  // Mar 22
+        let firstDayOfNextPage = marchWeek.end                                       // Mar 23
+        let practiceDays = [
+            cal.date(byAdding: .day, value: -2, to: lastDayOfPage)!,  // Mar 20
+            cal.date(byAdding: .day, value: -1, to: lastDayOfPage)!,  // Mar 21
+            lastDayOfPage,                                            // Mar 22
+            firstDayOfNextPage,                                       // Mar 23
+        ]
+        let acts = practiceDays.map { d -> ActivitySpan in
+            ActivitySpan(startedAt: d.addingTimeInterval(9 * 3600),
+                        endedAt:   d.addingTimeInterval(9 * 3600 + 600))
+        }
+        let s = ConsistencyBuilder.build(range: marchWeek, activities: acts, rollups: [],
+                                         today: day(2026, 7, 28), calendar: cal)
+        XCTAssertEqual(s.streak.current, 3)
+    }
+
     // MARK: multi-day buckets (6M)
 
     private var sixMonth: TrackRange {

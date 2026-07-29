@@ -321,32 +321,72 @@ final class TrackCacheTests: XCTestCase {
         XCTAssertEqual(macroReads.count, TrackCache.macroReadCap)
     }
 
-    /// Reading an entry counts as "recent" too, so paging back to a page
-    /// already on screen — a cache hit, no write — protects it from the next
-    /// prune, even though it is the very first entry written.
-    func testReadingAnEntryProtectsItFromTheNextPrune() {
+    /// Eviction is by **write** recency, not read recency: a read is a pure
+    /// lookup and does not protect an entry from the next prune, no matter
+    /// how recently it happened. This is the honest replacement for a prior
+    /// read-bump that looked like it protected "keepMe" here but, in the
+    /// real app, never survived the `load()` that `TrackView` runs on every
+    /// page change — so the bump was always discarded before it could do
+    /// anything, and "keepMe" was pruned exactly as if never read.
+    func testReadingAnEntryDoesNotProtectItFromTheNextPrune() {
         let cache = TrackCache(fileURL: url)
         let cap = TrackCache.macroReadCap
 
-        // "keepMe" is written first, so without the read below it would hold
-        // the very lowest recency of anything in the store.
+        // "keepMe" is written first, so it holds the very lowest recency of
+        // anything in the store.
         cache.setMacroRead("kept", key: "keepMe")
         for i in 0..<(cap - 1) {
             cache.setMacroRead("filler \(i)", key: "filler\(i)")
         }
         // Store is now exactly at the cap — nothing pruned yet.
 
-        // A read bumps "keepMe" ahead of every filler written so far.
+        // A read does not change write order.
         XCTAssertEqual(cache.macroRead(key: "keepMe"), "kept")
 
         // One more write tips the store over the cap by one, forcing exactly
-        // one eviction. Without the read above, "keepMe" — the original
-        // oldest entry — would be the one removed.
+        // one eviction: "keepMe", the least-recently-*written* entry, despite
+        // the read above.
         cache.setMacroRead("tips it over", key: "fillerLast")
 
+        XCTAssertNil(cache.macroRead(key: "keepMe"))
+        // "filler0" was written after "keepMe", so it survives.
+        XCTAssertEqual(cache.macroRead(key: "filler0"), "filler 0")
+    }
+
+    /// Exercises the cache the way `TrackView` actually does: `load()` is
+    /// called between operations (it runs at the top of every
+    /// `loadRollups()`, i.e. on every page change), replacing in-memory
+    /// state wholesale from disk. This is the scenario the original
+    /// read-recency bug lived in — an in-memory-only bump on read looked
+    /// like it protected an entry, but the very next `load()` discarded it
+    /// before anything could persist it, so the entry was pruned regardless.
+    /// Write-recency has no such gap: `seq` is carried on every `save()`, so
+    /// pruning order is identical whether or not a `load()` happens in
+    /// between.
+    func testPruningOrderIsUnaffectedByLoadBetweenOperations() {
+        let cache = TrackCache(fileURL: url)
+        let cap = TrackCache.macroReadCap
+
+        cache.setMacroRead("kept", key: "keepMe")
+        for i in 0..<(cap - 1) {
+            cache.setMacroRead("filler \(i)", key: "filler\(i)")
+        }
+        // Simulate paging back to "keepMe"'s page: TrackView reloads from
+        // disk first, then reads.
+        cache.load()
         XCTAssertEqual(cache.macroRead(key: "keepMe"), "kept")
-        // "filler0" is now the true oldest instead, and is the one evicted.
-        XCTAssertNil(cache.macroRead(key: "filler0"))
+
+        // Another page change: reload again, then write past the cap.
+        cache.load()
+        cache.setMacroRead("tips it over", key: "fillerLast")
+
+        // Reload once more, as the next page visit would, and confirm the
+        // eviction that happened before this load() actually persisted:
+        // "keepMe" is gone despite having been read, "filler0" (written
+        // after it) survives.
+        cache.load()
+        XCTAssertNil(cache.macroRead(key: "keepMe"))
+        XCTAssertEqual(cache.macroRead(key: "filler0"), "filler 0")
     }
 
     /// A cache file written by a build that predates the recency counter has

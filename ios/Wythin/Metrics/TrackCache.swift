@@ -12,12 +12,27 @@ import Foundation
 @MainActor
 final class TrackCache {
 
-    /// One cached macro read plus the recency it was last touched at.
+    /// One cached macro read plus the recency it was last *written* at.
     ///
     /// `seq` is a monotonically increasing counter, not a timestamp: the
     /// codebase has had trouble with non-deterministic wall-clock values in
     /// tests, and a counter orders "which entry is oldest" exactly as well as
     /// a timestamp would for pruning purposes.
+    ///
+    /// Eviction is **least-recently-written**, not least-recently-read. A
+    /// read-recency (LRU) policy was tried and removed: `TrackView.
+    /// loadRollups()` calls `load()` on every page change, which replaces
+    /// `macroReads` wholesale from disk, so an in-memory-only bump on read
+    /// never reaches disk and is discarded by the very next `load()` — the
+    /// entry it was meant to protect gets pruned exactly as if it had never
+    /// been read. Persisting the bump properly would mean either a disk
+    /// write on every Track appear (a cache hit becoming a cache write) or
+    /// dirty-flag bookkeeping that has to survive a `load()` designed to
+    /// discard exactly that — more machinery than a text cache warrants.
+    /// Write recency is simpler and gives the same practical result: the
+    /// page currently being viewed was, almost always, also just written
+    /// (its key includes the day's fingerprint, so a hit implies a prior
+    /// write of that exact key).
     private struct MacroReadEntry: Codable {
         let text: String
         let seq:  Int
@@ -258,16 +273,13 @@ final class TrackCache {
 
     // MARK: Macro reads
 
-    /// Also refreshes the entry's recency, in memory, so a page the user
-    /// keeps returning to is not pruned out from under them just because
-    /// other pages have been written more often since. Not itself persisted
-    /// — the next `setMacroRead` anywhere will carry it to disk — so this
-    /// stays a cheap dictionary update rather than a write on every read.
+    /// A pure lookup — does **not** refresh the entry's recency. Eviction is
+    /// least-recently-*written*; see the note on `MacroReadEntry`. A read
+    /// that finds nothing is simply a miss for the caller to fill via
+    /// `setMacroRead`, which is the only thing that moves an entry's
+    /// position in the prune order.
     func macroRead(key: String) -> String? {
-        guard let entry = macroReads[key] else { return nil }
-        macroReads[key] = MacroReadEntry(text: entry.text, seq: nextSeq)
-        nextSeq += 1
-        return entry.text
+        macroReads[key]?.text
     }
 
     func setMacroRead(_ text: String, key: String) {
@@ -277,7 +289,7 @@ final class TrackCache {
         save()
     }
 
-    /// Evicts the least-recently-touched entries once the store exceeds
+    /// Evicts the least-recently-*written* entries once the store exceeds
     /// `macroReadCap`. The entry just written above always holds the highest
     /// `seq` of anything in the dictionary, so it can never be among the ones
     /// removed here — pruning cannot evict the page currently being viewed.
