@@ -22,13 +22,41 @@ struct ConsistencyCard: View {
 
             row(title: "WEAR",
                 stats: String(format: "avg %.1f h/day", summary.avgWearHours),
-                values: summary.buckets.map(\.wearHours),
+                values: summary.buckets.map { ConsistencyCard.wearDisplayValue($0, period: period) },
                 color: Theme.hrv,
                 format: { $0 < 0.5 ? "" : String(format: "%.0f", $0) })
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardStyle()
         .padding(.horizontal)
+    }
+
+    /// The WEAR row's plotted value for one bucket, with a 6M bucket that has
+    /// too few worn days (`TrackSeriesBuilder.minDaysPerMonthBucket`, shared
+    /// with the charts above so the two rules can't drift) treated as
+    /// absent rather than plotted at its true mean.
+    ///
+    /// Suppressing it — rather than dimming it or printing the day count —
+    /// reuses the row's own existing "no real value" language: a suppressed
+    /// bucket falls back to the same grey floor-stub a measured zero already
+    /// gets (see `row(...)` below), with no number above it. That is exactly
+    /// what this card exists to prevent from being confused with a real
+    /// reading, and it keeps the wear row visually in agreement with the
+    /// blank chart bars directly above it for the same sparse month, rather
+    /// than introducing a third visual language the row doesn't already
+    /// speak. W and M buckets are always a single day — `wearDayCount` there
+    /// is 0 or 1 — so this only ever engages in 6M.
+    ///
+    /// A free function of `(bucket, period)` rather than an instance method
+    /// so the presentation rule is directly unit-testable without going
+    /// through SwiftUI rendering.
+    static func wearDisplayValue(_ bucket: ConsistencySummary.Bucket,
+                                 period: TrackPeriod) -> Double {
+        guard period == .sixMonth,
+              bucket.wearDayCount > 0,
+              bucket.wearDayCount < TrackSeriesBuilder.minDaysPerMonthBucket
+        else { return bucket.wearHours }
+        return 0
     }
 
     private var practiceStats: String {

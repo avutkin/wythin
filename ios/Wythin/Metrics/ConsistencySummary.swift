@@ -29,6 +29,12 @@ struct ConsistencySummary: Equatable {
         /// consistency analogue of a metric bar's `value != nil`. `wearHours`
         /// alone cannot say: a measured zero and an absent day are both 0.
         let hasData:         Bool
+        /// Days in this bucket with a wear rollup. `wearHours` is a mean over
+        /// exactly these days — this is that mean's denominator, kept around
+        /// so a 6M bucket built on too few of them (see
+        /// `TrackSeriesBuilder.minDaysPerMonthBucket`) can be told apart from
+        /// one that's actually well covered.
+        let wearDayCount:    Int
 
         var id: Date { bucket.start }
     }
@@ -85,10 +91,21 @@ enum ConsistencyBuilder {
                 bucket:          bucket,
                 practiceMinutes: days.reduce(0) { $0 + (minutesByDay[$1] ?? 0) },
                 wearHours:       worn.isEmpty ? 0 : worn.reduce(0, +) / Double(worn.count),
-                hasData:         !worn.isEmpty)
+                hasData:         !worn.isEmpty,
+                wearDayCount:    worn.count)
         }
 
         let wornDays = range.days.compactMap { wearByDay[$0] }
+
+        // The streak is period-scoped like everything else on this card, so
+        // paging to an earlier page must evaluate it as of that page, not
+        // today. For the *current* page `range.end` is in the future — end
+        // of this week/month/6M span — and `StreakCompute.evaluate` walks
+        // backwards from the date it's given, so handing it a future date
+        // would look for practice on a day that hasn't happened yet and
+        // collapse the streak to 0. Clamp to whichever is earlier.
+        let lastDayOfRange = cal.date(byAdding: .day, value: -1, to: range.end) ?? range.start
+        let streakAsOf = min(lastDayOfRange, today)
 
         return ConsistencySummary(
             buckets:              buckets,
@@ -97,6 +114,6 @@ enum ConsistencyBuilder {
             avgWearHours:         wornDays.isEmpty
                                     ? 0 : wornDays.reduce(0, +) / Double(wornDays.count),
             streak:               StreakCompute.evaluate(days: practiceDays,
-                                                         today: today, calendar: cal))
+                                                         today: streakAsOf, calendar: cal))
     }
 }

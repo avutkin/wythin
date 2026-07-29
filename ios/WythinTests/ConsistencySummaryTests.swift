@@ -109,6 +109,46 @@ final class ConsistencySummaryTests: XCTestCase {
         XCTAssertEqual(s.streak.current, 4)
     }
 
+    // MARK: streak is period-scoped
+
+    /// Paging back to an earlier page must report the streak as it stood on
+    /// that page, not today's streak. A 3-day streak ending on the March
+    /// week's last day, with no practice anywhere near the real "today"
+    /// (July 28) that gets passed in as the caller's clock.
+    func testStreakOnAnEarlierPageReflectsThatPageNotToday() {
+        let marchWeek = TrackRangeBuilder.range(period: .week, offset: 0,
+                                                today: date(2026, 3, 18), calendar: cal)
+        let lastDay = cal.date(byAdding: .day, value: -1, to: marchWeek.end)!
+        let acts = (0..<3).map { back -> ActivitySpan in
+            let d = cal.date(byAdding: .day, value: -back, to: lastDay)!
+            return ActivitySpan(startedAt: d.addingTimeInterval(9 * 3600),
+                                endedAt:   d.addingTimeInterval(9 * 3600 + 600))
+        }
+        let s = ConsistencyBuilder.build(range: marchWeek, activities: acts, rollups: [],
+                                         today: day(2026, 7, 28), calendar: cal)
+        XCTAssertEqual(s.streak.current, 3)
+    }
+
+    /// A streak that starts before the page's first bucket and runs through
+    /// to the page's last day must still count in full — `practiceDays` is
+    /// populated for every finished activity regardless of range, precisely
+    /// so a run bleeding in from before the page still shows up here. Nine
+    /// consecutive days against a 7-day page proves the extra two came from
+    /// outside the page.
+    func testStreakBleedingInFromBeforeThePageStillCountsInFull() {
+        let marchWeek = TrackRangeBuilder.range(period: .week, offset: 0,
+                                                today: date(2026, 3, 18), calendar: cal)
+        let lastDay = cal.date(byAdding: .day, value: -1, to: marchWeek.end)!
+        let acts = (0..<9).map { back -> ActivitySpan in
+            let d = cal.date(byAdding: .day, value: -back, to: lastDay)!
+            return ActivitySpan(startedAt: d.addingTimeInterval(9 * 3600),
+                                endedAt:   d.addingTimeInterval(9 * 3600 + 600))
+        }
+        let s = ConsistencyBuilder.build(range: marchWeek, activities: acts, rollups: [],
+                                         today: day(2026, 7, 28), calendar: cal)
+        XCTAssertEqual(s.streak.current, 9)
+    }
+
     // MARK: multi-day buckets (6M)
 
     private var sixMonth: TrackRange {
@@ -172,6 +212,21 @@ final class ConsistencySummaryTests: XCTestCase {
         XCTAssertEqual(march.wearHours, 0, accuracy: 0.001)
         XCTAssertFalse(march.hasData)
         XCTAssertTrue(s.buckets.first { $0.bucket.start == day(2026, 6, 1) }!.hasData)
+    }
+
+    /// `wearDayCount` is `wearHours`'s own denominator, carried on the bucket
+    /// so a sparse 6M month (built on few worn days) can be told apart
+    /// downstream from a well-covered one, even though both can produce a
+    /// similar-looking mean.
+    func testBucketCarriesWearDayCount() {
+        let june = [rollup(day(2026, 6, 10), wearSeconds: 3600 * 14),
+                    rollup(day(2026, 6, 20), wearSeconds: 3600 * 10)]
+        let s = ConsistencyBuilder.build(range: sixMonth, activities: [], rollups: june,
+                                         today: day(2026, 7, 28), calendar: cal)
+        let juneBucket = s.buckets.first { $0.bucket.start == day(2026, 6, 1) }!
+        XCTAssertEqual(juneBucket.wearDayCount, 2)
+        let march = s.buckets.first { $0.bucket.start == day(2026, 3, 1) }!
+        XCTAssertEqual(march.wearDayCount, 0)
     }
 
     func testEmptyRangeProducesZeroes() {
