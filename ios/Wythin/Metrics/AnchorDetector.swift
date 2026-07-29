@@ -19,8 +19,18 @@ enum AnchorThresholds {
     static let minSec: Double = 180
     /// Windows starting before this hour are preferred over later ones.
     static let morningCutoffHour: Int = 12
-    /// Largest gap between consecutive ticks still counted as continuous.
-    static let maxGapSec: Double = 6
+    /// Rejected samples tolerated inside a run before it counts as broken. A
+    /// stir of one or two ticks is not the end of a rest; a sustained one is.
+    /// Expressed in samples rather than seconds so the rule holds at both the
+    /// 2 s foreground and the 30 s background tick rate.
+    static let maxRejectedInGap: Int = 2
+    /// Wall-clock hole beyond which two stretches are separate rests however
+    /// clean they are — nothing was rejected because nothing was recorded
+    /// (app killed, strap off, BLE dropped).
+    static let maxGapCeilingSec: Double = 120
+    /// A run must carry this many samples whatever its span. At 30 s ticks a
+    /// 3-minute run is 6 points, and a median over fewer is not a median.
+    static let minSamples: Int = 6
 }
 
 // MARK: - Reading
@@ -59,13 +69,16 @@ struct AnchorReading: Equatable {
 enum AnchorDetector {
 
     static func detect(_ points: [MetricsHistoryPoint], now: Date = .now) -> AnchorReading? {
-        let usable = points
-            .filter { passesPointGates($0) }
-            .sorted { $0.timestamp < $1.timestamp }
-        guard !usable.isEmpty else { return nil }
+        // Sorted but NOT pre-filtered: `continuousRuns` needs to see the rejected
+        // samples, because a rejected sample is what distinguishes "the rest
+        // ended" from "the tick loop was throttled".
+        let all = points.sorted { $0.timestamp < $1.timestamp }
+        guard !all.isEmpty else { return nil }
 
-        let runs = continuousRuns(usable).filter { run in
-            duration(run) >= AnchorThresholds.minSec && passesRunGates(run)
+        let runs = continuousRuns(all).filter { run in
+            run.count >= AnchorThresholds.minSamples
+                && duration(run) >= AnchorThresholds.minSec
+                && passesRunGates(run)
         }
         guard !runs.isEmpty else { return nil }
 
@@ -101,15 +114,32 @@ enum AnchorDetector {
 
     // MARK: Assembly
 
-    private static func continuousRuns(_ points: [MetricsHistoryPoint]) -> [[MetricsHistoryPoint]] {
+    /// One pass over the raw stream. A sample that fails the point gates is not
+    /// dropped silently — it is counted, because it is evidence the rest ended.
+    ///
+    /// Note the caller applies `MetricsQualityFilter` first, which removes
+    /// strap-off samples entirely. Those read as absence rather than rejection
+    /// here, which is right: taking the strap off is not stirring. The
+    /// `maxGapCeilingSec` ceiling is what catches a long removal.
+    private static func continuousRuns(_ all: [MetricsHistoryPoint]) -> [[MetricsHistoryPoint]] {
         var runs: [[MetricsHistoryPoint]] = []
         var current: [MetricsHistoryPoint] = []
-        for p in points {
-            if let last = current.last,
-               p.timestamp.timeIntervalSince(last.timestamp) > AnchorThresholds.maxGapSec {
-                runs.append(current)
-                current = []
+        var rejectedSinceLast = 0
+
+        for p in all {
+            guard passesPointGates(p) else {
+                rejectedSinceLast += 1
+                continue
             }
+            if let last = current.last {
+                let hole = p.timestamp.timeIntervalSince(last.timestamp)
+                if rejectedSinceLast > AnchorThresholds.maxRejectedInGap
+                    || hole > AnchorThresholds.maxGapCeilingSec {
+                    runs.append(current)
+                    current = []
+                }
+            }
+            rejectedSinceLast = 0
             current.append(p)
         }
         if !current.isEmpty { runs.append(current) }

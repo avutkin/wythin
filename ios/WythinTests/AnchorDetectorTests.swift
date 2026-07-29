@@ -3,19 +3,21 @@ import XCTest
 
 final class AnchorDetectorTests: XCTestCase {
 
-    /// Builds `minutes` of still, clean 2s ticks starting at `hour` on a fixed day.
+    /// Builds `minutes` of still, clean ticks starting at `hour` on a fixed day.
+    /// `spacing` is the tick interval — 2 s is foreground, 30 s is background.
     private func stillPoints(minutes: Double,
                              hour: Int,
                              motion: Float? = 5,
                              hr: Float = 60,
-                             vti: Float = 3.6) -> [MetricsHistoryPoint] {
+                             vti: Float = 3.6,
+                             spacing: Double = 2) -> [MetricsHistoryPoint] {
         let cal = Calendar.current
         var comps = DateComponents(year: 2026, month: 7, day: 20)
         comps.hour = hour
         let start = cal.date(from: comps)!
-        let count = Int(minutes * 30)   // 30 ticks per minute at 2 s
+        let count = Int((minutes * 60) / spacing)
         return (0..<count).map { i in
-            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(Double(i) * 2),
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(Double(i) * spacing),
                                 meanBPM: hr, vti: vti, dc: 7.5, pip: 42, dfa1: 1.0,
                                 breathBPM: 13, motion: motion,
                                 signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
@@ -78,5 +80,67 @@ final class AnchorDetectorTests: XCTestCase {
                                 signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
         }
         XCTAssertNil(AnchorDetector.detect(points))
+    }
+
+    // MARK: - Cadence
+
+    func testFindsAnchorInBackgroundCadenceData() {
+        // 30 s ticks are what the app records whenever it is not foregrounded.
+        let a = AnchorDetector.detect(stillPoints(minutes: 10, hour: 7, spacing: 30))
+        XCTAssertNotNil(a, "a 10-minute rest recorded at 30 s ticks must anchor")
+        XCTAssertEqual(a?.restingHR ?? 0, 60, accuracy: 0.001)
+        XCTAssertEqual(a?.confidence, .high)
+    }
+
+    func testStirringBreaksTheRun() {
+        // Six clean minutes, then movement, then six more. Neither half is
+        // rejected, but they are two rests — and the mover must not be medianed in.
+        let cal = Calendar.current
+        var comps = DateComponents(year: 2026, month: 7, day: 20); comps.hour = 7
+        let start = cal.date(from: comps)!
+        let moving = (0..<30).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(360 + Double(i) * 2),
+                                meanBPM: 95, vti: 2.4, dc: 7.5, pip: 42, dfa1: 1.0,
+                                breathBPM: 13, motion: 400,
+                                signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
+        }
+        let after = (0..<180).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(420 + Double(i) * 2),
+                                meanBPM: 75, vti: 3.0, dc: 7.5, pip: 42, dfa1: 1.0,
+                                breathBPM: 13, motion: 5,
+                                signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
+        }
+        let a = AnchorDetector.detect(stillPoints(minutes: 6, hour: 7) + moving + after)
+        XCTAssertNotNil(a)
+        XCTAssertEqual(a?.restingHR ?? 0, 60, accuracy: 0.001,
+                       "the first rest is the anchor; the 75 bpm stretch is a separate run")
+    }
+
+    func testRejectsRunWithTooFewSamples() {
+        // 4 minutes at 60 s ticks is 4 samples — long enough in wall-clock, but a
+        // median over four points is not a median.
+        XCTAssertNil(AnchorDetector.detect(stillPoints(minutes: 4, hour: 7, spacing: 60)))
+    }
+
+    func testLongOutageSplitsEvenWithNothingRejected() {
+        // App killed for 20 minutes: no samples at all in the hole, so nothing is
+        // rejected — the ceiling is what stops the two sides being merged.
+        let cal = Calendar.current
+        var comps = DateComponents(year: 2026, month: 7, day: 20); comps.hour = 7
+        let start = cal.date(from: comps)!
+        let before = (0..<60).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(Double(i) * 2),
+                                meanBPM: 60, vti: 3.6, dc: 7.5, pip: 42, dfa1: 1.0,
+                                breathBPM: 13, motion: 5,
+                                signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
+        }
+        let after = (0..<60).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(1320 + Double(i) * 2),
+                                meanBPM: 60, vti: 3.6, dc: 7.5, pip: 42, dfa1: 1.0,
+                                breathBPM: 13, motion: 5,
+                                signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
+        }
+        XCTAssertNil(AnchorDetector.detect(before + after),
+                     "two 2-minute halves across a 20-minute outage are not one 24-minute rest")
     }
 }
