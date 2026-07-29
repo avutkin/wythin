@@ -57,27 +57,43 @@ final class DailyAnchor {
 
 // MARK: - Backfill
 
-/// One-time replay of stored history into anchors, so a user with months of
-/// samples does not start from an empty baseline. Motion is unavailable for
-/// past samples, so the HR-stability proxy applies and every anchor produced
-/// here is marked low-confidence.
+/// Replay of stored samples into anchors, so a user with months of history does
+/// not start from an empty baseline — and so a change to the detector does not
+/// leave old anchors sitting in the same baseline as new ones.
 enum AnchorBackfill {
 
-    static let flagKey = "anchorBackfillCompleted"
+    /// Versioned rather than boolean: whenever the detector's output changes,
+    /// stored anchors have to be recomputed or they sit in the same baseline as
+    /// anchors built by different rules, which is worse than having neither.
+    static let flagKey = "anchorBackfillVersion"
+    /// 2 — cadence-aware run splitting, tolerant quality gates, 300 s window.
+    static let version = 2
 
     @MainActor
     static func runIfNeeded(context: ModelContext, defaults: UserDefaults = .standard) {
-        guard !defaults.bool(forKey: flagKey) else { return }
-        defer { defaults.set(true, forKey: flagKey) }
+        guard defaults.integer(forKey: flagKey) < version else { return }
+        defer { defaults.set(version, forKey: flagKey) }
 
-        let existing = Set(((try? context.fetch(FetchDescriptor<DailyAnchor>())) ?? []).map { $0.day })
-        let sessions = (try? context.fetch(FetchDescriptor<HRVSession>())) ?? []
-        let points = sessions.flatMap { $0.samples }.map { MetricsHistoryPoint(from: $0) }
-        guard !points.isEmpty else { return }
+        // Fetched directly rather than through sessions: continuous background
+        // samples hang off an auto-created session, and an orphaned sample would
+        // otherwise be invisible here.
+        let samples = (try? context.fetch(FetchDescriptor<HRVSample>())) ?? []
+        guard !samples.isEmpty else { return }
 
         let cal = Calendar.current
-        let byDay = Dictionary(grouping: points) { cal.startOfDay(for: $0.timestamp) }
-        for (day, dayPoints) in byDay where !existing.contains(day) {
+        let byDay = Dictionary(grouping: samples.map { MetricsHistoryPoint(from: $0) }) {
+            cal.startOfDay(for: $0.timestamp)
+        }
+
+        // Recompute only days we can still recompute. A day whose raw samples
+        // are gone keeps whatever was stored — a stale anchor beats no anchor,
+        // and there is nothing to rebuild it from.
+        let stored = (try? context.fetch(FetchDescriptor<DailyAnchor>())) ?? []
+        for anchor in stored where byDay[anchor.day] != nil {
+            context.delete(anchor)
+        }
+
+        for (_, dayPoints) in byDay {
             guard let reading = AnchorDetector.detect(MetricsQualityFilter.filter(dayPoints)) else { continue }
             context.insert(DailyAnchor(from: reading))
         }
