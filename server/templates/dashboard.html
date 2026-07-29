@@ -133,6 +133,11 @@
         <div class="charts" id="user-charts"></div>
       </div>
       <div class="panel">
+        <h2>Usage <span class="sub">— app opens, active time &amp; ECG recordings per day (30d)</span></h2>
+        <div class="kpis" id="usage-kpis"></div>
+        <div class="charts" id="usage-charts"></div>
+      </div>
+      <div class="panel">
         <h2>Sessions <span class="sub">— click a row</span></h2>
         <div class="tablewrap"><table id="user-sessions"></table></div>
       </div>
@@ -229,6 +234,9 @@
     { k: "last_seen", label: "Last seen", cell: (u) => ago(u.last_seen) },
     { k: "current_streak", label: "Streak", cell: (u) => u.current_streak ? `${u.current_streak}d${u.practiced_today ? " •" : ""}` : "—" },
     { k: "days_active_7d", label: "Active 7d", cell: (u) => fmt(u.days_active_7d) },
+    { k: "avg_opens_day", label: "Opens/d", cell: (u) => u.avg_opens_day ? fmt(u.avg_opens_day, 1) : "—" },
+    { k: "avg_active_min_day", label: "Active/d", cell: (u) => u.avg_active_min_day ? fmt(u.avg_active_min_day, 0) + "m" : "—" },
+    { k: "avg_ecg_day", label: "ECG/d", cell: (u) => u.avg_ecg_day ? fmt(u.avg_ecg_day, 1) : "—" },
     { k: "session_count", label: "Sessions", cell: (u) => fmt(u.session_count) },
     { k: "total_minutes", label: "Minutes", cell: (u) => fmt(u.total_minutes, 0) },
     { k: "avg_coherence", label: "Avg coh", cell: (u) => u.avg_coherence == null ? "—" : fmt(u.avg_coherence, 2) },
@@ -271,6 +279,7 @@
     $("#user-kpis").innerHTML = cards.map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
     $("#user-window").onchange = () => loadUserMetrics(id).catch(() => {});
     loadUserMetrics(id).catch(() => {});
+    loadUserUsage(id).catch(() => {});
     const t = $("#user-sessions");
     if (!d.sessions.length) {
       t.innerHTML = `<tr><td class="empty" colspan="7">no sessions</td></tr>`;
@@ -337,6 +346,25 @@
     $("#user-charts").innerHTML = s.length
       ? LIVE_SIGNALS.map(sig => miniChart(sig, s)).join("")
       : `<div class="empty">no live metrics in this window</div>`;
+  }
+
+  async function loadUserUsage(id) {
+    const d = await api(`users/${id}/usage?days=30`);
+    const a = d.averages || {};
+    $("#usage-kpis").innerHTML = [
+      ["Opens / day", fmt(a.opens_day, 1)],
+      ["Active min / day", fmt(a.active_min_day, 1)],
+      ["ECG recordings / day", fmt(a.ecg_day, 1)],
+    ].map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+    const s = d.series || [];
+    if (!s.length) { $("#usage-charts").innerHTML = `<div class="empty">no usage events yet</div>`; return; }
+    const daily = (key, label, unit, color, dp) =>
+      miniChart({ k: key, label, unit, color, d: dp }, s.map(x => ({ ts: x.day, [key]: x[key] })));
+    $("#usage-charts").innerHTML = [
+      daily("opens", "App opens", "", "var(--warn)", 0),
+      daily("active_min", "Active", "min", "var(--accent)", 0),
+      daily("ecg_recordings", "ECG recordings", "", "var(--hrv)", 0),
+    ].join("");
   }
 
   // ── Session detail ────────────────────────────────────────────────────
