@@ -1,78 +1,77 @@
 import SwiftUI
 
-/// The big "overall practice impact" arc gauge (0–100), styled after a health
-/// score dial: a 240° track with a segmented green fill and a check-knob at the
-/// fill end, the score in the centre. Built from trimmed, rotated circles so
-/// the geometry is exact (gap centred at the bottom, fill grows from the
-/// lower-left up over the top). The drawing is inset from the frame so the
-/// check-knob never reaches the top edge or the section title above it.
-struct PracticeImpactGauge: View {
-    let score: Int          // 0–100
+/// The overall practice impact meter: the session's mean benefit-signed change
+/// from before to during, on a diverging −20…+20 % scale centred on zero.
+///
+/// This replaced a 0–100 arc gauge. The arc encoded "progress toward 100",
+/// which no longer describes the value — a negative delta is a real, valid
+/// reading (a hard workout), not a low score.
+struct PracticeImpactMeter: View {
+    let delta:   Double     // benefit-signed percent
     let caption: String
 
-    private let lineWidth:  CGFloat = 14
-    private let knobRadius: CGFloat = 13
-    private let arcFraction: CGFloat = 240.0 / 360.0   // 240° of the circle
-    private let rotation = Angle.degrees(150)          // gap centred at bottom
+    private static let domain: Double = 20
 
-    private var scoreFrac: CGFloat { CGFloat(min(max(score, 0), 100)) / 100 }
-    private var fillTrim:  CGFloat { arcFraction * scoreFrac }
+    /// Position on the track, 0…1, with 0.5 as zero change.
+    static func fillFraction(_ delta: Double) -> Double {
+        let clamped = min(max(delta, -domain), domain)
+        return (clamped + domain) / (2 * domain)
+    }
+
+    /// True when the value ran past the domain and the bar is pinned.
+    static func isClamped(_ delta: Double) -> Bool { abs(delta) > domain }
+
+    private var frac:      Double { Self.fillFraction(delta) }
+    private var isPositive: Bool  { delta >= 0 }
+    private var barColor:  Color  { isPositive ? Theme.accent : Theme.warn }
 
     var body: some View {
-        GeometryReader { geo in
-            // Inset so the knob (which straddles the arc centre-line) stays
-            // clear of the frame edges — including at the very top.
-            let inset  = knobRadius + lineWidth / 2 + 4
-            let d      = min(geo.size.width, geo.size.height) - inset * 2
-            let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
-            let r      = d / 2
-            let theta  = (150.0 + 240.0 * Double(scoreFrac)) * .pi / 180
-            let knob   = CGPoint(x: center.x + r * CGFloat(cos(theta)),
-                                 y: center.y + r * CGFloat(sin(theta)))
+        VStack(spacing: 12) {
+            VStack(spacing: 2) {
+                Text(String(format: "%+.0f%%", delta))
+                    .font(.system(size: 42, weight: .bold, design: .rounded))
+                    .foregroundStyle(barColor)
+                    .monospacedDigit()
+                Text(caption)
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+                Text("avg change, before → during")
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim.opacity(0.6))
+            }
 
-            ZStack {
-                Circle()
-                    .trim(from: 0, to: arcFraction)
-                    .stroke(Theme.surface, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                    .rotationEffect(rotation)
-                    .frame(width: d, height: d)
-                    .position(center)
+            GeometryReader { geo in
+                let w = geo.size.width
+                let mid = w / 2
+                let x = CGFloat(frac) * w
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Theme.surface)
+                        .frame(height: 8)
 
-                Circle()
-                    .trim(from: 0, to: fillTrim)
-                    .stroke(
-                        LinearGradient(colors: [Color(hex: "#8BE86B"), Theme.accent, Color(hex: "#2FCF9A")],
-                                       startPoint: .bottomLeading, endPoint: .topTrailing),
-                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .butt, dash: [3.4, 3.4])
-                    )
-                    .rotationEffect(rotation)
-                    .frame(width: d, height: d)
-                    .position(center)
+                    // Fill grows from the centre toward the value.
+                    Rectangle().fill(barColor)
+                        .frame(width: abs(x - mid), height: 8)
+                        .offset(x: min(x, mid))
+                        // A pinned bar gets a square outer end so it can't be
+                        // read as an exact value at the domain edge.
+                        .clipShape(RoundedRectangle(cornerRadius: Self.isClamped(delta) ? 0 : 4))
 
-                // Check-knob at the fill end, on the arc centre-line.
-                if score > 0 {
-                    Circle()
-                        .fill(Theme.bg)
-                        .overlay(Circle().strokeBorder(Theme.accent, lineWidth: 2))
-                        .overlay(Image(systemName: "checkmark")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(Theme.accent))
-                        .frame(width: knobRadius * 2, height: knobRadius * 2)
-                        .position(knob)
+                    // Zero tick.
+                    Rectangle().fill(Theme.dim)
+                        .frame(width: 1.5, height: 14)
+                        .offset(x: mid - 0.75)
                 }
+                .frame(height: 14)
+            }
+            .frame(height: 14)
 
-                VStack(spacing: 2) {
-                    Text("\(score)%")
-                        .font(.system(size: 42, weight: .bold, design: .rounded))
-                        .foregroundStyle(Theme.text)
-                        .monospacedDigit()
-                    Text(caption)
-                        .font(Theme.monoLabel)
-                        .foregroundStyle(Theme.dim)
-                }
-                .position(center)
+            HStack {
+                Text("−20%").font(Theme.monoLabel).foregroundStyle(Theme.dim.opacity(0.6))
+                Spacer()
+                Text("0").font(Theme.monoLabel).foregroundStyle(Theme.dim.opacity(0.6))
+                Spacer()
+                Text("+20%").font(Theme.monoLabel).foregroundStyle(Theme.dim.opacity(0.6))
             }
         }
-        .frame(height: 196)
     }
 }

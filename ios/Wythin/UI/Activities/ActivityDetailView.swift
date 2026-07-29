@@ -57,10 +57,6 @@ struct ActivityDetailView: View {
         chartPoints = MetricsQualityFilter.filter(samples.map { MetricsHistoryPoint(from: $0) })
     }
 
-    private func impactCaption(_ delta: Double) -> String {
-        ActivityImpact.caption(for: delta)
-    }
-
     /// Renders the coach insight with its first line (the headline) emphasised
     /// and the rest — the read plus the "Next session:" line — in the body style.
     @ViewBuilder
@@ -131,7 +127,8 @@ struct ActivityDetailView: View {
                                 Text("OVERALL PRACTICE IMPACT")
                                     .font(Theme.monoLabel)
                                     .foregroundStyle(Theme.dim)
-                                PracticeImpactGauge(score: Int(delta.rounded()), caption: impactCaption(delta))
+                                PracticeImpactMeter(delta: delta,
+                                                    caption: ActivityImpact.caption(for: delta))
                             }
                             .cardStyle()
                         }

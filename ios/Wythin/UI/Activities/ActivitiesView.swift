@@ -455,17 +455,18 @@ private struct LogMetricCell: View {
     private var during: Double? { entry[keyPath: def.duringKey].map(Double.init) }
     private var before: Double? { entry[keyPath: def.beforeKey].map(Double.init) }
 
-    /// Percent change from the before-average to the during-average.
+    /// Benefit-signed change from the before-average to the during-average, so
+    /// this cell's number is directly comparable to the row badge above it —
+    /// the badge is the mean of these. A falling pulse reads +9%, which is why
+    /// the absolute during-value stays printed underneath.
     private var pctChange: Double? {
-        guard let d = during, let b = before, abs(b) > 0.0001 else { return nil }
-        return (d - b) / abs(b) * 100
+        def.benefitDelta(current: during, base: before)
     }
 
     private var deltaColor: Color {
-        guard let d = during, let b = before else { return Theme.dim.opacity(0.4) }
-        let diff = def.direction.benefit(d) - def.direction.benefit(b)
-        if abs(diff) < 0.0005 { return Theme.dim }
-        return diff > 0 ? Theme.accent : Theme.warn
+        guard let p = pctChange else { return Theme.dim.opacity(0.4) }
+        if abs(p) < 0.05 { return Theme.dim }
+        return p > 0 ? Theme.accent : Theme.warn
     }
 
     private var deltaText: String {

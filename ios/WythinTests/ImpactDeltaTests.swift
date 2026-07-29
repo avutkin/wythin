@@ -109,3 +109,28 @@ final class ImpactDeltaTests: XCTestCase {
         XCTAssertNil(ActivityImpact.trendLine(moves))
     }
 }
+
+extension ImpactDeltaTests {
+
+    func testMeterCentresOnZero() {
+        XCTAssertEqual(PracticeImpactMeter.fillFraction(0), 0.5, accuracy: 0.0001)
+    }
+
+    func testMeterEndsAtTheDomainBounds() {
+        XCTAssertEqual(PracticeImpactMeter.fillFraction(20), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(PracticeImpactMeter.fillFraction(-20), 0.0, accuracy: 0.0001)
+    }
+
+    func testMeterIsLinearInBetween() {
+        XCTAssertEqual(PracticeImpactMeter.fillFraction(10), 0.75, accuracy: 0.0001)
+        XCTAssertEqual(PracticeImpactMeter.fillFraction(-10), 0.25, accuracy: 0.0001)
+    }
+
+    func testMeterClampsBeyondTheDomain() {
+        XCTAssertEqual(PracticeImpactMeter.fillFraction(85), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(PracticeImpactMeter.fillFraction(-85), 0.0, accuracy: 0.0001)
+        XCTAssertTrue(PracticeImpactMeter.isClamped(85))
+        XCTAssertTrue(PracticeImpactMeter.isClamped(-21))
+        XCTAssertFalse(PracticeImpactMeter.isClamped(19))
+    }
+}
