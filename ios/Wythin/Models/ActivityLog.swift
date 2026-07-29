@@ -15,6 +15,8 @@ enum ActivityType: String, CaseIterable, Codable {
     case coldExposure = "Cold Exposure"
     case sauna        = "Sauna"
     case alcohol      = "Alcohol"
+    case coffee       = "Coffee"
+    case work         = "Work"
     case custom       = "Custom"
 
     var icon: String {
@@ -29,6 +31,8 @@ enum ActivityType: String, CaseIterable, Codable {
         case .coldExposure: return "thermometer.snowflake"
         case .sauna:        return "flame"
         case .alcohol:      return "wineglass"
+        case .coffee:       return "cup.and.saucer.fill"
+        case .work:         return "laptopcomputer"
         case .custom:       return "pencil.circle"
         }
     }
@@ -44,6 +48,8 @@ enum ActivityType: String, CaseIterable, Codable {
         case .coldExposure:      return Color(hex: "#67E8F9")
         case .sauna:             return Color(hex: "#FCD34D")
         case .alcohol:           return Color(hex: "#F9A8D4")
+        case .coffee:            return Color(hex: "#C89F6B")
+        case .work:              return Theme.ulf
         case .custom:            return Theme.dim
         }
     }
@@ -74,6 +80,10 @@ enum ActivityType: String, CaseIterable, Codable {
             return ["Finnish", "Infrared", "Steam"]
         case .alcohol:
             return ["Beer", "Wine", "Spirits", "Cocktail"]
+        case .coffee:
+            return ["Espresso", "Filter", "Latte", "Cold Brew", "Decaf"]
+        case .work:
+            return ["Deep Work", "Meetings", "Email", "Creative", "Reading"]
         case .custom:
             return []
         }
