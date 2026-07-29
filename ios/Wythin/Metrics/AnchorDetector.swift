@@ -35,12 +35,25 @@ enum AnchorThresholds {
     /// Rejected samples tolerated inside a run before it counts as broken. A
     /// stir of one or two ticks is not the end of a rest; a sustained one is.
     static let maxRejectedInGap: Int = 2
-    /// Wall clock tolerated between the accepted samples that bracket a
-    /// rejection. The count alone is cadence-blind in the wrong direction: two
-    /// rejected ticks are 4 s of stirring at the 2 s foreground rate but up to
-    /// 90 s at the 30 s background rate, so "2 min still, 1 min moving, 2 min
-    /// still" would merge into one 5-minute "rest" whose medians straddle the
-    /// movement. Whichever bound is tighter for the cadence in play wins.
+    /// Wall clock of *stirring* tolerated inside a run, where stirring is the
+    /// time the rejected samples themselves stand for — the bracket-to-bracket
+    /// hole less one tick interval, since the accepted sample that closes the
+    /// hole occupies an interval whether or not anything was rejected.
+    ///
+    /// The count alone is cadence-blind in the wrong direction (two rejected
+    /// ticks are 4 s of movement at the 2 s foreground rate and 60 s at the
+    /// 30 s background rate), but so is a raw hole bound: measured
+    /// bracket-to-bracket, one rejected background tick is already a 60 s hole,
+    /// which would make background stir tolerance exactly zero.
+    ///
+    /// **The guarantee:** a run breaks when more than `maxStirSec` of *observed
+    /// non-still time* sits inside it, at whatever cadence the samples were
+    /// recorded. At 30 s ticks that is one rejected tick tolerated and two not;
+    /// at 2 s ticks it is fifteen, so there `maxRejectedInGap` is the operative
+    /// bound. It follows that a single rejected sample is tolerated only while
+    /// the tick interval is at or below `maxStirSec` — under heavier throttling
+    /// one rejected tick genuinely is more than 30 s of not-still, and breaking
+    /// is the honest reading.
     static let maxStirSec: Double = 30
     /// Wall-clock hole beyond which two stretches are separate rests however
     /// clean they are — nothing was rejected because nothing was recorded at
@@ -162,8 +175,19 @@ enum AnchorDetector {
         var runs: [[MetricsHistoryPoint]] = []
         var current: [MetricsHistoryPoint] = []
         var rejectedSinceLast = 0
+        // The raw tick intervals spanning the current hole — accepted or
+        // rejected, since a rejected sample still marks when the recorder fired.
+        // There are `rejectedSinceLast + 1` of them, and their median is the
+        // cadence in force right where the hole is, read off the samples alone.
+        // A whole-day average would not do: a day mixes 2 s foreground stretches
+        // with 30 s background ones.
+        var spacings: [Double] = []
+        var previous: Date?
 
         for p in all {
+            if let prev = previous { spacings.append(p.timestamp.timeIntervalSince(prev)) }
+            previous = p.timestamp
+
             guard passesPointGates(p) else {
                 rejectedSinceLast += 1
                 continue
@@ -173,16 +197,20 @@ enum AnchorDetector {
                 // The stir bound applies only where something was actually
                 // rejected: that hole is time we know the person was not still,
                 // whereas an equally long hole with nothing rejected is just
-                // the tick loop having been throttled.
-                let stirred = rejectedSinceLast > 0
+                // the tick loop having been throttled. Each rejected sample
+                // stands for one cadence interval of movement, so the stir is
+                // the hole less the one interval the closing sample owns.
+                let cadence = median(spacings) ?? hole
+                let stir = rejectedSinceLast > 0 ? hole - cadence : 0
                 if rejectedSinceLast > AnchorThresholds.maxRejectedInGap
-                    || (stirred && hole > AnchorThresholds.maxStirSec)
+                    || stir > AnchorThresholds.maxStirSec
                     || hole > AnchorThresholds.maxGapCeilingSec {
                     runs.append(current)
                     current = []
                 }
             }
             rejectedSinceLast = 0
+            spacings = []
             current.append(p)
         }
         if !current.isEmpty { runs.append(current) }
@@ -250,7 +278,9 @@ enum AnchorDetector {
     // MARK: Stats
 
     /// Median, not mean — one stray tick must not move the day's anchor.
-    static func median(_ values: [Float]) -> Float? {
+    /// Generic so the same rule reads tick spacings (`Double`) as well as
+    /// metrics (`Float`); an uneven interval must not move the cadence either.
+    static func median<T: FloatingPoint>(_ values: [T]) -> T? {
         guard !values.isEmpty else { return nil }
         let s = values.sorted()
         let mid = s.count / 2

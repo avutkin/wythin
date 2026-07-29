@@ -334,6 +334,57 @@ final class AnchorDetectorTests: XCTestCase {
         XCTAssertEqual(a?.restingHR ?? 0, 75, accuracy: 0.001)
     }
 
+    func testForegroundCadenceStirBreaksTheRun() {
+        // The same shape at the 2 s foreground rate: a minute of movement must
+        // still split the record, and the rest that follows it is the anchor.
+        // (`testStirringBreaksTheRun` puts its movement past the 300 s window,
+        // so its medians come out the same either way — this one does not.)
+        let cal = Calendar.current
+        var comps = DateComponents(year: 2026, month: 7, day: 20); comps.hour = 7
+        let start = cal.date(from: comps)!
+        func tick(_ t: Double, hr: Float, motion: Float) -> MetricsHistoryPoint {
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(t),
+                                meanBPM: hr, vti: 3.6, dc: 7.5, pip: 42, dfa1: 1.0,
+                                breathBPM: 13, motion: motion,
+                                signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
+        }
+        let head   = (0..<50).map  { tick(Double($0) * 2,       hr: 60, motion: 5)   } // 0…98 s
+        let moving = (0..<30).map  { tick(100 + Double($0) * 2, hr: 110, motion: 400) } // 100…158 s
+        let tail   = (0..<301).map { tick(160 + Double($0) * 2, hr: 75, motion: 5)   } // 160…760 s
+
+        let a = AnchorDetector.detect(head + moving + tail)
+        XCTAssertNotNil(a)
+        XCTAssertEqual(a?.startedAt, start.addingTimeInterval(160),
+                       "the 98 s head is too short to anchor, and must not be merged across the stir")
+        XCTAssertEqual(a?.durationSec ?? 0, 600, accuracy: 0.001)
+    }
+
+    func testOneRejectedBackgroundTickDoesNotBreakTheRun() {
+        // Ten still minutes at the 30 s background rate with a single motion
+        // tick in the middle. Bracket to bracket that is a 60 s hole, so a raw
+        // 30 s bound broke the rest in half — background stir tolerance was
+        // exactly zero, and the 300 s freeze gate then threw the day away. One
+        // rejected tick at 30 s ticks is 30 s of stirring, which is the whole
+        // tolerance and not a second more.
+        let cal = Calendar.current
+        var comps = DateComponents(year: 2026, month: 7, day: 20); comps.hour = 7
+        let start = cal.date(from: comps)!
+        var points = stillPoints(minutes: 10, hour: 7, spacing: 30)   // t = 0…570
+        points[10] = MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(300),
+                                         meanBPM: 110, vti: 2.0, dc: 7.5, pip: 42, dfa1: 1.0,
+                                         breathBPM: 13, motion: 400,
+                                         signalQuality: 0.98, rrInvalidRate: 0.01,
+                                         ecgQualityTier: 2)
+
+        let a = AnchorDetector.detect(points)
+        XCTAssertNotNil(a)
+        XCTAssertEqual(a?.startedAt, start)
+        XCTAssertEqual(a?.durationSec ?? 0, 570, accuracy: 0.001,
+                       "one rest, not a 270 s half and a 240 s half")
+        XCTAssertNotNil(a?.dc, "a run split here would fall under the 300 s DC requirement")
+        XCTAssertEqual(a?.confidence, .high)
+    }
+
     func testOvernightRunIsNotTheMorningAnchor() {
         // Sleep is stiller and cleaner than any waking rest, so an overnight
         // background stretch wins the "first qualifying run" race outright — and
