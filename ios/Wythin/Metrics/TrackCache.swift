@@ -88,16 +88,44 @@ final class TrackCache {
     /// It must be a value hash rather than a write counter: today's rollup is
     /// rewritten on every Track appear, and a counter would invalidate the
     /// cache each time — re-billing an LLM call per screen open.
+    ///
+    /// It must also be **process-stable**: Swift's `Hasher` is seeded per
+    /// process launch (Apple's docs say its output is "not guaranteed to be
+    /// equal across different executions of your program"), but `macroReads`
+    /// is persisted to disk and read back on a later launch. A `Hasher`-based
+    /// fingerprint would key identical, unchanged data differently after
+    /// every relaunch, missing the persisted cache every time — the exact
+    /// failure this design point exists to prevent, just triggered by a
+    /// restart instead of a write counter. FNV-1a over a canonical string has
+    /// no such seed, so the result depends only on the data.
     func fingerprint(for days: [Date]) -> String {
-        var hasher = Hasher()
+        var parts: [String] = []
         for day in days.sorted() {
             guard let r = rollupsByDay[day] else { continue }
-            hasher.combine(day)
+            parts.append(String(day.timeIntervalSince1970))
             for v in [r.dc, r.rmssd, r.rsaMs, r.rcmse, r.pip, r.dfa1, r.stressBalance] {
-                hasher.combine(v.map { ($0 * 1000).rounded() })
+                // `nil` gets its own token so a missing value can never
+                // collide with a real quantized value or an empty field.
+                if let v {
+                    parts.append(String((v * 1000).rounded()))
+                } else {
+                    parts.append("nil")
+                }
             }
         }
-        return String(hasher.finalize(), radix: 36)
+        return Self.fnv1a(parts.joined(separator: "|"))
+    }
+
+    /// FNV-1a (64-bit) over UTF-8 bytes. Deterministic across processes,
+    /// platforms, and Swift versions — unlike `Hasher`, which is randomly
+    /// seeded per launch. See `fingerprint(for:)`.
+    private static func fnv1a(_ string: String) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in string.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3
+        }
+        return String(hash, radix: 36)
     }
 
     // MARK: Macro reads
