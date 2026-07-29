@@ -553,6 +553,9 @@ final class TrackCache {
         return changed
     }
 
+    // ⚠️ SUPERSEDED — this listing shipped a bug; see the note after this code
+    // block. The implemented version uses a hand-rolled FNV-1a over a canonical
+    // string. Do not copy the `Hasher` code below.
     /// A hash of the *values* covering `days`, used to key cached macro reads.
     ///
     /// It must be a value hash rather than a write counter: today's rollup is
@@ -580,6 +583,14 @@ final class TrackCache {
     }
 }
 ```
+
+**Correction to `fingerprint(for:)` above (found in review, fixed in `984f3a5`).**
+
+The `Hasher` version shown in the code block is wrong and must not be used. Swift's `Hasher` is seeded randomly **per process launch** — Apple documents that its output is not stable "across different executions of your program." Since `macroReads` is persisted to disk and read back by a later launch, identical unchanged data hashes differently after every app restart: the cache misses on every relaunch and re-bills an LLM call, which is precisely the failure the value-hash rule exists to prevent. A single-process test suite cannot catch this, because the seed is constant for the whole run.
+
+The shipped implementation builds a canonical string — days in sorted order, each field either `String((v * 1000).rounded())` or the literal `"nil"`, joined with `"|"` so field boundaries are unambiguous — and hashes it with a hand-rolled 64-bit FNV-1a over the UTF-8 bytes. `String(Double)` is used rather than `String(format:)` because it is locale-independent. The signature stays `func fingerprint(for days: [Date]) -> String`.
+
+Two tests lock this down: one refreshes *today* twice with identical samples and asserts the fingerprint is unchanged; one pins a hard-coded expected string for a fixed fixture, so any reintroduced process-seeded hash fails immediately.
 
 - [ ] **Step 5: Register the implementation file**
 
