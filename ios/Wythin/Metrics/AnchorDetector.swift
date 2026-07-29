@@ -79,13 +79,17 @@ enum AnchorDetector {
         guard !all.isEmpty else { return nil }
 
         let runs = continuousRuns(all).filter { run in
-            run.count >= AnchorThresholds.minSamples
+            // Every gate is applied to the leading window — the span the
+            // medians actually come from — not to the whole rest. Two reasons:
+            // a run must not pass on motion known somewhere in its tail while
+            // the window the anchor is built from never had it, and a run whose
+            // head is too sparse to median must be *skipped* so a later, denser
+            // rest can still anchor the day. Checking the sample count only
+            // inside `reading` made one unusable run fatal for the whole day.
+            let window = leadingWindow(run)
+            return window.count >= AnchorThresholds.minSamples
                 && duration(run) >= AnchorThresholds.minSec
-                // The run gates validate the span the medians actually come
-                // from — the leading window — not the whole rest. Otherwise a
-                // run can pass on motion known somewhere in its tail while the
-                // window the anchor is built from never had it.
-                && passesRunGates(leadingWindow(run))
+                && passesRunGates(window)
         }
         guard !runs.isEmpty else { return nil }
 
@@ -118,11 +122,13 @@ enum AnchorDetector {
         return true
     }
 
-    /// When motion is unknown for the whole run, fall back to HR stability.
-    private static func passesRunGates(_ run: [MetricsHistoryPoint]) -> Bool {
-        let motionKnown = run.contains { $0.motion != nil }
+    /// When motion is unknown across the window the medians come from, fall
+    /// back to HR stability. Callers pass the window, not the whole run — a
+    /// tail that was instrumented says nothing about the head that is measured.
+    private static func passesRunGates(_ window: [MetricsHistoryPoint]) -> Bool {
+        let motionKnown = window.contains { $0.motion != nil }
         guard !motionKnown else { return true }
-        let hrs = run.compactMap { $0.meanBPM }
+        let hrs = window.compactMap { $0.meanBPM }
         guard hrs.count >= 2 else { return false }
         return sd(hrs) <= AnchorThresholds.hrStabilitySD
     }
@@ -171,7 +177,9 @@ enum AnchorDetector {
         // and what DC's stability requirement is judged on.
         let dur = duration(run)
 
-        // The standardised head of it — this is what the medians see.
+        // The standardised head of it — this is what the medians see. The
+        // sample-count guard is belt and braces: `detect` already filtered runs
+        // on it, so a run that reaches here cannot fail it.
         let window = leadingWindow(run)
         guard window.count >= AnchorThresholds.minSamples,
               let lnRMSSD  = median(window.compactMap { $0.vti }),
@@ -208,12 +216,13 @@ enum AnchorDetector {
             confidence:  confidence)
     }
 
-    /// The first `anchorWindowSec` of a run. Shorter runs are returned whole —
-    /// they have no tail to trim.
+    /// The first `anchorWindowSec` of a run, half-open so the span is exactly
+    /// the constant rather than one tick more. Shorter runs are returned
+    /// whole — they have no tail to trim.
     private static func leadingWindow(_ run: [MetricsHistoryPoint]) -> [MetricsHistoryPoint] {
         guard let start = run.first?.timestamp else { return run }
         let cutoff = start.addingTimeInterval(AnchorThresholds.anchorWindowSec)
-        return Array(run.prefix { $0.timestamp <= cutoff })
+        return Array(run.prefix { $0.timestamp < cutoff })
     }
 
     // MARK: Stats

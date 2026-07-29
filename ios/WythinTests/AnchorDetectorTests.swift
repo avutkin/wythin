@@ -253,4 +253,51 @@ final class AnchorDetectorTests: XCTestCase {
         XCTAssertFalse(a?.motionKnown ?? true)
         XCTAssertEqual(a?.confidence, .low)
     }
+
+    func testRunGatesJudgeTheWindowNotTheWholeRun() {
+        // The discriminating case `testConfidenceDescribesTheWindowNotTheWholeRun`
+        // cannot make: motion is unknown across the leading 300 s *and* HR drifts
+        // 60→75 there (SD ≈ 4.3, over `hrStabilitySD`), while the tail has motion
+        // and a flat HR. Judged on the window the run is unusable. Judged on the
+        // whole run it passes on the tail's motion alone — so this fails the
+        // moment `passesRunGates` is handed the run again.
+        let cal = Calendar.current
+        var comps = DateComponents(year: 2026, month: 7, day: 20); comps.hour = 7
+        let start = cal.date(from: comps)!
+        let points = (0..<900).map { i -> MetricsHistoryPoint in
+            let t = Double(i) * 2
+            return MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(t),
+                                       meanBPM: t < 300 ? Float(60 + 15 * t / 300) : 60,
+                                       vti: 3.6, dc: 7.5, pip: 42, dfa1: 1.0,
+                                       breathBPM: 13, motion: t < 300 ? nil : 5,
+                                       signalQuality: 0.98, rrInvalidRate: 0.01,
+                                       ecgQualityTier: 2)
+        }
+        XCTAssertNil(AnchorDetector.detect(points),
+                     "stillness was never verified over the span the medians come from")
+    }
+
+    // MARK: - Run selection
+
+    func testSparseLeadingWindowDisqualifiesItsRunNotTheDay() {
+        // 07:00: eight samples ~70 s apart. Long enough and numerous enough as a
+        // run, but only five land inside the 300 s window, so no median can be
+        // taken from it. 08:00: a dense ten-minute rest. The sparse run must be
+        // skipped — checking the window only inside `reading` made the first
+        // qualifying run's failure fatal for the whole day.
+        let cal = Calendar.current
+        var comps = DateComponents(year: 2026, month: 7, day: 20); comps.hour = 7
+        let start = cal.date(from: comps)!
+        let sparse = (0..<8).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(Double(i) * 70),
+                                meanBPM: 90, vti: 2.4, dc: 7.5, pip: 42, dfa1: 1.0,
+                                breathBPM: 13, motion: 5,
+                                signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
+        }
+        let a = AnchorDetector.detect(sparse + stillPoints(minutes: 10, hour: 8, spacing: 30))
+        XCTAssertNotNil(a, "a sparse head disqualifies its own run, not the morning")
+        XCTAssertEqual(a?.restingHR ?? 0, 60, accuracy: 0.001)
+        XCTAssertEqual(cal.component(.hour, from: a?.startedAt ?? .distantPast), 8)
+    }
+
 }
