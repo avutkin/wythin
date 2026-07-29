@@ -191,7 +191,19 @@ final class AppEnvironment {
 
         let today   = Calendar.current.startOfDay(for: now)
         let context = modelContainer.mainContext
-        let stored  = (try? context.fetch(FetchDescriptor<DailyAnchor>())) ?? []
+        let stored: [DailyAnchor]
+        do {
+            stored = try context.fetch(FetchDescriptor<DailyAnchor>())
+        } catch {
+            // A fetch that threw is not "no anchor today". Reading it as one
+            // and inserting would leave a second row for a day that already has
+            // one — `DailyAnchor` has no unique constraint on `day` and nothing
+            // dedupes, so both would feed `AnchorBaseline.build` from then on.
+            // `lastAnchorCheckAt` has already moved, so this retries in five
+            // minutes. Same rule as `AnchorBackfill.replay`.
+            print("❌ detectAnchorIfDue: anchor fetch — \(error)")
+            return
+        }
         guard !stored.contains(where: { $0.day == today }) else { return }
 
         let points = MetricsQualityFilter.filter(tickHistory.filter { $0.timestamp >= today })
