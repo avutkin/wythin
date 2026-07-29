@@ -121,6 +121,7 @@
 		AT33 /* TrackMetricSpecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT33 /* TrackMetricSpecTests.swift */; };
 		AT34 /* TrackSeriesBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT34 /* TrackSeriesBuilderTests.swift */; };
 		AT35 /* ConsistencySummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT35 /* ConsistencySummaryTests.swift */; };
+		AT40 /* RSAComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT40 /* RSAComputeTests.swift */; };
 		AT36 /* ConsistencyCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT36 /* ConsistencyCardTests.swift */; };
 		AT17 /* TrendShapeComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT17 /* TrendShapeComputeTests.swift */; };
 		AT18 /* DayPotentialInsightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT18 /* DayPotentialInsightTests.swift */; };
@@ -264,6 +265,7 @@
 		FT33 /* TrackMetricSpecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackMetricSpecTests.swift; sourceTree = "<group>"; };
 		FT34 /* TrackSeriesBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackSeriesBuilderTests.swift; sourceTree = "<group>"; };
 		FT35 /* ConsistencySummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencySummaryTests.swift; sourceTree = "<group>"; };
+		FT40 /* RSAComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSAComputeTests.swift; sourceTree = "<group>"; };
 		FT36 /* ConsistencyCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencyCardTests.swift; sourceTree = "<group>"; };
 		FT17 /* TrendShapeComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendShapeComputeTests.swift; sourceTree = "<group>"; };
 		FT18 /* DayPotentialInsightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsightTests.swift; sourceTree = "<group>"; };
@@ -573,6 +575,7 @@
 				FT34 /* TrackSeriesBuilderTests.swift */,
 				FT35 /* ConsistencySummaryTests.swift */,
 				FT36 /* ConsistencyCardTests.swift */,
+				FT40 /* RSAComputeTests.swift */,
 			);
 			path = WythinTests;
 			sourceTree = "<group>";
@@ -801,6 +804,7 @@
 				AT26 /* ImpactDeltaTests.swift in Sources */,
 				AT11 /* PracticeCatalogTests.swift in Sources */,
 				AT12 /* MotionComputeTests.swift in Sources */,
+				AT40 /* RSAComputeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
