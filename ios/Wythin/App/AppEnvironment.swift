@@ -83,6 +83,7 @@ final class AppEnvironment {
                 retryPendingInsights()
                 // Make sure the paired strap is (re)armed for seamless auto-connect.
                 ble.ensureAutoConnect()
+                surfacePendingFocusWindow()
                 // tickHistory is kept current in the background now, so refresh the
                 // charts from it immediately on open (no fetch/refill wait).
                 historyRevision += 1
@@ -120,6 +121,37 @@ final class AppEnvironment {
     /// prompt. Phase 2 turns delivery on once the thresholds are tuned.
     let nudges = NudgeEngine()
 
+    /// Delivery is opt-in and **off by default**: the thresholds are still
+    /// first guesses, so being interrupted has to be something the user
+    /// chooses rather than something that starts happening.
+    var nudgesEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "nudgesEnabled") }
+        set { UserDefaults.standard.set(newValue, forKey: "nudgesEnabled") }
+    }
+
+    /// Options the user has switched off — removed from every menu.
+    var disabledInterventions: Set<NudgeInterventionID> {
+        get {
+            let raw = UserDefaults.standard.stringArray(forKey: "nudgeDisabledOptions") ?? []
+            return Set(raw.compactMap(NudgeInterventionID.init(rawValue:)))
+        }
+        set {
+            UserDefaults.standard.set(newValue.map(\.rawValue), forKey: "nudgeDisabledOptions")
+            notifications.refreshCategories(disabled: newValue, pacerHoldsAvailable: false)
+        }
+    }
+
+    /// Shown as a card while the app is open, instead of a banner.
+    var pendingInAppNudge: InAppNudge?
+    /// Set by a notification tap; consumed by ContentView.
+    var pendingNudgeAction: NudgeAction?
+    /// Most recent focus window, surfaced in the past tense on next open.
+    var lastFocusWindowAt: Date?
+    /// Why nothing fired, for the settings row.
+    private(set) var lastNudgeSuppression: NudgeSuppressionReason?
+
+    let notifications: NudgeDelivering = NudgeNotificationService()
+
     private var nudgeBaseline: AnchorBaseline?
     private var nudgeBaselineAt: Date?
     private var lastNudgeEvalAt = Date.distantPast
@@ -136,11 +168,67 @@ final class AppEnvironment {
         let activeActivity = (try? context.fetch(FetchDescriptor<ActivityLog>()))?
             .contains(where: \.isActive) ?? false
 
-        nudges.evaluate(baseline: nudgeBaseline,
-                        bleStandby: false,          // standby short-circuits the tick loop
-                        activityInProgress: activeActivity,
-                        now: now)
+        let evaluation = nudges.evaluate(baseline: nudgeBaseline,
+                                         bleStandby: false,   // standby short-circuits the tick loop
+                                         activityInProgress: activeActivity,
+                                         now: now)
+
+        guard let evaluation else { return }
+        lastNudgeSuppression = evaluation.suppression
+        guard let selected = evaluation.selected else { return }
+        deliver(selected, at: now)
     }
+
+    /// The focus window never pushes — a notification would interrupt the exact
+    /// absorbed state it is reporting. Everything else takes a banner when
+    /// backgrounded and an in-app card when not.
+    private func deliver(_ trigger: NudgeTriggerID, at now: Date) {
+        guard nudgesEnabled else { return }
+
+        if trigger == .focusWindow {
+            lastFocusWindowAt = now
+            return
+        }
+
+        let options = NudgeInterventionLibrary.menu(for: trigger,
+                                                    disabled: disabledInterventions,
+                                                    pacerHoldsAvailable: false)
+        guard !options.isEmpty else { return }
+        let content = NudgeCopy.render(trigger, options: options)
+
+        if isInForeground {
+            pendingInAppNudge = InAppNudge(trigger: trigger, content: content)
+        } else {
+            Task { await notifications.deliver(content, trigger: trigger) }
+        }
+    }
+
+    /// Called when the user acts on a nudge, from a notification or the card.
+    func actOnNudge(_ action: NudgeAction) {
+        pendingInAppNudge = nil
+        pendingNudgeAction = action
+    }
+
+    /// A focus window is never pushed — a notification would interrupt the very
+    /// state it is reporting — so it waits and is shown in the past tense the
+    /// next time the app is opened.
+    private func surfacePendingFocusWindow() {
+        guard nudgesEnabled, let at = lastFocusWindowAt else { return }
+        lastFocusWindowAt = nil
+        let content = NudgeCopy.render(.focusWindow, options: [])
+        let when = Self.focusTimeFormatter.string(from: at)
+        pendingInAppNudge = InAppNudge(
+            trigger: .focusWindow,
+            content: NudgeContent(title: "\(content.title) · \(when)",
+                                  body: content.body,
+                                  options: []))
+    }
+
+    private static let focusTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f
+    }()
 
     private func refreshNudgeBaselineIfStale(now: Date) {
         if let at = nudgeBaselineAt, now.timeIntervalSince(at) < nudgeBaselineTTL { return }

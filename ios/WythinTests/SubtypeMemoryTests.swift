@@ -42,6 +42,6 @@ final class SubtypeMemoryTests: XCTestCase {
     }
 
     func testEmptyWhenNoHistory() {
-        XCTAssertTrue(SubtypeMemory.remembered(type: .coffee, entries: [], limit: 6).isEmpty)
+        XCTAssertTrue(SubtypeMemory.remembered(type: .drinks, entries: [], limit: 6).isEmpty)
     }
 }

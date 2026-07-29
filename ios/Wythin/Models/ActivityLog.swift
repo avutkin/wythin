@@ -7,31 +7,43 @@ import SwiftData
 enum ActivityType: String, CaseIterable, Codable {
     case exercise     = "Exercise"
     case walk         = "Walk"
-    case run          = "Run"
     case meditation   = "Meditation"
     case breathwork   = "Breathwork"
     case meal         = "Meal"
     case nap          = "Nap"
-    case coldExposure = "Cold Exposure"
-    case sauna        = "Sauna"
-    case alcohol      = "Alcohol"
-    case coffee       = "Coffee"
+    case thermal      = "Thermal"
+    case drinks       = "Drinks"
     case work         = "Work"
     case custom       = "Custom"
 
+    /// The nine tiles shown in the picker grid — Custom is offered separately
+    /// beneath it so it stays reachable without spending a tile.
+    static var pickerCases: [ActivityType] { allCases.filter { $0 != .custom } }
+
+    /// Resolves a stored `activityType` string, including types that have
+    /// since been merged into a broader one. Old entries keep their own
+    /// subtype ("Tempo Run", "Espresso"), so nothing is lost — only the tile
+    /// they group under changed.
+    static func fromStored(_ raw: String) -> ActivityType {
+        if let type = ActivityType(rawValue: raw) { return type }
+        switch raw {
+        case "Run":                      return .exercise
+        case "Cold Exposure", "Sauna":   return .thermal
+        case "Coffee", "Alcohol":        return .drinks
+        default:                         return .custom
+        }
+    }
+
     var icon: String {
         switch self {
-        case .exercise:     return "dumbbell"
+        case .exercise:     return "figure.run"
         case .walk:         return "figure.walk"
-        case .run:          return "figure.run"
         case .meditation:   return "brain.head.profile"
         case .breathwork:   return "lungs"
         case .meal:         return "fork.knife"
         case .nap:          return "moon.zzz"
-        case .coldExposure: return "thermometer.snowflake"
-        case .sauna:        return "flame"
-        case .alcohol:      return "wineglass"
-        case .coffee:       return "cup.and.saucer.fill"
+        case .thermal:      return "thermometer.snowflake"
+        case .drinks:       return "cup.and.saucer.fill"
         case .work:         return "laptopcomputer"
         case .custom:       return "pencil.circle"
         }
@@ -39,16 +51,14 @@ enum ActivityType: String, CaseIterable, Codable {
 
     var color: Color {
         switch self {
-        case .exercise, .run:    return Theme.warn
+        case .exercise:          return Theme.warn
         case .walk:              return Theme.accent
         case .meditation:        return Theme.hrv
         case .breathwork:        return Theme.breathe
         case .meal:              return Theme.rsa
         case .nap:               return Theme.ulf
-        case .coldExposure:      return Color(hex: "#67E8F9")
-        case .sauna:             return Color(hex: "#FCD34D")
-        case .alcohol:           return Color(hex: "#F9A8D4")
-        case .coffee:            return Color(hex: "#C89F6B")
+        case .thermal:           return Color(hex: "#67E8F9")
+        case .drinks:            return Color(hex: "#C89F6B")
         case .work:              return Theme.ulf
         case .custom:            return Theme.dim
         }
@@ -57,13 +67,12 @@ enum ActivityType: String, CaseIterable, Codable {
     var subtypes: [String] {
         switch self {
         case .exercise:
-            return ["Yoga", "HIIT", "Power Lifting", "Pilates", "Cycling",
+            return ["Easy Run", "Tempo Run", "Intervals", "Long Run", "Trail Run",
+                    "Yoga", "HIIT", "Power Lifting", "Pilates", "Cycling",
                     "Swimming", "Stretching", "CrossFit", "Boxing",
                     "Rowing", "Climbing", "Martial Arts"]
         case .walk:
             return ["Nature Walk", "City Walk", "Hiking", "Treadmill"]
-        case .run:
-            return ["Easy Run", "Tempo Run", "Intervals", "Long Run", "Trail Run", "Race"]
         case .meditation:
             return ["Vipassana", "Guided", "Body Scan", "Loving-Kindness",
                     "Transcendental", "Zen", "Mantra", "Open Awareness", "Yoga Nidra"]
@@ -74,14 +83,12 @@ enum ActivityType: String, CaseIterable, Codable {
             return ["Breakfast", "Lunch", "Dinner", "Snack", "Fast Breaking"]
         case .nap:
             return ["Power Nap", "Full Cycle"]
-        case .coldExposure:
-            return ["Cold Shower", "Ice Bath", "Cold Plunge", "Cryotherapy"]
-        case .sauna:
-            return ["Finnish", "Infrared", "Steam"]
-        case .alcohol:
-            return ["Beer", "Wine", "Spirits", "Cocktail"]
-        case .coffee:
-            return ["Espresso", "Filter", "Latte", "Cold Brew", "Decaf"]
+        case .thermal:
+            return ["Cold Shower", "Ice Bath", "Cold Plunge", "Cryotherapy",
+                    "Sauna", "Infrared Sauna", "Steam Room"]
+        case .drinks:
+            return ["Espresso", "Filter Coffee", "Latte", "Cold Brew", "Decaf",
+                    "Beer", "Wine", "Spirits", "Cocktail"]
         case .work:
             return ["Deep Work", "Meetings", "Email", "Creative", "Reading"]
         case .custom:
@@ -180,7 +187,7 @@ final class ActivityLog {
     }
 
     var activityTypeEnum: ActivityType {
-        ActivityType(rawValue: activityType) ?? .custom
+        ActivityType.fromStored(activityType)
     }
 
     var duration: TimeInterval? {

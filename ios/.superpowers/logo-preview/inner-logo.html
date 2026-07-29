@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inner — Logo Preview</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0C0C0C;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+    min-height: 100vh;
+    padding: 60px 40px;
+  }
+  .section-label {
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: #555;
+    text-transform: uppercase;
+    margin-bottom: 32px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 80px;
+    margin-bottom: 80px;
+  }
+  .col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  .col-label {
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: #444;
+    text-transform: uppercase;
+  }
+
+  /* ── App Icon sizes ── */
+  .icon-grid {
+    display: flex;
+    align-items: flex-end;
+    gap: 24px;
+    margin-bottom: 80px;
+  }
+  .icon-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .icon-wrap span {
+    font-size: 9px;
+    color: #444;
+    letter-spacing: 1px;
+  }
+
+  /* ── Wordmark ── */
+  .wordmark-section {
+    margin-bottom: 80px;
+  }
+
+  /* ── Dark / Light ── */
+  .light-bg {
+    background: #f5f5f5;
+    padding: 40px;
+    border-radius: 16px;
+  }
+</style>
+</head>
+<body>
+
+<p class="section-label">Inner — Logo Concepts</p>
+
+<!-- ════════════════════════════════════
+     ICON VARIANTS
+════════════════════════════════════ -->
+<div class="row" style="margin-bottom: 48px;">
+
+  <!-- Option A1: Teal ECG spike -->
+  <div class="col">
+    <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="120" height="120" rx="26" fill="#0C0C0C"/>
+      <!-- ECG pulse as the dot of "i" — teal accent -->
+      <path d="M34 42 L46 42 L49 48 L54 28 L58 50 L62 42 L72 42 L75 37 L79 42 L86 42"
+            stroke="#00E5A0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <!-- Stem of i -->
+      <line x1="60" y1="56" x2="60" y2="88" stroke="white" stroke-width="3" stroke-linecap="round"/>
+    </svg>
+    <span class="col-label">Teal ECG</span>
+  </div>
+
+  <!-- Option A2: All white -->
+  <div class="col">
+    <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="120" height="120" rx="26" fill="#0C0C0C"/>
+      <!-- ECG pulse — white -->
+      <path d="M34 42 L46 42 L49 48 L54 28 L58 50 L62 42 L72 42 L75 37 L79 42 L86 42"
+            stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <!-- Stem of i -->
+      <line x1="60" y1="56" x2="60" y2="88" stroke="white" stroke-width="3" stroke-linecap="round"/>
+    </svg>
+    <span class="col-label">All White</span>
+  </div>
+
+  <!-- Option A3: White ECG on subtle dark card -->
+  <div class="col">
+    <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="120" height="120" rx="26" fill="#111"/>
+      <rect x="12" y="12" width="96" height="96" rx="18" fill="#171717"/>
+      <!-- ECG pulse — teal, thinner -->
+      <path d="M28 58 L40 58 L43 64 L48 44 L52 66 L56 58 L66 58 L69 53 L73 58 L80 58"
+            stroke="#00E5A0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <!-- Stem of i -->
+      <line x1="54" y1="72" x2="54" y2="98" stroke="white" stroke-width="2.8" stroke-linecap="round"/>
+    </svg>
+    <span class="col-label">Layered Card</span>
+  </div>
+
+  <!-- Option A4: Minimal — just the mark, no rounded rect -->
+  <div class="col">
+    <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="120" height="120" fill="#0C0C0C"/>
+      <!-- ECG — wider, more prominent, teal -->
+      <path d="M20 60 L40 60 L44 68 L50 38 L55 70 L60 60 L78 60 L82 53 L87 60 L100 60"
+            stroke="#00E5A0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <!-- Stem -->
+      <line x1="55" y1="76" x2="55" y2="96" stroke="white" stroke-width="3" stroke-linecap="round"/>
+    </svg>
+    <span class="col-label">Square / Minimal</span>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════════════
+     WORDMARK
+════════════════════════════════════ -->
+<p class="section-label">Wordmark</p>
+
+<div style="margin-bottom: 80px; display: flex; flex-direction: column; gap: 40px;">
+
+  <!-- Wordmark A: ECG replaces dot above "i" -->
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <svg width="280" height="72" viewBox="0 0 280 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- "i" letter — stem only, ECG as dot -->
+      <!-- ECG trace for dot of i -->
+      <path d="M8 18 L16 18 L18 22 L22 8 L25 23 L28 18 L36 18 L38 14 L41 18 L48 18"
+            stroke="#00E5A0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <!-- i stem -->
+      <line x1="28" y1="28" x2="28" y2="56" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+      <!-- "nner" -->
+      <text x="38" y="57" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display'"
+            font-size="36" font-weight="300" fill="white" letter-spacing="-0.5">nner</text>
+    </svg>
+    <span style="font-size:10px;color:#444;letter-spacing:2px;text-transform:uppercase;">Light weight · ECG dot</span>
+  </div>
+
+  <!-- Wordmark B: Thinner, more refined -->
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <svg width="240" height="56" viewBox="0 0 240 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- ECG dot for i -->
+      <path d="M5 14 L12 14 L14 17 L17 6 L20 18 L22 14 L30 14 L32 11 L34 14 L40 14"
+            stroke="#00E5A0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <!-- i stem thin -->
+      <line x1="22" y1="21" x2="22" y2="44" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+      <!-- nner -->
+      <text x="30" y="44" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text'"
+            font-size="28" font-weight="200" fill="white" letter-spacing="2">nner</text>
+    </svg>
+    <span style="font-size:10px;color:#444;letter-spacing:2px;text-transform:uppercase;">Ultra light · wide tracking</span>
+  </div>
+
+  <!-- Wordmark C: Monospaced technical feel -->
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <div style="display:flex;align-items:baseline;gap:0;">
+      <svg width="28" height="52" viewBox="0 0 28 52" fill="none" style="margin-bottom:0;">
+        <!-- ECG -->
+        <path d="M2 12 L8 12 L10 16 L13 3 L16 17 L18 12 L24 12 L26 9 L28 12"
+              stroke="#00E5A0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <line x1="14" y1="19" x2="14" y2="44" stroke="white" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+      <span style="font-size:28px;font-weight:400;color:white;letter-spacing:3px;font-family:'SF Mono',monospace;">nner</span>
+    </div>
+    <span style="font-size:10px;color:#444;letter-spacing:2px;text-transform:uppercase;">Monospace · technical</span>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════════════
+     ALL SIZES
+════════════════════════════════════ -->
+<p class="section-label">Icon at all sizes (Teal variant)</p>
+<div class="icon-grid">
+  <!-- 1024 -->
+  <div class="icon-wrap">
+    <svg width="80" height="80" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="1024" height="1024" rx="220" fill="#0C0C0C"/>
+      <path d="M280 360 L390 360 L415 410 L456 240 L490 430 L520 360 L640 360 L665 300 L700 360 L760 360"
+            stroke="#00E5A0" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <line x1="512" y1="460" x2="512" y2="780" stroke="white" stroke-width="28" stroke-linecap="round"/>
+    </svg>
+    <span>80pt</span>
+  </div>
+  <!-- 60 -->
+  <div class="icon-wrap">
+    <svg width="60" height="60" viewBox="0 0 1024 1024" fill="none">
+      <rect width="1024" height="1024" rx="220" fill="#0C0C0C"/>
+      <path d="M280 360 L390 360 L415 410 L456 240 L490 430 L520 360 L640 360 L665 300 L700 360 L760 360"
+            stroke="#00E5A0" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <line x1="512" y1="460" x2="512" y2="780" stroke="white" stroke-width="28" stroke-linecap="round"/>
+    </svg>
+    <span>60pt</span>
+  </div>
+  <!-- 44 -->
+  <div class="icon-wrap">
+    <svg width="44" height="44" viewBox="0 0 1024 1024" fill="none">
+      <rect width="1024" height="1024" rx="220" fill="#0C0C0C"/>
+      <path d="M280 360 L390 360 L415 410 L456 240 L490 430 L520 360 L640 360 L665 300 L700 360 L760 360"
+            stroke="#00E5A0" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <line x1="512" y1="460" x2="512" y2="780" stroke="white" stroke-width="32" stroke-linecap="round"/>
+    </svg>
+    <span>44pt</span>
+  </div>
+  <!-- 29 -->
+  <div class="icon-wrap">
+    <svg width="29" height="29" viewBox="0 0 1024 1024" fill="none">
+      <rect width="1024" height="1024" rx="220" fill="#0C0C0C"/>
+      <path d="M280 360 L390 360 L415 410 L456 240 L490 430 L520 360 L640 360 L665 300 L700 360 L760 360"
+            stroke="#00E5A0" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <line x1="512" y1="460" x2="512" y2="780" stroke="white" stroke-width="38" stroke-linecap="round"/>
+    </svg>
+    <span>29pt</span>
+  </div>
+  <!-- 20 -->
+  <div class="icon-wrap">
+    <svg width="20" height="20" viewBox="0 0 1024 1024" fill="none">
+      <rect width="1024" height="1024" rx="220" fill="#0C0C0C"/>
+      <path d="M280 360 L390 360 L415 410 L456 240 L490 430 L520 360 L640 360 L665 300 L700 360 L760 360"
+            stroke="#00E5A0" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <line x1="512" y1="460" x2="512" y2="780" stroke="white" stroke-width="44" stroke-linecap="round"/>
+    </svg>
+    <span>20pt</span>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════
+     ON LIGHT BACKGROUND
+════════════════════════════════════ -->
+<p class="section-label" style="margin-bottom:24px;">On light background</p>
+<div class="light-bg" style="display:flex;gap:40px;align-items:center;margin-bottom:80px;">
+  <svg width="60" height="60" viewBox="0 0 1024 1024" fill="none">
+    <rect width="1024" height="1024" rx="220" fill="#0C0C0C"/>
+    <path d="M280 360 L390 360 L415 410 L456 240 L490 430 L520 360 L640 360 L665 300 L700 360 L760 360"
+          stroke="#00E5A0" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <line x1="512" y1="460" x2="512" y2="780" stroke="white" stroke-width="32" stroke-linecap="round"/>
+  </svg>
+  <div style="display:flex;align-items:baseline;gap:0;">
+    <svg width="22" height="42" viewBox="0 0 28 52" fill="none">
+      <path d="M2 12 L8 12 L10 16 L13 3 L16 17 L18 12 L24 12 L26 9 L28 12"
+            stroke="#00E5A0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <line x1="14" y1="19" x2="14" y2="44" stroke="#0C0C0C" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+    <span style="font-size:26px;font-weight:300;color:#0C0C0C;letter-spacing:1px;">nner</span>
+  </div>
+</div>
+
+<p style="font-size:10px;color:#333;letter-spacing:2px;text-transform:uppercase;">
+  Open in browser to see all variants — inner-logo.html
+</p>
+
+</body>
+</html>

@@ -12,6 +12,49 @@ struct SettingsView: View {
 
     @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
     @State private var isDeletingCloudData = false
+    @State private var notificationsAuthorized: Bool?
+
+    // MARK: Nudges
+
+    private var nudgesBinding: Binding<Bool> {
+        Binding(get: { env.nudgesEnabled },
+                set: { on in
+                    env.nudgesEnabled = on
+                    if on {
+                        Task {
+                            _ = await env.notifications.requestAuthorization()
+                            await refreshAuthorization()
+                        }
+                    }
+                })
+    }
+
+    private func binding(for id: NudgeInterventionID) -> Binding<Bool> {
+        Binding(get: { !env.disabledInterventions.contains(id) },
+                set: { on in
+                    var disabled = env.disabledInterventions
+                    if on { disabled.remove(id) } else { disabled.insert(id) }
+                    env.disabledInterventions = disabled
+                })
+    }
+
+    private func refreshAuthorization() async {
+        let status = await env.notifications.authorizationStatus()
+        notificationsAuthorized = (status == .authorized || status == .provisional)
+    }
+
+    /// Says why it is quiet, so a silent day reads as working rather than broken.
+    private var nudgeStateLabel: String {
+        switch env.lastNudgeSuppression {
+        case .strapOff:           return "waiting for the strap"
+        case .activityInProgress: return "you're mid-activity"
+        case .noBaseline:         return "still learning your range"
+        case .warmingUp:          return "warming up"
+        case .quietHours:         return "quiet hours"
+        case .budgetExhausted:    return "done for today"
+        case .none:               return "watching"
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -140,6 +183,63 @@ struct SettingsView: View {
                     }
                     .listRowBackground(Theme.card)
 
+                    // ── Nudges ────────────────────────────────────────
+                    Section("NUDGES") {
+                        Toggle(isOn: nudgesBinding) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Nudge me when my state shifts")
+                                    .font(Theme.monoBody).foregroundStyle(Theme.text)
+                                Text("At most three a day, never between 10pm and 7am, and never while you're moving.")
+                                    .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+                            }
+                        }
+                        .tint(Theme.accent)
+
+                        if env.nudgesEnabled {
+                            if notificationsAuthorized == false {
+                                Button {
+                                    Task {
+                                        _ = await env.notifications.requestAuthorization()
+                                        await refreshAuthorization()
+                                    }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "bell.badge")
+                                        Text("Allow notifications")
+                                    }
+                                    .font(Theme.monoBody)
+                                    .foregroundStyle(Theme.accent)
+                                }
+                            }
+
+                            HStack {
+                                Text("Right now")
+                                    .font(Theme.monoBody).foregroundStyle(Theme.text)
+                                Spacer()
+                                Text(nudgeStateLabel)
+                                    .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+                            }
+
+                            Divider()
+
+                            Text("WHAT I CAN SUGGEST")
+                                .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+
+                            ForEach(NudgeInterventionLibrary.all, id: \.id) { option in
+                                Toggle(isOn: binding(for: option.id)) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("\(option.title) · \(option.minutes) min")
+                                            .font(Theme.monoBody).foregroundStyle(Theme.text)
+                                        Text(option.why)
+                                            .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+                                    }
+                                }
+                                .tint(Theme.accent)
+                            }
+                        }
+                    }
+                    .listRowBackground(Theme.card)
+
                     // ── About ─────────────────────────────────────────
                     Section("ABOUT") {
                         HStack {
@@ -178,6 +278,7 @@ struct SettingsView: View {
                               token: created.token)
             }
             .task { await loadTokens() }
+            .task { await refreshAuthorization() }
         }
     }
 

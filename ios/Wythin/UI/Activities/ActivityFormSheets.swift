@@ -32,29 +32,42 @@ struct StartActivitySheet: View {
                     DurationPresetRow(minutes: $targetMinutes, title: "TARGET (OPTIONAL)")
                         .padding(.horizontal)
 
-                    Button {
-                        let name = selected == .custom && !customName.isEmpty ? customName : nil
-                        onStart(selected, selectedSubtype, name, targetMinutes.map { Int($0) })
-                        dismiss()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "play.fill")
-                            Text("START ACTIVITY")
-                        }
-                        .font(Theme.monoBody)
-                        .foregroundStyle(Theme.bg)
-                        .padding(.vertical, 14)
-                        .frame(maxWidth: .infinity)
-                        .background(Theme.accent)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-                    .padding(.horizontal)
-                    .disabled(selected == .custom && customName.isEmpty)
                 }
                 .padding(.top, 16)
-                .padding(.bottom, 30)
+                .padding(.bottom, 12)
             }
             .background(Theme.bg)
+            // Pinned, so START is reachable without scrolling whatever the
+            // subtype list does to the content height.
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    let name = selected == .custom && !customName.isEmpty ? customName : nil
+                    onStart(selected, selectedSubtype, name, targetMinutes.map { Int($0) })
+                    dismiss()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "play.fill")
+                        Text("START ACTIVITY")
+                    }
+                    .font(Theme.monoBody)
+                    .foregroundStyle(Theme.bg)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity)
+                    .background(Theme.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .disabled(selected == .custom && customName.isEmpty)
+                .padding(.horizontal)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity)
+                .background(Theme.bg)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(Theme.border)
+                        .frame(height: 0.5)
+                }
+            }
             .navigationTitle("START ACTIVITY")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bg, for: .navigationBar)
@@ -136,26 +149,37 @@ struct LogPastSheet: View {
                     .cardStyle()
                     .padding(.horizontal)
 
-                    Button {
-                        let name = selected == .custom && !customName.isEmpty ? customName : nil
-                        onSave(selected, selectedSubtype, name, startDate, endDate)
-                        dismiss()
-                    } label: {
-                        Text("SAVE")
-                            .font(Theme.monoBody)
-                            .foregroundStyle(Theme.bg)
-                            .padding(.vertical, 14)
-                            .frame(maxWidth: .infinity)
-                            .background(Theme.accent)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-                    .padding(.horizontal)
-                    .disabled(selected == .custom && customName.isEmpty)
                 }
                 .padding(.top, 16)
-                .padding(.bottom, 30)
+                .padding(.bottom, 12)
             }
             .background(Theme.bg)
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    let name = selected == .custom && !customName.isEmpty ? customName : nil
+                    onSave(selected, selectedSubtype, name, startDate, endDate)
+                    dismiss()
+                } label: {
+                    Text("SAVE")
+                        .font(Theme.monoBody)
+                        .foregroundStyle(Theme.bg)
+                        .padding(.vertical, 14)
+                        .frame(maxWidth: .infinity)
+                        .background(Theme.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .disabled(selected == .custom && customName.isEmpty)
+                .padding(.horizontal)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity)
+                .background(Theme.bg)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(Theme.border)
+                        .frame(height: 0.5)
+                }
+            }
             .navigationTitle("LOG PAST ACTIVITY")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bg, for: .navigationBar)
@@ -250,15 +274,39 @@ struct ActivityPickerSection: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal)
 
+            // Nine tiles, exactly three rows — the grid and the action button
+            // both fit on one screen without scrolling.
             LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(ActivityType.allCases, id: \.self) { type in
+                ForEach(ActivityType.pickerCases, id: \.self) { type in
                     ActivityTypeCell(type: type, isSelected: selected == type) {
                         selected = type
                         selectedSubtype = nil
-                        showCustom = (type == .custom)
+                        showCustom = false
                     }
                 }
             }
+            .padding(.horizontal)
+
+            // Custom sits below the grid rather than spending a tile.
+            Button {
+                selected = .custom
+                selectedSubtype = nil
+                showCustom = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                    Text("CUSTOM")
+                }
+                .font(Theme.monoLabel)
+                .foregroundStyle(selected == .custom ? Theme.bg : Theme.dim)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(selected == .custom ? Theme.accent : Theme.card)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(selected == .custom ? .clear : Theme.border, lineWidth: 0.5))
+            }
+            .buttonStyle(.plain)
             .padding(.horizontal)
 
             SubtypePicker(type: selected, selected: $selectedSubtype)
@@ -462,7 +510,9 @@ struct EditActivitySheet: View {
     init(entry: ActivityLog, onSave: @escaping (ModelContext) -> Void) {
         self.entry  = entry
         self.onSave = onSave
-        let typeEnum = ActivityType(rawValue: entry.activityType) ?? .custom
+        // fromStored, not rawValue — an entry logged under a since-merged type
+        // ("Run", "Sauna", "Coffee") must open on its new tile, not Custom.
+        let typeEnum = ActivityType.fromStored(entry.activityType)
         _selected        = State(initialValue: typeEnum)
         _selectedSubtype = State(initialValue: entry.activitySubtype)
         _customName      = State(initialValue: entry.customName ?? "")
@@ -498,29 +548,40 @@ struct EditActivitySheet: View {
                     .cardStyle()
                     .padding(.horizontal)
 
-                    Button {
-                        entry.activityType    = selected.rawValue
-                        entry.activitySubtype = selectedSubtype
-                        entry.customName      = (selected == .custom && !customName.isEmpty) ? customName : nil
-                        entry.startedAt       = startDate
-                        entry.endedAt         = endDate
-                        entry.isManual        = true
-                        onSave(ctx)
-                        dismiss()
-                    } label: {
-                        Text("SAVE CHANGES")
-                            .font(Theme.monoBody)
-                            .foregroundStyle(Theme.bg)
-                            .padding(.vertical, 14)
-                            .frame(maxWidth: .infinity)
-                            .background(Theme.accent)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    }
-                    .padding(.horizontal)
-                    .disabled(selected == .custom && customName.isEmpty)
                 }
                 .padding(.top, 16)
-                .padding(.bottom, 30)
+                .padding(.bottom, 12)
+            }
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    entry.activityType    = selected.rawValue
+                    entry.activitySubtype = selectedSubtype
+                    entry.customName      = (selected == .custom && !customName.isEmpty) ? customName : nil
+                    entry.startedAt       = startDate
+                    entry.endedAt         = endDate
+                    entry.isManual        = true
+                    onSave(ctx)
+                    dismiss()
+                } label: {
+                    Text("SAVE CHANGES")
+                        .font(Theme.monoBody)
+                        .foregroundStyle(Theme.bg)
+                        .padding(.vertical, 14)
+                        .frame(maxWidth: .infinity)
+                        .background(Theme.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .disabled(selected == .custom && customName.isEmpty)
+                .padding(.horizontal)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity)
+                .background(Theme.bg)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(Theme.border)
+                        .frame(height: 0.5)
+                }
             }
             .background(Theme.bg)
             .navigationTitle("EDIT ACTIVITY")
