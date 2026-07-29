@@ -175,6 +175,13 @@ struct MetricSamplePayload: Codable {
     let ts: String
     let mean_bpm, rmssd, sdnn, pnn50, lf_hf, rsa_ms: Float?
     let coherence, cbi, breath_bpm, dfa1, rcmse, pip, dc, vti: Float?
+    // Block A: the fields the original 14-field payload dropped — the four
+    // spectral bands, motion, and the four signal-quality fields. Without the
+    // quality fields a reader cannot tell a real reading from a strap-off artifact.
+    let rsa_idx, ie_ratio, ials, motion: Float?
+    let signal_quality, rr_invalid_rate, rr_corrected_rate: Float?
+    let ecg_quality_tier: Int?
+    let ulf_power, vlf_power, lf_power, hf_power: Float?
 }
 struct MetricsUploadPayload: Codable { let samples: [MetricSamplePayload] }
 struct MetricsUploadResponse: Codable { let stored: Int }
@@ -366,12 +373,8 @@ final class MetricSyncService {
             sortBy: [SortDescriptor(\.timestamp)])
         desc.fetchLimit = batch
         guard let samples = try? ctx.fetch(desc), !samples.isEmpty else { return }
-        let payload = MetricsUploadPayload(samples: samples.map { s in
-            MetricSamplePayload(ts: iso.string(from: s.timestamp),
-                mean_bpm: s.meanBPM, rmssd: s.rmssd, sdnn: s.sdnn, pnn50: s.pnn50,
-                lf_hf: s.lfHF, rsa_ms: s.rsaMs, coherence: s.coherence, cbi: s.cbi,
-                breath_bpm: s.breathBPM, dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip,
-                dc: s.dc, vti: s.vti) })
+        let payload = MetricsUploadPayload(
+            samples: samples.map { MetricSamplePayload(from: $0, iso: iso) })
         if (try? await client.uploadMetrics(payload, userID: userID)) != nil,
            let last = samples.last {
             lastSyncedISO = iso.string(from: last.timestamp)
@@ -429,6 +432,25 @@ extension SamplePayload {
         self.coherence = s.coherence
         self.cbi       = s.cbi
         self.breathBPM = s.breathBPM
+    }
+}
+
+extension MetricSamplePayload {
+    init(from s: HRVSample, iso: ISO8601DateFormatter) {
+        self.ts = iso.string(from: s.timestamp)
+        self.mean_bpm = s.meanBPM; self.rmssd = s.rmssd; self.sdnn = s.sdnn
+        self.pnn50 = s.pnn50; self.lf_hf = s.lfHF; self.rsa_ms = s.rsaMs
+        self.coherence = s.coherence; self.cbi = s.cbi; self.breath_bpm = s.breathBPM
+        self.dfa1 = s.dfa1; self.rcmse = s.rcmse; self.pip = s.pip
+        self.dc = s.dc; self.vti = s.vti
+        self.rsa_idx = s.rsaIdx; self.ie_ratio = s.ieRatio
+        self.ials = s.ials; self.motion = s.motion
+        self.signal_quality = s.signalQuality
+        self.rr_invalid_rate = s.rrInvalidRate
+        self.rr_corrected_rate = s.rrCorrectedRate
+        self.ecg_quality_tier = s.ecgQualityTier
+        self.ulf_power = s.ulfPower; self.vlf_power = s.vlfPower
+        self.lf_power = s.lfPower; self.hf_power = s.hfPower
     }
 }
 
