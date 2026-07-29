@@ -12,8 +12,8 @@
 
 - **Spec:** `ios/Wythin/docs/superpowers/specs/2026-07-28-activity-capture-and-insights-design.md`. Read it before starting.
 - **New Swift files must be registered in `ios/Wythin.xcodeproj/project.pbxproj` manually.** This project does **not** use `PBXFileSystemSynchronizedRootGroup`, so a file dropped on disk will not compile. Each task creating a Swift file includes this step. Back up first: `cp ios/Wythin.xcodeproj/project.pbxproj ios/Wythin.xcodeproj/project.pbxproj.bak`.
-- **iOS test command:** `xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:WythinTests/<TestClass>`
-- **iOS build check:** `xcodebuild build -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16'`
+- **iOS test command:** `xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:WythinTests/<TestClass>`
+- **iOS build check:** `xcodebuild build -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17'`
 - **Server test command:** `DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test ~/.venv-server/bin/python -m pytest server/tests/<file> -v`
 - **Metric keys are `ActivityMetricDef.techLabel` verbatim**, including the non-ASCII α: `"DC"`, `"RCMSE"`, `"PIP"`, `"DFA α1"`, `"LF/HF"`, `"RSA"`, `"VTI"`, `"HRV"`, `"HR"`. Never key by `label`.
 - **Copy is fixed by the spec.** Buttons read exactly `START NOW`, `LOG PAST ACTIVITY`, `START ACTIVITY`, `SAVE`. Card title reads exactly `SESSION INSIGHTS`. The word "coach" must not appear in user-facing text.
@@ -128,7 +128,7 @@ Expected: **no output**. `pendingTabRequest` itself still exists in `AppEnvironm
 
 Run:
 ```bash
-xcodebuild build -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild build -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 Expected: `BUILD SUCCEEDED`.
 
@@ -193,7 +193,7 @@ final class ActivityTypeTests: XCTestCase {
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:WythinTests/ActivityTypeTests
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:WythinTests/ActivityTypeTests
 ```
 Expected: compile failure — `type 'ActivityType' has no member 'coffee'`.
 
@@ -232,7 +232,7 @@ Add to `subtypes`:
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:WythinTests/ActivityTypeTests
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:WythinTests/ActivityTypeTests
 ```
 Expected: PASS, 4 tests.
 
@@ -354,7 +354,7 @@ Then add `ActivityFormSheets.swift` and `ActivityDetailView.swift` to the `Wythi
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 Expected: `BUILD SUCCEEDED` and all pre-existing tests pass. No behaviour changed, so any failure is a bad move.
 
@@ -423,7 +423,7 @@ final class DurationPresetTests: XCTestCase {
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:WythinTests/DurationPresetTests
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:WythinTests/DurationPresetTests
 ```
 Expected: compile failure — `cannot find 'DurationPresetRow' in scope`.
 
@@ -495,7 +495,7 @@ struct DurationPresetRow: View {
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:WythinTests/DurationPresetTests
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:WythinTests/DurationPresetTests
 ```
 Expected: PASS, 5 tests.
 
@@ -527,7 +527,7 @@ Then in each sheet's duration card, replace the `VStack(alignment: .leading, spa
 
 Run:
 ```bash
-xcodebuild build -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild build -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 Expected: `BUILD SUCCEEDED`.
 
@@ -613,7 +613,7 @@ private struct NoopInsightClient: InsightAPIClient {
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:WythinTests/ActivityTargetTests
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:WythinTests/ActivityTargetTests
 ```
 Expected: compile failure — `extra argument 'targetMinutes' in call`.
 
@@ -656,7 +656,7 @@ Leave `logPast` untouched — it must never set a target.
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:WythinTests/ActivityTargetTests
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:WythinTests/ActivityTargetTests
 ```
 Expected: PASS, 3 tests.
 
@@ -779,7 +779,7 @@ The existing `.onReceive(timer)` already updates `elapsed` every second, which d
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:WythinTests/ActivityTargetTests
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:WythinTests/ActivityTargetTests
 ```
 Expected: PASS.
 
@@ -870,7 +870,7 @@ final class SubtypeMemoryTests: XCTestCase {
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:WythinTests/SubtypeMemoryTests
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:WythinTests/SubtypeMemoryTests
 ```
 Expected: compile failure — `cannot find 'SubtypeMemory' in scope`.
 
@@ -907,7 +907,7 @@ enum SubtypeMemory {
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:WythinTests/SubtypeMemoryTests
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:WythinTests/SubtypeMemoryTests
 ```
 Expected: PASS, 6 tests.
 
@@ -1012,7 +1012,7 @@ Add `import SwiftData` to `ActivityFormSheets.swift` if Task 3 didn't already.
 
 Run:
 ```bash
-xcodebuild build -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild build -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 Expected: `BUILD SUCCEEDED`.
 
@@ -1130,7 +1130,7 @@ final class ImpactDeltaTests: XCTestCase {
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:WythinTests/ImpactDeltaTests
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:WythinTests/ImpactDeltaTests
 ```
 Expected: compile failure — `value of type 'ActivityLog' has no member 'impactDeltaPct'`.
 
@@ -1253,7 +1253,7 @@ In `ActivityDetailView`, change `impactCaption` to take a `Double`, change the g
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 Expected: `BUILD SUCCEEDED`, all tests pass including the 9 new `ImpactDeltaTests`.
 
@@ -1318,7 +1318,7 @@ extension ImpactDeltaTests {
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:WythinTests/ImpactDeltaTests
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:WythinTests/ImpactDeltaTests
 ```
 Expected: compile failure — `cannot find 'PracticeImpactMeter' in scope`.
 
@@ -1413,7 +1413,7 @@ struct PracticeImpactMeter: View {
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:WythinTests/ImpactDeltaTests
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:WythinTests/ImpactDeltaTests
 ```
 Expected: PASS, 13 tests.
 
@@ -1462,7 +1462,7 @@ In `LogMetricCell`, replace `pctChange` and `deltaColor`:
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 Expected: `BUILD SUCCEEDED`, all pass.
 
@@ -1588,7 +1588,7 @@ In `ActivityUploader.swift`: rename the property `impactScore: Int?` → `impact
 
 Run:
 ```bash
-xcodebuild build -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild build -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17'
 DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test ~/.venv-server/bin/python -m pytest server/tests/test_activities.py server/tests/test_admin.py -v
 ```
 Expected: `BUILD SUCCEEDED`; all server tests pass (`test_admin.py`'s existing `impact_score` assertions still hold — the column is untouched).
@@ -2136,7 +2136,7 @@ final class ActivityInsightPayloadTests: XCTestCase {
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:WythinTests/ActivityInsightPayloadTests
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17' -only-testing:WythinTests/ActivityInsightPayloadTests
 ```
 Expected: compile failure — `cannot find 'ActivityInsightPayloadBuilder' in scope`.
 
@@ -2481,7 +2481,7 @@ Add `ActivityInsightPayloadBuilder.swift` and `SessionInsight.swift` to the `Wyt
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 Expected: `BUILD SUCCEEDED`, all pass.
 
@@ -2673,7 +2673,7 @@ In the `if expanded` block, insert between the chart and the `why` text:
 
 Run:
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 Expected: `BUILD SUCCEEDED`, all pass.
 
@@ -2718,7 +2718,7 @@ sent that comparison."
 After Task 12, the whole feature should be exercised end-to-end:
 
 ```bash
-xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild test -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17'
 DATABASE_URL=postgresql://postgres@localhost:5432/wythin_test ~/.venv-server/bin/python -m pytest server/tests/ -v
 ```
 
