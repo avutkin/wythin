@@ -19,13 +19,14 @@ enum ActivityLogging {
     /// Start a live activity (isManual = false, endedAt = nil → active).
     @discardableResult
     static func begin(type: ActivityType, subtype: String?, customName: String?,
-                      context: ModelContext) -> ActivityLog {
+                      targetMinutes: Int?, context: ModelContext) -> ActivityLog {
         let entry = ActivityLog(
             activityType:    type.rawValue,
             activitySubtype: subtype,
             customName:      customName,
             startedAt:       .now,
-            isManual:        false
+            isManual:        false,
+            targetMinutes:   targetMinutes
         )
         context.insert(entry)
         try? context.save()

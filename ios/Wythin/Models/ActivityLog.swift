@@ -105,6 +105,11 @@ final class ActivityLog {
     var notes:           String?
     var isManual:        Bool    // true = retrospective entry
 
+    /// Optional intended duration for a live activity, in minutes. Drives the
+    /// banner's progress display only — nothing ever stops an activity on a
+    /// timer. Always nil for retrospective entries.
+    var targetMinutes: Int?
+
     /// OpenAI-generated interpretation + recommendation for this activity's
     /// HRV response. `nil` means "not yet generated" — eligible for retry
     /// by `InsightGenerator.flushPending`.
@@ -149,7 +154,8 @@ final class ActivityLog {
          customName:      String? = nil,
          startedAt:       Date    = .now,
          endedAt:         Date?   = nil,
-         isManual:        Bool    = false) {
+         isManual:        Bool    = false,
+         targetMinutes:   Int?    = nil) {
         self.id              = UUID()
         self.activityType    = activityType
         self.activitySubtype = activitySubtype
@@ -157,6 +163,7 @@ final class ActivityLog {
         self.startedAt       = startedAt
         self.endedAt         = endedAt
         self.isManual        = isManual
+        self.targetMinutes   = targetMinutes
     }
 
     var isActive: Bool { endedAt == nil && !isManual }

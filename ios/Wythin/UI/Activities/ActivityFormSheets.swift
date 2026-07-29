@@ -5,24 +5,19 @@ import SwiftData
 
 struct StartActivitySheet: View {
     var preselected: ActivityType? = nil
-    let onStart: (ActivityType, String?, String?) -> Void
+    let onStart: (ActivityType, String?, String?, Int?) -> Void
     @Environment(\.dismiss) var dismiss
     @State private var selected:         ActivityType
     @State private var selectedSubtype:  String?      = nil
     @State private var customName:       String       = ""
     @State private var showCustom:       Bool         = false
+    @State private var targetMinutes:    Double?      = nil
 
-    init(preselected: ActivityType? = nil, onStart: @escaping (ActivityType, String?, String?) -> Void) {
+    init(preselected: ActivityType? = nil, onStart: @escaping (ActivityType, String?, String?, Int?) -> Void) {
         self.preselected = preselected
         self.onStart     = onStart
         _selected  = State(initialValue: preselected ?? .meditation)
         _showCustom = State(initialValue: preselected == .custom)
-    }
-
-    private var startLabel: String {
-        if let sub = selectedSubtype { return sub.uppercased() }
-        if selected == .custom { return customName.isEmpty ? "CUSTOM" : customName.uppercased() }
-        return selected.rawValue.uppercased()
     }
 
     var body: some View {
@@ -34,14 +29,17 @@ struct StartActivitySheet: View {
                                           customName: $customName,
                                           showCustom: $showCustom)
 
+                    DurationPresetRow(minutes: $targetMinutes, title: "TARGET (OPTIONAL)")
+                        .padding(.horizontal)
+
                     Button {
                         let name = selected == .custom && !customName.isEmpty ? customName : nil
-                        onStart(selected, selectedSubtype, name)
+                        onStart(selected, selectedSubtype, name, targetMinutes.map { Int($0) })
                         dismiss()
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "play.fill")
-                            Text("START \(startLabel)")
+                            Text("START ACTIVITY")
                         }
                         .font(Theme.monoBody)
                         .foregroundStyle(Theme.bg)

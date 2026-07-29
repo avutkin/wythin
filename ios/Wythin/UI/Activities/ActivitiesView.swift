@@ -187,8 +187,9 @@ struct ActivitiesView: View {
         case .ble:
             BLEConnectionSheet(ble: env.ble)
         case .start:
-            StartActivitySheet(preselected: nil) { type, subtype, name in
-                beginActivity(type: type, subtype: subtype, customName: name)
+            StartActivitySheet(preselected: nil) { type, subtype, name, target in
+                ActivityLogging.begin(type: type, subtype: subtype, customName: name,
+                                      targetMinutes: target, context: ctx)
             }
         case .logPast:
             LogPastSheet { type, subtype, name, start, end in
@@ -207,10 +208,6 @@ struct ActivitiesView: View {
     }
 
     // MARK: - Activity CRUD
-
-    private func beginActivity(type: ActivityType, subtype: String?, customName: String?) {
-        ActivityLogging.begin(type: type, subtype: subtype, customName: customName, context: ctx)
-    }
 
     private func endActivity(_ entry: ActivityLog) {
         ActivityLogging.end(entry, context: ctx, client: env.sync.client)
@@ -239,8 +236,21 @@ private struct ActiveActivityBanner: View {
     @State private var elapsed: TimeInterval = 0
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    private var elapsedString: String {
-        let t = Int(elapsed)
+    private var targetSeconds: TimeInterval? {
+        entry.targetMinutes.map { TimeInterval($0) * 60 }
+    }
+    private var progress: Double? {
+        guard let t = targetSeconds, t > 0 else { return nil }
+        return min(elapsed / t, 1.0)
+    }
+    private var reachedTarget: Bool {
+        guard let t = targetSeconds else { return false }
+        return elapsed >= t
+    }
+    private var timerColor: Color { reachedTarget ? Theme.accent : Theme.warn }
+
+    private func mmss(_ seconds: TimeInterval) -> String {
+        let t = Int(seconds)
         return String(format: "%02d:%02d", t / 60, t % 60)
     }
 
@@ -260,10 +270,35 @@ private struct ActiveActivityBanner: View {
                         .foregroundStyle(Theme.text)
                 }
                 Spacer()
-                Text(elapsedString)
+                Text(mmss(elapsed))
                     .font(Theme.mono(18))
-                    .foregroundStyle(Theme.warn)
+                    .foregroundStyle(timerColor)
                     .monospacedDigit()
+                if let t = targetSeconds {
+                    Text("/ " + mmss(t))
+                        .font(Theme.monoLabel)
+                        .foregroundStyle(Theme.dim)
+                        .monospacedDigit()
+                }
+            }
+
+            if let p = progress {
+                VStack(spacing: 4) {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Theme.surface)
+                            Capsule().fill(timerColor)
+                                .frame(width: geo.size.width * CGFloat(p))
+                        }
+                    }
+                    .frame(height: 4)
+                    if reachedTarget {
+                        Text("TARGET REACHED")
+                            .font(Theme.monoLabel)
+                            .foregroundStyle(Theme.accent)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
             }
 
             HStack(spacing: 0) {
