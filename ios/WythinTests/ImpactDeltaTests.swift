@@ -38,6 +38,38 @@ final class ImpactDeltaTests: XCTestCase {
         XCTAssertNil(ActivityLog(activityType: "Walk").impactDeltaPct)
     }
 
+    // MARK: benefitDelta edge cases
+
+    func testTargetDirectionDeltaIsClampedToOneHundred() {
+        // Harmony (DFA α1) targets 1.0, so its benefit is -|x - 1|. A healthy,
+        // near-target before-window makes the divisor tiny, so a modest move
+        // in `during` would otherwise blow up far past ±100%.
+        // benefit(0.98) = -0.02, benefit(0.85) = -0.15.
+        // Raw = (-0.15 - -0.02) / 0.02 * 100 = -650%, clamped to -100.
+        let dfa1 = activityMetricDefs.first { $0.techLabel == "DFA α1" }!
+        let raw = dfa1.benefitDelta(current: 0.85, base: 0.98)
+        XCTAssertEqual(raw!, -100, accuracy: 0.001)
+
+        // The headline mean must reflect the clamped value, not the raw one —
+        // it's the only metric present, so an unclamped -650 would show here.
+        let e = ActivityLog(activityType: "Meditation")
+        e.beforeDFA1 = 0.98; e.duringDFA1 = 0.85
+        XCTAssertEqual(e.impactDeltaPct!, -100, accuracy: 0.001)
+    }
+
+    func testZeroBaseBenefitMetricIsSkippedFromTheMean() {
+        // Harmony exactly at its target (benefit(1.0) == 0) has no valid
+        // percent divisor and is silently excluded from the mean, even
+        // though both its before and during windows are present.
+        let dfa1 = activityMetricDefs.first { $0.techLabel == "DFA α1" }!
+        XCTAssertNil(dfa1.benefitDelta(current: 0.9, base: 1.0))
+
+        let e = ActivityLog(activityType: "Meditation")
+        e.beforeRSA = 40; e.duringRSA = 44        // counted, +10%
+        e.beforeDFA1 = 1.0; e.duringDFA1 = 0.9    // base benefit == 0 — skipped
+        XCTAssertEqual(e.impactDeltaPct!, 10, accuracy: 0.001)
+    }
+
     // MARK: captions
 
     func testCaptionBoundaries() {

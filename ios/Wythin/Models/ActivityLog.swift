@@ -132,7 +132,11 @@ final class ActivityLog {
 
     /// Mean benefit-signed change from the before-window to the during-window
     /// across the nine metrics — literally the average of the per-metric
-    /// numbers shown on the rows below the meter, so the two cannot disagree.
+    /// numbers shown on the rows below the meter, so the two agree to within
+    /// rounding at the displayed whole-percent precision. (The one residual
+    /// source of drift: VTI is deliberately computed as ln(mean(RMSSD)), not
+    /// mean(ln(RMSSD)), so its window average and a point-by-point mean of
+    /// per-sample VTI can differ slightly — see the comment on vtiFromRMSSD.)
     /// Computed, never cached: the stored window averages and the detail
     /// view's ActivityMetricStats both derive from the same quality-filtered
     /// samples, so there is nothing to keep in sync.
@@ -269,9 +273,13 @@ final class ActivityLog {
         // noisy beats (SDNN≈0) pull HRV/SDNN below the filtered live values.
         let samples = rawSamples.filter { MetricsQualityFilter.isValid(MetricsHistoryPoint(from: $0)) }
 
+        // During/after boundary is half-open at `end` — [startedAt, end) / [end, afterEnd] —
+        // matching ActivityMetricStats' partition exactly, so these stored window
+        // averages and the detail view's per-metric stats agree on which sample
+        // owns the boundary timestamp.
         let before = samples.filter { $0.timestamp >= beforeStart && $0.timestamp < startedAt }
-        let during = samples.filter { $0.timestamp >= startedAt   && $0.timestamp <= end       }
-        let after  = samples.filter { $0.timestamp > end          && $0.timestamp <= afterEnd  }
+        let during = samples.filter { $0.timestamp >= startedAt   && $0.timestamp < end        }
+        let after  = samples.filter { $0.timestamp >= end         && $0.timestamp <= afterEnd  }
 
         func avg(_ arr: [HRVSample], _ kp: KeyPath<HRVSample, Float?>) -> Float? {
             let vals = arr.compactMap { $0[keyPath: kp] }
