@@ -43,6 +43,7 @@
 		A245 /* ConsistencySummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F245 /* ConsistencySummary.swift */; };
 		A246 /* TrackPeriodBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F246 /* TrackPeriodBar.swift */; };
 		A247 /* MacroReadCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F247 /* MacroReadCard.swift */; };
+		A248 /* TrackMetricChartCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F248 /* TrackMetricChartCard.swift */; };
 		A128 /* MetricsChartsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F128 /* MetricsChartsView.swift */; };
 		A129 /* ACCWaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F129 /* ACCWaveformView.swift */; };
 		A130 /* RRTachogramView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F130 /* RRTachogramView.swift */; };
@@ -181,6 +182,7 @@
 		F245 /* ConsistencySummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencySummary.swift; sourceTree = "<group>"; };
 		F246 /* TrackPeriodBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPeriodBar.swift; sourceTree = "<group>"; };
 		F247 /* MacroReadCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroReadCard.swift; sourceTree = "<group>"; };
+		F248 /* TrackMetricChartCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackMetricChartCard.swift; sourceTree = "<group>"; };
 		F128 /* MetricsChartsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsChartsView.swift; sourceTree = "<group>"; };
 		F129 /* ACCWaveformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ACCWaveformView.swift; sourceTree = "<group>"; };
 		F130 /* RRTachogramView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RRTachogramView.swift; sourceTree = "<group>"; };
@@ -377,6 +379,7 @@
 			children = (
 				F246 /* TrackPeriodBar.swift */,
 				F247 /* MacroReadCard.swift */,
+				F248 /* TrackMetricChartCard.swift */,
 			);
 			path = Track;
 			sourceTree = "<group>";
@@ -708,6 +711,7 @@
 				A245 /* ConsistencySummary.swift in Sources */,
 				A246 /* TrackPeriodBar.swift in Sources */,
 				A247 /* MacroReadCard.swift in Sources */,
+				A248 /* TrackMetricChartCard.swift in Sources */,
 				A117 /* Theme.swift in Sources */,
 				A118 /* WaveformRenderer.swift in Sources */,
 				A132 /* SplashView.swift in Sources */,
