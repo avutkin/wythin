@@ -300,4 +300,38 @@ final class AnchorDetectorTests: XCTestCase {
         XCTAssertEqual(cal.component(.hour, from: a?.startedAt ?? .distantPast), 8)
     }
 
+    func testBackgroundCadenceStirBreaksTheRun() {
+        // Two and a half still minutes at 30 s ticks, ninety seconds of movement
+        // — only two rejected samples at that cadence, which is *within*
+        // `maxRejectedInGap` — then a long clean rest. Counted in samples alone
+        // the two halves merge into one "rest" whose median straddles the
+        // movement; the wall-clock bound is what keeps them apart.
+        let cal = Calendar.current
+        var comps = DateComponents(year: 2026, month: 7, day: 20); comps.hour = 7
+        let start = cal.date(from: comps)!
+        let head = (0..<6).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(Double(i) * 30),
+                                meanBPM: 60, vti: 3.6, dc: 7.5, pip: 42, dfa1: 1.0,
+                                breathBPM: 13, motion: 5,
+                                signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
+        }
+        let moving = [180.0, 210.0].map { t in
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(t),
+                                meanBPM: 110, vti: 2.0, dc: 7.5, pip: 42, dfa1: 1.0,
+                                breathBPM: 13, motion: 400,
+                                signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
+        }
+        let tail = (0..<24).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(240 + Double(i) * 30),
+                                meanBPM: 75, vti: 3.0, dc: 7.5, pip: 42, dfa1: 1.0,
+                                breathBPM: 13, motion: 5,
+                                signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
+        }
+        let a = AnchorDetector.detect(head + moving + tail)
+        XCTAssertNotNil(a)
+        XCTAssertEqual(a?.startedAt, start.addingTimeInterval(240),
+                       "the 150 s head cannot anchor on its own, and must not be merged in")
+        XCTAssertEqual(a?.restingHR ?? 0, 75, accuracy: 0.001)
+    }
+
 }

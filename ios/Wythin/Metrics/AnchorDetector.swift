@@ -24,12 +24,18 @@ enum AnchorThresholds {
     static let morningCutoffHour: Int = 12
     /// Rejected samples tolerated inside a run before it counts as broken. A
     /// stir of one or two ticks is not the end of a rest; a sustained one is.
-    /// Expressed in samples rather than seconds so the rule holds at both the
-    /// 2 s foreground and the 30 s background tick rate.
     static let maxRejectedInGap: Int = 2
+    /// Wall clock tolerated between the accepted samples that bracket a
+    /// rejection. The count alone is cadence-blind in the wrong direction: two
+    /// rejected ticks are 4 s of stirring at the 2 s foreground rate but up to
+    /// 90 s at the 30 s background rate, so "2 min still, 1 min moving, 2 min
+    /// still" would merge into one 5-minute "rest" whose medians straddle the
+    /// movement. Whichever bound is tighter for the cadence in play wins.
+    static let maxStirSec: Double = 30
     /// Wall-clock hole beyond which two stretches are separate rests however
-    /// clean they are — nothing was rejected because nothing was recorded
-    /// (app killed, strap off, BLE dropped).
+    /// clean they are — nothing was rejected because nothing was recorded at
+    /// all (app killed, strap off). A BLE reconnect settles well inside it, so
+    /// it does not cost a run.
     static let maxGapCeilingSec: Double = 120
     /// A run must carry this many samples whatever its span. At 30 s ticks a
     /// 3-minute run is 6 points, and a median over fewer is not a median.
@@ -154,7 +160,13 @@ enum AnchorDetector {
             }
             if let last = current.last {
                 let hole = p.timestamp.timeIntervalSince(last.timestamp)
+                // The stir bound applies only where something was actually
+                // rejected: that hole is time we know the person was not still,
+                // whereas an equally long hole with nothing rejected is just
+                // the tick loop having been throttled.
+                let stirred = rejectedSinceLast > 0
                 if rejectedSinceLast > AnchorThresholds.maxRejectedInGap
+                    || (stirred && hole > AnchorThresholds.maxStirSec)
                     || hole > AnchorThresholds.maxGapCeilingSec {
                     runs.append(current)
                     current = []
