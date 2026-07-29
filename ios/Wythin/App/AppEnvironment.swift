@@ -179,6 +179,30 @@ final class AppEnvironment {
         deliver(selected, at: now)
     }
 
+    /// Freezes today's anchor as soon as a qualifying rest exists, without
+    /// waiting for the Live tab to be opened — a morning recorded and never
+    /// looked at is still a morning.
+    ///
+    /// Cheap because it exits on the day check in the overwhelming common case:
+    /// once today's anchor exists, this is one fetch every five minutes.
+    private func detectAnchorIfDue(now: Date) {
+        guard now.timeIntervalSince(lastAnchorCheckAt) >= anchorCheckInterval else { return }
+        lastAnchorCheckAt = now
+
+        let today   = Calendar.current.startOfDay(for: now)
+        let context = modelContainer.mainContext
+        let stored  = (try? context.fetch(FetchDescriptor<DailyAnchor>())) ?? []
+        guard !stored.contains(where: { $0.day == today }) else { return }
+
+        let points = MetricsQualityFilter.filter(tickHistory.filter { $0.timestamp >= today })
+        guard let reading = AnchorDetector.detect(points, now: now) else { return }
+        context.insert(DailyAnchor(from: reading))
+        try? context.save()
+    }
+
+    /// Anchors are frozen once a day, so checking every five minutes is generous.
+    private let anchorCheckInterval: TimeInterval = 300
+
     /// The focus window never pushes — a notification would interrupt the exact
     /// absorbed state it is reporting. Everything else takes a banner when
     /// backgrounded and an in-app card when not.
@@ -262,6 +286,7 @@ final class AppEnvironment {
     private var lastSaveAt: Date = .distantPast   // wall-clock cap so bg saves land ≤2 min
     private var lastBackgroundTick: Date = .distantPast  // throttles bg computation to 30 s
     private var lastMetricSyncAt: Date = .distantPast     // throttles cloud sync attempts to ~120 s
+    private var lastAnchorCheckAt: Date = .distantPast     // throttles anchor detection to ~5 min
 
     // MARK: Init
 
@@ -587,6 +612,7 @@ final class AppEnvironment {
                 // against real wear. Delivers nothing to the user.
                 self.nudges.ingest(point, now: point.timestamp)
                 self.evaluateNudgesIfDue(now: point.timestamp)
+                self.detectAnchorIfDue(now: point.timestamp)
 
                 // ── Foreground-only: live table + live cloud stream ───────────
                 if inForeground {
