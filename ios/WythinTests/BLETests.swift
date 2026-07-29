@@ -78,6 +78,94 @@ final class BLETests: XCTestCase {
         XCTAssertEqual(frame?.samples[1].z, 1000)
     }
 
+    // MARK: - ACC watchdog retry policy (pure, no CoreBluetooth)
+    //
+    // ACCWatchdogPolicy.decide is the retry policy extracted from the ACC
+    // watchdog so it can be tested without a real peripheral — see BLEService's
+    // ACCWatchdogPolicy and evaluateACCWatchdog for the CoreBluetooth plumbing
+    // that samples state and acts on this decision.
+
+    func testACCWatchdogFiresWhenECGFlowsButACCSilent() {
+        let action = ACCWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: true,
+            timeSinceLastACCSample: 6, timeSinceLastRetry: nil,
+            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+        XCTAssertEqual(action, .retryACCStart)
+    }
+
+    func testACCWatchdogStaysQuietWhenBothStreamsSilent() {
+        // Both ECG and ACC dead is a connection problem — owned by the
+        // existing reconnect/standby machinery, not this watchdog.
+        let action = ACCWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: false,
+            timeSinceLastACCSample: 30, timeSinceLastRetry: nil,
+            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+        XCTAssertEqual(action, .keepWaiting)
+    }
+
+    func testACCWatchdogStaysQuietInStandby() {
+        let action = ACCWatchdogPolicy.decide(
+            isConnected: true, inStandby: true, ecgFlowing: true,
+            timeSinceLastACCSample: 30, timeSinceLastRetry: nil,
+            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+        XCTAssertEqual(action, .keepWaiting)
+    }
+
+    func testACCWatchdogStaysQuietWhenDisconnected() {
+        let action = ACCWatchdogPolicy.decide(
+            isConnected: false, inStandby: false, ecgFlowing: true,
+            timeSinceLastACCSample: 30, timeSinceLastRetry: nil,
+            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+        XCTAssertEqual(action, .keepWaiting)
+    }
+
+    func testACCWatchdogWaitsBelowStallThreshold() {
+        // Below the threshold is normal jitter or a brief hiccup, not a stall.
+        let action = ACCWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: true,
+            timeSinceLastACCSample: 3, timeSinceLastRetry: nil,
+            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+        XCTAssertEqual(action, .keepWaiting)
+    }
+
+    func testACCWatchdogRespectsRetryGap() {
+        // Just retried a second ago — give it time to take effect before
+        // trying again, even though ACC is still silent.
+        let action = ACCWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: true,
+            timeSinceLastACCSample: 20, timeSinceLastRetry: 1,
+            retriesUsed: 1, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+        XCTAssertEqual(action, .keepWaiting)
+    }
+
+    func testACCWatchdogRetriesAgainAfterGapElapses() {
+        let action = ACCWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: true,
+            timeSinceLastACCSample: 20, timeSinceLastRetry: 6,
+            retriesUsed: 1, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+        XCTAssertEqual(action, .retryACCStart)
+    }
+
+    func testACCWatchdogRespectsRetryBudget() {
+        let action = ACCWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: true,
+            timeSinceLastACCSample: 20, timeSinceLastRetry: 6,
+            retriesUsed: 3, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+        XCTAssertEqual(action, .giveUp)
+    }
+
+    func testACCWatchdogNoStallImmediatelyAfterRecovery() {
+        // An ACC sample just arrived (time-since ~0) — no stall regardless of
+        // retry history. BLEService.noteACCSampleReceived is what actually
+        // resets retriesUsed to 0 on real recovery; this only checks the
+        // policy doesn't fire while ACC is freshly live.
+        let action = ACCWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: true,
+            timeSinceLastACCSample: 0, timeSinceLastRetry: 6,
+            retriesUsed: 2, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+        XCTAssertEqual(action, .keepWaiting)
+    }
+
     // MARK: - DataBuffer
 
     @MainActor
