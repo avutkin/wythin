@@ -196,12 +196,21 @@ final class AppEnvironment {
 
         let points = MetricsQualityFilter.filter(tickHistory.filter { $0.timestamp >= today })
         guard let reading = AnchorDetector.detect(points) else { return }
+
+        // Asymmetric on purpose. This path polls every five minutes with nobody
+        // watching, so whichever poll first catches a rest past `minSec` would
+        // freeze it — landing `durationSec` roughly uniformly in [180, 480) and
+        // dropping DC on the short half. The day's anchor would then routinely
+        // be a different kind of measurement from the baseline it is scored
+        // against. Waiting for `preferredMinSec` costs at most one more poll.
+        //
+        // `DayPotentialStore.refresh` keeps the 180 s floor: a user who pulled
+        // to refresh has asked for whatever this morning actually gave.
+        guard reading.durationSec >= AnchorThresholds.preferredMinSec else { return }
+
         context.insert(DailyAnchor(from: reading))
         try? context.save()
     }
-
-    /// Anchors are frozen once a day, so checking every five minutes is generous.
-    private let anchorCheckInterval: TimeInterval = 300
 
     /// The focus window never pushes — a notification would interrupt the exact
     /// absorbed state it is reporting. Everything else takes a banner when
@@ -287,6 +296,8 @@ final class AppEnvironment {
     private var lastBackgroundTick: Date = .distantPast  // throttles bg computation to 30 s
     private var lastMetricSyncAt: Date = .distantPast     // throttles cloud sync attempts to ~120 s
     private var lastAnchorCheckAt: Date = .distantPast     // throttles anchor detection to ~5 min
+    /// Anchors are frozen once a day, so checking every five minutes is generous.
+    private let anchorCheckInterval: TimeInterval = 300
 
     // MARK: Init
 
