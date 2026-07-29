@@ -114,6 +114,10 @@ final class AnchorDetectorTests: XCTestCase {
         XCTAssertNotNil(a)
         XCTAssertEqual(a?.restingHR ?? 0, 60, accuracy: 0.001,
                        "the first rest is the anchor; the 75 bpm stretch is a separate run")
+        // The medians alone do not check the split — the movement is past the
+        // 300 s window, so they read 60 either way. The duration is what says
+        // the run ended at the mover rather than running on through it.
+        XCTAssertEqual(a?.durationSec ?? 0, 358, accuracy: 1)
     }
 
     func testRejectsRunWithTooFewSamples() {
@@ -360,17 +364,30 @@ final class AnchorDetectorTests: XCTestCase {
     }
 
     func testOneRejectedBackgroundTickDoesNotBreakTheRun() {
-        // Ten still minutes at the 30 s background rate with a single motion
-        // tick in the middle. Bracket to bracket that is a 60 s hole, so a raw
-        // 30 s bound broke the rest in half — background stir tolerance was
-        // exactly zero, and the 300 s freeze gate then threw the day away. One
-        // rejected tick at 30 s ticks is 30 s of stirring, which is the whole
-        // tolerance and not a second more.
+        // Ten still minutes at the background rate with a single motion tick in
+        // the middle. Bracket to bracket that is two tick intervals, so a raw
+        // hole bound broke the rest in half — background stir tolerance was
+        // exactly zero, and the 300 s freeze gate then threw the day away.
+        //
+        // Spaced deliberately *off* 30.000 s. The tick loop gates on
+        // `elapsed >= 30` from a 2 s poll and the sample is timestamped later
+        // still, so real background intervals are always a little over 30 and
+        // nothing rounds them. Spaced at exactly 30 this test would pin a float
+        // equality rather than the guarantee it is named for.
         let cal = Calendar.current
         var comps = DateComponents(year: 2026, month: 7, day: 20); comps.hour = 7
         let start = cal.date(from: comps)!
-        var points = stillPoints(minutes: 10, hour: 7, spacing: 30)   // t = 0…570
-        points[10] = MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(300),
+
+        var offsets: [Double] = [0]
+        for i in 0..<19 { offsets.append(offsets[i] + 30.4 + Double(i % 3) * 0.2) }
+
+        var points = offsets.map { t in
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(t),
+                                meanBPM: 60, vti: 3.6, dc: 7.5, pip: 42, dfa1: 1.0,
+                                breathBPM: 13, motion: 5,
+                                signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
+        }
+        points[10] = MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(offsets[10]),
                                          meanBPM: 110, vti: 2.0, dc: 7.5, pip: 42, dfa1: 1.0,
                                          breathBPM: 13, motion: 400,
                                          signalQuality: 0.98, rrInvalidRate: 0.01,
@@ -379,8 +396,8 @@ final class AnchorDetectorTests: XCTestCase {
         let a = AnchorDetector.detect(points)
         XCTAssertNotNil(a)
         XCTAssertEqual(a?.startedAt, start)
-        XCTAssertEqual(a?.durationSec ?? 0, 570, accuracy: 0.001,
-                       "one rest, not a 270 s half and a 240 s half")
+        XCTAssertEqual(a?.durationSec ?? 0, offsets[19], accuracy: 0.001,
+                       "one rest, not a 275 s half and a 245 s half")
         XCTAssertNotNil(a?.dc, "a run split here would fall under the 300 s DC requirement")
         XCTAssertEqual(a?.confidence, .high)
     }

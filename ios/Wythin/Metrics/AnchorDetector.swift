@@ -48,13 +48,27 @@ enum AnchorThresholds {
     ///
     /// **The guarantee:** a run breaks when more than `maxStirSec` of *observed
     /// non-still time* sits inside it, at whatever cadence the samples were
-    /// recorded. At 30 s ticks that is one rejected tick tolerated and two not;
-    /// at 2 s ticks it is fifteen, so there `maxRejectedInGap` is the operative
-    /// bound. It follows that a single rejected sample is tolerated only while
-    /// the tick interval is at or below `maxStirSec` — under heavier throttling
-    /// one rejected tick genuinely is more than 30 s of not-still, and breaking
-    /// is the honest reading.
-    static let maxStirSec: Double = 30
+    /// recorded. A single rejected sample is therefore tolerated only while the
+    /// tick interval is at or below `maxStirSec`; past that, one rejected tick
+    /// genuinely is more than that much not-still, and breaking is the honest
+    /// reading.
+    ///
+    /// 45 rather than 30, because the background interval is not 30.000 s and
+    /// nothing rounds it: the tick loop gates on `elapsed >= 30` from a 2 s
+    /// poll and restamps `lastBackgroundTick` from a later `Date()`
+    /// (`AppEnvironment.tickLoop`), and the sample carries a third `Date()`
+    /// taken inside `MetricsEngine.compute`. Consecutive background ticks are
+    /// always a little *over* 30 s apart. At 30 the bound sat exactly on that
+    /// error term with the sign against the user — one rejected tick in a real
+    /// background rest measures ~30.x s of stirring, broke the run, and left
+    /// two halves that both failed the 300 s freeze gate, losing the day its
+    /// anchor. 45 sits strictly between one background interval (~30.1) and two
+    /// (~60.2), so it tolerates one and not two with margin on both sides.
+    ///
+    /// Foreground is untouched: 45 s of stirring at 2 s ticks is 22 rejected
+    /// samples, and `maxRejectedInGap` fires at three. It is the operative
+    /// bound there, as this one is in the background.
+    static let maxStirSec: Double = 45
     /// Wall-clock hole beyond which two stretches are separate rests however
     /// clean they are — nothing was rejected because nothing was recorded at
     /// all (app killed, strap off). A BLE reconnect settles well inside it, so
@@ -200,7 +214,11 @@ enum AnchorDetector {
                 // the tick loop having been throttled. Each rejected sample
                 // stands for one cadence interval of movement, so the stir is
                 // the hole less the one interval the closing sample owns.
-                let cadence = median(spacings) ?? hole
+                // `?? 0` fails closed. The fallback is unreachable — a non-nil
+                // `current.last` means at least one interval was recorded — but
+                // `?? hole` would make `stir` zero and the run unbreakable, so
+                // the dead branch should err towards splitting, not merging.
+                let cadence = median(spacings) ?? 0
                 let stir = rejectedSinceLast > 0 ? hole - cadence : 0
                 if rejectedSinceLast > AnchorThresholds.maxRejectedInGap
                     || stir > AnchorThresholds.maxStirSec
