@@ -62,6 +62,8 @@
 		A152 /* ActivityImpact.swift in Sources */ = {isa = PBXBuildFile; fileRef = F152 /* ActivityImpact.swift */; };
 		A153 /* PracticeImpactGauge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F153 /* PracticeImpactGauge.swift */; };
 		A154 /* MetricProgressRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F154 /* MetricProgressRow.swift */; };
+		A230 /* ActivityDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F230 /* ActivityDetailView.swift */; };
+		A231 /* ActivityFormSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = F231 /* ActivityFormSheets.swift */; };
 		A155 /* HeartRateCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F155 /* HeartRateCompute.swift */; };
 		A160 /* ClientProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = F160 /* ClientProfile.swift */; };
 		A161 /* OnboardingFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F161 /* OnboardingFlow.swift */; };
@@ -181,6 +183,8 @@
 		F152 /* ActivityImpact.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityImpact.swift; sourceTree = "<group>"; };
 		F153 /* PracticeImpactGauge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeImpactGauge.swift; sourceTree = "<group>"; };
 		F154 /* MetricProgressRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricProgressRow.swift; sourceTree = "<group>"; };
+		F230 /* ActivityDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityDetailView.swift; sourceTree = "<group>"; };
+		F231 /* ActivityFormSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityFormSheets.swift; sourceTree = "<group>"; };
 		F155 /* HeartRateCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateCompute.swift; sourceTree = "<group>"; };
 		F160 /* ClientProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientProfile.swift; sourceTree = "<group>"; };
 		F161 /* OnboardingFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFlow.swift; sourceTree = "<group>"; };
@@ -279,6 +283,8 @@
 				F150 /* ActivityWindowChart.swift */,
 				F153 /* PracticeImpactGauge.swift */,
 				F154 /* MetricProgressRow.swift */,
+				F230 /* ActivityDetailView.swift */,
+				F231 /* ActivityFormSheets.swift */,
 			);
 			path = Activities;
 			sourceTree = "<group>";
@@ -675,6 +681,8 @@
 				A150 /* ActivityWindowChart.swift in Sources */,
 				A153 /* PracticeImpactGauge.swift in Sources */,
 				A154 /* MetricProgressRow.swift in Sources */,
+				A230 /* ActivityDetailView.swift in Sources */,
+				A231 /* ActivityFormSheets.swift in Sources */,
 				A151 /* ActivityMetricStats.swift in Sources */,
 				A152 /* ActivityImpact.swift in Sources */,
 				A202 /* AutonomicCompute.swift in Sources */,
