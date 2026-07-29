@@ -20,7 +20,8 @@
 - The 12 new columns, in this exact order and spelling, used identically in `db.py`, `models.py`, `routers/metrics.py`, `mcp_server.py`, and the Swift payload: `rsa_idx`, `ie_ratio`, `ials`, `motion`, `signal_quality`, `rr_invalid_rate`, `rr_corrected_rate`, `ecg_quality_tier`, `ulf_power`, `vlf_power`, `lf_power`, `hf_power`.
 - All are `REAL` except `ecg_quality_tier`, which is `INT` (Swift `Int?`, Pydantic `Optional[int]`).
 - Every MCP tool resolves `user_id` from the Bearer token via `_auth(ctx)` and accepts no `user_id` argument. Do not add one.
-- iOS builds verify with: `xcodebuild -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' build` and tests with the same command using `test` instead of `build`.
+- iOS builds verify with: `xcodebuild -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build` and tests with the same command using `test` instead of `build`. There is no `iPhone 16` simulator on this machine — use `iPhone 17 Pro`.
+- **The iOS baseline is RED before this plan starts: 167 tests, 3 assertion failures across 2 test methods** — `BLETests.testECGFrameParsing` (ECG frame parsing) and `MetricsTests.testBreathingRateInBand` (breathing-rate FFT, 2 assertions). Both are pre-existing on this branch and touch code no task here modifies. Do NOT fix them; they are out of scope. Success for an iOS task means: your new tests pass, and the full-suite failure count is still exactly those same 3 assertions in those same 2 methods. Any new failure elsewhere is yours.
 
 ---
 
@@ -398,7 +399,7 @@ Add to `ios/WythinTests/PayloadBuilderTests.swift`:
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `xcodebuild -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:WythinTests/PayloadBuilderTests 2>&1 | tail -20`
+Run: `xcodebuild -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test -only-testing:WythinTests/PayloadBuilderTests 2>&1 | tail -20`
 
 Expected: FAIL to compile — `value of type 'MetricSamplePayload' has no member 'motion'`.
 
@@ -457,7 +458,7 @@ In `ios/Wythin/Sync/APIClient.swift`, inside `MetricSyncService.syncIfEnabled`, 
 
 - [ ] **Step 7: Run the test to verify it passes**
 
-Run: `xcodebuild -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:WythinTests/PayloadBuilderTests 2>&1 | tail -20`
+Run: `xcodebuild -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test -only-testing:WythinTests/PayloadBuilderTests 2>&1 | tail -20`
 
 Expected: `** TEST SUCCEEDED **`.
 
@@ -511,7 +512,7 @@ final class MetricSyncBackfillTests: XCTestCase {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `xcodebuild -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:WythinTests/MetricSyncBackfillTests 2>&1 | tail -20`
+Run: `xcodebuild -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test -only-testing:WythinTests/MetricSyncBackfillTests 2>&1 | tail -20`
 
 Expected: FAIL to compile — `type 'MetricSyncService' has no member 'needsBackfill'`.
 
@@ -537,7 +538,7 @@ In `ios/Wythin/Sync/APIClient.swift`, inside `final class MetricSyncService`, de
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `xcodebuild -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' test -only-testing:WythinTests/MetricSyncBackfillTests 2>&1 | tail -20`
+Run: `xcodebuild -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test -only-testing:WythinTests/MetricSyncBackfillTests 2>&1 | tail -20`
 
 Expected: `** TEST SUCCEEDED **`.
 
@@ -589,7 +590,7 @@ In `ios/Wythin/Sync/APIClient.swift`, replace the body of `syncIfEnabled` from `
 
 - [ ] **Step 6: Verify the app builds and the full test suite passes**
 
-Run: `xcodebuild -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 16' test 2>&1 | tail -20`
+Run: `xcodebuild -project ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test 2>&1 | tail -20`
 
 Expected: `** TEST SUCCEEDED **`.
 
