@@ -262,6 +262,7 @@ struct ActivityPickerSection: View {
             .padding(.horizontal)
 
             SubtypePicker(type: selected, selected: $selectedSubtype)
+                .id(selected)
                 .padding(.horizontal)
 
             if showCustom {
@@ -346,12 +347,13 @@ struct SubtypePicker: View {
 
             LazyVGrid(columns: cols, spacing: 8) {
                 ForEach(type.subtypes + remembered, id: \.self) { sub in
-                    chip(sub, label: sub, isOn: selected == sub) {
+                    chip(label: sub, isOn: selected == sub) {
                         selected = selected == sub ? nil : sub
                         showCustomField = false
+                        customSubtype = ""
                     }
                 }
-                chip("__custom__", label: "+ Custom", isOn: showCustomField) {
+                chip(label: "+ Custom", isOn: showCustomField) {
                     showCustomField.toggle()
                     if showCustomField {
                         customSubtype = ""
@@ -381,7 +383,7 @@ struct SubtypePicker: View {
     }
 
     @ViewBuilder
-    private func chip(_ id: String, label: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+    private func chip(label: String, isOn: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
                 .font(Theme.monoLabel)
