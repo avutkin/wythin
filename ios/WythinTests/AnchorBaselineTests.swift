@@ -64,6 +64,29 @@ final class AnchorBaselineTests: XCTestCase {
 
     /// Identical anchors give sd = 0, which `z(_:)` rejects. With a prior in
     /// play the score must still be computable.
+    // MARK: - Blended SD exposed for change-scores
+
+    /// The nudge engine scores a *change* over 30 minutes, not a value against a
+    /// mean, so it needs the blended SD as a denominator rather than a z. Same
+    /// shrinkage as `z(_:prior:)` — the two must not drift apart.
+    func testBlendedSDMatchesTheDenominatorUsedByZ() {
+        let stat = BaselineStat(mean: 3.8, sd: 0.05, n: 3)
+        let sd = stat.sdBlended(prior: 0.2) ?? 0
+        // z of a value one blended-SD above the mean is exactly 1.
+        XCTAssertEqual(stat.z(3.8 + sd, prior: 0.2) ?? 0, 1.0, accuracy: 0.001)
+    }
+
+    func testBlendedSDIsExactlyThePriorWideningAtASingleAnchor() {
+        let stat = BaselineStat(mean: 3.8, sd: 0, n: 1)
+        // n = 1: personal term zeroes, so blendVar is the prior; widened by √2.
+        XCTAssertEqual(stat.sdBlended(prior: 0.2) ?? 0, 0.2 * Float(2).squareRoot(), accuracy: 0.001)
+    }
+
+    func testBlendedSDConvergesOnThePersonalSDWithManyAnchors() {
+        let stat = BaselineStat(mean: 3.8, sd: 0.3, n: 200)
+        XCTAssertEqual(stat.sdBlended(prior: 0.2) ?? 0, 0.3, accuracy: 0.005)
+    }
+
     func testDegenerateSDStillYieldsAFiniteZ() {
         let stat = BaselineStat(mean: 3.6, sd: 0, n: 7)
         let z = stat.z(3.8, prior: 0.2)

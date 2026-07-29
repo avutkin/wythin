@@ -58,13 +58,22 @@ struct BaselineStat: Equatable {
     /// n = 1, 1.22x at n = 2, 1.07x at n = 7, 1.03x at n = 20. There is no
     /// discontinuity when the baseline is declared firm.
     func z(_ value: Float, prior: Float) -> Float? {
+        guard let sdPred = sdBlended(prior: prior) else { return nil }
+        return (value - mean) / sdPred
+    }
+
+    /// The denominator `z(_:prior:)` divides by, exposed on its own.
+    ///
+    /// Scores that compare a *change* against this person's spread — rather than
+    /// a value against their mean — need the SD without the centring. Sharing
+    /// one implementation keeps the two from drifting apart.
+    func sdBlended(prior: Float) -> Float? {
         guard n >= 1, prior > 1e-6 else { return nil }
         let nu = BaselinePrior.strength
         let personal = Float(n - 1) * sd * sd
         let blendVar = (nu * prior * prior + personal) / (nu + Float(n - 1))
         let sdPred = blendVar.squareRoot() * (1 + 1 / Float(n)).squareRoot()
-        guard sdPred > 1e-6 else { return nil }
-        return (value - mean) / sdPred
+        return sdPred > 1e-6 ? sdPred : nil
     }
 }
 
