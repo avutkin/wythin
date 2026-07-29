@@ -14,6 +14,10 @@ enum AnchorThresholds {
     static let breathRange: ClosedRange<Float> = 8...20
     /// Preferred window length — below this DC is dropped from the score.
     static let preferredMinSec: Double = 300
+    /// The span the medians are taken over, however long the rest ran. A
+    /// 12-minute rest and a 70-minute rest must produce comparable numbers,
+    /// which they cannot if the median follows whatever the morning allowed.
+    static let anchorWindowSec: Double = 300
     /// Absolute minimum window length.
     static let minSec: Double = 180
     /// Windows starting before this hour are preferred over later ones.
@@ -159,16 +163,22 @@ enum AnchorDetector {
     }
 
     private static func reading(from run: [MetricsHistoryPoint], late: Bool) -> AnchorReading? {
-        guard let lnRMSSD = median(run.compactMap { $0.vti }),
-              let restingHR = median(run.compactMap { $0.meanBPM }),
-              let start = run.first?.timestamp else { return nil }
-
+        // The whole qualifying rest — this is what the provenance line reports,
+        // and what DC's stability requirement is judged on.
         let dur = duration(run)
-        // DC is a phase-rectified statistic — it needs the longer window to be
-        // stable, so a short anchor drops it rather than reporting it noisily.
+
+        // The standardised head of it — this is what the medians see.
+        let window = leadingWindow(run)
+        guard window.count >= AnchorThresholds.minSamples,
+              let lnRMSSD  = median(window.compactMap { $0.vti }),
+              let restingHR = median(window.compactMap { $0.meanBPM }),
+              let start = window.first?.timestamp else { return nil }
+
+        // DC is a phase-rectified statistic — it needs the longer record to be
+        // stable, so a short rest drops it rather than reporting it noisily.
         let longEnoughForDC = dur >= AnchorThresholds.preferredMinSec
-        let motionKnown = run.contains { $0.motion != nil }
-        let ecgKnown    = run.contains { $0.ecgQualityTier != nil }
+        let motionKnown = window.contains { $0.motion != nil }
+        let ecgKnown    = window.contains { $0.ecgQualityTier != nil }
 
         let cal = Calendar.current
         let hour = Double(cal.component(.hour, from: start))
@@ -184,14 +194,22 @@ enum AnchorDetector {
             durationSec: dur,
             hour:        hour,
             lnRMSSD:     lnRMSSD,
-            dc:          longEnoughForDC ? median(run.compactMap { $0.dc }) : nil,
+            dc:          longEnoughForDC ? median(window.compactMap { $0.dc }) : nil,
             restingHR:   restingHR,
-            pip:         median(run.compactMap { $0.pip }),
-            dfa1:        median(run.compactMap { $0.dfa1 }),
-            breathBPM:   median(run.compactMap { $0.breathBPM }),
+            pip:         median(window.compactMap { $0.pip }),
+            dfa1:        median(window.compactMap { $0.dfa1 }),
+            breathBPM:   median(window.compactMap { $0.breathBPM }),
             late:        late,
             motionKnown: motionKnown,
             confidence:  confidence)
+    }
+
+    /// The first `anchorWindowSec` of a run. Shorter runs are returned whole —
+    /// they have no tail to trim.
+    private static func leadingWindow(_ run: [MetricsHistoryPoint]) -> [MetricsHistoryPoint] {
+        guard let start = run.first?.timestamp else { return run }
+        let cutoff = start.addingTimeInterval(AnchorThresholds.anchorWindowSec)
+        return Array(run.prefix { $0.timestamp <= cutoff })
     }
 
     // MARK: Stats

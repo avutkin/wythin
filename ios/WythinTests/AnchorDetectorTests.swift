@@ -192,4 +192,42 @@ final class AnchorDetectorTests: XCTestCase {
         XCTAssertNil(AnchorDetector.detect(
             legacyPoints(signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 0)))
     }
+
+    // MARK: - Window standardisation
+
+    func testAnchorsOnTheFirstFiveMinutesOfALongRest() {
+        // Five minutes at 60 bpm, then twenty-five more at 80. Still throughout —
+        // one run — but only the standardised head may reach the median.
+        let cal = Calendar.current
+        var comps = DateComponents(year: 2026, month: 7, day: 20); comps.hour = 7
+        let start = cal.date(from: comps)!
+        let points = (0..<900).map { i -> MetricsHistoryPoint in
+            let t = Double(i) * 2
+            return MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(t),
+                                       meanBPM: t <= 300 ? 60 : 80,
+                                       vti: t <= 300 ? 3.6 : 3.0,
+                                       dc: 7.5, pip: 42, dfa1: 1.0,
+                                       breathBPM: 13, motion: 5,
+                                       signalQuality: 0.98, rrInvalidRate: 0.01,
+                                       ecgQualityTier: 2)
+        }
+        let a = AnchorDetector.detect(points)
+        XCTAssertNotNil(a)
+        XCTAssertEqual(a?.restingHR ?? 0, 60, accuracy: 0.001,
+                       "the 80 bpm tail is outside the 300 s window")
+        XCTAssertEqual(a?.lnRMSSD ?? 0, 3.6, accuracy: 0.001)
+        XCTAssertEqual(a?.durationSec ?? 0, 1798, accuracy: 1,
+                       "durationSec still reports the whole rest, not the window")
+        XCTAssertNotNil(a?.dc, "DC gates on the run length, not the window")
+        XCTAssertEqual(a?.confidence, .high)
+    }
+
+    func testShortRestStillUsesEverythingItHas() {
+        // Under 300 s there is no tail to trim — behaviour is unchanged.
+        let a = AnchorDetector.detect(stillPoints(minutes: 4, hour: 7))
+        XCTAssertNotNil(a)
+        XCTAssertEqual(a?.durationSec ?? 0, 238, accuracy: 1)
+        XCTAssertNil(a?.dc)
+        XCTAssertEqual(a?.confidence, .medium)
+    }
 }
