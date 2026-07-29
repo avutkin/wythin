@@ -401,14 +401,57 @@ left accent rule the `why` text uses:
   ▏Conscious Breathing (RSA) is the swing of…   ← existing static text
 ```
 
-### 6.2 The model cannot currently see shape
+### 6.2 The payload is missing most of the metrics, and all of the shape
 
-`InsightPayload` sends only before/during/after averages. That supports "fell
-9%" but not "peaked at minute 11", which is exactly what a per-chart note needs.
+Two gaps, not one:
 
-The payload gains, per metric, **5 equal-width buckets of the during window**
-(45 numbers total for 9 metrics), plus the same quality filtering
-`computeHRVWindows` uses.
+**It carries the wrong four metrics.** `InsightPayload` sends before/during/after
+for HR, RSA, SDNN and raw LF/HF only. The detail view renders **nine** —
+DC, RCMSE, PIP, DFA α1, Stress Balance, RSA, VTI, RMSSD, HR. Two of the four
+sent aren't even among them: SDNN isn't a displayed metric (RMSSD is, as "Energy
+Reserve"), and the displayed stress figure is the breathing-robust 0–100 dial,
+not the raw LF/HF ratio the payload sends. A note cannot be written for a chart
+whose numbers were never transmitted.
+
+**It carries no shape.** Averages support "fell 9%" but not "peaked at minute
+11", which is what a per-chart note exists to say.
+
+Both are fixed by restructuring the activity payload to be **metric-keyed**,
+mirroring the `metrics: dict[str, MetricTrend]` pattern `live_state` mode
+already uses in this same endpoint:
+
+```
+activity_metrics: dict[str, ActivityMetricWindow]   # key = techLabel
+```
+
+```python
+class ActivityMetricWindow(BaseModel):
+    label:     str                       # consumer name, e.g. "Conscious Breathing"
+    unit:      str
+    direction: str                       # "higher" | "lower" | "target"
+    before:    Optional[float] = None
+    during:    Optional[float] = None
+    after:     Optional[float] = None
+    during_buckets: Optional[list[Optional[float]]] = None   # 5, oldest first
+```
+
+Keys are `ActivityMetricDef.techLabel`: `"DC"`, `"RCMSE"`, `"PIP"`, `"DFA α1"`,
+`"LF/HF"`, `"RSA"`, `"VTI"`, `"HRV"`, `"HR"` — the same keys `metric_notes`
+comes back under, so request and response line up by construction.
+
+`direction` is sent because the model cannot otherwise know that falling Inner
+Noise is good and falling RSA is bad. It's derived from
+`ActivityMetricDef.direction`.
+
+Buckets are 5 equal-width means over the during window, from the same
+`MetricsQualityFilter`-gated samples `computeHRVWindows` uses. Nine metrics × 5
+= 45 numbers.
+
+**Backwards compatibility:** the twelve flat `before_hr` / `during_rsa` / … fields
+stay on `InsightRequest`, and `_format_metrics` prefers `activity_metrics` when
+present, falling back to the flat fields otherwise. App builds shipped before
+this change keep working against the updated server; they simply get no
+`metric_notes`.
 
 New `ActivityInsightPayloadBuilder` (in `ios/Wythin/Sync/`) owns this: given an
 entry and a `ModelContext`, it fetches `HRVSample` for
@@ -468,11 +511,11 @@ more likely to be reworded.
 (`headline + "\n" + bullets joined + "\n" + next_step`) so there is exactly one
 generation, not two.
 
-Request additions to `InsightRequest`:
+`InsightResponse` is shared by all three modes of this endpoint
+(`activity` | `live_state` | `day_potential`). The new fields all carry
+defaults, so the other two modes are unaffected and keep returning `text` alone.
 
-```python
-during_buckets: Optional[dict[str, list[Optional[float]]]] = None  # techLabel → 5 values
-```
+Request additions to `InsightRequest`: `activity_metrics` as defined in §6.2.
 
 The handler switches to OpenAI JSON mode (`response_format={"type":
 "json_object"}`) with the schema described in the system prompt, `max_tokens`
