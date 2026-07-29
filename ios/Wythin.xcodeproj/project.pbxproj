@@ -61,7 +61,7 @@
 		A150 /* ActivityWindowChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = F150 /* ActivityWindowChart.swift */; };
 		A151 /* ActivityMetricStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = F151 /* ActivityMetricStats.swift */; };
 		A152 /* ActivityImpact.swift in Sources */ = {isa = PBXBuildFile; fileRef = F152 /* ActivityImpact.swift */; };
-		A153 /* PracticeImpactGauge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F153 /* PracticeImpactGauge.swift */; };
+		A153 /* PracticeImpactMeter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F153 /* PracticeImpactMeter.swift */; };
 		A154 /* MetricProgressRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F154 /* MetricProgressRow.swift */; };
 		A230 /* ActivityDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F230 /* ActivityDetailView.swift */; };
 		A231 /* ActivityFormSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = F231 /* ActivityFormSheets.swift */; };
@@ -187,7 +187,7 @@
 		F150 /* ActivityWindowChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityWindowChart.swift; sourceTree = "<group>"; };
 		F151 /* ActivityMetricStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricStats.swift; sourceTree = "<group>"; };
 		F152 /* ActivityImpact.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityImpact.swift; sourceTree = "<group>"; };
-		F153 /* PracticeImpactGauge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeImpactGauge.swift; sourceTree = "<group>"; };
+		F153 /* PracticeImpactMeter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeImpactMeter.swift; sourceTree = "<group>"; };
 		F154 /* MetricProgressRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricProgressRow.swift; sourceTree = "<group>"; };
 		F230 /* ActivityDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityDetailView.swift; sourceTree = "<group>"; };
 		F231 /* ActivityFormSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityFormSheets.swift; sourceTree = "<group>"; };
@@ -291,7 +291,7 @@
 				F203 /* ActivityLogging.swift */,
 				F149 /* ActivityMetricsGrid.swift */,
 				F150 /* ActivityWindowChart.swift */,
-				F153 /* PracticeImpactGauge.swift */,
+				F153 /* PracticeImpactMeter.swift */,
 				F154 /* MetricProgressRow.swift */,
 				F230 /* ActivityDetailView.swift */,
 				F231 /* ActivityFormSheets.swift */,
@@ -695,7 +695,7 @@
 				A148 /* MetricTile.swift in Sources */,
 				A149 /* ActivityMetricsGrid.swift in Sources */,
 				A150 /* ActivityWindowChart.swift in Sources */,
-				A153 /* PracticeImpactGauge.swift in Sources */,
+				A153 /* PracticeImpactMeter.swift in Sources */,
 				A154 /* MetricProgressRow.swift in Sources */,
 				A230 /* ActivityDetailView.swift in Sources */,
 				A231 /* ActivityFormSheets.swift in Sources */,

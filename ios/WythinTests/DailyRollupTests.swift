@@ -71,11 +71,32 @@ final class DailyRollupTests: XCTestCase {
     }
 
     func testStressBalanceIsDerivedAndAveraged() {
-        let pts = (0..<200).map { good($0) }
+        // Create fixture with two distinct rmssd groups to expose the non-linearity of
+        // vagalIndex. Without averaging, derive-once-from-mean-rmssd would give wrong answer.
+        // rmssd=20: vagalIndex = 20/60 = 0.333, sns = 0.667, stressBalance = 66.7
+        // rmssd=160: vagalIndex = 160/200 = 0.8, sns = 0.2, stressBalance = 20.0
+        // Mean of per-tick values: (66.7 + 20.0) / 2 ≈ 43.35
+        // But if averaged first: mean(rmssd)=90, vagalIndex(90)=90/130≈0.692, sns≈0.308, ≈30.8
+        let pts = (0..<100).map { good($0, rmssd: 20) } + (100..<200).map { good($0, rmssd: 160) }
         let r = try! XCTUnwrap(DailyRollupCompute.rollup(day: day, points: pts))
-        let single = try! XCTUnwrap(DailyRollupCompute.stressBalance(pts[0]))
-        XCTAssertEqual(try! XCTUnwrap(r.stressBalance), single, accuracy: 0.001)
-        XCTAssertTrue((0...100).contains(single))
+
+        // Compute the mean of per-tick stressBalance values independently
+        let perTickBalances = try! pts.map { pt -> Double in
+            try XCTUnwrap(DailyRollupCompute.stressBalance(pt))
+        }
+        let expectedMeanBalance = perTickBalances.reduce(0, +) / Double(perTickBalances.count)
+
+        // Rollup stressBalance must equal the mean of per-tick values
+        XCTAssertEqual(try! XCTUnwrap(r.stressBalance), expectedMeanBalance, accuracy: 0.01)
+
+        // Sanity check: this value must NOT equal deriving from a single representative point.
+        // If the implementation incorrectly averaged rmssd first, it would derive from ~90 and
+        // produce ~30.8, which differs measurably from the correct 43.35.
+        let representativePoint = try! XCTUnwrap(DailyRollupCompute.stressBalance(pts[0]))
+        XCTAssertNotEqual(try! XCTUnwrap(r.stressBalance), representativePoint, accuracy: 1.0)
+
+        // Rollup value must still be in valid range
+        XCTAssertTrue((0...100).contains(try! XCTUnwrap(r.stressBalance)))
     }
 
     func testRoundTripsThroughCodable() {
