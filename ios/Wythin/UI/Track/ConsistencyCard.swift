@@ -125,12 +125,16 @@ struct ConsistencyCard: View {
         // Every fifth day, so a 31-day axis stays readable — matches
         // `TrackMetricChartCard.showAxisLabel`.
         if Calendar.current.component(.day, from: d) % 5 == 1 { return true }
-        // That sibling also ORs in its most recent bar *with a value*, so a
-        // month that isn't a multiple of 5 days long still labels its last
-        // bar. Every bucket here always has a value (possibly zero, never
-        // absent), so the direct analogue is simply the period's last
-        // bucket — there's no "still empty, not yet today" bucket to
-        // exclude the way the sibling excludes a future day.
-        return d == summary.buckets.last?.bucket.start
+        // That sibling also ORs in its most recent bar *with a value*
+        // (`TrackMetricChartCard.showAxisLabel`). `summary.buckets.last` is
+        // not the same thing: every bucket here carries a value, including
+        // days later this month that have not happened yet — so on the 12th
+        // this card labelled the 31st while the charts directly above it
+        // labelled the 12th, two stacked axes disagreeing about the same
+        // month. `hasData` is the analogue of the sibling's `value != nil`,
+        // so both now land on the most recent day with real data. When
+        // nothing has data the optional is nil and, exactly as in the
+        // sibling, no extra label is added.
+        return d == summary.buckets.last(where: \.hasData)?.bucket.start
     }
 }

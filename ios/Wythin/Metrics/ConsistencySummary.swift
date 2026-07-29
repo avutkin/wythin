@@ -16,8 +16,19 @@ struct ConsistencySummary: Equatable {
 
     struct Bucket: Identifiable, Equatable {
         let bucket:          TrackBucket
+        /// Total practice over the bucket — minutes add up across days, and
+        /// the row's stat is a total too.
         let practiceMinutes: Double
+        /// **Mean daily** wear over the bucket, not the bucket's total. A 6M
+        /// bucket is a whole calendar month, so summing would print ~430
+        /// under a row captioned `avg h/day`; a W or M bucket is a single day,
+        /// where the two are identical. Averaging in every period keeps the
+        /// bars, the caption and the charts above on one scale.
         let wearHours:       Double
+        /// Whether any day in this bucket produced a rollup at all — the
+        /// consistency analogue of a metric bar's `value != nil`. `wearHours`
+        /// alone cannot say: a measured zero and an absent day are both 0.
+        let hasData:         Bool
 
         var id: Date { bucket.start }
     }
@@ -59,10 +70,22 @@ enum ConsistencyBuilder {
 
         let buckets = range.buckets.map { bucket -> ConsistencySummary.Bucket in
             let days = TrackRangeBuilder.dayStarts(from: bucket.start, to: bucket.end, calendar: cal)
+            // Days that actually produced a rollup. Used as the wear
+            // denominator so the bucket reads as hours *per day*, matching
+            // both the row's `avg h/day` caption and `avgWearHours` below —
+            // which averages over days with data, treating a strap-off day as
+            // absent rather than as a zero that drags the mean down.
+            //
+            // It also puts this row on the same rule as the metric charts
+            // stacked above it: `TrackSeriesBuilder.bars` takes the unweighted
+            // mean of the daily values in a bucket, so a month is aggregated
+            // one way on this screen, not two.
+            let worn = days.compactMap { wearByDay[$0] }
             return ConsistencySummary.Bucket(
                 bucket:          bucket,
                 practiceMinutes: days.reduce(0) { $0 + (minutesByDay[$1] ?? 0) },
-                wearHours:       days.reduce(0) { $0 + (wearByDay[$1] ?? 0) })
+                wearHours:       worn.isEmpty ? 0 : worn.reduce(0, +) / Double(worn.count),
+                hasData:         !worn.isEmpty)
         }
 
         let wornDays = range.days.compactMap { wearByDay[$0] }
