@@ -278,7 +278,10 @@ final class AppEnvironment {
         nudgeBaseline = AnchorBaseline.build(history: history, todayHour: hour, now: now)
     }
 
-    private let modelContainer: ModelContainer
+    /// Internal rather than private so callers that must do bulk work off the
+    /// main actor can open their own `ModelContext` on it — see
+    /// `AnchorBackfill`. The container is `Sendable`; a context is not.
+    let modelContainer: ModelContainer
 
     /// Main-actor context for stores that own their own persistence
     /// (e.g. `DayPotentialStore` reading and writing `DailyAnchor`).
