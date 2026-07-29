@@ -109,6 +109,19 @@ CREATE TABLE IF NOT EXISTS metric_samples (
 );
 CREATE INDEX IF NOT EXISTS metric_samples_user_ts ON metric_samples(user_id, ts);
 
+-- Full onboarding profile, incl. contact info, for the admin dashboard.
+CREATE TABLE IF NOT EXISTS profiles (
+    user_id    UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    phone      TEXT,
+    email      TEXT,
+    age_range  TEXT,
+    gender     TEXT,
+    goals      TEXT[],
+    practices  TEXT[],
+    devices    TEXT[],
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS hrv_samples_session_ts ON hrv_samples(session_id, ts);
 CREATE INDEX IF NOT EXISTS sessions_user_started   ON sessions(user_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS activities_user_started ON activities(user_id, started_at DESC);
@@ -124,6 +137,17 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     revoked_at   TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS api_tokens_user ON api_tokens(user_id) WHERE revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS usage_events (
+    id               BIGSERIAL PRIMARY KEY,
+    user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_type       TEXT NOT NULL,          -- 'foreground' | 'ecg_recording'
+    ts               TIMESTAMPTZ NOT NULL,   -- when the interval started
+    duration_ms      BIGINT,                 -- interval length in ms
+    client_event_id  TEXT UNIQUE,            -- iOS-generated UUID → idempotent upload
+    created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS usage_events_user_ts ON usage_events(user_id, ts);
 """
 
 

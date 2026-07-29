@@ -269,6 +269,16 @@ struct APIClient {
         return try JSONDecoder().decode(MetricsUploadResponse.self, from: data)
     }
 
+    func uploadUsage(_ payload: UsageUploadPayload, userID: String) async throws {
+        var req = request(path: "/v1/usage", method: "POST")
+        req.addValue(userID, forHTTPHeaderField: "X-User-ID")
+        req.httpBody = try JSONEncoder().encode(payload)
+        let (_, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
     func deleteMyData(token: String) async throws {
         var req = request(path: "/v1/me/data", method: "DELETE")
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -476,4 +486,24 @@ extension LiveStateInsightPayload {
         self.windowMinutes = windowMinutes
         self.metrics = trends.mapValues { MetricTrendPayload(from: $0) }
     }
+}
+
+// MARK: - Usage telemetry payloads
+
+struct UsageEventPayload: Codable {
+    let clientEventId: String
+    let eventType:     String
+    let ts:            String
+    let durationMs:    Int
+
+    enum CodingKeys: String, CodingKey {
+        case clientEventId = "client_event_id"
+        case eventType     = "event_type"
+        case ts
+        case durationMs    = "duration_ms"
+    }
+}
+
+struct UsageUploadPayload: Codable {
+    let events: [UsageEventPayload]
 }

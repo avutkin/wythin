@@ -56,6 +56,11 @@ final class AppEnvironment {
     /// tick (which the 15 s snapshot cadence deliberately avoids).
     var historyRevision: Int = 0
 
+    // Usage telemetry: foreground interval start + a poll task watching the
+    // strap connection for ECG-recording (connect→disconnect) intervals.
+    private var foregroundStart: Date? = Date()
+    private var usageRecordingTask: Task<Void, Never>?
+
     var isInForeground: Bool = true {
         didSet {
             if !isInForeground {
@@ -65,7 +70,13 @@ final class AppEnvironment {
                     try? modelContainer.mainContext.save()
                     pendingSaveCount = 0
                 }
+                // Record the just-ended foreground interval as a usage event.
+                if let start = foregroundStart {
+                    logUsageEvent(type: "foreground", start: start)
+                    foregroundStart = nil
+                }
             } else {
+                foregroundStart = Date()
                 // Returning to foreground — merge any samples saved during background
                 // into tickHistory so intraday charts show the full picture.
                 reloadRecentHistory()
@@ -131,12 +142,15 @@ final class AppEnvironment {
 
         bindBLE()
         loadHistory()
+        startUsageTracking()
         Task {
             let context = modelContainer.mainContext
             let uploader = SessionUploader(client: sync.client, userID: userID)
             await uploader.flushPending(context: context)
             let activityUploader = ActivityUploader(client: sync.client, userID: userID)
             await activityUploader.flushPending(context: context)
+            let usageUploader = UsageUploader(client: sync.client, userID: userID)
+            await usageUploader.flushPending(context: context)
         }
     }
 
@@ -267,6 +281,43 @@ final class AppEnvironment {
             return v.squareRoot()
         }
         return (std(w.map(\.x)) + std(w.map(\.y)) + std(w.map(\.z))) / 3
+    }
+
+    // MARK: - Usage telemetry
+
+    /// Buffer a usage event (foreground interval / ECG-recording wear) locally
+    /// and kick an upload. No-op when cloud sync is off or the interval is empty.
+    func logUsageEvent(type: String, start: Date) {
+        let syncOn = UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true
+        guard syncOn else { return }
+        let durationMs = Int(Date().timeIntervalSince(start) * 1000)
+        guard durationMs > 0 else { return }
+        let ctx = modelContainer.mainContext
+        ctx.insert(UsageEventLog(eventType: type, ts: start, durationMs: durationMs))
+        try? ctx.save()
+        let uploader = UsageUploader(client: sync.client, userID: userID)
+        Task { await uploader.flushPending(context: ctx) }
+    }
+
+    /// Poll the strap connection ~every 5 s to record ECG-recording
+    /// (connect→disconnect) intervals as usage events.
+    private func startUsageTracking() {
+        usageRecordingTask?.cancel()
+        usageRecordingTask = Task { @MainActor [weak self] in
+            var recordingStart: Date? = nil
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard let self else { return }
+                let connected: Bool
+                if case .connected = self.ble.state { connected = true } else { connected = false }
+                if connected, recordingStart == nil {
+                    recordingStart = Date()
+                } else if !connected, let start = recordingStart {
+                    self.logUsageEvent(type: "ecg_recording", start: start)
+                    recordingStart = nil
+                }
+            }
+        }
     }
 
     private func bindBLE() {

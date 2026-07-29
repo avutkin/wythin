@@ -81,6 +81,27 @@ class MetricsUpload(BaseModel):
     samples: list[MetricSample]
 
 
+class ProfileUpload(BaseModel):
+    phone:     Optional[str] = None
+    email:     Optional[str] = None
+    age_range: Optional[str] = None
+    gender:    Optional[str] = None
+    goals:     list[str] = []
+    practices: list[str] = []
+    devices:   list[str] = []
+
+
+class UsageEvent(BaseModel):
+    client_event_id: str
+    event_type:      str            # 'foreground' | 'ecg_recording'
+    ts:              str            # ISO8601 — start of the interval
+    duration_ms:     Optional[int] = None
+
+
+class UsageUpload(BaseModel):
+    events: list[UsageEvent] = []
+
+
 class UploadResponse(BaseModel):
     id: str
 

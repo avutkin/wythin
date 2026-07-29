@@ -11,7 +11,7 @@ struct WythinApp: App {
     @State private var showSplash = true
 
     init() {
-        let schema = Schema([HRVSession.self, HRVSample.self, ResonanceResult.self, TrainSession.self, ActivityLog.self, DailyAnchor.self])
+        let schema = Schema([HRVSession.self, HRVSample.self, ResonanceResult.self, TrainSession.self, ActivityLog.self, DailyAnchor.self, UsageEventLog.self])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         // Attempt to open the store; if schema has changed delete and recreate so the
         // app never crashes on launch after adding new optional model fields.
