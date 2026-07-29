@@ -100,7 +100,7 @@ struct ContentView: View {
                 .tag(AppTab.activities)
             LiveView()
                 .tag(AppTab.live)
-            HistoryView()
+            TrackView()
                 .tag(AppTab.track)
             SettingsView()
                 .tag(AppTab.settings)
