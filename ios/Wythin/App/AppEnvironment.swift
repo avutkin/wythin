@@ -113,6 +113,50 @@ final class AppEnvironment {
 
     // MARK: Private
 
+    // MARK: Nudges (SP6 Phase 1 — shadow mode)
+
+    /// Evaluates state shifts on the live stream and records what would have
+    /// fired. Nothing is delivered: no notifications, no UI, no permission
+    /// prompt. Phase 2 turns delivery on once the thresholds are tuned.
+    let nudges = NudgeEngine()
+
+    private var nudgeBaseline: AnchorBaseline?
+    private var nudgeBaselineAt: Date?
+    private var lastNudgeEvalAt = Date.distantPast
+
+    /// Anchors change once a day at most, so rebuilding hourly is generous.
+    private let nudgeBaselineTTL: TimeInterval = 3600
+
+    private func evaluateNudgesIfDue(now: Date) {
+        guard now.timeIntervalSince(lastNudgeEvalAt) >= NudgeEngine.evaluationInterval else { return }
+        lastNudgeEvalAt = now
+        refreshNudgeBaselineIfStale(now: now)
+
+        let context = modelContainer.mainContext
+        let activeActivity = (try? context.fetch(FetchDescriptor<ActivityLog>()))?
+            .contains(where: \.isActive) ?? false
+
+        nudges.evaluate(baseline: nudgeBaseline,
+                        bleStandby: false,          // standby short-circuits the tick loop
+                        activityInProgress: activeActivity,
+                        now: now)
+    }
+
+    private func refreshNudgeBaselineIfStale(now: Date) {
+        if let at = nudgeBaselineAt, now.timeIntervalSince(at) < nudgeBaselineTTL { return }
+        nudgeBaselineAt = now
+
+        let context = modelContainer.mainContext
+        guard let anchors = try? context.fetch(FetchDescriptor<DailyAnchor>()) else { return }
+
+        // Today is excluded so the baseline is what came *before* now, matching
+        // how the day-potential score builds it.
+        let today = Calendar.current.startOfDay(for: now)
+        let history = anchors.map(\.reading).filter { $0.day < today }
+        let hour = Double(Calendar.current.component(.hour, from: now))
+        nudgeBaseline = AnchorBaseline.build(history: history, todayHour: hour, now: now)
+    }
+
     private let modelContainer: ModelContainer
 
     /// Main-actor context for stores that own their own persistence
@@ -380,7 +424,12 @@ final class AppEnvironment {
                 // Off-body standby: ECG/ACC streams are paused, so there's no live
                 // data to process. Skip so stale/empty buckets never reach the
                 // charts; BLEService resumes automatically when the strap is worn.
-                if case .standby = self.ble.state { continue }
+                if case .standby = self.ble.state {
+                    // The strap is off: stillness and load stretches are broken,
+                    // and whatever resumes later is a new run.
+                    self.nudges.interrupt()
+                    continue
+                }
 
                 let inForeground = self.isInForeground
 
@@ -439,10 +488,17 @@ final class AppEnvironment {
                 // Keep the chart history current in BOTH foreground and background
                 // so the charts are already up-to-date the instant the app is
                 // opened — no post-foreground fetch/refill delay.
-                self.tickHistory.append(MetricsHistoryPoint(from: tick))
+                let point = MetricsHistoryPoint(from: tick)
+                self.tickHistory.append(point)
                 if self.tickHistory.count > self.maxTickHistory + self.trimBatch {
                     self.tickHistory.removeFirst(self.trimBatch)
                 }
+
+                // ── Always: shadow nudge engine (SP6 Phase 1) ─────────────────
+                // Records what *would* have fired so the thresholds can be tuned
+                // against real wear. Delivers nothing to the user.
+                self.nudges.ingest(point, now: point.timestamp)
+                self.evaluateNudgesIfDue(now: point.timestamp)
 
                 // ── Foreground-only: live table + live cloud stream ───────────
                 if inForeground {

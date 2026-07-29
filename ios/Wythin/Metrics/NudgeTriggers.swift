@@ -167,4 +167,42 @@ enum NudgeTriggers {
     private static let settlingShapes = [TrendShape.plateau.rawValue, TrendShape.steadyFall.rawValue]
     /// Flat or still improving.
     private static let holdingShapes  = [TrendShape.plateau.rawValue, TrendShape.steadyRise.rawValue]
+
+    // MARK: - Release
+
+    /// Has the condition clearly let go?
+    ///
+    /// Release thresholds sit ~5 % back toward normal from the arm thresholds.
+    /// Without that band a signal resting exactly on its threshold would arm,
+    /// release and re-arm indefinitely; with it, the state has to genuinely
+    /// recover before the trigger can speak again.
+    static func releases(_ id: NudgeTriggerID,
+                         _ s: NudgeSignals,
+                         _ baseline: AnchorBaseline,
+                         _ c: NudgeContext) -> Bool {
+        switch id {
+        case .vagalWithdrawal:
+            let dial = s.slowBalance?.end ?? 0
+            let dz = s.dzLnRMSSD ?? 0
+            return dial < arousalDialLine - 3 || dz > arousalDzLimit + 0.2
+
+        case .sustainedLoad:
+            let dfa1 = s.slow["dfa1"]?.end ?? 1.0
+            let dz = s.dzLnRMSSD ?? 0
+            return dfa1 > loadDFA1Ceiling + 0.04 || dz > loadDzLimit + 0.15
+
+        case .stuckStill:
+            // Duration-based: movement itself is the release.
+            guard let since = c.stillSince else { return true }
+            return c.now.timeIntervalSince(since) < stillSeconds
+
+        case .acuteSpike:
+            guard let hr = s.fast["hr"], let start = hr.start, let end = hr.end else { return true }
+            return end - start < spikeRiseBPM - 3
+
+        case .focusWindow:
+            guard let dial = s.slowBalance?.mean else { return true }
+            return dial > focusDialCeiling + 2 || !matchesFocusWindow(s, baseline)
+        }
+    }
 }
