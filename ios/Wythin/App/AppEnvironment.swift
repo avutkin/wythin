@@ -195,7 +195,7 @@ final class AppEnvironment {
         guard !stored.contains(where: { $0.day == today }) else { return }
 
         let points = MetricsQualityFilter.filter(tickHistory.filter { $0.timestamp >= today })
-        guard let reading = AnchorDetector.detect(points, now: now) else { return }
+        guard let reading = AnchorDetector.detect(points) else { return }
         context.insert(DailyAnchor(from: reading))
         try? context.save()
     }

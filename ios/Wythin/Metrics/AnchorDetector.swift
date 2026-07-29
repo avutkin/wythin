@@ -78,8 +78,7 @@ struct AnchorReading: Equatable {
 // MARK: - Detector
 
 /// Finds the first *rested* window of a day — the standardized condition the
-/// day's capacity score is built on. Pure: no persistence, no clock beyond
-/// what is passed in.
+/// day's capacity score is built on. Pure: no persistence, no clock.
 ///
 /// Standardization is the point. The daily-monitoring literature (Plews et
 /// al.) depends on posture, time of day and condition being held constant;
@@ -87,7 +86,7 @@ struct AnchorReading: Equatable {
 /// measures load rather than capacity.
 enum AnchorDetector {
 
-    static func detect(_ points: [MetricsHistoryPoint], now: Date = .now) -> AnchorReading? {
+    static func detect(_ points: [MetricsHistoryPoint]) -> AnchorReading? {
         // Sorted but NOT pre-filtered: `continuousRuns` needs to see the rejected
         // samples, because a rejected sample is what distinguishes "the rest
         // ended" from "the tick loop was throttled".
