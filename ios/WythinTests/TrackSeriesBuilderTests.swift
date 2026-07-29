@@ -60,7 +60,10 @@ final class TrackSeriesBuilderTests: XCTestCase {
                        rollup(date(2026, 7, 5), dc: 8)]
         let bars = TrackSeriesBuilder.bars(spec: spec("Vagal Tone"), range: r, rollups: rollups)
         XCTAssertEqual(bars.last!.value!, 8.0, accuracy: 0.001)
-        XCTAssertEqual(bars.last!.dayCount, 5)
+        // `TrackBar.dayCount` was removed as dead weight (never read outside
+        // this assertion — a test assertion is not a consumer, and unlike
+        // `DailyRollup`'s cheap-to-keep fields it was trivially
+        // recomputable from cached rollups whenever actually needed).
     }
 
     func testMonthWithTooFewValidDaysIsSuppressed() {
@@ -106,6 +109,42 @@ final class TrackSeriesBuilderTests: XCTestCase {
         }
         let b = TrackSeriesBuilder.baseline(spec: spec("Vagal Tone"), rollups: recent + ancient,
                                             asOf: asOf, calendar: cal)
+        XCTAssertEqual(b.value, 10, accuracy: 0.001)
+    }
+
+    /// Pins the `>` vs `>=` boundary of `cutoff = asOf - baselineWindowDays`
+    /// directly, rather than with data far outside the window. 13 days
+    /// safely inside the window are one short of `minBaselineDays` on their
+    /// own, so whether a 14th candidate day tips the baseline into
+    /// "personal" reveals exactly which side of `day > cutoff` it falls on.
+    func testBaselineExcludesTheDayExactlyAtTheCutoff() {
+        let asOf = date(2026, 7, 28)
+        let withinWindow = (1...13).map {
+            rollup(cal.date(byAdding: .day, value: -$0, to: asOf)!, dc: 10)
+        }
+        // Exactly 90 days back: the cutoff itself. `day > cutoff` must
+        // exclude it, leaving only 13 days — below minBaselineDays.
+        let atCutoff = rollup(cal.date(byAdding: .day, value: -90, to: asOf)!, dc: 10)
+        let b = TrackSeriesBuilder.baseline(spec: spec("Vagal Tone"),
+                                            rollups: withinWindow + [atCutoff],
+                                            asOf: asOf, calendar: cal)
+        XCTAssertFalse(b.isPersonal)
+        XCTAssertEqual(b.value, spec("Vagal Tone").fallbackReference)
+    }
+
+    func testBaselineIncludesTheDayJustInsideTheCutoff() {
+        let asOf = date(2026, 7, 28)
+        let withinWindow = (1...13).map {
+            rollup(cal.date(byAdding: .day, value: -$0, to: asOf)!, dc: 10)
+        }
+        // 89 days back: one day more recent than the cutoff, the oldest day
+        // the window actually admits. Its inclusion is what takes the count
+        // from 13 to the 14 minBaselineDays requires.
+        let justInside = rollup(cal.date(byAdding: .day, value: -89, to: asOf)!, dc: 10)
+        let b = TrackSeriesBuilder.baseline(spec: spec("Vagal Tone"),
+                                            rollups: withinWindow + [justInside],
+                                            asOf: asOf, calendar: cal)
+        XCTAssertTrue(b.isPersonal)
         XCTAssertEqual(b.value, 10, accuracy: 0.001)
     }
 
@@ -310,5 +349,66 @@ final class TrackSeriesBuilderTests: XCTestCase {
         XCTAssertEqual(s.bars.count, 6)
         XCTAssertNotNil(s.bars.first!.value)
         XCTAssertTrue(s.overlay.isEmpty)
+    }
+
+    /// A week with some days present and some absent still produces a
+    /// segment, averaging only the present days — and the segment's
+    /// `start`/`end` still span the whole calendar week's bars (including
+    /// the nil ones), because they come from the group's own bucket
+    /// boundaries, not from which days happen to have values.
+    func testWeeklyOverlaySegmentAveragesOnlyPresentDaysInAPartialWeek() {
+        let today = date(2026, 7, 28)
+        let r = TrackRangeBuilder.range(period: .month, offset: 0, today: today, calendar: cal)
+        // July 2026's second calendar week is Jul 6 (Mon) – Jul 12 (Sun).
+        // Only Jul 7 (dc=6) and Jul 9 (dc=14) get a rollup; Jul 6, 8, 10, 11,
+        // 12 have none at all, so their bars are nil. Every other week in the
+        // month is fully populated at dc=8.
+        let sparseWeekStart = date(2026, 7, 6)
+        let sparseWeekEnd   = date(2026, 7, 12)
+        let rollups = r.days.compactMap { day -> DailyRollup? in
+            guard (sparseWeekStart...sparseWeekEnd).contains(day) else {
+                return rollup(day, dc: 8)
+            }
+            if day == date(2026, 7, 7) { return rollup(day, dc: 6) }
+            if day == date(2026, 7, 9) { return rollup(day, dc: 14) }
+            return nil
+        }
+        let s = TrackSeriesBuilder.series(
+            spec: spec("Vagal Tone"), range: r,
+            priorRange: TrackRangeBuilder.range(period: .month, offset: 1,
+                                                today: today, calendar: cal),
+            rollups: rollups, asOf: today, calendar: cal)
+
+        let sparse = try! XCTUnwrap(s.overlay.first { $0.start == sparseWeekStart })
+        XCTAssertEqual(sparse.value, 10, accuracy: 0.001)   // (6 + 14) / 2, ignoring the 5 nil days
+        XCTAssertEqual(sparse.start, sparseWeekStart)
+        XCTAssertEqual(sparse.end, cal.date(byAdding: .day, value: 1, to: sparseWeekEnd))
+    }
+
+    /// A calendar week with no data in it at all must not draw a phantom
+    /// average rule — the `guard !values.isEmpty else { return nil }` in
+    /// `weeklyOverlay` exists exactly for this — while the weeks on either
+    /// side of it still get theirs.
+    func testWeeklyOverlayProducesNoSegmentForAWeekWithNoDataAtAll() {
+        let today = date(2026, 7, 28)
+        let r = TrackRangeBuilder.range(period: .month, offset: 0, today: today, calendar: cal)
+        // July 2026's third calendar week, Jul 13 (Mon) – Jul 19 (Sun), has
+        // no rollups whatsoever; every other week is fully populated.
+        let emptyWeek = date(2026, 7, 13)...date(2026, 7, 19)
+        let rollups = r.days.compactMap { day -> DailyRollup? in
+            emptyWeek.contains(day) ? nil : rollup(day, dc: 8)
+        }
+        let s = TrackSeriesBuilder.series(
+            spec: spec("Vagal Tone"), range: r,
+            priorRange: TrackRangeBuilder.range(period: .month, offset: 1,
+                                                today: today, calendar: cal),
+            rollups: rollups, asOf: today, calendar: cal)
+
+        // 5 calendar weeks span July 2026 (see testMonthSeriesHasWeeklyOverlaySegments);
+        // the empty one is dropped, leaving 4.
+        XCTAssertEqual(s.overlay.count, 4)
+        XCTAssertFalse(s.overlay.contains { $0.start == date(2026, 7, 13) })
+        XCTAssertTrue(s.overlay.contains { $0.start == date(2026, 7, 6) })    // week before
+        XCTAssertTrue(s.overlay.contains { $0.start == date(2026, 7, 20) })   // week after
     }
 }

@@ -562,6 +562,47 @@ def test_macro_trend_names_avoid_every_banned_token():
     assert lowered.count("vagal tone") == 1
 
 
+def test_macro_trend_format_uses_month_period_label_and_days_unit():
+    """The `month` branch of `_PERIOD_LABELS` and `unit` are only exercised by
+    the `week` fixture elsewhere in this file — pin `month` directly."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_macro_trend
+
+    payload = {
+        "mode": "macro_trend", "period": "month", "range_label": "JULY 2026",
+        "trends": {
+            "pip": {"avg": 52.0, "baseline": 57.0, "baseline_is_personal": True,
+                    "delta_pct": 9.0, "days_above": 20, "days_total": 28,
+                    "direction": "lower"},
+        },
+    }
+    text = _format_macro_trend(InsightRequest(**payload))
+    assert "this month" in text
+    assert "days in the period" in text
+    assert "20 of 28 days better than" in text
+    assert "months" not in text
+
+
+def test_macro_trend_format_uses_six_month_period_label_and_months_unit():
+    """The `six_month` branch: unlike `week`/`month`, its unit word is
+    "months" in both the header sentence and the days_above line."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_macro_trend
+
+    payload = {
+        "mode": "macro_trend", "period": "six_month", "range_label": "FEB – JUL 2026",
+        "trends": {
+            "pip": {"avg": 52.0, "baseline": 57.0, "baseline_is_personal": True,
+                    "delta_pct": 9.0, "days_above": 4, "days_total": 6,
+                    "direction": "lower"},
+        },
+    }
+    text = _format_macro_trend(InsightRequest(**payload))
+    assert "these six months" in text
+    assert "months in the period" in text
+    assert "4 of 6 months better than" in text
+
+
 def test_macro_trend_names_do_not_leak_into_live_state():
     """The overlay is macro-trend-only: `live_state` and `activity` keep the
     clinical glosses in `_METRIC_NAMES`, which they were written for."""
