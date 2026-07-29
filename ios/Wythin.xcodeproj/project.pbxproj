@@ -120,6 +120,13 @@
 		A221 /* NudgeSampleBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F221 /* NudgeSampleBuffer.swift */; };
 		AT22 /* NudgeSignalsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT22 /* NudgeSignalsTests.swift */; };
 		A222 /* NudgeSignals.swift in Sources */ = {isa = PBXBuildFile; fileRef = F222 /* NudgeSignals.swift */; };
+		AT31 /* NudgeFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT31 /* NudgeFixture.swift */; };
+		AT32 /* ExerciseVetoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT32 /* ExerciseVetoTests.swift */; };
+		A241 /* ExerciseVeto.swift in Sources */ = {isa = PBXBuildFile; fileRef = F241 /* ExerciseVeto.swift */; };
+		AT33 /* NudgeTriggersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT33 /* NudgeTriggersTests.swift */; };
+		A242 /* NudgeTriggers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F242 /* NudgeTriggers.swift */; };
+		AT34 /* NudgeGatingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT34 /* NudgeGatingTests.swift */; };
+		A243 /* NudgeGating.swift in Sources */ = {isa = PBXBuildFile; fileRef = F243 /* NudgeGating.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -249,6 +256,13 @@
 		F221 /* NudgeSampleBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeSampleBuffer.swift; sourceTree = "<group>"; };
 		FT22 /* NudgeSignalsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeSignalsTests.swift; sourceTree = "<group>"; };
 		F222 /* NudgeSignals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeSignals.swift; sourceTree = "<group>"; };
+		FT31 /* NudgeFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeFixture.swift; sourceTree = "<group>"; };
+		FT32 /* ExerciseVetoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseVetoTests.swift; sourceTree = "<group>"; };
+		F241 /* ExerciseVeto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseVeto.swift; sourceTree = "<group>"; };
+		FT33 /* NudgeTriggersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeTriggersTests.swift; sourceTree = "<group>"; };
+		F242 /* NudgeTriggers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeTriggers.swift; sourceTree = "<group>"; };
+		FT34 /* NudgeGatingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeGatingTests.swift; sourceTree = "<group>"; };
+		F243 /* NudgeGating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeGating.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -393,6 +407,9 @@
 				F202 /* AutonomicCompute.swift */,
 				F155 /* HeartRateCompute.swift */,
 				F209 /* MotionCompute.swift */,
+				F243 /* NudgeGating.swift */,
+				F242 /* NudgeTriggers.swift */,
+				F241 /* ExerciseVeto.swift */,
 				F222 /* NudgeSignals.swift */,
 				F221 /* NudgeSampleBuffer.swift */,
 				F240 /* DailyRollup.swift */,
@@ -507,6 +524,10 @@
 			children = (
 				FT19 /* DayLoadSummaryTests.swift */,
 				FT20 /* DayPotentialStateTests.swift */,
+				FT34 /* NudgeGatingTests.swift */,
+				FT33 /* NudgeTriggersTests.swift */,
+				FT32 /* ExerciseVetoTests.swift */,
+				FT31 /* NudgeFixture.swift */,
 				FT24 /* ActivityTargetTests.swift */,
 				FT25 /* SubtypeMemoryTests.swift */,
 				FT23 /* DurationPresetTests.swift */,
@@ -704,6 +725,9 @@
 				A202 /* AutonomicCompute.swift in Sources */,
 				A155 /* HeartRateCompute.swift in Sources */,
 				A209 /* MotionCompute.swift in Sources */,
+				A243 /* NudgeGating.swift in Sources */,
+				A242 /* NudgeTriggers.swift in Sources */,
+				A241 /* ExerciseVeto.swift in Sources */,
 				A222 /* NudgeSignals.swift in Sources */,
 				A221 /* NudgeSampleBuffer.swift in Sources */,
 				A123 /* ResonateView.swift in Sources */,
@@ -721,6 +745,10 @@
 			files = (
 				AT19 /* DayLoadSummaryTests.swift in Sources */,
 				AT20 /* DayPotentialStateTests.swift in Sources */,
+				AT34 /* NudgeGatingTests.swift in Sources */,
+				AT33 /* NudgeTriggersTests.swift in Sources */,
+				AT32 /* ExerciseVetoTests.swift in Sources */,
+				AT31 /* NudgeFixture.swift in Sources */,
 				AT24 /* ActivityTargetTests.swift in Sources */,
 				AT25 /* SubtypeMemoryTests.swift in Sources */,
 				AT23 /* DurationPresetTests.swift in Sources */,
