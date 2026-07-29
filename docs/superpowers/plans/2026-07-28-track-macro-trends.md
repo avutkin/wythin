@@ -1531,8 +1531,11 @@ enum TrackSeriesBuilder {
     static func series(spec: TrackMetricSpec, range: TrackRange, priorRange: TrackRange,
                        rollups: [DailyRollup], asOf: Date,
                        calendar cal: Calendar = .current) -> TrackSeries {
-        let bars    = bars(spec: spec, range: range, rollups: rollups)
-        let present = bars.compactMap(\.value)
+        // Named `currentBars`, not `bars`: `let bars = bars(...)` shadows the
+        // static function for the rest of the scope, so the `priorBars` call
+        // below would fail to compile.
+        let currentBars = bars(spec: spec, range: range, rollups: rollups)
+        let present     = currentBars.compactMap(\.value)
         let average = present.isEmpty ? nil : present.reduce(0, +) / Double(present.count)
 
         let priorBars    = bars(spec: spec, range: priorRange, rollups: rollups)
@@ -1549,10 +1552,10 @@ enum TrackSeriesBuilder {
         let refBenefit  = spec.def.direction.benefit(reference)
         let betterCount = present.filter { spec.def.direction.benefit($0) > refBenefit }.count
 
-        let overlay = range.period == .month ? weeklyOverlay(bars: bars, calendar: cal) : []
+        let overlay = range.period == .month ? weeklyOverlay(bars: currentBars, calendar: cal) : []
 
         return TrackSeries(
-            bars: bars, average: average, deltaPct: delta,
+            bars: currentBars, average: average, deltaPct: delta,
             reference: reference, referenceIsPersonal: isPersonal,
             overlay: overlay, betterCount: betterCount, presentCount: present.count,
             summary: summary(period: range.period, better: betterCount,
