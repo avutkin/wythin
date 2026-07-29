@@ -190,7 +190,14 @@ struct TrackMetricChartCard: View {
     private func showAxisLabel(_ bar: TrackBar) -> Bool {
         guard period == .month else { return true }
         // Every fifth day, so a 31-day axis stays readable.
-        return Calendar.current.component(.day, from: bar.bucket.start) % 5 == 1
+        if Calendar.current.component(.day, from: bar.bucket.start) % 5 == 1 { return true }
+        // `labelledBuckets` always annotates the most recent bar with a
+        // value — without a matching axis label under it, that number has
+        // no date and the chart can't answer "what did I do most recently."
+        // Uses the most recent *present* bar (not series.bars.last) so a
+        // future, still-empty day at the end of the current month page
+        // doesn't win the slot instead of today.
+        return bar.bucket.start == series.bars.filter({ $0.value != nil }).last?.bucket.start
     }
 
     private var yDomain: ClosedRange<Double> {
