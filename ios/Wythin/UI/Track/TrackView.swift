@@ -101,10 +101,10 @@ struct TrackView: View {
 
     // MARK: Data
 
-    /// Fills any uncached day in the visible page, plus a 90-day tail so the
-    /// personal baseline has data behind it, then reads the page back out.
+    /// Fills any uncached day in the visible page and the page before it, plus
+    /// a 90-day tail so the personal baseline has data behind it, then reads
+    /// the whole span back out.
     private func loadRollups() async {
-        isLoading = rollups.isEmpty
         cache.load()
 
         let cal = Calendar.current
@@ -113,9 +113,31 @@ struct TrackView: View {
         let baselineStart = cal.date(byAdding: .day,
                                      value: -TrackSeriesBuilder.baselineWindowDays,
                                      to: today) ?? range.start
-        let fetchStart = min(range.start, baselineStart)
+        // `TrackSeriesBuilder.series` computes the delta chip's prior average
+        // from `priorRange` out of this same `rollups` array, so the prior page
+        // has to be inside the window or the chip can never appear. On 6M the
+        // prior page is the preceding six months, always outside a 90-day
+        // tail — which meant all seven cards showed no delta chip at all, for
+        // every user, permanently. Same on M from two pages back and W from
+        // twelve. The spec promises "▲ 6% vs prior week" and says the chip is
+        // absent only when the prior period has no data.
+        let fetchStart = min(range.start, priorRange.start, baselineStart)
         let fetchEnd   = max(range.end, cal.date(byAdding: .day, value: 1, to: today) ?? range.end)
         let needed = TrackRangeBuilder.dayStarts(from: fetchStart, to: fetchEnd, calendar: cal)
+
+        // Everything below runs on the main actor with no suspension point of
+        // its own: `refresh` fetches days one at a time through `ctx.fetch`.
+        // Setting `isLoading` and then blocking without ever yielding meant
+        // SwiftUI never got a runloop turn to commit the spinner, so the app
+        // appeared to freeze on the previous tab instead. Yield first, and
+        // only when there is real work — a bare `Task.yield()` can be drained
+        // in the same main-queue pass, ahead of the Core Animation commit, so
+        // it is not reliably enough to get a frame on screen.
+        let pending = cache.uncachedDays(needed, today: today)
+        isLoading = !pending.isEmpty
+        if isLoading {
+            try? await Task.sleep(nanoseconds: 16_000_000)   // ~one frame
+        }
 
         cache.refresh(days: needed, today: today) { day in
             let end = cal.date(byAdding: .day, value: 1, to: day)!

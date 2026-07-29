@@ -67,6 +67,109 @@ final class TrackCacheTests: XCTestCase {
         XCTAssertTrue(cache.rollups(in: day(1)...day(1)).isEmpty)
     }
 
+    // MARK: negative caching
+
+    /// A day that computes to nil — strap off, or under the 150-tick gate —
+    /// must be remembered as such. Without this a user who wore the strap 30
+    /// of the last 90 days re-ran 60 fetches on every period switch and every
+    /// swipe, for the life of the install.
+    func testDaysThatComputeToNilAreNotRefetched() {
+        let cache = TrackCache(fileURL: url)
+        _ = cache.refresh(days: [day(2), day(1)], today: day(0)) { _ in [] }
+
+        var fetched: [Date] = []
+        _ = cache.refresh(days: [day(2), day(1)], today: day(0)) { d in
+            fetched.append(d)
+            return []
+        }
+        XCTAssertTrue(fetched.isEmpty)
+        XCTAssertTrue(cache.uncachedDays([day(2), day(1)], today: day(0)).isEmpty)
+    }
+
+    /// The knowledge has to survive relaunch, like the rollups do — otherwise
+    /// every cold start pays the full re-fetch again.
+    func testNoDataDaysPersistAcrossInstances() {
+        let a = TrackCache(fileURL: url)
+        _ = a.refresh(days: [day(1)], today: day(0)) { _ in [] }
+
+        let b = TrackCache(fileURL: url)
+        b.load()
+        var fetched: [Date] = []
+        _ = b.refresh(days: [day(1)], today: day(0)) { d in
+            fetched.append(d)
+            return []
+        }
+        XCTAssertTrue(fetched.isEmpty)
+    }
+
+    /// Today is exempt: a day in progress gains samples as it goes, so a
+    /// morning with nothing on the strap must not lock the day out until
+    /// midnight.
+    func testNegativelyCachedTodayIsStillRecomputed() {
+        let cache = TrackCache(fileURL: url)
+        _ = cache.refresh(days: [day(0)], today: day(0)) { _ in [] }
+        XCTAssertTrue(cache.rollups(in: day(0)...day(0)).isEmpty)
+
+        _ = cache.refresh(days: [day(0)], today: day(0)) { samples($0, dc: 7) }
+        XCTAssertEqual(cache.rollups(in: day(0)...day(0)).first?.dc ?? 0, 7, accuracy: 0.001)
+
+        // And it comes back out of the negative set, so it is not skipped once
+        // it has real data.
+        _ = cache.refresh(days: [day(0)], today: day(0)) { samples($0, dc: 9) }
+        XCTAssertEqual(cache.rollups(in: day(0)...day(0)).first?.dc ?? 0, 9, accuracy: 0.001)
+    }
+
+    /// Negative caching must be invisible to `fingerprint`, or the release
+    /// that introduces it would invalidate every stored macro read and re-bill
+    /// an LLM call for every period the user has ever opened.
+    func testNegativeCachingDoesNotChangeTheFingerprint() {
+        let withNoData = TrackCache(fileURL: url)
+        _ = withNoData.refresh(days: [day(2), day(1)], today: day(0)) { d in
+            d == self.day(1) ? self.samples(d) : []
+        }
+
+        let otherURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("track-cache-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: otherURL) }
+        let realOnly = TrackCache(fileURL: otherURL)
+        _ = realOnly.refresh(days: [day(1)], today: day(0)) { samples($0) }
+
+        XCTAssertEqual(withNoData.fingerprint(for: [day(2), day(1)]),
+                       realOnly.fingerprint(for: [day(2), day(1)]))
+    }
+
+    /// A cache file written by a build that predates `noDataDays` must still
+    /// load. Swift's synthesized decoder throws on a missing key regardless of
+    /// the property's default, and `load()` reads a throw as corruption — so
+    /// without lenient decoding the upgrade would silently wipe every cached
+    /// rollup and force a full 90-day recompute on first open.
+    func testFileWrittenBeforeNoDataDaysStillLoads() throws {
+        let seed = TrackCache(fileURL: url)
+        _ = seed.refresh(days: [day(1)], today: day(0)) { samples($0, dc: 8) }
+        seed.setMacroRead("Steady week.", key: "week|1|abc")
+
+        var json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        XCTAssertNotNil(json["noDataDays"], "fixture must start with the new key present")
+        json.removeValue(forKey: "noDataDays")
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+
+        let reopened = TrackCache(fileURL: url)
+        reopened.load()
+        XCTAssertEqual(reopened.rollups(in: day(1)...day(1)).count, 1)
+        XCTAssertEqual(reopened.macroRead(key: "week|1|abc"), "Steady week.")
+    }
+
+    func testUncachedDaysExcludesTodayAndKnownDays() {
+        let cache = TrackCache(fileURL: url)
+        _ = cache.refresh(days: [day(3)], today: day(0)) { samples($0) }   // has data
+        _ = cache.refresh(days: [day(2)], today: day(0)) { _ in [] }       // no data
+
+        // day(1) has never been computed; day(0) is today and always recomputed.
+        XCTAssertEqual(cache.uncachedDays([day(3), day(2), day(1), day(0)], today: day(0)),
+                       [day(1)])
+    }
+
     func testRollupsAreReturnedAscending() {
         let cache = TrackCache(fileURL: url)
         _ = cache.refresh(days: [day(0), day(2), day(1)], today: day(0)) { samples($0) }
