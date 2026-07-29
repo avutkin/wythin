@@ -23,7 +23,8 @@ async def test_upload_is_idempotent_and_scoped():
         body = {"samples": [_sample("2026-07-27T10:00:00Z", 30), _sample("2026-07-27T10:00:02Z", 31)]}
         r = await c.post("/v1/metrics", json=body, headers={"X-User-ID": "ms-A"})
         assert r.status_code == 200 and r.json()["stored"] == 2
-        # Re-post same ts → no duplicates (ON CONFLICT DO NOTHING)
+        # Re-post same ts → ON CONFLICT DO UPDATE rewrites the same values in
+        # place (no new row), so the observable result is still idempotent.
         r = await c.post("/v1/metrics", json=body, headers={"X-User-ID": "ms-A"})
         assert r.status_code == 200
 

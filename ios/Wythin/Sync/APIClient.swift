@@ -357,6 +357,17 @@ final class MetricSyncService {
     static let normalBatchSize = 2000
     /// The server rejects more than 5000 samples per request with 413.
     static let backfillBatchSize = 5000
+    /// Cap on how many batches a single `syncIfEnabled()` call will drain
+    /// before yielding, even if more history remains. Without a cap, the
+    /// first post-update pass would re-upload the entire local store in one
+    /// uninterrupted loop — a month of 2 s ticks is ~260 back-to-back
+    /// 5,000-row requests (~450 MB) run back-to-back on the main actor. At
+    /// `backfillBatchSize` rows per iteration this gives ~100-200k rows
+    /// (a few days of history) per pass: real catch-up progress without a
+    /// marathon. Hitting the cap leaves `drained == false`, so the version is
+    /// not stamped and the next 120 s-throttled call resumes from the
+    /// watermark instead of restarting.
+    static let maxBackfillIterationsPerPass = 30
 
     nonisolated static func needsBackfill(storedVersion: Int) -> Bool {
         storedVersion < currentSchemaVersion
@@ -437,11 +448,16 @@ final class MetricSyncService {
 
         let batchSize = backfilling ? Self.backfillBatchSize : Self.normalBatchSize
         var drained = false
+        var iterations = 0
 
         // Normal passes send one batch and wait for the next tick-driven call.
-        // Backfill loops until the store is drained — at one batch per 120 s a
-        // month of 2 s ticks would take ~21 h of foreground time.
-        repeat {
+        // Backfill loops until the store is drained, capped at
+        // `maxBackfillIterationsPerPass` iterations so one call can't turn into
+        // an unbounded upload marathon — at one batch per 120 s a month of 2 s
+        // ticks would take ~21 h of foreground time. Hitting the cap leaves
+        // `drained == false`, so the version is not stamped and the next pass
+        // resumes from the watermark instead of restarting.
+        drainLoop: repeat {
             let after = iso.date(from: lastSyncedISO) ?? Date.distantPast
             let ctx = ModelContext(container)
             var desc = FetchDescriptor<HRVSample>(
@@ -457,24 +473,30 @@ final class MetricSyncService {
                 outcome = .failed
             }
 
-            let action = Self.drainAction(for: outcome)
-            if action.stopLoop {
-                drained = action.drained
-                break
+            // The live path is `.samples`; `.failed` and `.empty` both stop the
+            // loop (see `drainAction(for:)`), so they're handled together here
+            // rather than via a guard whose else branch could never run.
+            let samples: [HRVSample]
+            switch outcome {
+            case .samples(let fetched):
+                samples = fetched
+            case .failed, .empty:
+                drained = Self.drainAction(for: outcome).drained
+                break drainLoop
             }
-            guard case .samples(let samples) = outcome else { break }
 
             let payload = MetricsUploadPayload(
                 samples: samples.map { MetricSamplePayload(from: $0, iso: iso) })
             guard (try? await client.uploadMetrics(payload, userID: userID)) != nil,
                   let last = samples.last else {
                 // Leave the watermark where it is; the next pass retries.
-                break
+                break drainLoop
             }
             lastSyncedISO = iso.string(from: last.timestamp)
             if samples.count < batchSize { drained = true }
+            iterations += 1
             await Task.yield()   // don't monopolise the main actor
-        } while backfilling && !drained
+        } while backfilling && !drained && iterations < Self.maxBackfillIterationsPerPass
 
         // Only stamp the version once the history is fully drained, so an
         // interrupted backfill resumes on the next pass instead of being lost.

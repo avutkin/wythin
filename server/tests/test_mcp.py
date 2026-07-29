@@ -156,3 +156,38 @@ async def test_new_metrics_resolve_and_aggregate():
         summary = await _day_summary(uid, "2026-07-28")
         assert "motion" in summary, "day summary must cover the new columns"
         assert summary["signal_quality"]["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_ecg_quality_tier_aggregate_is_numeric_not_decimal_string():
+    """`ecg_quality_tier` is the only INT column, so Postgres' avg() returns
+    `numeric` and asyncpg hands back a `Decimal` — which serializes to a JSON
+    *string* (e.g. "1.500") unless coerced. Every other metric's avg() is
+    already a plain float; this one must match, or MCP clients see one metric
+    silently switch shape from number to string."""
+    from server.db import get_or_create_user
+    from server.mcp_server import _metric_stats, _day_summary, _metric_trend
+    async with _client() as c:
+        await c.post("/v1/metrics", headers={"X-User-ID": "mcp-ecg-tier"}, json={"samples": [
+            {"ts": "2026-07-28T13:00:00Z", "ecg_quality_tier": 1},
+            {"ts": "2026-07-28T13:00:02Z", "ecg_quality_tier": 2},
+        ]})
+        uid = await get_or_create_user("mcp-ecg-tier")
+
+        stats = await _metric_stats(uid, "ecg_quality_tier",
+                                     "2026-07-28T00:00:00Z", "2026-07-29T00:00:00Z")
+        assert isinstance(stats["avg"], float), \
+            f"expected a float, got {type(stats['avg'])} ({stats['avg']!r})"
+        assert stats["avg"] == pytest.approx(1.5)
+
+        summary = await _day_summary(uid, "2026-07-28")
+        assert isinstance(summary["ecg_quality_tier"]["avg"], float)
+
+        trend = await _metric_trend(uid, "ecg_quality_tier",
+                                     "2026-07-28T00:00:00Z", "2026-07-29T00:00:00Z", buckets=1)
+        assert trend and isinstance(trend[0]["value"], float)
+
+        # No rows at all: avg must stay a genuine null, not be coerced to 0.0.
+        empty_stats = await _metric_stats(uid, "ecg_quality_tier",
+                                           "2020-01-01T00:00:00Z", "2020-01-02T00:00:00Z")
+        assert empty_stats["avg"] is None

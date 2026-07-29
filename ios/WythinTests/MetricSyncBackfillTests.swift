@@ -19,6 +19,17 @@ final class MetricSyncBackfillTests: XCTestCase {
                                  "server rejects batches over its 5000-sample cap with 413")
     }
 
+    // MARK: - Finding 1: a single pass must not drain an unbounded amount of history
+
+    func testMaxBackfillIterationsPerPassIsSanePositive() {
+        XCTAssertGreaterThan(MetricSyncService.maxBackfillIterationsPerPass, 0,
+                              "a cap of zero would never upload anything during a backfill")
+        // Not so small it's barely progress, not so large it's an unbounded marathon again —
+        // in the neighborhood of a few days to a couple weeks of catch-up per pass.
+        XCTAssertGreaterThanOrEqual(MetricSyncService.maxBackfillIterationsPerPass, 20)
+        XCTAssertLessThanOrEqual(MetricSyncService.maxBackfillIterationsPerPass, 40)
+    }
+
     // MARK: - Finding 1: a fetch error must not be treated as "drained"
 
     func testDrainActionTreatsFetchFailureAsRetryNotDrained() {
@@ -68,8 +79,6 @@ final class MetricSyncBackfillTests: XCTestCase {
 /// only the rows after that watermark — never the whole history again.
 @MainActor
 final class MetricSyncBackfillIntegrationTests: XCTestCase {
-
-    private struct StubError: Error {}
 
     private final class FakeUploadClient: MetricUploadClient {
         private(set) var uploadedBatches: [[MetricSamplePayload]] = []
@@ -124,5 +133,53 @@ final class MetricSyncBackfillIntegrationTests: XCTestCase {
                         "resuming must only pick up rows after the saved watermark; if the watermark " +
                         "were reset to distantPast (the bug), the already-uploaded row would be sent again")
         XCTAssertEqual(fake.uploadedBatches.first?.first?.ts, iso.string(from: stillPending))
+    }
+
+    // MARK: - Finding 1: the iteration cap stops a pass short of a full drain
+
+    /// With more full backfill batches available than `maxBackfillIterationsPerPass`
+    /// allows, a single `syncIfEnabled()` call must stop at the cap rather than
+    /// draining the entire store in one uninterrupted loop.
+    ///
+    /// This asserts purely against the test's own isolated `FakeUploadClient`,
+    /// not against the shared `UserDefaults.standard` sync-state keys
+    /// (`metricsSyncSchemaVersion`, `metricsBackfillStarted`). Those keys are
+    /// also read and written by the app's own live, timer-driven
+    /// `MetricSyncService` instance (see `AppEnvironment.swift`), which runs
+    /// in this same test process against its own real container — an
+    /// orthogonal, pre-existing state-sharing hazard confirmed to race with
+    /// exactly this test (it reliably fires once, early in a long-running
+    /// test, and stamps those shared keys from its own unrelated drain). The
+    /// uploaded-batch count on this test's own fake is unaffected by that and
+    /// is sufficient on its own to prove the cap.
+    func testDrainStopsAtIterationCapInsteadOfCompletingTheWholeStore() async {
+        let cap = MetricSyncService.maxBackfillIterationsPerPass
+        let batchSize = MetricSyncService.backfillBatchSize
+        // `cap` full batches plus one extra row: without the cap, the drain
+        // would need a (cap + 1)-th upload to pick up that leftover row (a
+        // short, final batch). With the cap in place, the loop must stop at
+        // exactly `cap` uploaded batches and never attempt that extra upload
+        // — so `uploadedBatches.count` distinguishes "stopped by the cap"
+        // from "happened to finish naturally at the same count".
+        let totalSamples = cap * batchSize + 1
+
+        UserDefaults.standard.set(true, forKey: "cloudSyncEnabled")
+        UserDefaults.standard.set(0, forKey: "metricsSyncSchemaVersion")
+
+        let container = makeContainer()
+        let context = ModelContext(container)
+        let base = Date(timeIntervalSince1970: 0)
+        for i in 0..<totalSamples {
+            context.insert(HRVSample(timestamp: base.addingTimeInterval(Double(i))))
+        }
+        try! context.save()
+
+        let fake = FakeUploadClient()
+        let service = MetricSyncService(client: fake, userID: "u1", container: container)
+        await service.syncIfEnabled()
+
+        XCTAssertEqual(fake.uploadedBatches.count, cap,
+                        "with more than `cap` full batches available, the drain must stop at the cap " +
+                        "instead of continuing on to a (cap + 1)-th upload")
     }
 }

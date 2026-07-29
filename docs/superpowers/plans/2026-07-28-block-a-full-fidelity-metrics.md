@@ -10,6 +10,14 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-28-complete-data-capture-design.md`, Block A.
 
+## Release requirement — server must deploy BEFORE the app ships
+
+**The server migration (widened `metric_samples` schema + enriching upsert) must be deployed and restarted before the app build containing the widened 26-field payload and backfill drain ships.**
+
+Why this ordering is load-bearing, not just nice-to-have: `server/models.py`'s `MetricSample` has no `extra='forbid'`. A device running the new app against an unmigrated server does not get an error — it gets `200 {"stored": N}`, with the 12 new fields silently dropped by Pydantic before they ever reach the INSERT. The backfill drain has no way to detect this: from its point of view the upload succeeded, so it keeps draining, eventually completes, and stamps `metricsSyncSchemaVersion = MetricSyncService.currentSchemaVersion`. That stamp is permanent — the backfill is one-time by design. The device's history is now silently and permanently missing the 12 new columns, and it will never re-walk its local store to fix that.
+
+**Escape hatch if the ordering is ever violated:** bump `MetricSyncService.currentSchemaVersion` (in `ios/Wythin/Sync/APIClient.swift`) in a follow-up app release. `needsBackfill(storedVersion:)` compares the device's stamped version against this constant, so incrementing it forces every device — including ones that already "completed" a backfill against the unmigrated server — to re-walk local history and re-upload once the server is actually caught up.
+
 ## Global Constraints
 
 - **Work happens in the worktree `/Users/alexutkin/.claude/worktrees/block-a-metrics` on branch `feat/block-a-full-fidelity-metrics`.** Run every command from that directory. The main checkout at `/Users/alexutkin` has unrelated uncommitted work in these same files — do not touch it.
