@@ -22,6 +22,10 @@ struct TrackView: View {
     @State private var cache = TrackCache()
 
     private var today: Date { Calendar.current.startOfDay(for: .now) }
+    /// Identity of the page currently on screen — the same string `.task(id:)`
+    /// keys on. Used to guard against a superseded request's response landing
+    /// after a newer page has already been requested.
+    private var currentPageKey: String { "\(period.rawValue)-\(offset)" }
     private var range: TrackRange { TrackRangeBuilder.range(period: period, offset: offset, today: today) }
     private var priorRange: TrackRange {
         TrackRangeBuilder.range(period: period, offset: offset + 1, today: today)
@@ -87,10 +91,11 @@ struct TrackView: View {
             .toolbarBackground(Theme.bg, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
         }
-        .task(id: "\(period.rawValue)-\(offset)") {
+        .task(id: currentPageKey) {
+            let pageKey = currentPageKey
             selectedBucket = nil
             await loadRollups()
-            await loadMacroRead()
+            await loadMacroRead(pageKey: pageKey)
         }
     }
 
@@ -127,15 +132,26 @@ struct TrackView: View {
         isLoading = false
     }
 
-    private func loadMacroRead() async {
+    /// `pageKey` is this request's page identity, captured by the caller at
+    /// `.task(id:)` start. `loadMacroRead` awaits a network call and
+    /// `macroRead` swallows every error (including `CancellationError`) via
+    /// `try?`, so a superseded request can still complete and, without this
+    /// guard, overwrite the current page's text with its own stale result.
+    /// Checking `Task.isCancelled` would not be enough — a request that
+    /// finishes *after* cancellation was observed still reaches this point —
+    /// so the write is gated on page identity instead.
+    private func loadMacroRead(pageKey: String) async {
+        guard pageKey == currentPageKey else { return }
         macroText = nil
         // Same consent gate the uploaders read (AppEnvironment.swift:291);
         // defaults to on when the key was never written.
         guard UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true else { return }
         macroLoading = true
-        defer { macroLoading = false }
-        macroText = await macroRead(for: period, range: range, series: seriesList,
-                                    cache: cache,
-                                    client: APIClient(baseURL: env.serverURL))
+        let text = await macroRead(for: period, range: range, series: seriesList,
+                                   cache: cache,
+                                   client: APIClient(baseURL: env.serverURL))
+        guard pageKey == currentPageKey else { return }
+        macroText = text
+        macroLoading = false
     }
 }

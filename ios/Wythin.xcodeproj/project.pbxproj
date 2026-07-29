@@ -28,7 +28,6 @@
 		A118 /* WaveformRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F118 /* WaveformRenderer.swift */; };
 		A119 /* LiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F119 /* LiveView.swift */; };
 		A120 /* ECGWaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F120 /* ECGWaveformView.swift */; };
-		A121 /* HRVRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F121 /* HRVRingView.swift */; };
 		A122 /* HeartBeatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F122 /* HeartBeatView.swift */; };
 		A123 /* ResonateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F123 /* ResonateView.swift */; };
 		A124 /* PacerCircleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F124 /* PacerCircleView.swift */; };
@@ -168,7 +167,6 @@
 		F118 /* WaveformRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformRenderer.swift; sourceTree = "<group>"; };
 		F119 /* LiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveView.swift; sourceTree = "<group>"; };
 		F120 /* ECGWaveformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ECGWaveformView.swift; sourceTree = "<group>"; };
-		F121 /* HRVRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HRVRingView.swift; sourceTree = "<group>"; };
 		F122 /* HeartBeatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartBeatView.swift; sourceTree = "<group>"; };
 		F123 /* ResonateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResonateView.swift; sourceTree = "<group>"; };
 		F124 /* PacerCircleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacerCircleView.swift; sourceTree = "<group>"; };
@@ -387,7 +385,6 @@
 				F219 /* DayPotentialStore.swift */,
 				F119 /* LiveView.swift */,
 				F120 /* ECGWaveformView.swift */,
-				F121 /* HRVRingView.swift */,
 				F122 /* HeartBeatView.swift */,
 				F128 /* MetricsChartsView.swift */,
 				F129 /* ACCWaveformView.swift */,
@@ -715,7 +712,6 @@
 				A133 /* BLENavButton.swift in Sources */,
 				A119 /* LiveView.swift in Sources */,
 				A120 /* ECGWaveformView.swift in Sources */,
-				A121 /* HRVRingView.swift in Sources */,
 				A122 /* HeartBeatView.swift in Sources */,
 				A128 /* MetricsChartsView.swift in Sources */,
 				A129 /* ACCWaveformView.swift in Sources */,

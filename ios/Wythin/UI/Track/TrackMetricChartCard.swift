@@ -115,6 +115,19 @@ struct TrackMetricChartCard: View {
                                 .foregroundStyle(Theme.dim)
                         }
                     }
+                } else {
+                    // Invisible anchor at this bucket's x-position. When every
+                    // bar in the page is nil, no *visible* BarMark is ever
+                    // emitted, and the value-less RuleMark(y:) above has no
+                    // x-position either — so with nothing else, Swift Charts
+                    // has no x-domain to resolve the AxisMarks(values:) below
+                    // against, and the whole axis (including the "·"
+                    // placeholders) renders blank. This keeps every bucket in
+                    // the domain the same way a real BarMark would, without
+                    // changing how the axis or bars look when data exists.
+                    BarMark(x: .value("Bucket", bar.bucket.start, unit: xUnit),
+                           y: .value(spec.def.label, 0))
+                        .opacity(0)
                 }
             }
 
@@ -161,7 +174,19 @@ struct TrackMetricChartCard: View {
                       }) else { selectedBucket = nil; return }
                 selectedBucket = nearest.bucket.start
             }))
-        .chartPlotStyle { $0.background(Color.black.opacity(0.2)) }
+        .chartPlotStyle {
+            $0.background(Color.black.opacity(0.2))
+                // Reserves room for the "your 90d"/"typical" RuleMark
+                // annotation, which is anchored at the plot's trailing edge
+                // and extends rightward (`position: .trailing, alignment:
+                // .leading`). Swift Charts does not shrink the plot to fit an
+                // overflowing annotation on its own, so without this the
+                // label runs past the plot's layout bounds and is hard-clipped
+                // by `.cardStyle()`'s `.clipShape`. Sized to the longer of the
+                // two labels ("your 90d", 8 monospaced points) plus a small
+                // gap from the plotted bars.
+                .padding(.trailing, 42)
+        }
     }
 
     private var xUnit: Calendar.Component { period == .sixMonth ? .month : .day }
