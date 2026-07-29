@@ -32,6 +32,13 @@ final class HRVSample {
     var lfPower:        Float?   // ms²
     var hfPower:        Float?   // ms²
 
+    /// Timestamp-only initializer. Every metric property is an optional `var`
+    /// and therefore defaults to nil, so callers set only the fields they care
+    /// about. Used by tests and by any construction path that isn't a tick.
+    init(timestamp: Date) {
+        self.timestamp = timestamp
+    }
+
     init(from tick: MetricsTick) {
         self.timestamp  = tick.timestamp
         self.meanBPM    = tick.meanBPM

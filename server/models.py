@@ -75,6 +75,18 @@ class MetricSample(BaseModel):
     pip: Optional[float] = None
     dc: Optional[float] = None
     vti: Optional[float] = None
+    rsa_idx: Optional[float] = None
+    ie_ratio: Optional[float] = None
+    ials: Optional[float] = None
+    motion: Optional[float] = None
+    signal_quality: Optional[float] = None
+    rr_invalid_rate: Optional[float] = None
+    rr_corrected_rate: Optional[float] = None
+    ecg_quality_tier: Optional[int] = None
+    ulf_power: Optional[float] = None
+    vlf_power: Optional[float] = None
+    lf_power: Optional[float] = None
+    hf_power: Optional[float] = None
 
 
 class MetricsUpload(BaseModel):
@@ -171,6 +183,10 @@ class InsightRequest(BaseModel):
     baseline_anchors:    Optional[int] = None
     baseline_target:     Optional[int] = None
     baseline_sufficient: Optional[bool] = None
+    # A score exists but the range is still forming. Distinct from
+    # `not baseline_sufficient`, which also covers the very first morning —
+    # where there is no reference day at all and so no score.
+    provisional:         Optional[bool] = None
     recent:     Optional[list[int]] = None
     streak_current: Optional[int] = None
     streak_best:    Optional[int] = None

@@ -231,6 +231,100 @@ async def test_day_potential_rejects_missing_anchor():
     assert r.status_code == 422
 
 
+@pytest.mark.asyncio
+async def test_day_potential_provisional_requires_a_score():
+    """A provisional baseline still produces a number — a request claiming one
+    without a score is malformed."""
+    payload = {k: v for k, v in _DAY_POTENTIAL_PAYLOAD.items() if k != "score"}
+    payload["baseline_sufficient"] = False
+    payload["provisional"] = True
+    payload["baseline_anchors"] = 3
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights", json=payload)
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_day_potential_provisional_with_a_score_succeeds():
+    payload = dict(_DAY_POTENTIAL_PAYLOAD)
+    payload["baseline_sufficient"] = False
+    payload["provisional"] = True
+    payload["baseline_anchors"] = 3
+    payload["baseline_target"] = 7
+    payload["recent"] = [58, 61, 64]
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
+        content="Early Days\n• a\n• b\n→ c"
+    )
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights", json=payload)
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_day_potential_first_morning_needs_neither_score_nor_recent():
+    """The very first anchor has no reference day at all. That is a real state,
+    not a malformed request."""
+    payload = {k: v for k, v in _DAY_POTENTIAL_PAYLOAD.items()
+               if k not in ("score", "recent")}
+    payload["baseline_sufficient"] = False
+    payload["provisional"] = False
+    payload["baseline_anchors"] = 1
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
+        content="First One\n• a\n• b\n→ c"
+    )
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights", json=payload)
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 200
+
+
+def test_day_potential_format_marks_a_provisional_score_as_early():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_day_potential
+
+    req = InsightRequest(
+        mode="day_potential", score=61, band="good", anchor_hour=7.2,
+        anchor_duration_min=5, late=False, confidence="high",
+        baseline_anchors=3, baseline_target=7,
+        baseline_sufficient=False, provisional=True)
+    text = _format_day_potential(req)
+    assert "61/100" in text
+    assert "provisional" in text.lower()
+
+
+def test_day_potential_format_says_no_reference_when_there_is_no_baseline():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_day_potential
+
+    req = InsightRequest(
+        mode="day_potential", anchor_hour=7.2, anchor_duration_min=5,
+        late=False, confidence="high", baseline_anchors=1, baseline_target=7,
+        baseline_sufficient=False, provisional=False)
+    text = _format_day_potential(req)
+    assert "not yet available" in text.lower()
+
+
+def test_day_potential_prompt_distinguishes_provisional_from_no_baseline():
+    from server.routers.insights import _DAY_POTENTIAL_SYSTEM_PROMPT as p
+
+    assert "provisional" in p.lower(), "prompt must cover the early-score case"
+    # The old instruction told the model to claim no norms whenever the
+    # baseline was insufficient, which now contradicts a score on screen.
+    assert "claim no norms" in p, "the no-baseline branch must still exist"
+
+
 def test_live_state_format_has_buckets_and_no_day_average():
     from server.models import InsightRequest, MetricTrend
     from server.routers.insights import _format_live_state

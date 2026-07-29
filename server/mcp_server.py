@@ -157,11 +157,16 @@ async def get_session_samples(ctx: Context, session_id: str, limit: int = 2000) 
 # ---- metric_samples aggregate tools ----
 
 _METRIC_COLS = {"mean_bpm", "rmssd", "sdnn", "pnn50", "lf_hf", "rsa_ms", "coherence",
-                "cbi", "breath_bpm", "dfa1", "rcmse", "pip", "dc", "vti"}
+                "cbi", "breath_bpm", "dfa1", "rcmse", "pip", "dc", "vti",
+                "rsa_idx", "ie_ratio", "ials", "motion", "signal_quality",
+                "rr_invalid_rate", "rr_corrected_rate", "ecg_quality_tier",
+                "ulf_power", "vlf_power", "lf_power", "hf_power"}
 _METRIC_ALIASES = {
     "hr": "mean_bpm", "heart_rate": "mean_bpm", "pulse": "mean_bpm",
     "inner_noise": "pip", "harmony": "dfa1", "vagal_tone": "dc",
     "calm_power": "vti", "hrv": "rmssd", "stress_balance": "lf_hf",
+    "stillness": "motion", "quality": "signal_quality",
+    "breathing_ratio": "ie_ratio", "fragmentation": "ials",
 }
 
 
@@ -189,7 +194,7 @@ async def _day_summary(user_id: str, date: str) -> dict:
     for c in sorted(_METRIC_COLS):
         n = row[f"n_{c}"] or 0
         if n:
-            out[c] = {"avg": round(row[f"a_{c}"], 3), "min": row[f"mn_{c}"], "max": row[f"mx_{c}"], "n": n}
+            out[c] = {"avg": round(float(row[f"a_{c}"]), 3), "min": row[f"mn_{c}"], "max": row[f"mx_{c}"], "n": n}
     return out
 
 
@@ -200,7 +205,7 @@ async def _metric_stats(user_id: str, metric: str, since: str, until: str) -> di
             f"SELECT avg({col}) a, min({col}) mn, max({col}) mx, count({col}) n "
             f"FROM metric_samples WHERE user_id=$1 AND ts>=$2 AND ts<$3",
             user_id, _parse_dt(since), _parse_dt(until))
-    return {"metric": col, "avg": round(row["a"], 3) if row["a"] is not None else None,
+    return {"metric": col, "avg": round(float(row["a"]), 3) if row["a"] is not None else None,
             "min": row["mn"], "max": row["mx"], "n": row["n"] or 0}
 
 
@@ -215,7 +220,7 @@ async def _metric_trend(user_id: str, metric: str, since: str, until: str, bucke
             f"SELECT floor(extract(epoch from ts - $2) / $4)::int AS b, avg({col}) v "
             f"FROM metric_samples WHERE user_id=$1 AND ts>=$2 AND ts<$3 AND {col} IS NOT NULL "
             f"GROUP BY b ORDER BY b", user_id, s, e, width)
-    return [{"t": (s + timedelta(seconds=r["b"] * width)).isoformat(), "value": round(r["v"], 3)} for r in rows]
+    return [{"t": (s + timedelta(seconds=r["b"] * width)).isoformat(), "value": round(float(r["v"]), 3)} for r in rows]
 
 
 @mcp.tool()

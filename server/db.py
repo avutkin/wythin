@@ -109,6 +109,22 @@ CREATE TABLE IF NOT EXISTS metric_samples (
 );
 CREATE INDEX IF NOT EXISTS metric_samples_user_ts ON metric_samples(user_id, ts);
 
+-- Block A: the 12 fields HRVSample carries that the original 14-column payload
+-- dropped. ALTER (not just the CREATE above) because the table already exists
+-- in production, where CREATE TABLE IF NOT EXISTS is a no-op.
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS rsa_idx           REAL;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS ie_ratio          REAL;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS ials              REAL;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS motion            REAL;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS signal_quality    REAL;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS rr_invalid_rate   REAL;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS rr_corrected_rate REAL;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS ecg_quality_tier  INT;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS ulf_power         REAL;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS vlf_power         REAL;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS lf_power          REAL;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS hf_power          REAL;
+
 CREATE INDEX IF NOT EXISTS hrv_samples_session_ts ON hrv_samples(session_id, ts);
 CREATE INDEX IF NOT EXISTS sessions_user_started   ON sessions(user_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS activities_user_started ON activities(user_id, started_at DESC);

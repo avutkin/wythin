@@ -295,7 +295,12 @@ _DAY_POTENTIAL_SYSTEM_PROMPT = (
     "reserves as high however good the rest looks \u2014 the rhythm is erratic, "
     "and that inflates the underlying measure rather than reflecting real "
     "recovery.\n"
-    "If baseline_sufficient is false there is not yet enough history for a "
+    "If provisional is true the score is real but early — it is built on "
+    "only a few mornings, so it leans on typical ranges rather than fully on "
+    "theirs. Say what the number shows, note that their own range is still "
+    "forming and the read will sharpen, and do not draw firm conclusions from "
+    "a single morning. Never imply the number is meaningless or unavailable.\n"
+    "If there is no score at all there is not yet enough history for a "
     "personal range: compare only with the immediately preceding mornings, "
     "claim no norms, and say the app is still learning what is normal for "
     "them.\n"
@@ -308,16 +313,17 @@ _DAY_POTENTIAL_SYSTEM_PROMPT = (
 def _format_day_potential(req: InsightRequest) -> str:
     lines = []
     if req.score is not None:
-        lines.append(f"Capacity score: {req.score}/100 (band: {req.band})")
+        note = " \u2014 provisional, the range is still forming" if req.provisional else ""
+        lines.append(f"Capacity score: {req.score}/100 (band: {req.band}){note}")
     else:
-        lines.append("Capacity score: not yet available \u2014 baseline still building.")
+        lines.append("Capacity score: not yet available \u2014 no earlier morning to compare with.")
     lines.append(
         f"Rested reading: {req.anchor_hour:.1f}h, {req.anchor_duration_min} min, "
         f"late={req.late}, confidence={req.confidence}"
     )
     lines.append(
         f"History: {req.baseline_anchors} of {req.baseline_target} readings, "
-        f"sufficient={req.baseline_sufficient}"
+        f"sufficient={req.baseline_sufficient}, provisional={bool(req.provisional)}"
     )
     for name, comp in (req.components or {}).items():
         lines.append(f"{name}: z={comp.z} ({comp.level})")
@@ -346,8 +352,11 @@ async def generate_insight(
             raise HTTPException(status_code=422, detail="anchor and baseline are required for day_potential mode")
         if req.baseline_sufficient and req.score is None:
             raise HTTPException(status_code=422, detail="score is required when the baseline is sufficient")
-        if not req.baseline_sufficient and not req.recent:
-            raise HTTPException(status_code=422, detail="recent is required when the baseline is insufficient")
+        # A provisional baseline still produces a number. The scoreless case is
+        # now only the very first morning, which legitimately has no `recent`
+        # either — so there is nothing further to require.
+        if req.provisional and req.score is None:
+            raise HTTPException(status_code=422, detail="score is required when the baseline is provisional")
         system_prompt = _DAY_POTENTIAL_SYSTEM_PROMPT
         user_content = _format_day_potential(req)
         max_tokens = 200

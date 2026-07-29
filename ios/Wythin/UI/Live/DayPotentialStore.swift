@@ -12,9 +12,41 @@ import SwiftData
 final class DayPotentialStore {
 
     enum State: Equatable {
-        case waitingForStillness      // no rested window yet today
-        case baselineBuilding(Int)    // n anchors so far, below the minimum
-        case scored
+        case waitingForStillness            // no rested window yet today
+        case firstMorning                   // anchor found, nothing to compare it to
+        case scored(provisional: Bool)      // provisional = baseline still mostly prior
+        case notComparable                  // anchor found, but not against this baseline
+
+        /// Pure, so the headline can be tested without a context or an
+        /// environment. The order matters: a missing anchor outranks a missing
+        /// baseline, which outranks an anchor that could not be scored.
+        static func derive(anchor: AnchorReading?,
+                           baseline: AnchorBaseline?,
+                           result: PotentialResult?) -> State {
+            guard anchor != nil          else { return .waitingForStillness }
+            guard let baseline           else { return .firstMorning }
+            guard result != nil          else { return .notComparable }
+            return .scored(provisional: baseline.provisional)
+        }
+
+        var showsScore: Bool {
+            if case .scored = self { return true }
+            return false
+        }
+
+        func headline(band: PotentialBand?) -> String {
+            switch self {
+            case .waitingForStillness:
+                return "TODAY'S POTENTIAL · WAITING FOR A STILL MOMENT"
+            case .firstMorning:
+                return "MORNING READ · FIRST ONE LOGGED"
+            case .notComparable:
+                return "LATER READ · NOT COMPARABLE TODAY"
+            case .scored(let provisional):
+                let base = "TODAY'S POTENTIAL · \((band?.label ?? "").uppercased())"
+                return provisional ? base + " · EARLY DAYS" : base
+            }
+        }
     }
 
     private(set) var anchor:     AnchorReading?
@@ -67,34 +99,34 @@ final class DayPotentialStore {
         streak = StreakCompute.evaluate(days: loggedDays, today: today)
 
         guard let todayAnchor else {
-            state = .waitingForStillness
+            state    = .derive(anchor: nil, baseline: nil, result: nil)
+            result   = nil
+            recent   = []
             loadLine = nil
             return
         }
 
         updateLoadLine(env: env, anchor: todayAnchor)
 
-        // 3. Baseline and score. Below the minimum anchor count there is no
-        // SD, so no score — day-over-day language only.
+        // 3. Baseline and score. One prior anchor is enough — the baseline
+        // blends toward a prior until the user's own spread is established, so
+        // an early score is conservative rather than absent.
         let past = history.filter { $0.day < today }
-        guard let baseline = AnchorBaseline.build(history: past, todayHour: todayAnchor.hour) else {
-            state = .baselineBuilding(past.count + 1)
-            result = nil
-            recent = []
-            await generate(env: env, baseline: nil, force: force)
-            return
-        }
-
-        result = PotentialScore.evaluate(anchor: todayAnchor, baseline: baseline)
-        state  = result == nil ? .waitingForStillness : .scored
+        let baseline = AnchorBaseline.build(history: past, todayHour: todayAnchor.hour)
+        result = baseline.flatMap { PotentialScore.evaluate(anchor: todayAnchor, baseline: $0) }
+        state  = .derive(anchor: todayAnchor, baseline: baseline, result: result)
 
         // Recent scores for the sparkline — past anchors scored against the
         // same baseline, so the bars are comparable with today's.
-        var recentScores = past.suffix(6).compactMap {
-            PotentialScore.evaluate(anchor: $0, baseline: baseline)?.score
+        if let baseline, result != nil {
+            var recentScores = past.suffix(6).compactMap {
+                PotentialScore.evaluate(anchor: $0, baseline: baseline)?.score
+            }
+            if let todayScore = result?.score { recentScores.append(todayScore) }
+            recent = recentScores
+        } else {
+            recent = []
         }
-        if let todayScore = result?.score { recentScores.append(todayScore) }
-        recent = recentScores
 
         await generate(env: env, baseline: baseline, force: force)
     }
@@ -132,8 +164,11 @@ final class DayPotentialStore {
             components: components,
             modifiers: modifiers,
             baselineAnchors: baseline?.anchorCount ?? loggedDays.count,
-            baselineTarget: AnchorBaseline.windowDays,
-            baselineSufficient: baseline != nil,
+            baselineTarget: AnchorBaseline.firmAnchors,
+            // A baseline now exists from one anchor, so its presence no longer
+            // means it is trustworthy — `provisional` is what carries that.
+            baselineSufficient: !(baseline?.provisional ?? true),
+            provisional: baseline?.provisional ?? false,
             recent: recent,
             streakCurrent: streak?.current ?? 0,
             streakBest: streak?.best ?? 0,

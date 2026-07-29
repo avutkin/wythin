@@ -50,9 +50,9 @@ struct DayPotentialStrip: View {
                         .tint(accent)
                         .scaleEffect(x: 1, y: 0.6, anchor: .center)
                 }
-                Text(store.result.map { "\($0.score)" } ?? "—")
+                Text(store.state.showsScore ? "\(store.result?.score ?? 0)" : "—")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(store.result == nil ? Theme.dim : accent)
+                    .foregroundStyle(store.state.showsScore ? accent : Theme.dim)
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.dim)
@@ -68,14 +68,7 @@ struct DayPotentialStrip: View {
     }
 
     private var headline: String {
-        switch store.state {
-        case .waitingForStillness:
-            return "TODAY'S POTENTIAL · WAITING FOR A STILL MOMENT"
-        case .baselineBuilding:
-            return "MORNING READ · LEARNING YOUR RANGE"
-        case .scored:
-            return "TODAY'S POTENTIAL · \((store.result?.band.label ?? "").uppercased())"
-        }
+        store.state.headline(band: store.result?.band)
     }
 
     // MARK: Streak
@@ -107,15 +100,22 @@ struct DayPotentialStrip: View {
         return "\(current) mornings in a row"
     }
 
+    /// Only while the range is still forming. Once firm it is noise, and its
+    /// old 60-day target implied sixty mornings of work before anything
+    /// happened — the score actually starts on the second.
+    @ViewBuilder
     private var baselineBar: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            ProgressView(value: Double(store.streak?.totalAnchors ?? 0),
-                         total: Double(AnchorBaseline.windowDays))
-                .tint(Theme.breathe)
-                .scaleEffect(x: 1, y: 0.5, anchor: .center)
-            Text("\(store.streak?.totalAnchors ?? 0) of \(AnchorBaseline.windowDays) readings — your range sharpens as this fills")
-                .font(.system(size: 11.5))
-                .foregroundStyle(Theme.dim)
+        let logged = store.streak?.totalAnchors ?? 0
+        if logged < AnchorBaseline.firmAnchors {
+            VStack(alignment: .leading, spacing: 5) {
+                ProgressView(value: Double(logged),
+                             total: Double(AnchorBaseline.firmAnchors))
+                    .tint(Theme.breathe)
+                    .scaleEffect(x: 1, y: 0.5, anchor: .center)
+                Text("\(logged) of \(AnchorBaseline.firmAnchors) readings — your range is still forming")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.dim)
+            }
         }
     }
 

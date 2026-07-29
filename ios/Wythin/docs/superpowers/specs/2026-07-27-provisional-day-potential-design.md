@@ -126,6 +126,19 @@ as one. They matter most at n = 1 and are nearly irrelevant by n = 20. If early
 scores read as systematically too extreme or too flat across real users, `strength`
 is the first dial to turn.
 
+**Calibration attempt, 2026-07-28.** Checked against 30 days of local morning
+history in `just-breathe.db`: rolling-7 SD of daily median lnRMSSD had a median
+of 0.275 (range 0.187–1.087). That sample is **ungated** — the table carries no
+motion, signal-quality, or ECG-tier columns, so none of the anchor conditions
+could be applied, and the continuity requirement could not be enforced either.
+It is therefore an upper bound on anchor-gated spread, and 0.20 sits plausibly
+below it. `restingHR` could not be checked at all: the same morning rows average
+78 bpm with an SD of 19.7, which is activity, not rest, and there is no way to
+extract a resting subset from what is stored. Treat 3.0 bpm as unverified.
+
+Recalibrate both once ~30 real anchors exist — that is the sample this actually
+needs, and it does not exist yet.
+
 ---
 
 ## 3. `AnchorBaseline` changes
@@ -221,9 +234,12 @@ for this.
 - `hourMatched` stays false below 7 near-hour anchors.
 
 **`PotentialScoreTests`**
-- **Continuity at the boundary** — the same anchor scored at n = 6 and n = 7
-  differs by less than a threshold. This is the test that protects the core
-  promise; if the label change is visible as a number jump, the design failed.
+- **Continuity at the boundary** — the same today-anchor scored against baselines
+  built from the first 6 and first 7 entries of one synthetic series differs by
+  **≤ 3 points**. This is the test that protects the core promise; if the label
+  change is visible as a number jump, the design failed.
+- Stability penalty is exactly 0 at n = 7, which is what makes the above hold —
+  the penalty ramp and the label change must not land on the same day.
 - Stability penalty is 0 at n = 7, full at n = 10, monotonic between.
 - An identical anchor repeated daily converges toward 50 as n grows.
 - Existing saturation-guard and penalty-cap tests still pass unchanged.
