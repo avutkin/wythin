@@ -355,3 +355,85 @@ def test_day_potential_format_includes_score_and_modifiers():
     assert "72/100" in text
     assert "modifier fragmentation: -4.0" in text
     assert "Streak: 4 mornings" in text
+
+
+_MACRO_TREND_PAYLOAD = {
+    "mode": "macro_trend",
+    "period": "week",
+    "range_label": "JUL 27 – AUG 2",
+    "trends": {
+        "dc": {
+            "avg": 8.4, "baseline": 8.2, "delta_pct": 6.0,
+            "days_above": 5, "days_total": 7, "direction": "higher",
+        },
+        "pip": {
+            "avg": 52.0, "baseline": 57.0, "delta_pct": 9.0,
+            "days_above": 6, "days_total": 7, "direction": "lower",
+        },
+        "stress_balance": {
+            "avg": 44.0, "baseline": 48.0, "delta_pct": 8.0,
+            "days_above": 5, "days_total": 7, "direction": "lower",
+        },
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_macro_trend_success():
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
+        content="Your recovery markers held steady this week.\n→ Keep the evening breathing."
+    )
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights", json=_MACRO_TREND_PAYLOAD)
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 200
+    assert "→" in r.json()["text"]
+
+
+@pytest.mark.asyncio
+async def test_macro_trend_requires_trends():
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/insights",
+                json={"mode": "macro_trend", "period": "week", "range_label": "X"},
+            )
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_macro_trend_rejects_empty_trends():
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/insights",
+                json={"mode": "macro_trend", "period": "week",
+                      "range_label": "X", "trends": {}},
+            )
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 422
+
+
+def test_macro_trend_prompt_uses_friendly_metric_names():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_macro_trend
+
+    req = InsightRequest(**_MACRO_TREND_PAYLOAD)
+    text = _format_macro_trend(req)
+
+    assert "Inner noise" in text                     # not "pip"
+    assert "JUL 27 – AUG 2" in text
+    assert "5 of 7" in text
+    # Stress Balance must not be glossed as a raw LF/HF ratio.
+    assert "stress_balance" not in text
+    assert "LF/HF" not in text
