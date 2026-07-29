@@ -377,12 +377,10 @@ private struct ActivityLogRow: View {
         return start
     }
 
-    private func impactColor(_ score: Int) -> Color {
-        switch score {
-        case 65...:   return Theme.accent
-        case 50..<65: return Theme.rsa
-        default:      return Theme.dim
-        }
+    private func deltaColor(_ delta: Double) -> Color {
+        if delta > 2  { return Theme.accent }
+        if delta < -2 { return Theme.warn }
+        return Theme.dim
     }
 
     var body: some View {
@@ -417,12 +415,12 @@ private struct ActivityLogRow: View {
 
                 Spacer()
 
-                if let score = entry.displayImpactScore {
+                if let delta = entry.impactDeltaPct {
                     VStack(alignment: .trailing, spacing: 1) {
-                        Text("\(score)%")
+                        Text(String(format: "%+.0f%%", delta))
                             .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(impactColor(score))
-                        Text(ActivityImpact.caption(for: score))
+                            .foregroundStyle(deltaColor(delta))
+                        Text(ActivityImpact.caption(for: delta))
                             .font(.system(size: 8, design: .monospaced))
                             .foregroundStyle(Theme.dim)
                             .lineLimit(1)

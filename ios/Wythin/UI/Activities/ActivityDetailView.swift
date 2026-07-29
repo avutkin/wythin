@@ -57,24 +57,8 @@ struct ActivityDetailView: View {
         chartPoints = MetricsQualityFilter.filter(samples.map { MetricsHistoryPoint(from: $0) })
     }
 
-    private func impactCaption(_ score: Int) -> String {
-        ActivityImpact.caption(for: score)
-    }
-
-    private func recIcon(_ kind: ActivityRecommendation.Kind) -> String {
-        switch kind {
-        case .keep:  return "checkmark.circle"
-        case .watch: return "eye"
-        case .trend: return "chart.line.uptrend.xyaxis"
-        }
-    }
-
-    private func recColor(_ kind: ActivityRecommendation.Kind) -> Color {
-        switch kind {
-        case .keep:  return Theme.accent
-        case .watch: return Theme.warn
-        case .trend: return Theme.dim
-        }
+    private func impactCaption(_ delta: Double) -> String {
+        ActivityImpact.caption(for: delta)
     }
 
     /// Renders the coach insight with its first line (the headline) emphasised
@@ -140,14 +124,14 @@ struct ActivityDetailView: View {
                                                         endedAt: windowEnd))
                         }
                         // Overall practice impact — same value the row badge
-                        // shows (precise when stored at capture, else a cheap
-                        // estimate) so the two always agree.
-                        if let score = entry.displayImpactScore {
+                        // shows: the mean before→during benefit-signed delta,
+                        // literally the average of the rows below.
+                        if let delta = entry.impactDeltaPct {
                             VStack(spacing: 14) {
                                 Text("OVERALL PRACTICE IMPACT")
                                     .font(Theme.monoLabel)
                                     .foregroundStyle(Theme.dim)
-                                PracticeImpactGauge(score: score, caption: impactCaption(score))
+                                PracticeImpactGauge(score: Int(delta.rounded()), caption: impactCaption(delta))
                             }
                             .cardStyle()
                         }
@@ -166,14 +150,14 @@ struct ActivityDetailView: View {
                         }
 
                         // Combined COACH card: the AI coach's read on top, then the
-                        // rule-based quick-stat bullets below as supporting evidence.
-                        let recs = ActivityImpact.recommendations(metrics.map { m in
+                        // one factual trend line below as supporting evidence.
+                        let trend = ActivityImpact.trendLine(metrics.map { m in
                             MetricMovement(name: m.def.label,
                                            uplift: m.stats.avgUpliftPct,
                                            vs2mo: m.def.benefitDelta(current: m.stats.duringMean,
                                                                      base: twoMonthAvg[m.def.id]))
                         })
-                        if entry.insightText != nil || !recs.isEmpty {
+                        if entry.insightText != nil || trend != nil {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("COACH")
                                     .font(Theme.monoLabel)
@@ -183,17 +167,17 @@ struct ActivityDetailView: View {
                                     coachInsight(insight)
                                 }
 
-                                if entry.insightText != nil && !recs.isEmpty {
+                                if entry.insightText != nil && trend != nil {
                                     Divider().overlay(Theme.border)
                                 }
 
-                                ForEach(recs) { rec in
+                                if let trend {
                                     HStack(alignment: .top, spacing: 8) {
-                                        Image(systemName: recIcon(rec.kind))
+                                        Image(systemName: "chart.line.uptrend.xyaxis")
                                             .font(.system(size: 12))
-                                            .foregroundStyle(recColor(rec.kind))
+                                            .foregroundStyle(Theme.dim)
                                             .frame(width: 16)
-                                        Text(rec.text)
+                                        Text(trend)
                                             .font(Theme.monoBody)
                                             .foregroundStyle(Theme.text)
                                             .fixedSize(horizontal: false, vertical: true)

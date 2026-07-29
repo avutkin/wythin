@@ -62,7 +62,11 @@ struct ActivityUploadPayload: Codable {
         startedAt       = iso.string(from: e.startedAt)
         endedAt         = e.endedAt.map { iso.string(from: $0) }
         isManual        = e.isManual
-        impactScore     = e.impactScore
+        // ActivityLog no longer stores a 0–100 score (Task 7 replaced it with
+        // the computed impactDeltaPct, a different unit/shape). Send nil here
+        // rather than conflate the two; Task 9 reworks this payload field to
+        // carry the delta properly.
+        impactScore     = nil
         notes           = e.notes
         beforeHR = e.beforeHR;         duringHR = e.duringHR;         afterHR = e.afterHR
         beforeRMSSD = e.beforeRMSSD;   duringRMSSD = e.duringRMSSD;   afterRMSSD = e.afterRMSSD

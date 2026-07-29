@@ -130,23 +130,19 @@ final class ActivityLog {
     var beforeDC:    Float?;  var duringDC:    Float?;  var afterDC:    Float?
     var beforeDFA1:  Float?;  var duringDFA1:  Float?;  var afterDFA1:  Float?
 
-    /// Cached overall practice impact (0–100), computed once at capture from
-    /// quality-filtered samples so the activity-row badge and the detail
-    /// gauge always show the same number.
-    var impactScore: Int?
-
-    /// Overall practice impact for display. Prefers the precise score stored at
-    /// capture; falls back to a cheap estimate from the stored before/during
-    /// averages so the value is always shown — and identical in the row badge
-    /// and the detail gauge (both read this).
-    var displayImpactScore: Int? {
-        if let s = impactScore { return s }
-        let uplifts: [Double] = activityMetricDefs.compactMap { def in
-            let d = self[keyPath: def.duringKey].map(Double.init)
-            let b = self[keyPath: def.beforeKey].map(Double.init)
-            return def.benefitDelta(current: d, base: b)
+    /// Mean benefit-signed change from the before-window to the during-window
+    /// across the nine metrics — literally the average of the per-metric
+    /// numbers shown on the rows below the meter, so the two cannot disagree.
+    /// Computed, never cached: the stored window averages and the detail
+    /// view's ActivityMetricStats both derive from the same quality-filtered
+    /// samples, so there is nothing to keep in sync.
+    var impactDeltaPct: Double? {
+        let deltas = activityMetricDefs.compactMap { def in
+            def.benefitDelta(current: self[keyPath: def.duringKey].map(Double.init),
+                             base:    self[keyPath: def.beforeKey].map(Double.init))
         }
-        return ActivityImpact.score(uplifts: uplifts)
+        guard !deltas.isEmpty else { return nil }
+        return deltas.reduce(0, +) / Double(deltas.count)
     }
 
     init(activityType:    String,
@@ -238,7 +234,7 @@ final class ActivityLog {
         let needsFill = all.filter { entry in
             guard entry.endedAt != nil else { return false }
             if migrating { return true }
-            return entry.duringStress == nil || entry.impactScore == nil
+            return entry.duringStress == nil
         }
         if !needsFill.isEmpty {
             for entry in needsFill {
@@ -313,19 +309,5 @@ final class ActivityLog {
         beforePIP   = avg(before, \.pip);        duringPIP   = avg(during, \.pip);        afterPIP   = avg(after, \.pip)
         beforeDC    = avg(before, \.dc);         duringDC    = avg(during, \.dc);         afterDC    = avg(after, \.dc)
         beforeDFA1  = avg(before, \.dfa1);       duringDFA1  = avg(during, \.dfa1);       afterDFA1  = avg(after, \.dfa1)
-
-        // Overall practice impact — the single source of truth for both the
-        // row badge and the detail gauge. Computed exactly the way the detail
-        // card does: benefit-signed during-vs-before uplift per metric over
-        // quality-filtered points, averaged by ActivityImpact.score.
-        let points = MetricsQualityFilter.filter(samples.map { MetricsHistoryPoint(from: $0) })
-        let uplifts = activityMetricDefs.compactMap { def in
-            ActivityMetricStats(points: points,
-                                extract: def.extract,
-                                direction: def.direction,
-                                startedAt: startedAt,
-                                endedAt: end).avgUpliftPct
-        }
-        impactScore = ActivityImpact.score(uplifts: uplifts)
     }
 }
