@@ -96,6 +96,8 @@ struct LogPastSheet: View {
         self.onSave = onSave
         _selected        = State(initialValue: prefill.type)
         _selectedSubtype = State(initialValue: prefill.subtype)
+        _customName      = State(initialValue: "")
+        _showCustom      = State(initialValue: prefill.type == .custom)
         _durationMins    = State(initialValue: prefill.durationMins ?? 30)
     }
 
@@ -282,13 +284,47 @@ struct ActivityPickerSection: View {
     }
 }
 
+// MARK: - SubtypeMemory
+
+/// Remembered custom subtypes, derived from logged history rather than stored
+/// separately. Every ActivityLog already persists its subtype, so there is
+/// nothing extra to write, migrate or clean up — deleting the last entry that
+/// used a subtype stops it being offered.
+enum SubtypeMemory {
+    static func remembered(type: ActivityType, entries: [ActivityLog], limit: Int = 6) -> [String] {
+        let builtIn = Set(type.subtypes)
+        var seen = Set<String>()
+        var out: [String] = []
+        for entry in entries where entry.activityType == type.rawValue {
+            guard let raw = entry.activitySubtype else { continue }
+            let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, !builtIn.contains(name), !seen.contains(name) else { continue }
+            seen.insert(name)
+            out.append(name)
+            if out.count == limit { break }
+        }
+        return out
+    }
+}
+
 // MARK: - SubtypePicker
 
 struct SubtypePicker: View {
-    let type:     ActivityType
+    let type: ActivityType
     @Binding var selected: String?
 
+    @Query(sort: \ActivityLog.startedAt, order: .reverse)
+    private var allEntries: [ActivityLog]
+
+    @State private var showCustomField = false
+    @State private var customSubtype   = ""
+    @FocusState private var fieldFocused: Bool
+
     private let cols = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
+
+    private var remembered: [String] {
+        SubtypeMemory.remembered(type: type, entries: allEntries)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -298,33 +334,67 @@ struct SubtypePicker: View {
                     .foregroundStyle(Theme.dim)
                 Spacer()
                 if selected != nil {
-                    Button("clear") { selected = nil }
-                        .font(Theme.monoLabel)
-                        .foregroundStyle(Theme.dim.opacity(0.5))
+                    Button("clear") {
+                        selected = nil
+                        showCustomField = false
+                        customSubtype = ""
+                    }
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim.opacity(0.5))
                 }
             }
 
             LazyVGrid(columns: cols, spacing: 8) {
-                ForEach(type.subtypes, id: \.self) { sub in
-                    Button {
+                ForEach(type.subtypes + remembered, id: \.self) { sub in
+                    chip(sub, label: sub, isOn: selected == sub) {
                         selected = selected == sub ? nil : sub
-                    } label: {
-                        Text(sub)
-                            .font(Theme.monoLabel)
-                            .foregroundStyle(selected == sub ? Theme.bg : type.color)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .padding(.vertical, 8)
-                            .frame(maxWidth: .infinity)
-                            .background(selected == sub ? type.color : type.color.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .overlay(RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(selected == sub ? .clear : type.color.opacity(0.25), lineWidth: 0.5))
+                        showCustomField = false
+                    }
+                }
+                chip("__custom__", label: "+ Custom", isOn: showCustomField) {
+                    showCustomField.toggle()
+                    if showCustomField {
+                        customSubtype = ""
+                        fieldFocused = true
                     }
                 }
             }
+
+            if showCustomField {
+                TextField("e.g. Kettlebells", text: $customSubtype)
+                    .font(Theme.monoBody)
+                    .foregroundStyle(Theme.text)
+                    .focused($fieldFocused)
+                    .submitLabel(.done)
+                    .padding(10)
+                    .background(Theme.card)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Theme.border, lineWidth: 0.5))
+                    .onChange(of: customSubtype) { _, new in
+                        let trimmed = new.trimmingCharacters(in: .whitespacesAndNewlines)
+                        selected = trimmed.isEmpty ? nil : trimmed
+                    }
+            }
         }
         .cardStyle()
+    }
+
+    @ViewBuilder
+    private func chip(_ id: String, label: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(Theme.monoLabel)
+                .foregroundStyle(isOn ? Theme.bg : type.color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(isOn ? type.color : type.color.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isOn ? .clear : type.color.opacity(0.25), lineWidth: 0.5))
+        }
     }
 }
 
