@@ -82,8 +82,11 @@ struct ActivityUploadPayload: Codable {
 
 /// Uploads finished ActivityLog records to the server. No local schema change:
 /// a UserDefaults watermark (last uploaded `endedAt`) avoids re-uploading, while
-/// the server upserts on client_activity_id so any re-send is harmless. On the
-/// first run the watermark is `.distantPast`, so it backfills existing activities.
+/// the server upserts on client_activity_id so any re-send is harmless — including
+/// re-sends from this build, which omits `impact_score` entirely; the server
+/// COALESCEs that column on conflict so an absent value never clears a real
+/// historical score written by an older build. On the first run the watermark
+/// is `.distantPast`, so it backfills existing activities.
 actor ActivityUploader {
 
     private let client: APIClient

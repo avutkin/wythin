@@ -97,3 +97,31 @@ async def test_impact_delta_pct_is_optional():
         up = await client.post("/activities", json=payload,
                                headers={"X-User-ID": "test-activity-user"})
         assert up.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_reupload_without_impact_score_does_not_clobber_it():
+    # The current app no longer sends impact_score at all (Task 9 replaced it
+    # with impact_delta_pct). A re-upload omitting the field entirely — e.g. a
+    # fresh-install backfill re-sending every local ActivityLog — must not
+    # blank out a real historical score that a prior (older) build wrote.
+    async with _client() as client:
+        payload = dict(_PAYLOAD)
+        payload["id"] = "00000000-0000-0000-0000-0000000000c6"
+        payload["impact_score"] = 55
+        up = await client.post("/activities", json=payload,
+                               headers={"X-User-ID": "test-activity-user"})
+        assert up.status_code == 200
+
+        reupload = dict(_PAYLOAD)
+        reupload["id"] = payload["id"]
+        reupload.pop("impact_score", None)
+        reupload["impact_delta_pct"] = -3.0
+        up2 = await client.post("/activities", json=reupload,
+                                headers={"X-User-ID": "test-activity-user"})
+        assert up2.status_code == 200
+
+        acts = await _user_activities(client, "test-activity-user")
+        mine = next(a for a in acts if a["client_activity_id"] == payload["id"])
+        assert mine["impact_score"] == 55, "absent impact_score must not clobber the stored value"
+        assert mine["impact_delta_pct"] == -3.0, "impact_delta_pct should still update normally"
