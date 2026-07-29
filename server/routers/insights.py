@@ -381,6 +381,49 @@ _PERIOD_LABELS = {
 }
 
 
+# Macro-trend-only names, overlaid on `_METRIC_NAMES` for the seven keys the
+# Track screen sends. `_METRIC_NAMES` itself is deliberately untouched: it is
+# shared with `live_state` and `activity`, where the clinical glosses are
+# correct and wanted.
+#
+# The source of truth here is the app's own card headings and "why" copy —
+# `activityMetricDefs` in ios/Wythin/UI/Activities/ActivityMetricsGrid.swift —
+# because the macro read sits directly above those very cards. A read that
+# names a metric differently from the card two inches below it is worse than
+# no read at all.
+#
+# Two hard constraints, both guarded by
+# `test_macro_trend_names_avoid_every_banned_token`:
+#
+#  1. None of the tokens `_MACRO_TREND_SYSTEM_PROMPT` forbids in the OUTPUT
+#     ("HRV", "RMSSD", "LF/HF", "entropy", "PIP") may appear in the INPUT.
+#     Handing the model a banned word as a metric's only available name forces
+#     it either to break the ban or to invent a name of its own.
+#  2. "Vagal Tone" is the app's name for `dc` and for nothing else. No other
+#     metric may be glossed with that phrase, or the read would say "your
+#     vagal tone rose" while the VAGAL TONE card on the same screen shows a
+#     fall — the reader has no way to tell which one is wrong.
+_MACRO_TREND_METRIC_NAMES = {
+    "dc": "Vagal Tone — relaxation and recovery capacity; how readily the "
+          "heart slows. Higher = a stronger brake, deeper recovery",
+    "rmssd": "Energy Reserve — core beat-to-beat variability, the headline "
+             "marker of recovery. Higher = a rested, adaptable system",
+    "rsa": "Conscious Breathing — how far heart rate swings with each breath. "
+           "Higher = slow, deep, deliberate breathing is landing",
+    "rcmse": "Adaptive Capacity — how flexible the system is across "
+             "timescales. Higher = more resilient and responsive",
+    "dfa1": "Harmony — the fractal balance of the heartbeat, with ~1.0 the "
+            "healthy sweet spot. Closer to 1.0 = better-organised regulation; "
+            "drifting low = uncoupled, running high = rigid",
+    "pip": "Inner Noise — beat-to-beat jitter; erratic, non-restorative "
+           "variability and a focus proxy. Lower = a cleaner, calmer signal",
+    "stress_balance": "Stress Balance — a breathing-robust 0–100 dial of how "
+                      "revved-up versus calm the person is. Lower = shifting "
+                      "into rest-and-digest; slow paced breathing correctly "
+                      "reads as calmer, not more stressed",
+}
+
+
 def _format_macro_trend(req: InsightRequest) -> str:
     span = _PERIOD_LABELS.get(req.period or "", "this period")
     unit = "months" if req.period == "six_month" else "days"
@@ -390,7 +433,9 @@ def _format_macro_trend(req: InsightRequest) -> str:
         f"period of the same length."
     ]
     for key, t in (req.trends or {}).items():
-        label = _METRIC_NAMES.get(key, key)
+        # Track's own names first; `_METRIC_NAMES` only as a fallback for a
+        # key this mode does not (yet) have a screen-matched name for.
+        label = _MACRO_TREND_METRIC_NAMES.get(key) or _METRIC_NAMES.get(key, key)
         # A missing flag (older client) is treated as generic, not personal —
         # the safe default is to under-claim personalization, never over-claim it.
         personal = bool(t.baseline_is_personal)

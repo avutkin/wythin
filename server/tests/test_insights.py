@@ -431,7 +431,7 @@ def test_macro_trend_prompt_uses_friendly_metric_names():
     req = InsightRequest(**_MACRO_TREND_PAYLOAD)
     text = _format_macro_trend(req)
 
-    assert "Inner noise" in text                     # not "pip"
+    assert "Inner Noise" in text                     # not "pip"
     assert "JUL 27 – AUG 2" in text
     assert "5 of 7" in text
     # Stress Balance must not be glossed as a raw LF/HF ratio.
@@ -507,3 +507,65 @@ def test_macro_trend_prompt_does_not_assert_baseline_is_always_personal():
     assert "the person's own baseline, a" not in p, (
         "must not unconditionally assert the baseline is personal"
     )
+
+
+# Exactly the seven keys ios/Wythin/Metrics/TrackMetricSpec.swift sends
+# (`TrackMetrics.all`, in display order). Kept as one fixture so a new Track
+# metric that reaches the wire without a macro-trend name is caught here.
+_TRACK_TREND_KEYS = ["dc", "rmssd", "rsa", "rcmse", "dfa1", "pip", "stress_balance"]
+
+# The words _MACRO_TREND_SYSTEM_PROMPT forbids the model from using in its
+# reply. Handing any of them to the model as a metric's only available name
+# forces it to either break the ban or invent a name of its own.
+_BANNED_OUTPUT_TOKENS = ["HRV", "RMSSD", "LF/HF", "entropy", "PIP"]
+
+
+def test_macro_trend_names_avoid_every_banned_token():
+    """The real guard: with all seven keys Track actually sends, the formatted
+    prompt must contain none of the tokens the system prompt bans, and must
+    not reuse 'Vagal Tone' — the app's name for the `dc` card — for any other
+    metric on the same screen."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_macro_trend
+
+    payload = {
+        "mode": "macro_trend", "period": "week", "range_label": "JUL 27 – AUG 2",
+        "trends": {
+            key: {"avg": 1.0, "baseline": 1.0, "baseline_is_personal": True,
+                  "delta_pct": 3.0, "days_above": 4, "days_total": 7,
+                  "direction": "higher"}
+            for key in _TRACK_TREND_KEYS
+        },
+    }
+    text = _format_macro_trend(InsightRequest(**payload))
+    lowered = text.lower()
+
+    for token in _BANNED_OUTPUT_TOKENS:
+        assert token.lower() not in lowered, (
+            f"{token!r} is banned from the model's output but appears in its input"
+        )
+
+    # Every key must resolve to a name, never fall through to the raw key.
+    for key in _TRACK_TREND_KEYS:
+        assert key not in text, f"{key!r} leaked into the prompt as a raw key"
+
+    # The app's names, matching the card headings the read sits above.
+    for name in ["Vagal Tone", "Energy Reserve", "Conscious Breathing",
+                 "Adaptive Capacity", "Harmony", "Inner Noise", "Stress Balance"]:
+        assert name in text, (
+            f"{name!r} is the app's own card heading and must be the name the "
+            f"read uses for that metric"
+        )
+
+    # 'Vagal Tone' belongs to `dc` alone. Two metrics sharing it would have the
+    # read describe one card by another card's name while both are on screen.
+    assert lowered.count("vagal tone") == 1
+
+
+def test_macro_trend_names_do_not_leak_into_live_state():
+    """The overlay is macro-trend-only: `live_state` and `activity` keep the
+    clinical glosses in `_METRIC_NAMES`, which they were written for."""
+    from server.routers.insights import _METRIC_NAMES
+
+    assert "RMSSD" in _METRIC_NAMES["rmssd"]
+    assert "entropy" in _METRIC_NAMES["rcmse"]
