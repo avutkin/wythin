@@ -86,7 +86,8 @@ struct OnboardingFlow: View {
                 text: $profile.phone,
                 isValid: OnboardingValidation.isValidPhone(profile.phone),
                 onBack: { go(.welcome) },
-                onContinue: { persist(); go(.email) }
+                onContinue: { persist(); go(.email) },
+                onSkip: { skip(to: .email) { profile.phone = "" } }
             )
 
         case .email:
@@ -100,7 +101,8 @@ struct OnboardingFlow: View {
                 text: $profile.email,
                 isValid: OnboardingValidation.isValidEmail(profile.email),
                 onBack: { go(.phone) },
-                onContinue: { persist(); go(.goals) }
+                onContinue: { persist(); go(.goals) },
+                onSkip: { skip(to: .goals) { profile.email = "" } }
             )
 
         case .goals:
@@ -111,7 +113,8 @@ struct OnboardingFlow: View {
                 options: goalOptions,
                 selection: $profile.goals,
                 onBack: { go(.email) },
-                onContinue: { persist(); go(.practices) }
+                onContinue: { persist(); go(.practices) },
+                onSkip: { skip(to: .practices) }
             )
 
         case .practices:
@@ -122,7 +125,8 @@ struct OnboardingFlow: View {
                 options: practiceOptions,
                 selection: $profile.practices,
                 onBack: { go(.goals) },
-                onContinue: { persist(); go(.devices) }
+                onContinue: { persist(); go(.devices) },
+                onSkip: { skip(to: .devices) }
             )
 
         case .devices:
@@ -133,7 +137,8 @@ struct OnboardingFlow: View {
                 options: deviceOptions,
                 selection: $profile.devices,
                 onBack: { go(.practices) },
-                onContinue: { persist(); go(.aboutYou) }
+                onContinue: { persist(); go(.aboutYou) },
+                onSkip: { skip(to: .aboutYou) }
             )
 
         case .aboutYou:
@@ -142,7 +147,8 @@ struct OnboardingFlow: View {
                 ageRange: $profile.ageRange,
                 gender: $profile.gender,
                 onBack: { go(.devices) },
-                onContinue: { persist(); go(.connect) }
+                onContinue: { persist(); go(.connect) },
+                onSkip: { skip(to: .connect) }
             )
 
         case .connect:
@@ -159,6 +165,16 @@ struct OnboardingFlow: View {
 
     private func go(_ next: Step) {
         withAnimation { step = next }
+    }
+
+    /// Advance without answering. `clear` runs first for the contact steps: a
+    /// half-typed phone number is worse to keep than no phone number at all,
+    /// since the skip path bypasses validation. The multi-selects and age/gender
+    /// need no clearing — empty and nil already mean "not answered".
+    private func skip(to next: Step, clearing clear: (() -> Void)? = nil) {
+        clear?()
+        persist()
+        go(next)
     }
 
     private func persist() {
