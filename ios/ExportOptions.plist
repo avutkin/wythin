@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>teamID</key>
+	<string>FHUVQ8JNXD</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>destination</key>
+	<string>export</string>
+	<!-- Symbols go up so TestFlight crash reports come back symbolicated. -->
+	<key>uploadSymbols</key>
+	<true/>
+	<!-- Keep bitcode off: Apple stopped accepting it, and the app has no
+	     dependencies that would need re-optimising anyway. -->
+	<key>stripSwiftSymbols</key>
+	<true/>
+</dict>
+</plist>

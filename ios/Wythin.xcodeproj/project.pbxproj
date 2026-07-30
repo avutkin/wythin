@@ -94,6 +94,7 @@
 		A161 /* OnboardingFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F161 /* OnboardingFlow.swift */; };
 		A162 /* OnboardingScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F162 /* OnboardingScreens.swift */; };
 		ARES1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FRES1 /* Assets.xcassets */; };
+		ARES2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = FRES2 /* PrivacyInfo.xcprivacy */; };
 		AT01 /* MetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT01 /* MetricsTests.swift */; };
 		AT02 /* BLETests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT02 /* BLETests.swift */; };
 		AT03 /* ECGQualityComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT03 /* ECGQualityComputeTests.swift */; };
@@ -206,6 +207,7 @@
 		FAPP /* Wythin.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Wythin.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FINFO /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		FRES1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		FRES2 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		FT01 /* MetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsTests.swift; sourceTree = "<group>"; };
 		FT02 /* BLETests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLETests.swift; sourceTree = "<group>"; };
 		FT03 /* ECGQualityComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ECGQualityComputeTests.swift; sourceTree = "<group>"; };
@@ -249,6 +251,7 @@
 				GAPP_MOD /* Models */,
 				GAPP_UI /* UI */,
 				FRES1 /* Assets.xcassets */,
+				FRES2 /* PrivacyInfo.xcprivacy */,
 				FINFO /* Info.plist */,
 			);
 			path = Wythin;
@@ -571,6 +574,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				ARES1 /* Assets.xcassets in Resources */,
+				ARES2 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
