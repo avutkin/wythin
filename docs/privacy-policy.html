@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wythin — Privacy Policy</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #1a1a1c; --dim: #5f5f68;
+    --border: #e3e3e7; --surface: #f6f6f8; --accent: #3a3a40;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121214; --text: #ededf0; --dim: #9a9aa4;
+      --border: #2a2a30; --surface: #1c1c20; --accent: #c9c9d2;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 3rem 1.25rem 5rem;
+    background: var(--bg); color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 44rem; margin: 0 auto; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .35rem; letter-spacing: -.02em; }
+  h2 {
+    font-size: 1.1rem; margin: 2.75rem 0 .75rem; letter-spacing: -.01em;
+    padding-bottom: .4rem; border-bottom: 1px solid var(--border);
+  }
+  .meta { color: var(--dim); font-size: .9rem; margin: 0 0 2rem; }
+  .summary {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1.1rem 1.25rem; margin: 0 0 1rem;
+  }
+  .summary p { margin: 0; }
+  ul { padding-left: 1.25rem; }
+  li { margin: .4rem 0; }
+  code {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: .1em .35em; font-size: .88em;
+  }
+  a { color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; margin: .5rem 0; font-size: .95rem; }
+  th, td { text-align: left; padding: .55rem .6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; }
+  .wrap { overflow-x: auto; }
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border); color: var(--dim); font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+
+  <h1>Wythin — Privacy Policy</h1>
+  <p class="meta">Last updated 29 July 2026</p>
+
+  <div class="summary">
+    <p>Wythin is an independent app built by one developer. It has no advertising, no
+    analytics, no tracking, and no third-party SDKs of any kind. Your readings are
+    stored on your device and, if you enable sync, on a private server run by the
+    developer. You can delete everything from inside the app at any time.</p>
+  </div>
+
+  <h2>Who is responsible</h2>
+  <p>Wythin is developed and operated by Alex Utkin as an independent developer.
+  Contact for any privacy question or request: <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a>.</p>
+
+  <h2>What the app collects</h2>
+  <p>All of the following is optional. Every onboarding question, including the
+  contact ones, can be skipped, and the app remains usable if you skip all of them.</p>
+  <div class="wrap">
+  <table>
+    <tr><th>Data</th><th>Why</th><th>Required?</th></tr>
+    <tr><td>Phone number</td><td>So a coach can reach you, if you want that</td><td>No — skippable</td></tr>
+    <tr><td>Email address</td><td>To send you results and updates</td><td>No — skippable</td></tr>
+    <tr><td>Age range and gender</td><td>To tailor guidance</td><td>No — skippable</td></tr>
+    <tr><td>Goals, practices, tools you use</td><td>To tailor guidance</td><td>No — skippable</td></tr>
+    <tr><td>Heart rate, heart-rate variability and ECG-derived measurements</td><td>The core function of the app</td><td>Only if you connect a chest strap</td></tr>
+    <tr><td>Activity and session records you create</td><td>To show your history and trends</td><td>Only what you record</td></tr>
+    <tr><td>App settings and preferences</td><td>To remember how you configured the app</td><td>Stored on device</td></tr>
+  </table>
+  </div>
+
+  <h2>Heart-rate sensors and Bluetooth</h2>
+  <p>Wythin uses Bluetooth solely to connect to a compatible heart-rate chest strap
+  (such as a Polar H10) and read measurements from it. Bluetooth is never used to
+  detect your location, to identify nearby people or devices for any other purpose,
+  or to build a profile of you. If you never connect a strap, the app collects no
+  physiological data at all.</p>
+
+  <h2>Where your data goes</h2>
+  <p>Measurements are held on your device. If you enable sync, they are also sent
+  over an encrypted HTTPS connection to a private server operated by the developer
+  on Hetzner Cloud infrastructure. That server is not shared with other products and
+  your data is not sold, rented, or disclosed to advertisers or data brokers.</p>
+
+  <h2>Third-party processing</h2>
+  <p>When the app generates a written interpretation of your readings, the relevant
+  numbers are sent to <strong>OpenAI</strong> (model <code>gpt-4o-mini</code>) to
+  produce that text. This is the only third party that ever receives any of your
+  data.</p>
+  <p>What is sent is limited to the measurements and summaries needed for the
+  interpretation — for example activity type, duration, and heart-rate or
+  variability values and their trends. <strong>Your name, email address, and phone
+  number are never sent to OpenAI.</strong></p>
+
+  <h2>What Wythin does not do</h2>
+  <ul>
+    <li>No advertising and no ad identifiers.</li>
+    <li>No analytics or crash-reporting SDKs.</li>
+    <li>No tracking across other apps or websites, and no data shared for tracking. The app links no third-party libraries whatsoever.</li>
+    <li>No selling or sharing of personal information.</li>
+    <li>No access to your Apple Health data. The app does not use HealthKit.</li>
+    <li>No location collection.</li>
+  </ul>
+
+  <h2>Your control over your data</h2>
+  <p>You can delete your data at any time from <strong>Settings</strong> inside the
+  app. This permanently removes your synced measurements, sessions, activities, and
+  profile from the server. Deleting the app from your device removes the copy held
+  on the device.</p>
+  <p>To ask what is stored about you, or to have it removed by hand, email
+  <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a>.</p>
+
+  <h2>Retention</h2>
+  <p>Synced data is kept until you delete it, either from within the app or by
+  asking. There is no fixed expiry, because the value of the app comes from
+  comparing today against your own history.</p>
+
+  <h2>Security</h2>
+  <p>All traffic between the app and the server is encrypted in transit using TLS.
+  Access to your records requires a personal access token issued to you. As with any
+  service, no method of transmission or storage can be guaranteed absolutely secure.</p>
+
+  <h2>Children</h2>
+  <p>Wythin is not directed to children and should not be used by anyone under 13.</p>
+
+  <h2>Beta testing</h2>
+  <p>While Wythin is distributed for testing through Apple TestFlight, Apple
+  additionally collects information about your use of the beta, such as installation
+  and crash data, under
+  <a href="https://www.apple.com/legal/privacy/">Apple's own privacy policy</a>.
+  Feedback you submit through TestFlight, including screenshots, is visible to the
+  developer.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes in a way that affects how your data is handled, the date
+  at the top of this page will be updated. Material changes will be noted in the app
+  or by email if you have provided one.</p>
+
+  <footer>
+    Wythin · independent app by Alex Utkin ·
+    <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a>
+  </footer>
+
+</main>
+</body>
+</html>
