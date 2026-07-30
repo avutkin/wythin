@@ -40,12 +40,51 @@ jobs:
           name: TestResults
           path: TestResults.xcresult
 
+  # ── Are the signing secrets configured? ─────────────────────────────────────
+  #
+  # The `secrets` context is not available in a job-level `if`, so the check has
+  # to happen inside a step and be published as an output. Without this the
+  # archive job runs on every push to main and dies on the first line of the
+  # certificate import, turning main red for a pipeline that was never
+  # configured rather than for anything a commit broke.
+  secrets-check:
+    name: Signing secrets configured?
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DISTRIBUTION_CERT_BASE64 }}
+          PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+        run: |
+          missing=""
+          [ -n "$CERTIFICATE_BASE64" ] || missing="$missing DISTRIBUTION_CERT_BASE64"
+          [ -n "$PROFILE_BASE64" ]     || missing="$missing PROVISIONING_PROFILE_BASE64"
+          [ -n "$APPSTORE_KEY_ID" ]    || missing="$missing APPSTORE_KEY_ID"
+          if [ -n "$missing" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### TestFlight upload skipped"
+              echo
+              echo "Signing secrets are not configured. Missing:"
+              for s in $missing; do echo "- \`$s\`"; done
+              echo
+              echo "Until these are set, upload the build from Xcode Organizer."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
   # ── Archive & TestFlight (main branch only) ─────────────────────────────────
   testflight:
     name: Archive → TestFlight
-    needs: test
+    needs: [test, secrets-check]
     runs-on: macos-15
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: needs.secrets-check.outputs.configured == 'true'
 
     steps:
       - uses: actions/checkout@v4
@@ -94,11 +133,11 @@ jobs:
           <plist version="1.0">
           <dict>
             <key>method</key>
-            <string>app-store</string>
+            <string>app-store-connect</string>
             <key>teamID</key>
             <string>${{ secrets.APPLE_TEAM_ID }}</string>
-            <key>uploadBitcode</key>
-            <false/>
+            <key>uploadSymbols</key>
+            <true/>
           </dict>
           </plist>
           EOF
