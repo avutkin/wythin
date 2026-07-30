@@ -47,12 +47,18 @@ final class TrackCache {
         /// it a user who wore the strap 30 of the last 90 days re-fetched the
         /// other 60 on every period switch and every swipe, forever.
         var noDataDays: [Date]
+        /// The `rollupComputeVersion` in effect when `rollups`/`noDataDays`
+        /// were written. See that constant for why this exists and why it is
+        /// checked, not decoded away, in `load()`.
+        var computeVersion: Int
 
         init(rollups: [DailyRollup] = [],
-             macroReads: [String: MacroReadEntry] = [:], noDataDays: [Date] = []) {
-            self.rollups    = rollups
-            self.macroReads = macroReads
-            self.noDataDays = noDataDays
+             macroReads: [String: MacroReadEntry] = [:], noDataDays: [Date] = [],
+             computeVersion: Int = TrackCache.rollupComputeVersion) {
+            self.rollups        = rollups
+            self.macroReads     = macroReads
+            self.noDataDays     = noDataDays
+            self.computeVersion = computeVersion
         }
 
         /// Decoded field by field with `decodeIfPresent` so a file written by
@@ -70,6 +76,17 @@ final class TrackCache {
         /// wrong-shape case, which is strictly more forgiving than a single
         /// version number that would wipe the *entire* cache — rollups
         /// included — on any field it didn't recognize.
+        ///
+        /// `computeVersion` below is not that field reborn: it exists to
+        /// invalidate *derived values* when the computation behind them
+        /// changes, not to migrate the file's shape. A shape change (a
+        /// renamed or reshaped field) is exactly what per-field
+        /// `decodeIfPresent`/`try?` above already handles more gracefully
+        /// than any version number could. `computeVersion` mismatching only
+        /// ever discards `rollups` and `noDataDays` — never `macroReads`,
+        /// which self-invalidates via `fingerprint(for:)` once the rollups
+        /// it was keyed on are gone — so it stays a narrow lever, not a
+        /// second blanket wipe in disguise.
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             rollups = try c.decodeIfPresent([DailyRollup].self, forKey: .rollups) ?? []
@@ -87,6 +104,13 @@ final class TrackCache {
                 macroReads = [:]
             }
             noDataDays = try c.decodeIfPresent([Date].self, forKey: .noDataDays) ?? []
+            // Missing key means a file written before this lever existed —
+            // treated as version 0, which can never equal a real
+            // `rollupComputeVersion` (the constant starts at 1), so such a
+            // file is always stale on first load under the build that
+            // introduces the check. That is correct: it is exactly the file
+            // this lever exists to catch.
+            computeVersion = try c.decodeIfPresent(Int.self, forKey: .computeVersion) ?? 0
         }
     }
 
@@ -126,6 +150,39 @@ final class TrackCache {
     ///     Reserve "vagal tone" while the Vagal Tone card sits below it.
     static let macroReadRevision = 2
 
+    /// Revision of the *rollup computation* itself: `MetricsQualityFilter`'s
+    /// gate, `DailyRollupCompute`'s averaging, or anything else that changes
+    /// what a stored `DailyRollup`/`noDataDays` entry actually means. Checked
+    /// on `load()` against the value the file was written with
+    /// (`File.computeVersion`); a mismatch discards `rollups` and
+    /// `noDataDays` so they recompute under the current rules from raw
+    /// samples, which `refresh` still has access to. `macroReads` is left
+    /// alone on purpose — it is keyed by `fingerprint(for:)`, a hash of
+    /// rollup values, so once the rollups it described are gone or
+    /// recomputed to something different, its keys simply stop matching and
+    /// it self-invalidates without needing to be touched here.
+    ///
+    /// This is a different lever from `macroReadRevision` above (which only
+    /// ever affects generated *text*, never data) and from the `version`
+    /// field `File.init(from:)` explains was deliberately deleted (that one
+    /// would have wiped the whole cache, including fields whose shape hadn't
+    /// changed at all, on any mismatch). This lever's blast radius is
+    /// intentionally narrow: derived values only, never the file's shape.
+    ///
+    /// **Bump this whenever the rollup computation changes.** Rollups are
+    /// cached indefinitely and treated as immutable once a day is closed
+    /// (`refresh` skips any day already cached), so without this lever a
+    /// rollup — and any 90-day baseline built from it — computed under a
+    /// stale rule would persist on disk forever; only a fresh install would
+    /// ever see the fix.
+    ///
+    /// 1 — original release (three independent per-field checks in
+    ///     `MetricsQualityFilter`: SDNN, RMSSD, mean BPM).
+    /// 2 — `MetricsQualityFilter` gained the RMSSD/mean-BPM plausibility
+    ///     check, rejecting dropped/duplicated-beat artifacts (e.g. RMSSD
+    ///     150 ms at HR 165 bpm) that all three prior checks let through.
+    static let rollupComputeVersion = 2
+
     nonisolated static var defaultURL: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory,
                                            in: .userDomainMask)[0]
@@ -146,8 +203,19 @@ final class TrackCache {
             nextSeq      = 1
             return
         }
-        rollupsByDay = Dictionary(uniqueKeysWithValues: file.rollups.map { ($0.day, $0) })
-        noDataDays   = Set(file.noDataDays)
+        if file.computeVersion == Self.rollupComputeVersion {
+            rollupsByDay = Dictionary(uniqueKeysWithValues: file.rollups.map { ($0.day, $0) })
+            noDataDays   = Set(file.noDataDays)
+        } else {
+            // Stale: these rollups (and the negative "no data" verdicts
+            // derived alongside them) were computed under a different rule
+            // than `rollupComputeVersion` names. Discard both — `refresh`
+            // treats every affected day as uncached and recomputes it from
+            // raw samples under the current rule. `macroReads` is left as
+            // decoded; see `rollupComputeVersion`'s doc for why.
+            rollupsByDay = [:]
+            noDataDays   = []
+        }
         macroReads   = file.macroReads
         nextSeq      = (macroReads.values.map(\.seq).max() ?? 0) + 1
     }

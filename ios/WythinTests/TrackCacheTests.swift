@@ -200,6 +200,74 @@ final class TrackCacheTests: XCTestCase {
         XCTAssertEqual(reopened.macroRead(key: "week|1|abc"), "Steady week.")
     }
 
+    // MARK: rollup compute versioning
+
+    /// A cache file whose `computeVersion` is stale (or missing entirely —
+    /// every file written before this lever existed) must discard its
+    /// rollups on load, so a stricter `MetricsQualityFilter` — or any future
+    /// change to the rollup computation — actually takes effect for existing
+    /// users instead of being masked forever by an immutable per-day cache.
+    func testStaleComputeVersionDiscardsRollupsOnLoad() throws {
+        let seed = TrackCache(fileURL: url)
+        _ = seed.refresh(days: [day(1)], today: day(0)) { samples($0) }
+        XCTAssertEqual(seed.rollups(in: day(1)...day(1)).count, 1)
+
+        var json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        XCTAssertNotNil(json["computeVersion"], "fixture must start with the key present")
+        json["computeVersion"] = (json["computeVersion"] as! Int) - 1
+
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+
+        let reopened = TrackCache(fileURL: url)
+        reopened.load()
+        XCTAssertTrue(reopened.rollups(in: day(1)...day(1)).isEmpty)
+
+        // And the day is treated as genuinely uncached, not negatively
+        // cached — it can be refetched and recomputed under the new rule.
+        var fetched: [Date] = []
+        _ = reopened.refresh(days: [day(1)], today: day(0)) { d in
+            fetched.append(d)
+            return samples(d)
+        }
+        XCTAssertEqual(fetched, [day(1)])
+        XCTAssertEqual(reopened.rollups(in: day(1)...day(1)).count, 1)
+    }
+
+    /// A cache file missing the `computeVersion` key altogether — any file
+    /// written before this lever shipped — must be treated exactly like a
+    /// stale version, not like a decode failure that wipes everything
+    /// (including `macroReads`, which this lever leaves untouched).
+    func testMissingComputeVersionKeyIsTreatedAsStale() throws {
+        let seed = TrackCache(fileURL: url)
+        _ = seed.refresh(days: [day(1)], today: day(0)) { samples($0) }
+        seed.setMacroRead("Steady week.", key: "week|1|abc")
+
+        var json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        json.removeValue(forKey: "computeVersion")
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+
+        let reopened = TrackCache(fileURL: url)
+        reopened.load()
+        XCTAssertTrue(reopened.rollups(in: day(1)...day(1)).isEmpty)
+        // macroReads is not touched by the version check itself; it survives
+        // decoding and is left to self-invalidate via `fingerprint(for:)`.
+        XCTAssertEqual(reopened.macroRead(key: "week|1|abc"), "Steady week.")
+    }
+
+    /// A cache written by the current build carries the current
+    /// `computeVersion` and must keep its rollups across a reload — the
+    /// common case, where nothing about the computation has changed.
+    func testCurrentComputeVersionKeepsRollupsOnLoad() {
+        let a = TrackCache(fileURL: url)
+        _ = a.refresh(days: [day(1)], today: day(0)) { samples($0) }
+
+        let b = TrackCache(fileURL: url)
+        b.load()
+        XCTAssertEqual(b.rollups(in: day(1)...day(1)).count, 1)
+    }
+
     func testUncachedDaysExcludesTodayAndKnownDays() {
         let cache = TrackCache(fileURL: url)
         _ = cache.refresh(days: [day(3)], today: day(0)) { samples($0) }   // has data

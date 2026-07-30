@@ -4,14 +4,45 @@ import Foundation
 
 /// Heuristic wear-detection for Polar H10.
 /// When the strap is removed, SDNN collapses near zero (no real cardiac variability).
-/// Three simultaneous threshold tests gate each tick.
+/// Three simultaneous per-field threshold tests, plus one cross-field
+/// plausibility test, gate each tick.
 enum MetricsQualityFilter {
+
+    /// Ceiling on RMSSD as a fraction of the concurrent mean RR interval
+    /// (`60_000 / meanBPM`, in ms). Successive-beat variability is bounded by
+    /// how far apart beats are in the first place, so RMSSD cannot run away
+    /// from the mean interval without the interval itself being wrong.
+    ///
+    /// 0.30 is deliberately permissive — roughly double the highest fraction
+    /// plausible even in extreme resonance-breathing HRV at rest — because
+    /// this gate runs at all ten `MetricsQualityFilter` call sites across the
+    /// app, and a false rejection here doesn't just skip a chart point, it
+    /// silently deletes real data from averages, morning anchors, and
+    /// activity impact. Erring toward letting a rare true edge case through
+    /// is far cheaper than erring toward dropping real physiology.
+    ///
+    /// Confirmed against production data: dropped/duplicated beats on the
+    /// chest strap produced RMSSD ~150 ms at HR ~165 bpm (ratio 0.41, mean RR
+    /// ~364 ms) for seven straight hours on 2026-07-28, and RMSSD 137 at HR
+    /// 165.5 (ratio 0.38) on 2026-07-25 — both pass every check below in
+    /// isolation (150 > 3, 165 is within 35...210), because none of them
+    /// relate RMSSD to the heart rate it was measured alongside.
+    static let maxRMSSDFraction: Double = 0.30
 
     static func isValid(_ pt: MetricsHistoryPoint) -> Bool {
         guard let sdnn  = pt.sdnn,    sdnn  > 5.0  else { return false }
         guard let rmssd = pt.rmssd,   rmssd > 3.0  else { return false }
         guard let bpm   = pt.meanBPM, bpm  >= 35.0,
               bpm <= 210.0                          else { return false }
+
+        // Cross-field plausibility: at HR 165 the mean RR interval is only
+        // ~364 ms, so an RMSSD of 150 ms means adjacent beats routinely
+        // differ by 41% of that interval — impossible in sinus rhythm, but
+        // invisible to the three checks above, each of which looks at a
+        // single field alone. This is what actually catches the artifact.
+        let meanRR = 60_000.0 / Double(bpm)
+        guard Double(rmssd) <= maxRMSSDFraction * meanRR else { return false }
+
         return true
     }
 
