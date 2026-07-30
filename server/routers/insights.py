@@ -237,6 +237,10 @@ _METRIC_NAMES = {
     "dfa1":       "DFA alpha-1 — fractal organization of the rhythm; a focus proxy "
                   "(near 1.0 = well-ordered, absorbed/focused; drifting toward 0.5 = "
                   "random/uncoupled; above ~1.2 = overly rigid)",
+    "stress_balance": "Stress balance — breathing-robust 0–100 arousal dial "
+                      "(lower = calmer). Not a raw frequency-domain stress "
+                      "ratio; slow paced breathing correctly reads as calmer, "
+                      "not more stressed",
 }
 
 
@@ -342,6 +346,115 @@ def _format_day_potential(req: InsightRequest) -> str:
     return "\n".join(lines)
 
 
+_MACRO_TREND_SYSTEM_PROMPT = (
+    "You are an expert physiologist writing the 'macro read' at the top of a "
+    "long-term trends screen for a person wearing a chest strap. You are given "
+    "each metric's average over the period, a baseline for comparison, a "
+    "benefit-signed change versus the previous period, and how many buckets "
+    "beat the baseline. The baseline is EITHER the person's own 90-day history "
+    "OR, when they don't yet have enough of their own data, a generic typical "
+    "range — the input tells you which, per metric. Only speak of 'their own "
+    "baseline' or their personal history when the input marks that metric's "
+    "baseline as personal; when it is generic, call it a typical or usual "
+    "range instead and do NOT claim it reflects their history. Every number "
+    "was computed by the app: never compute, restate more precisely, or "
+    "contradict one, and never invent a metric you were not given.\n\n"
+    "Reply in EXACTLY this plain-text structure:\n"
+    "Two sentences reading the period as a whole. Name at most three metrics "
+    "by their plain-English names. Say what the pattern is, not what each "
+    "number was.\n"
+    "→ One concrete action for the coming period.\n"
+    "→ Optionally one more action.\n\n"
+    "delta_pct is benefit-signed: positive always means improvement, including "
+    "where the raw value fell. A positive delta on Inner noise or Stress "
+    "balance means it went DOWN, which is good — never describe it as a rise.\n"
+    "No headings, no bullet characters other than '→', no markdown, no "
+    "greeting. Plain, warm, direct. Do not use the words 'HRV', 'RMSSD', "
+    "'LF/HF', 'entropy' or 'PIP' — use the plain-English names given."
+)
+
+
+_PERIOD_LABELS = {
+    "week":      "this week",
+    "month":     "this month",
+    "six_month": "these six months",
+}
+
+
+# Macro-trend-only names, overlaid on `_METRIC_NAMES` for the seven keys the
+# Track screen sends. `_METRIC_NAMES` itself is deliberately untouched: it is
+# shared with `live_state` and `activity`, where the clinical glosses are
+# correct and wanted.
+#
+# The source of truth here is the app's own card headings and "why" copy —
+# `activityMetricDefs` in ios/Wythin/UI/Activities/ActivityMetricsGrid.swift —
+# because the macro read sits directly above those very cards. A read that
+# names a metric differently from the card two inches below it is worse than
+# no read at all.
+#
+# Two hard constraints, both guarded by
+# `test_macro_trend_names_avoid_every_banned_token`:
+#
+#  1. None of the tokens `_MACRO_TREND_SYSTEM_PROMPT` forbids in the OUTPUT
+#     ("HRV", "RMSSD", "LF/HF", "entropy", "PIP") may appear in the INPUT.
+#     Handing the model a banned word as a metric's only available name forces
+#     it either to break the ban or to invent a name of its own.
+#  2. "Vagal Tone" is the app's name for `dc` and for nothing else. No other
+#     metric may be glossed with that phrase, or the read would say "your
+#     vagal tone rose" while the VAGAL TONE card on the same screen shows a
+#     fall — the reader has no way to tell which one is wrong.
+_MACRO_TREND_METRIC_NAMES = {
+    "dc": "Vagal Tone — relaxation and recovery capacity; how readily the "
+          "heart slows. Higher = a stronger brake, deeper recovery",
+    "rmssd": "Energy Reserve — core beat-to-beat variability, the headline "
+             "marker of recovery. Higher = a rested, adaptable system",
+    "rsa": "Conscious Breathing — how far heart rate swings with each breath. "
+           "Higher = slow, deep, deliberate breathing is landing",
+    "rcmse": "Adaptive Capacity — how flexible the system is across "
+             "timescales. Higher = more resilient and responsive",
+    "dfa1": "Harmony — the fractal balance of the heartbeat, with ~1.0 the "
+            "healthy sweet spot. Closer to 1.0 = better-organised regulation; "
+            "drifting low = uncoupled, running high = rigid",
+    "pip": "Inner Noise — beat-to-beat jitter; erratic, non-restorative "
+           "variability and a focus proxy. Lower = a cleaner, calmer signal",
+    "stress_balance": "Stress Balance — a breathing-robust 0–100 dial of how "
+                      "revved-up versus calm the person is. Lower = shifting "
+                      "into rest-and-digest; slow paced breathing correctly "
+                      "reads as calmer, not more stressed",
+}
+
+
+def _format_macro_trend(req: InsightRequest) -> str:
+    span = _PERIOD_LABELS.get(req.period or "", "this period")
+    unit = "months" if req.period == "six_month" else "days"
+    lines = [
+        f"Period: {span} ({req.range_label}). Averages are over the "
+        f"{unit} in the period; 'vs prior' compares with the previous "
+        f"period of the same length."
+    ]
+    for key, t in (req.trends or {}).items():
+        # Track's own names first; `_METRIC_NAMES` only as a fallback for a
+        # key this mode does not (yet) have a screen-matched name for.
+        label = _MACRO_TREND_METRIC_NAMES.get(key) or _METRIC_NAMES.get(key, key)
+        # A missing flag (older client) is treated as generic, not personal —
+        # the safe default is to under-claim personalization, never over-claim it.
+        personal = bool(t.baseline_is_personal)
+        parts = [f"avg={t.avg:.2f}"]
+        if t.baseline is not None:
+            if personal:
+                parts.append(f"baseline={t.baseline:.2f} (the person's own 90-day baseline)")
+            else:
+                parts.append(f"typical={t.baseline:.2f} (a generic reference range, not personal history)")
+        if t.delta_pct is not None:
+            parts.append(f"vs prior={t.delta_pct:+.0f}% (benefit-signed)")
+        if t.days_above is not None and t.days_total is not None:
+            ref = "their own baseline" if personal else "the typical range"
+            parts.append(f"{t.days_above} of {t.days_total} {unit} better than {ref}")
+        lines.append(f"{label}:")
+        lines.append("  " + " | ".join(parts))
+    return "\n".join(lines)
+
+
 @router.post("/insights", response_model=InsightResponse)
 async def generate_insight(
     req: InsightRequest,
@@ -366,6 +479,12 @@ async def generate_insight(
         system_prompt = _LIVE_STATE_SYSTEM_PROMPT
         user_content = _format_live_state(req)
         max_tokens = 260   # arc phrasing needs a little more room
+    elif req.mode == "macro_trend":
+        if not req.trends:
+            raise HTTPException(status_code=422, detail="trends is required for macro_trend mode")
+        system_prompt = _MACRO_TREND_SYSTEM_PROMPT
+        user_content = _format_macro_trend(req)
+        max_tokens = 180
     else:
         if not req.activity_type:
             raise HTTPException(status_code=422, detail="activity_type is required for activity mode")

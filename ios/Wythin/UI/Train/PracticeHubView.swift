@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 // MARK: - Practices Hub
 //
@@ -8,6 +9,8 @@ import SwiftUI
 
 struct PracticeHubView: View {
     @Environment(AppEnvironment.self) var env
+
+    @Query(sort: \TrainSession.startedAt, order: .reverse) private var trainSessions: [TrainSession]
 
     @State private var filter:   PracticeCategory? = nil     // nil = All
     @State private var selected: Practice?         = nil
@@ -43,6 +46,8 @@ struct PracticeHubView: View {
                     }
 
                     teachersStrip
+
+                    trainHistory
                 }
                 .padding(.horizontal)
                 .padding(.top, 12)
@@ -104,6 +109,28 @@ struct PracticeHubView: View {
             }
         }
         .padding(.top, 4)
+    }
+
+    // MARK: Train history
+
+    @ViewBuilder
+    private var trainHistory: some View {
+        if !trainSessions.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("HISTORY")
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+                VStack(spacing: 0) {
+                    ForEach(trainSessions) { session in
+                        TrainSessionRow(session: session)
+                        if session.id != trainSessions.last?.id {
+                            Divider().background(Theme.border).padding(.horizontal, 12)
+                        }
+                    }
+                }
+                .cardStyle()
+            }
+        }
     }
 }
 
@@ -269,5 +296,55 @@ private struct TeacherChip: View {
                 .minimumScaleFactor(0.8)
         }
         .frame(width: 96)
+    }
+}
+
+// MARK: - Train session row
+
+private struct TrainSessionRow: View {
+    let session: TrainSession
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(session.startedAt, format: .dateTime.month().day().hour().minute())
+                    .font(Theme.monoBody)
+                    .foregroundStyle(Theme.text)
+                Spacer()
+                Text(session.durationString)
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+            }
+
+            HStack(spacing: 16) {
+                Label("\(session.setCount) sets", systemImage: "bolt")
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.warn)
+                if session.avgRecoveryMin > 0 {
+                    Label(String(format: "%.1f min avg recovery", session.avgRecoveryMin),
+                          systemImage: "arrow.down.heart")
+                        .font(Theme.monoLabel)
+                        .foregroundStyle(Theme.rsa)
+                }
+            }
+
+            HStack(spacing: 16) {
+                Text(String(format: "SNS %.2f", session.avgSNSIndex))
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.warn.opacity(0.8))
+                Text(String(format: "PNS %.2f", session.avgPNSIndex))
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.accent.opacity(0.8))
+            }
+
+            let recs = session.recoveryMinArray
+            if !recs.isEmpty {
+                Text("Sets: " + recs.map { String(format: "%.1f", $0) }.joined(separator: " → ") + " min")
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
     }
 }

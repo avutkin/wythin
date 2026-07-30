@@ -156,8 +156,25 @@ class MetricComponent(BaseModel):
     level: Optional[str] = None
 
 
+class MacroTrend(BaseModel):
+    """One metric's summary over a Track period. All values are computed
+    on-device; the model receives them and supplies language only."""
+    avg:        float
+    baseline:   Optional[float] = None
+    # Whether `baseline` is this person's own 90-day median, versus a fixed
+    # physiological norm used when they don't yet have enough history.
+    # Optional so an older client that omits it still validates.
+    baseline_is_personal: Optional[bool] = None
+    # Benefit-signed: positive always means improvement, including for metrics
+    # where the raw value fell (Inner Noise, Stress Balance).
+    delta_pct:  Optional[float] = None
+    days_above: Optional[int] = None
+    days_total: Optional[int] = None
+    direction:  Optional[str] = None
+
+
 class InsightRequest(BaseModel):
-    mode: str = "activity"            # "activity" | "live_state" | "day_potential"
+    mode: str = "activity"            # "activity" | "live_state" | "day_potential" | "macro_trend"
 
     # "activity" mode fields
     activity_type:    Optional[str] = None
@@ -201,6 +218,11 @@ class InsightRequest(BaseModel):
     streak_current: Optional[int] = None
     streak_best:    Optional[int] = None
     grace_used:     Optional[bool] = None
+
+    # "macro_trend" mode fields
+    period:      Optional[str] = None    # "week" | "month" | "six_month"
+    range_label: Optional[str] = None
+    trends:      Optional[dict[str, MacroTrend]] = None
 
 
 class InsightResponse(BaseModel):

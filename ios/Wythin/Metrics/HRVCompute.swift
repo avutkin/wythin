@@ -291,7 +291,16 @@ enum HRVCompute {
 
         guard count > 0 else { return ([], []) }
 
-        let scale    = 1.0 / (wScale * fs * Float(count))
+        // `fftMagnitudes` already divides its output by `fftLen` (see its own
+        // scale factor), so `magnitudes[i]` is |X[k]| / N rather than the raw
+        // |X[k]| the standard Welch density formula expects. Squaring that in
+        // the accumulation loop above yields |X[k]|² / N², so the usual
+        // density scale `1 / (wScale * fs * count)` would leave the result too
+        // small by N². Multiplying by `fftLen²` here cancels that pre-division
+        // and restores the correct, dimensionally-consistent PSD (ms²/Hz).
+        // `fftMagnitudes` itself is left alone — CoherenceCompute depends on
+        // its |X[k]| / N amplitude convention for cross-spectral work.
+        let scale    = Float(fftLen) * Float(fftLen) / (wScale * fs * Float(count))
         let psd      = psdAcc.map { $0 * scale }
         let freqStep = fs / Float(fftLen)
         let freqs    = (0..<halfLen).map { Float($0) * freqStep }

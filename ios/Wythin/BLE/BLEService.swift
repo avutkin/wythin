@@ -43,6 +43,77 @@ struct BLEDevice: Identifiable, Equatable {
     }
 }
 
+// MARK: - ACC Watchdog Policy (pure, testable)
+//
+// The H10 answers PMD control-point writes asynchronously, but `launchStreams`
+// serialises the ECG/ACC start commands with a fixed 250 ms timer rather than
+// waiting for the device's actual response (see BLEService.launchStreams). The
+// H10 can still be busy starting the 130 Hz ECG stream when the ACC start
+// arrives, and nothing today inspects the response or notices — one lost ACC
+// start silently disables breathing detection until the next reconnect or
+// standby cycle. This type is the retry policy for a watchdog that catches
+// that specific asymmetric failure and re-issues the ACC start itself.
+//
+// Deliberately free of CoreBluetooth: given liveness signals it returns a pure
+// decision, so BLETests can exercise every branch without a real peripheral.
+// `BLEService.evaluateACCWatchdog` is the only caller — it samples state, calls
+// `decide`, and acts on the result.
+enum ACCWatchdogPolicy {
+
+    enum Action: Equatable {
+        /// Nothing wrong (or a retry was just issued) — check again next tick.
+        case keepWaiting
+        /// ECG is flowing, ACC has been silent past the threshold, a retry slot
+        /// remains, and enough time has passed since the last retry — reissue
+        /// the ACC start command.
+        case retryACCStart
+        /// Retry budget exhausted with ACC still silent — stop trying until the
+        /// next full stream restart (reconnect or standby/resume cycle), which
+        /// rearms the watchdog with a fresh budget.
+        case giveUp
+    }
+
+    /// - Parameters:
+    ///   - isConnected: true only while the BLE state is `.connected`. If false
+    ///     the link itself is down — the existing reconnect machinery
+    ///     (`BLEService.startWatchdog`) owns that, not this watchdog.
+    ///   - inStandby: true while paused off-body. Streams are intentionally
+    ///     stopped there, so ACC silence is expected, not a failure.
+    ///   - ecgFlowing: whether ECG samples have arrived recently. This is the
+    ///     asymmetry check the whole watchdog exists for — if ECG is ALSO
+    ///     silent, the connection itself is the problem, not a lost ACC start,
+    ///     and this watchdog must stay quiet and let the reconnect path work.
+    ///   - timeSinceLastACCSample: seconds since the last ACC sample arrived.
+    ///   - timeSinceLastRetry: seconds since the last retry was issued, or nil
+    ///     if none has been issued since the streams were last (re)started.
+    ///   - retriesUsed: retries issued since the streams were last (re)started.
+    ///   - stallThreshold: seconds of ACC silence (while ECG flows) that counts
+    ///     as a stall rather than normal jitter or a brief connection hiccup.
+    ///   - retryGap: minimum seconds between successive retries — gives a
+    ///     just-issued retry a chance to take effect before trying again.
+    ///   - maxRetries: total retries allowed before giving up.
+    static func decide(
+        isConnected: Bool,
+        inStandby: Bool,
+        ecgFlowing: Bool,
+        timeSinceLastACCSample: TimeInterval,
+        timeSinceLastRetry: TimeInterval?,
+        retriesUsed: Int,
+        stallThreshold: TimeInterval,
+        retryGap: TimeInterval,
+        maxRetries: Int
+    ) -> Action {
+        guard isConnected, !inStandby else { return .keepWaiting }
+        // Both streams silent → the connection is the problem, not a lost ACC
+        // start. Stay quiet and let the reconnect/standby machinery handle it.
+        guard ecgFlowing else { return .keepWaiting }
+        guard timeSinceLastACCSample >= stallThreshold else { return .keepWaiting }
+        guard retriesUsed < maxRetries else { return .giveUp }
+        if let timeSinceLastRetry, timeSinceLastRetry < retryGap { return .keepWaiting }
+        return .retryACCStart
+    }
+}
+
 // MARK: - BLEService
 //
 // State machine:
@@ -105,9 +176,29 @@ final class BLEService: NSObject {
     private var settingsQueryTask:     Task<Void, Never>?
     private var reconnectTask:         Task<Void, Never>?  // cancellable, replaces asyncAfter
     private var watchdogTask:          Task<Void, Never>?  // detects silent drops
+    private var accWatchdogTask:       Task<Void, Never>?  // detects a stalled ACC stream while ECG flows
 
     private var ecgSettings: [UInt8: [UInt16]]?
     private var accSettings: [UInt8: [UInt16]]?
+
+    // ACC watchdog liveness/retry state — see ACCWatchdogPolicy and evaluateACCWatchdog().
+    private var lastECGSampleAt: Date?
+    private var lastACCSampleAt: Date?
+    private var lastACCRetryAt:  Date?
+    private var accRetryCount:   Int = 0
+    private var lastACCStartCmd: Data?
+
+    // ACC watchdog tuning. At 200 Hz the H10 delivers ACC notifications many
+    // times a second, so 5 s of total silence is ~1000 missed samples — never
+    // happens from ordinary jitter or a brief connection hiccup, but is exactly
+    // what a lost ACC start looks like, and is short enough that a user never
+    // again loses two hours of breathing data the way the 2026-07-29 outage did.
+    // 3 retries at a 5 s gap bounds worst-case recovery to ~20 s while still
+    // giving a genuinely broken strap a few honest tries before giving up.
+    private static let accStallThreshold:      TimeInterval = 5.0
+    private static let accRetryGap:            TimeInterval = 5.0
+    private static let accWatchdogMaxRetries:  Int          = 3
+    private static let accWatchdogPollInterval: TimeInterval = 2.0
 
     private let bleQueue       = DispatchQueue(label: "com.wythin.ble", qos: .userInitiated)
     private let savedDeviceKey = "wythin.polar.uuid"
@@ -296,6 +387,7 @@ final class BLEService: NSObject {
         connectionTimeoutTask?.cancel()
         reconnectTask?.cancel()
         watchdogTask?.cancel()
+        accWatchdogTask?.cancel()
         connectionGapSubject.send()      // discard buffered off-body beats
         stopPMDStreams()                 // stop ECG/ACC; keep HR for contact
         pmdStreamsStarted = false        // allow a clean restart on resume
@@ -408,6 +500,7 @@ final class BLEService: NSObject {
             guard let self, let ctrl = self.pmdControl, let p = self.peripheral else { return }
             print("🔵 BLE: starting ACC — \(acc.hexLog)")
             p.writeValue(acc, for: ctrl, type: .withResponse)
+            self.startACCWatchdog(accCmd: acc)
         }
     }
 
@@ -426,6 +519,7 @@ final class BLEService: NSObject {
     private func clearCharacteristics() {
         settingsQueryTask?.cancel()
         watchdogTask?.cancel()
+        accWatchdogTask?.cancel()
         pmdControl        = nil
         pmdData           = nil
         hrChar            = nil
@@ -434,6 +528,11 @@ final class BLEService: NSObject {
         pmdStreamsStarted  = false
         ecgSettings       = nil
         accSettings       = nil
+        lastECGSampleAt   = nil
+        lastACCSampleAt   = nil
+        lastACCRetryAt    = nil
+        accRetryCount     = 0
+        lastACCStartCmd   = nil
     }
 
     /// Full reset including the peripheral reference. Used for intentional
@@ -461,6 +560,95 @@ final class BLEService: NSObject {
                 self.handleUnexpectedDisconnect(p, error: nil)
             }
         }
+    }
+
+    // MARK: - ACC Watchdog
+    //
+    // Detects the asymmetric failure where ECG keeps flowing but the ACC start
+    // was lost or answered while the H10 was still busy (see launchStreams and
+    // ACCWatchdogPolicy above). Runs independently of startWatchdog(), which
+    // only detects a fully-dead connection — this one exists precisely for the
+    // case where the connection is fine and only one of the two streams died,
+    // so it must not fight the reconnect/standby machinery that owns that case.
+
+    /// Arms the ACC watchdog for a freshly (re)started ACC stream: resets the
+    /// retry budget and seeds both liveness clocks to "now" so a normal-but-slow
+    /// stream start (the H10 still busy from the ECG start moments earlier)
+    /// isn't mistaken for a stall before either stream has delivered a sample.
+    private func startACCWatchdog(accCmd: Data) {
+        accWatchdogTask?.cancel()
+        accRetryCount   = 0
+        lastACCRetryAt  = nil
+        lastACCStartCmd = accCmd
+        lastACCSampleAt = Date()
+        lastECGSampleAt = Date()
+        print("🔵 BLE: ACC watchdog armed — stall threshold \(Int(Self.accStallThreshold))s, max \(Self.accWatchdogMaxRetries) retries")
+
+        accWatchdogTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.accWatchdogPollInterval))
+                guard !Task.isCancelled, let self else { return }
+                self.evaluateACCWatchdog()
+            }
+        }
+    }
+
+    /// One poll tick: samples current liveness/state, asks the pure policy for
+    /// a decision, and acts on it (retry write, log, or give up).
+    private func evaluateACCWatchdog() {
+        guard case .connected = state,
+              let ctrl = pmdControl, let p = peripheral,
+              let accCmd = lastACCStartCmd else { return }
+
+        let now = Date()
+        // "ECG flowing" reuses the stall threshold as its recency window: ECG
+        // arrives far more often than every 5 s, so treating longer silence as
+        // "not flowing" is generous, not tight — it only opens up when ECG has
+        // genuinely stopped too, at which point this is a connection problem.
+        let ecgFlowing = lastECGSampleAt.map { now.timeIntervalSince($0) < Self.accStallThreshold } ?? false
+        let timeSinceACC = lastACCSampleAt.map { now.timeIntervalSince($0) } ?? .infinity
+        let timeSinceRetry = lastACCRetryAt.map { now.timeIntervalSince($0) }
+
+        let action = ACCWatchdogPolicy.decide(
+            isConnected: true,
+            inStandby: inStandby,
+            ecgFlowing: ecgFlowing,
+            timeSinceLastACCSample: timeSinceACC,
+            timeSinceLastRetry: timeSinceRetry,
+            retriesUsed: accRetryCount,
+            stallThreshold: Self.accStallThreshold,
+            retryGap: Self.accRetryGap,
+            maxRetries: Self.accWatchdogMaxRetries
+        )
+
+        switch action {
+        case .keepWaiting:
+            break
+
+        case .retryACCStart:
+            accRetryCount += 1
+            lastACCRetryAt = now
+            print("🟡 BLE: ACC watchdog — no ACC samples for \(Int(timeSinceACC))s while ECG flowing — stall detected")
+            print("🔵 BLE: ACC watchdog — reissuing ACC start (attempt \(accRetryCount)/\(Self.accWatchdogMaxRetries))")
+            p.writeValue(accCmd, for: ctrl, type: .withResponse)
+
+        case .giveUp:
+            print("🔴 BLE: ACC watchdog — retry budget exhausted (\(Self.accWatchdogMaxRetries)/\(Self.accWatchdogMaxRetries)) — giving up until next reconnect/standby cycle")
+            lastError = "ACC stream stalled — breathing metrics unavailable until reconnect"
+            accWatchdogTask?.cancel()
+        }
+    }
+
+    /// Records ACC liveness. If the watchdog had been retrying, logs the
+    /// recovery and resets the retry budget so a later stall gets a full fresh
+    /// set of retries.
+    private func noteACCSampleReceived() {
+        lastACCSampleAt = Date()
+        if accRetryCount > 0 {
+            print("✅ BLE: ACC watchdog — ACC stream recovered after \(accRetryCount) retry attempt(s)")
+        }
+        accRetryCount  = 0
+        lastACCRetryAt = nil
     }
 
     // MARK: - Unexpected disconnect handler
@@ -721,8 +909,10 @@ extension BLEService: CBPeripheralDelegate {
             let parsed = PolarH10Profile.parsePMDFrame(data)
             Task { @MainActor in
                 if let ecg = parsed as? ECGFrame {
+                    self.lastECGSampleAt = Date()
                     self.ecgSubject.send(ecg.samplesUV.map { Float($0) })
                 } else if let acc = parsed as? ACCFrame {
+                    self.noteACCSampleReceived()
                     self.accSubject.send(acc.samples)
                 }
             }

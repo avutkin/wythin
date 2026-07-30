@@ -29,13 +29,22 @@
 		A118 /* WaveformRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F118 /* WaveformRenderer.swift */; };
 		A119 /* LiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F119 /* LiveView.swift */; };
 		A120 /* ECGWaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F120 /* ECGWaveformView.swift */; };
-		A121 /* HRVRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F121 /* HRVRingView.swift */; };
 		A122 /* HeartBeatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F122 /* HeartBeatView.swift */; };
 		A123 /* ResonateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F123 /* ResonateView.swift */; };
 		A124 /* PacerCircleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F124 /* PacerCircleView.swift */; };
-		A125 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F125 /* HistoryView.swift */; };
 		A126 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F126 /* SettingsView.swift */; };
 		A127 /* MetricsHistoryPoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = F127 /* MetricsHistoryPoint.swift */; };
+		A240 /* DailyRollup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F240 /* DailyRollup.swift */; };
+		A251 /* TrackCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F251 /* TrackCache.swift */; };
+		A252 /* TrackPeriod.swift in Sources */ = {isa = PBXBuildFile; fileRef = F252 /* TrackPeriod.swift */; };
+		A253 /* TrackMetricSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = F253 /* TrackMetricSpec.swift */; };
+		A254 /* TrackSeriesBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F254 /* TrackSeriesBuilder.swift */; };
+		A255 /* ConsistencySummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F255 /* ConsistencySummary.swift */; };
+		A256 /* TrackPeriodBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F256 /* TrackPeriodBar.swift */; };
+		A257 /* MacroReadCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F257 /* MacroReadCard.swift */; };
+		A258 /* TrackMetricChartCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F258 /* TrackMetricChartCard.swift */; };
+		A259 /* ConsistencyCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F259 /* ConsistencyCard.swift */; };
+		A250 /* TrackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F250 /* TrackView.swift */; };
 		A128 /* MetricsChartsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F128 /* MetricsChartsView.swift */; };
 		A129 /* ACCWaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F129 /* ACCWaveformView.swift */; };
 		A130 /* RRTachogramView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F130 /* RRTachogramView.swift */; };
@@ -118,6 +127,16 @@
 		AT14 /* AnchorBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT14 /* AnchorBaselineTests.swift */; };
 		AT15 /* PotentialScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT15 /* PotentialScoreTests.swift */; };
 		AT16 /* StreakComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT16 /* StreakComputeTests.swift */; };
+		AT30 /* DailyRollupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT30 /* DailyRollupTests.swift */; };
+		AT31 /* TrackCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT31 /* TrackCacheTests.swift */; };
+		AT32 /* TrackPeriodTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT32 /* TrackPeriodTests.swift */; };
+		AT33 /* TrackMetricSpecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT33 /* TrackMetricSpecTests.swift */; };
+		AT34 /* TrackSeriesBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT34 /* TrackSeriesBuilderTests.swift */; };
+		AT35 /* ConsistencySummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT35 /* ConsistencySummaryTests.swift */; };
+		AT40 /* RSAComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT40 /* RSAComputeTests.swift */; };
+		AT41 /* WelchPSDParsevalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT41 /* WelchPSDParsevalTests.swift */; };
+		AT42 /* MetricsQualityFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT42 /* MetricsQualityFilterTests.swift */; };
+		AT36 /* ConsistencyCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT36 /* ConsistencyCardTests.swift */; };
 		AT17 /* TrendShapeComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT17 /* TrendShapeComputeTests.swift */; };
 		AT18 /* DayPotentialInsightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT18 /* DayPotentialInsightTests.swift */; };
 		AT19 /* DayLoadSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT19 /* DayLoadSummaryTests.swift */; };
@@ -175,13 +194,22 @@
 		F118 /* WaveformRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformRenderer.swift; sourceTree = "<group>"; };
 		F119 /* LiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveView.swift; sourceTree = "<group>"; };
 		F120 /* ECGWaveformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ECGWaveformView.swift; sourceTree = "<group>"; };
-		F121 /* HRVRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HRVRingView.swift; sourceTree = "<group>"; };
 		F122 /* HeartBeatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartBeatView.swift; sourceTree = "<group>"; };
 		F123 /* ResonateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResonateView.swift; sourceTree = "<group>"; };
 		F124 /* PacerCircleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacerCircleView.swift; sourceTree = "<group>"; };
-		F125 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		F126 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		F127 /* MetricsHistoryPoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsHistoryPoint.swift; sourceTree = "<group>"; };
+		F240 /* DailyRollup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyRollup.swift; sourceTree = "<group>"; };
+		F251 /* TrackCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackCache.swift; sourceTree = "<group>"; };
+		F252 /* TrackPeriod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPeriod.swift; sourceTree = "<group>"; };
+		F253 /* TrackMetricSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackMetricSpec.swift; sourceTree = "<group>"; };
+		F254 /* TrackSeriesBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackSeriesBuilder.swift; sourceTree = "<group>"; };
+		F255 /* ConsistencySummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencySummary.swift; sourceTree = "<group>"; };
+		F256 /* TrackPeriodBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPeriodBar.swift; sourceTree = "<group>"; };
+		F257 /* MacroReadCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroReadCard.swift; sourceTree = "<group>"; };
+		F258 /* TrackMetricChartCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackMetricChartCard.swift; sourceTree = "<group>"; };
+		F259 /* ConsistencyCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencyCard.swift; sourceTree = "<group>"; };
+		F250 /* TrackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackView.swift; sourceTree = "<group>"; };
 		F128 /* MetricsChartsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsChartsView.swift; sourceTree = "<group>"; };
 		F129 /* ACCWaveformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ACCWaveformView.swift; sourceTree = "<group>"; };
 		F130 /* RRTachogramView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RRTachogramView.swift; sourceTree = "<group>"; };
@@ -267,6 +295,16 @@
 		FT14 /* AnchorBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaselineTests.swift; sourceTree = "<group>"; };
 		FT15 /* PotentialScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScoreTests.swift; sourceTree = "<group>"; };
 		FT16 /* StreakComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakComputeTests.swift; sourceTree = "<group>"; };
+		FT30 /* DailyRollupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyRollupTests.swift; sourceTree = "<group>"; };
+		FT31 /* TrackCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackCacheTests.swift; sourceTree = "<group>"; };
+		FT32 /* TrackPeriodTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPeriodTests.swift; sourceTree = "<group>"; };
+		FT33 /* TrackMetricSpecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackMetricSpecTests.swift; sourceTree = "<group>"; };
+		FT34 /* TrackSeriesBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackSeriesBuilderTests.swift; sourceTree = "<group>"; };
+		FT35 /* ConsistencySummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencySummaryTests.swift; sourceTree = "<group>"; };
+		FT40 /* RSAComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSAComputeTests.swift; sourceTree = "<group>"; };
+		FT41 /* WelchPSDParsevalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelchPSDParsevalTests.swift; sourceTree = "<group>"; };
+		FT42 /* MetricsQualityFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsQualityFilterTests.swift; sourceTree = "<group>"; };
+		FT36 /* ConsistencyCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencyCardTests.swift; sourceTree = "<group>"; };
 		FT17 /* TrendShapeComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendShapeComputeTests.swift; sourceTree = "<group>"; };
 		FT18 /* DayPotentialInsightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsightTests.swift; sourceTree = "<group>"; };
 		FT19 /* DayLoadSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLoadSummaryTests.swift; sourceTree = "<group>"; };
@@ -381,12 +419,16 @@
 			path = Design;
 			sourceTree = "<group>";
 		};
-		GAPP_HIS /* History */ = {
+		GAPP_TRK /* Track */ = {
 			isa = PBXGroup;
 			children = (
-				F125 /* HistoryView.swift */,
+				F256 /* TrackPeriodBar.swift */,
+				F257 /* MacroReadCard.swift */,
+				F258 /* TrackMetricChartCard.swift */,
+				F259 /* ConsistencyCard.swift */,
+				F250 /* TrackView.swift */,
 			);
-			path = History;
+			path = Track;
 			sourceTree = "<group>";
 		};
 		GAPP_LIV /* Live */ = {
@@ -396,7 +438,6 @@
 				F219 /* DayPotentialStore.swift */,
 				F119 /* LiveView.swift */,
 				F120 /* ECGWaveformView.swift */,
-				F121 /* HRVRingView.swift */,
 				F122 /* HeartBeatView.swift */,
 				F128 /* MetricsChartsView.swift */,
 				F129 /* ACCWaveformView.swift */,
@@ -443,6 +484,11 @@
 				F222 /* NudgeSignals.swift */,
 				F221 /* NudgeSampleBuffer.swift */,
 				F240 /* DailyRollup.swift */,
+				F251 /* TrackCache.swift */,
+				F252 /* TrackPeriod.swift */,
+				F253 /* TrackMetricSpec.swift */,
+				F254 /* TrackSeriesBuilder.swift */,
+				F255 /* ConsistencySummary.swift */,
 			);
 			path = Metrics;
 			sourceTree = "<group>";
@@ -527,7 +573,7 @@
 				GAPP_BIO /* Biofeedback */,
 				GAPP_ACT /* Activities */,
 				GAPP_RES /* Resonate */,
-				GAPP_HIS /* History */,
+				GAPP_TRK /* Track */,
 				GAPP_SET /* Settings */,
 			);
 			path = UI;
@@ -588,6 +634,15 @@
 				FT11 /* PracticeCatalogTests.swift */,
 				FT12 /* MotionComputeTests.swift */,
 				FT30 /* DailyRollupTests.swift */,
+				FT31 /* TrackCacheTests.swift */,
+				FT32 /* TrackPeriodTests.swift */,
+				FT33 /* TrackMetricSpecTests.swift */,
+				FT34 /* TrackSeriesBuilderTests.swift */,
+				FT35 /* ConsistencySummaryTests.swift */,
+				FT36 /* ConsistencyCardTests.swift */,
+				FT40 /* RSAComputeTests.swift */,
+				FT41 /* WelchPSDParsevalTests.swift */,
+				FT42 /* MetricsQualityFilterTests.swift */,
 			);
 			path = WythinTests;
 			sourceTree = "<group>";
@@ -716,13 +771,22 @@
 				A135 /* TrainSession.swift in Sources */,
 				A127 /* MetricsHistoryPoint.swift in Sources */,
 				A240 /* DailyRollup.swift in Sources */,
+				A251 /* TrackCache.swift in Sources */,
+				A252 /* TrackPeriod.swift in Sources */,
+				A253 /* TrackMetricSpec.swift in Sources */,
+				A254 /* TrackSeriesBuilder.swift in Sources */,
+				A255 /* ConsistencySummary.swift in Sources */,
+				A256 /* TrackPeriodBar.swift in Sources */,
+				A257 /* MacroReadCard.swift in Sources */,
+				A258 /* TrackMetricChartCard.swift in Sources */,
+				A259 /* ConsistencyCard.swift in Sources */,
+				A250 /* TrackView.swift in Sources */,
 				A117 /* Theme.swift in Sources */,
 				A118 /* WaveformRenderer.swift in Sources */,
 				A132 /* SplashView.swift in Sources */,
 				A133 /* BLENavButton.swift in Sources */,
 				A119 /* LiveView.swift in Sources */,
 				A120 /* ECGWaveformView.swift in Sources */,
-				A121 /* HRVRingView.swift in Sources */,
 				A122 /* HeartBeatView.swift in Sources */,
 				A128 /* MetricsChartsView.swift in Sources */,
 				A129 /* ACCWaveformView.swift in Sources */,
@@ -775,7 +839,6 @@
 				A221 /* NudgeSampleBuffer.swift in Sources */,
 				A123 /* ResonateView.swift in Sources */,
 				A124 /* PacerCircleView.swift in Sources */,
-				A125 /* HistoryView.swift in Sources */,
 				A126 /* SettingsView.swift in Sources */,
 				BB44FFFA4FD2ED2B440F60EA /* UsageEventLog.swift in Sources */,
 				519BA43B55690D5F8761EBBF /* UsageUploader.swift in Sources */,
@@ -806,6 +869,12 @@
 				AT17 /* TrendShapeComputeTests.swift in Sources */,
 				AT16 /* StreakComputeTests.swift in Sources */,
 				AT30 /* DailyRollupTests.swift in Sources */,
+				AT31 /* TrackCacheTests.swift in Sources */,
+				AT32 /* TrackPeriodTests.swift in Sources */,
+				AT33 /* TrackMetricSpecTests.swift in Sources */,
+				AT34 /* TrackSeriesBuilderTests.swift in Sources */,
+				AT35 /* ConsistencySummaryTests.swift in Sources */,
+				AT36 /* ConsistencyCardTests.swift in Sources */,
 				AT15 /* PotentialScoreTests.swift in Sources */,
 				AT14 /* AnchorBaselineTests.swift in Sources */,
 				AT13 /* AnchorDetectorTests.swift in Sources */,
@@ -821,6 +890,9 @@
 				AT26 /* ImpactDeltaTests.swift in Sources */,
 				AT11 /* PracticeCatalogTests.swift in Sources */,
 				AT12 /* MotionComputeTests.swift in Sources */,
+				AT40 /* RSAComputeTests.swift in Sources */,
+				AT41 /* WelchPSDParsevalTests.swift in Sources */,
+				AT42 /* MetricsQualityFilterTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

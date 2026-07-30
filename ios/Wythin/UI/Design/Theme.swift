@@ -41,7 +41,6 @@ enum Theme {
 
     static let cardPad:    CGFloat = 16
     static let cardRadius: CGFloat = 16
-    static let ringSize:   CGFloat = 72
 }
 
 // MARK: - Color hex initialiser

@@ -355,3 +355,258 @@ def test_day_potential_format_includes_score_and_modifiers():
     assert "72/100" in text
     assert "modifier fragmentation: -4.0" in text
     assert "Streak: 4 mornings" in text
+
+
+_MACRO_TREND_PAYLOAD = {
+    "mode": "macro_trend",
+    "period": "week",
+    "range_label": "JUL 27 – AUG 2",
+    "trends": {
+        "dc": {
+            "avg": 8.4, "baseline": 8.2, "delta_pct": 6.0,
+            "days_above": 5, "days_total": 7, "direction": "higher",
+        },
+        "pip": {
+            "avg": 52.0, "baseline": 57.0, "delta_pct": 9.0,
+            "days_above": 6, "days_total": 7, "direction": "lower",
+        },
+        "stress_balance": {
+            "avg": 44.0, "baseline": 48.0, "delta_pct": 8.0,
+            "days_above": 5, "days_total": 7, "direction": "lower",
+        },
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_macro_trend_success():
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
+        content="Your recovery markers held steady this week.\n→ Keep the evening breathing."
+    )
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights", json=_MACRO_TREND_PAYLOAD)
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 200
+    assert "→" in r.json()["text"]
+
+
+@pytest.mark.asyncio
+async def test_macro_trend_requires_trends():
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/insights",
+                json={"mode": "macro_trend", "period": "week", "range_label": "X"},
+            )
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_macro_trend_rejects_empty_trends():
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/insights",
+                json={"mode": "macro_trend", "period": "week",
+                      "range_label": "X", "trends": {}},
+            )
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 422
+
+
+def test_macro_trend_prompt_uses_friendly_metric_names():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_macro_trend
+
+    req = InsightRequest(**_MACRO_TREND_PAYLOAD)
+    text = _format_macro_trend(req)
+
+    assert "Inner Noise" in text                     # not "pip"
+    assert "JUL 27 – AUG 2" in text
+    assert "5 of 7" in text
+    # Stress Balance must not be glossed as a raw LF/HF ratio.
+    assert "stress_balance" not in text
+    assert "LF/HF" not in text
+
+
+def test_macro_trend_format_uses_personal_wording_when_baseline_is_personal():
+    """A metric with 90 days of the person's own history must be described as
+    their own baseline — never softened into a generic 'typical' claim."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_macro_trend
+
+    payload = {
+        "mode": "macro_trend", "period": "week", "range_label": "X",
+        "trends": {
+            "pip": {"avg": 52.0, "baseline": 57.0, "baseline_is_personal": True,
+                    "delta_pct": 9.0, "days_above": 6, "days_total": 7,
+                    "direction": "lower"},
+        },
+    }
+    text = _format_macro_trend(InsightRequest(**payload))
+    assert "own baseline" in text.lower()
+    assert "typical" not in text.lower()
+
+
+def test_macro_trend_format_uses_generic_wording_when_baseline_is_not_personal():
+    """A new user with too little history for a personal baseline must never
+    be told they beat 'their own baseline' — only a generic typical range."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_macro_trend
+
+    payload = {
+        "mode": "macro_trend", "period": "week", "range_label": "X",
+        "trends": {
+            "pip": {"avg": 52.0, "baseline": 57.0, "baseline_is_personal": False,
+                    "delta_pct": 9.0, "days_above": 6, "days_total": 7,
+                    "direction": "lower"},
+        },
+    }
+    text = _format_macro_trend(InsightRequest(**payload))
+    assert "typical" in text.lower()
+    assert "own baseline" not in text.lower()
+
+
+def test_macro_trend_format_defaults_to_generic_when_flag_omitted():
+    """An older client that omits the flag must not accidentally grant
+    personal-history phrasing — the safe default is generic."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_macro_trend
+
+    payload = {
+        "mode": "macro_trend", "period": "week", "range_label": "X",
+        "trends": {
+            "pip": {"avg": 52.0, "baseline": 57.0,
+                    "delta_pct": 9.0, "days_above": 6, "days_total": 7,
+                    "direction": "lower"},
+        },
+    }
+    text = _format_macro_trend(InsightRequest(**payload))
+    assert "typical" in text.lower()
+    assert "own baseline" not in text.lower()
+
+
+def test_macro_trend_prompt_does_not_assert_baseline_is_always_personal():
+    """The system prompt must not unconditionally tell the model the baseline
+    is the person's own history — it may be a generic reference instead, and
+    the prompt must say the input distinguishes the two."""
+    from server.routers.insights import _MACRO_TREND_SYSTEM_PROMPT as p
+
+    assert "generic" in p.lower()
+    assert "typical" in p.lower()
+    assert "the person's own baseline, a" not in p, (
+        "must not unconditionally assert the baseline is personal"
+    )
+
+
+# Exactly the seven keys ios/Wythin/Metrics/TrackMetricSpec.swift sends
+# (`TrackMetrics.all`, in display order). Kept as one fixture so a new Track
+# metric that reaches the wire without a macro-trend name is caught here.
+_TRACK_TREND_KEYS = ["dc", "rmssd", "rsa", "rcmse", "dfa1", "pip", "stress_balance"]
+
+# The words _MACRO_TREND_SYSTEM_PROMPT forbids the model from using in its
+# reply. Handing any of them to the model as a metric's only available name
+# forces it to either break the ban or invent a name of its own.
+_BANNED_OUTPUT_TOKENS = ["HRV", "RMSSD", "LF/HF", "entropy", "PIP"]
+
+
+def test_macro_trend_names_avoid_every_banned_token():
+    """The real guard: with all seven keys Track actually sends, the formatted
+    prompt must contain none of the tokens the system prompt bans, and must
+    not reuse 'Vagal Tone' — the app's name for the `dc` card — for any other
+    metric on the same screen."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_macro_trend
+
+    payload = {
+        "mode": "macro_trend", "period": "week", "range_label": "JUL 27 – AUG 2",
+        "trends": {
+            key: {"avg": 1.0, "baseline": 1.0, "baseline_is_personal": True,
+                  "delta_pct": 3.0, "days_above": 4, "days_total": 7,
+                  "direction": "higher"}
+            for key in _TRACK_TREND_KEYS
+        },
+    }
+    text = _format_macro_trend(InsightRequest(**payload))
+    lowered = text.lower()
+
+    for token in _BANNED_OUTPUT_TOKENS:
+        assert token.lower() not in lowered, (
+            f"{token!r} is banned from the model's output but appears in its input"
+        )
+
+    # Every key must resolve to a name, never fall through to the raw key.
+    for key in _TRACK_TREND_KEYS:
+        assert key not in text, f"{key!r} leaked into the prompt as a raw key"
+
+    # The app's names, matching the card headings the read sits above.
+    for name in ["Vagal Tone", "Energy Reserve", "Conscious Breathing",
+                 "Adaptive Capacity", "Harmony", "Inner Noise", "Stress Balance"]:
+        assert name in text, (
+            f"{name!r} is the app's own card heading and must be the name the "
+            f"read uses for that metric"
+        )
+
+    # 'Vagal Tone' belongs to `dc` alone. Two metrics sharing it would have the
+    # read describe one card by another card's name while both are on screen.
+    assert lowered.count("vagal tone") == 1
+
+
+def test_macro_trend_format_uses_month_period_label_and_days_unit():
+    """The `month` branch of `_PERIOD_LABELS` and `unit` are only exercised by
+    the `week` fixture elsewhere in this file — pin `month` directly."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_macro_trend
+
+    payload = {
+        "mode": "macro_trend", "period": "month", "range_label": "JULY 2026",
+        "trends": {
+            "pip": {"avg": 52.0, "baseline": 57.0, "baseline_is_personal": True,
+                    "delta_pct": 9.0, "days_above": 20, "days_total": 28,
+                    "direction": "lower"},
+        },
+    }
+    text = _format_macro_trend(InsightRequest(**payload))
+    assert "this month" in text
+    assert "days in the period" in text
+    assert "20 of 28 days better than" in text
+    assert "months" not in text
+
+
+def test_macro_trend_format_uses_six_month_period_label_and_months_unit():
+    """The `six_month` branch: unlike `week`/`month`, its unit word is
+    "months" in both the header sentence and the days_above line."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_macro_trend
+
+    payload = {
+        "mode": "macro_trend", "period": "six_month", "range_label": "FEB – JUL 2026",
+        "trends": {
+            "pip": {"avg": 52.0, "baseline": 57.0, "baseline_is_personal": True,
+                    "delta_pct": 9.0, "days_above": 4, "days_total": 6,
+                    "direction": "lower"},
+        },
+    }
+    text = _format_macro_trend(InsightRequest(**payload))
+    assert "these six months" in text
+    assert "months in the period" in text
+    assert "4 of 6 months better than" in text
+
+
+def test_macro_trend_names_do_not_leak_into_live_state():
+    """The overlay is macro-trend-only: `live_state` and `activity` keep the
+    clinical glosses in `_METRIC_NAMES`, which they were written for."""
+    from server.routers.insights import _METRIC_NAMES
+
+    assert "RMSSD" in _METRIC_NAMES["rmssd"]
+    assert "entropy" in _METRIC_NAMES["rcmse"]

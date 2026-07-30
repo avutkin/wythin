@@ -553,6 +553,9 @@ final class TrackCache {
         return changed
     }
 
+    // ⚠️ SUPERSEDED — this listing shipped a bug; see the note after this code
+    // block. The implemented version uses a hand-rolled FNV-1a over a canonical
+    // string. Do not copy the `Hasher` code below.
     /// A hash of the *values* covering `days`, used to key cached macro reads.
     ///
     /// It must be a value hash rather than a write counter: today's rollup is
@@ -580,6 +583,14 @@ final class TrackCache {
     }
 }
 ```
+
+**Correction to `fingerprint(for:)` above (found in review, fixed in `984f3a5`).**
+
+The `Hasher` version shown in the code block is wrong and must not be used. Swift's `Hasher` is seeded randomly **per process launch** — Apple documents that its output is not stable "across different executions of your program." Since `macroReads` is persisted to disk and read back by a later launch, identical unchanged data hashes differently after every app restart: the cache misses on every relaunch and re-bills an LLM call, which is precisely the failure the value-hash rule exists to prevent. A single-process test suite cannot catch this, because the seed is constant for the whole run.
+
+The shipped implementation builds a canonical string — days in sorted order, each field either `String((v * 1000).rounded())` or the literal `"nil"`, joined with `"|"` so field boundaries are unambiguous — and hashes it with a hand-rolled 64-bit FNV-1a over the UTF-8 bytes. `String(Double)` is used rather than `String(format:)` because it is locale-independent. The signature stays `func fingerprint(for days: [Date]) -> String`.
+
+Two tests lock this down: one refreshes *today* twice with identical samples and asserts the fingerprint is unchanged; one pins a hard-coded expected string for a fixed fixture, so any reintroduced process-seeded hash fails immediately.
 
 - [ ] **Step 5: Register the implementation file**
 
@@ -1520,8 +1531,11 @@ enum TrackSeriesBuilder {
     static func series(spec: TrackMetricSpec, range: TrackRange, priorRange: TrackRange,
                        rollups: [DailyRollup], asOf: Date,
                        calendar cal: Calendar = .current) -> TrackSeries {
-        let bars    = bars(spec: spec, range: range, rollups: rollups)
-        let present = bars.compactMap(\.value)
+        // Named `currentBars`, not `bars`: `let bars = bars(...)` shadows the
+        // static function for the rest of the scope, so the `priorBars` call
+        // below would fail to compile.
+        let currentBars = bars(spec: spec, range: range, rollups: rollups)
+        let present     = currentBars.compactMap(\.value)
         let average = present.isEmpty ? nil : present.reduce(0, +) / Double(present.count)
 
         let priorBars    = bars(spec: spec, range: priorRange, rollups: rollups)
@@ -1538,10 +1552,10 @@ enum TrackSeriesBuilder {
         let refBenefit  = spec.def.direction.benefit(reference)
         let betterCount = present.filter { spec.def.direction.benefit($0) > refBenefit }.count
 
-        let overlay = range.period == .month ? weeklyOverlay(bars: bars, calendar: cal) : []
+        let overlay = range.period == .month ? weeklyOverlay(bars: currentBars, calendar: cal) : []
 
         return TrackSeries(
-            bars: bars, average: average, deltaPct: delta,
+            bars: currentBars, average: average, deltaPct: delta,
             reference: reference, referenceIsPersonal: isPersonal,
             overlay: overlay, betterCount: betterCount, presentCount: present.count,
             summary: summary(period: range.period, better: betterCount,
@@ -1989,9 +2003,12 @@ In `server/routers/insights.py`, add to `_METRIC_NAMES` (after the `"dfa1"` entr
 
 ```python
     "stress_balance": "Stress balance — breathing-robust 0–100 arousal dial "
-                      "(lower = calmer). Not a raw LF/HF ratio; slow paced "
-                      "breathing correctly reads as calmer, not more stressed",
+                      "(lower = calmer). Not a raw frequency-domain stress "
+                      "ratio; slow paced breathing correctly reads as calmer, "
+                      "not more stressed",
 ```
+
+**Correction (found during Task 7, fixed in `2a45f96`).** This gloss originally read "Not a raw LF/HF ratio", which contradicted this task's own test asserting `"LF/HF" not in text` — `_format_macro_trend` embeds `_METRIC_NAMES` glosses into the prompt, so the gloss tripped the assertion. The gloss was reworded rather than the test relaxed, for two reasons: the test still catches the real regression (aliasing `stress_balance` to `lf_hf` would emit `lf_hf`'s own untouched gloss and fail), and the system prompt separately forbids the model from saying "LF/HF" — putting the banned token in the input, even inside a negation, primes the very output being banned.
 
 Then add, after `_format_day_potential` (line 342):
 

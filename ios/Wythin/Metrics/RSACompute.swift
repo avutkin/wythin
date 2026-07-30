@@ -74,9 +74,18 @@ enum RSACompute {
         let bandPow = bandPowerFromMask(freqs: freqs, psd: psd, mask: bandMask)
         let rsaIdx  = bandPow > 0 ? log(bandPow) : 0
 
-        // If the computed amplitude is exactly zero (e.g., HF band PSD is all zeros
-        // despite passing the RMSSD guard), treat as unmeasurable — gap > zero line.
-        guard rsaMs > 0 else { return nil }
+        // Physiological floor: an RSA amplitude below ~1 ms is not a real respiratory
+        // oscillation in the heart rate — it's numerical noise from the HF-band floor
+        // (e.g., accelerometer-derived breathing detection unavailable, variability
+        // dominated by LF rather than HF, so hfP ≈ 0 and sqrt(2 * hfP) lands near but
+        // not exactly zero). Testing for exactly zero let this slip through: production
+        // data recorded rsaMs averaging 0.057 ms (max 0.140 ms) over a 110-minute window
+        // and it plotted as a flat line pinned near the floor instead of a gap. 1.0 ms
+        // matches the sibling RMSSD flat-tachogram guard above — both use the same
+        // "amplitude smaller than measurement noise ⇒ unmeasurable, gap > zero line"
+        // reasoning, and 1 ms is comfortably above realistic HF-floor noise while still
+        // below any genuine respiratory oscillation (tens of ms).
+        guard rsaMs >= 1.0 else { return nil }
 
         return RSAMetrics(rsaMs: rsaMs, rsaIdx: rsaIdx, method: method)
     }

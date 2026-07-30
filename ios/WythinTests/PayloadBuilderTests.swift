@@ -112,4 +112,84 @@ extension PayloadBuilderTests {
         XCTAssertTrue(json.contains("\"provisional\":true"))
         XCTAssertTrue(json.contains("\"baseline_sufficient\":false"))
     }
+
+    // MARK: - MacroTrendPayload
+
+    func testMacroTrendPayloadEncodesSnakeCaseKeys() throws {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let range = TrackRangeBuilder.range(period: .week, offset: 0, today: today)
+        let spec  = TrackMetrics.all.first { $0.def.label == "Inner Noise" }!
+
+        let series = TrackSeries(
+            bars: [], average: 52, deltaPct: 9, reference: 57,
+            referenceIsPersonal: true, overlay: [],
+            betterCount: 6, presentCount: 7,
+            summary: "6 of 7 days better than your baseline.")
+
+        let payload = MacroTrendPayload(period: .week, rangeLabel: range.label,
+                                        series: [(spec, series)])
+        let json = try JSONSerialization.jsonObject(
+            with: try JSONEncoder().encode(payload)) as! [String: Any]
+
+        XCTAssertEqual(json["mode"] as? String, "macro_trend")
+        XCTAssertEqual(json["period"] as? String, "week")
+        XCTAssertNotNil(json["range_label"])
+
+        let trends = json["trends"] as! [String: [String: Any]]
+        let pip = try XCTUnwrap(trends["pip"])
+        XCTAssertEqual(pip["avg"] as? Double, 52)
+        XCTAssertEqual(pip["baseline"] as? Double, 57)
+        XCTAssertEqual(pip["delta_pct"] as? Double, 9)
+        XCTAssertEqual(pip["days_above"] as? Int, 6)
+        XCTAssertEqual(pip["days_total"] as? Int, 7)
+        XCTAssertEqual(pip["direction"] as? String, "lower")
+        XCTAssertEqual(pip["baseline_is_personal"] as? Bool, true)
+    }
+
+    /// When the person doesn't yet have enough of their own history,
+    /// `TrackSeriesBuilder.baseline` falls back to a generic physiological
+    /// norm and marks `referenceIsPersonal` false. That flag must cross the
+    /// wire so the server never narrates a generic norm as personal history.
+    func testMacroTrendPayloadEncodesBaselineIsPersonalFalse() throws {
+        let spec = TrackMetrics.all.first { $0.def.label == "Inner Noise" }!
+        let series = TrackSeries(
+            bars: [], average: 52, deltaPct: 9, reference: 55,
+            referenceIsPersonal: false, overlay: [],
+            betterCount: 3, presentCount: 6,
+            summary: "3 of 6 days better than typical.")
+
+        let payload = MacroTrendPayload(period: .week, rangeLabel: "X",
+                                        series: [(spec, series)])
+        let json = try JSONSerialization.jsonObject(
+            with: try JSONEncoder().encode(payload)) as! [String: Any]
+        let trends = json["trends"] as! [String: [String: Any]]
+        let pip = try XCTUnwrap(trends["pip"])
+        XCTAssertEqual(pip["baseline_is_personal"] as? Bool, false)
+    }
+
+    func testMacroTrendPayloadSkipsMetricsWithNoAverage() throws {
+        let empty = TrackSeries(bars: [], average: nil, deltaPct: nil, reference: 8,
+                                referenceIsPersonal: false, overlay: [],
+                                betterCount: 0, presentCount: 0,
+                                summary: "No data this period.")
+        let payload = MacroTrendPayload(
+            period: .week, rangeLabel: "X",
+            series: [(TrackMetrics.all[0], empty)])
+        XCTAssertTrue(payload.trends.isEmpty)
+    }
+
+    func testMacroTrendDirectionStrings() throws {
+        func direction(_ label: String) -> String? {
+            let spec = TrackMetrics.all.first { $0.def.label == label }!
+            let s = TrackSeries(bars: [], average: 1, deltaPct: nil, reference: 1,
+                                referenceIsPersonal: false, overlay: [],
+                                betterCount: 0, presentCount: 1, summary: "")
+            return MacroTrendPayload(period: .week, rangeLabel: "X",
+                                     series: [(spec, s)]).trends[spec.trendKey]?.direction
+        }
+        XCTAssertEqual(direction("Vagal Tone"), "higher")
+        XCTAssertEqual(direction("Inner Noise"), "lower")
+        XCTAssertEqual(direction("Harmony"), "target")
+    }
 }

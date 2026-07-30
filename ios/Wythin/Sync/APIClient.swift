@@ -132,6 +132,73 @@ struct LiveStateInsightPayload: Codable {
     }
 }
 
+/// One metric's period summary for the macro read. Only aggregate daily means
+/// leave the device — never raw samples.
+struct MacroTrendEntry: Codable, Equatable {
+    let avg:       Double
+    let baseline:  Double?
+    /// Whether `baseline` is this person's own 90-day median, versus a fixed
+    /// physiological norm used when they don't yet have enough history. The
+    /// server needs this to avoid claiming personal history it doesn't have.
+    let baselineIsPersonal: Bool?
+    /// Benefit-signed: positive always means improvement.
+    let deltaPct:  Double?
+    let daysAbove: Int?
+    let daysTotal: Int?
+    let direction: String?
+
+    enum CodingKeys: String, CodingKey {
+        case avg, baseline, direction
+        case baselineIsPersonal = "baseline_is_personal"
+        case deltaPct  = "delta_pct"
+        case daysAbove = "days_above"
+        case daysTotal = "days_total"
+    }
+}
+
+struct MacroTrendPayload: Codable {
+    let mode:       String
+    let period:     String
+    let rangeLabel: String
+    let trends:     [String: MacroTrendEntry]
+
+    enum CodingKeys: String, CodingKey {
+        case mode, period, trends
+        case rangeLabel = "range_label"
+    }
+
+    /// Metrics with no data for the period are omitted rather than sent as
+    /// nulls — the model must never be asked to narrate an absent metric.
+    init(period: TrackPeriod, rangeLabel: String,
+         series: [(spec: TrackMetricSpec, series: TrackSeries)]) {
+        self.mode       = "macro_trend"
+        self.period     = period.apiValue
+        self.rangeLabel = rangeLabel
+        self.trends = Dictionary(uniqueKeysWithValues: series.compactMap { pair in
+            guard let avg = pair.series.average else { return nil }
+            return (pair.spec.trendKey, MacroTrendEntry(
+                avg:       avg,
+                baseline:  pair.series.reference,
+                baselineIsPersonal: pair.series.referenceIsPersonal,
+                deltaPct:  pair.series.deltaPct,
+                daysAbove: pair.series.betterCount,
+                daysTotal: pair.series.presentCount,
+                direction: pair.spec.def.direction.apiValue))
+        })
+    }
+}
+
+extension BenefitDirection {
+    /// Wire value for the macro-read payload.
+    var apiValue: String {
+        switch self {
+        case .higher: return "higher"
+        case .lower:  return "lower"
+        case .target: return "target"
+        }
+    }
+}
+
 struct InsightResponse: Codable {
     let text: String
 }
@@ -309,6 +376,13 @@ struct APIClient {
     }
 
     func generateLiveStateInsight(_ payload: LiveStateInsightPayload) async throws -> InsightResponse {
+        var req = request(path: "/insights", method: "POST")
+        req.httpBody = try JSONEncoder().encode(payload)
+        let (data, _) = try await session.data(for: req)
+        return try JSONDecoder().decode(InsightResponse.self, from: data)
+    }
+
+    func generateMacroTrendInsight(_ payload: MacroTrendPayload) async throws -> InsightResponse {
         var req = request(path: "/insights", method: "POST")
         req.httpBody = try JSONEncoder().encode(payload)
         let (data, _) = try await session.data(for: req)
