@@ -203,6 +203,24 @@ final class AppEnvironment {
         }
     }
 
+    /// Fires a real nudge on demand, to prove the delivery path end to end:
+    /// permission, banner, the menu as action buttons, and tap routing.
+    ///
+    /// Always goes out as a notification with a short delay, so the app can be
+    /// backgrounded first — that is the path worth testing, and the one that is
+    /// impossible to see while looking at the screen.
+    func sendTestNudge(after delay: TimeInterval = 5) async {
+        let trigger = NudgeTriggerID.stuckStill
+        let options = NudgeInterventionLibrary.menu(for: trigger,
+                                                    disabled: disabledInterventions,
+                                                    pacerHoldsAvailable: false)
+        let base = NudgeCopy.render(trigger, options: options)
+        let content = NudgeContent(title: base.title,
+                                   body: "\(base.body) (test)",
+                                   options: options)
+        await notifications.deliver(content, trigger: trigger, after: delay)
+    }
+
     /// Called when the user acts on a nudge, from a notification or the card.
     func actOnNudge(_ action: NudgeAction) {
         pendingInAppNudge = nil
@@ -247,6 +265,11 @@ final class AppEnvironment {
 
     private let modelContainer: ModelContainer
 
+    /// Today's capacity read. App-owned rather than view-owned so it is
+    /// computed once at launch and survives tab switches — the score must be
+    /// on the moment the Live tab appears, not computed when it does.
+    let dayPotential = DayPotentialStore()
+
     /// Main-actor context for stores that own their own persistence
     /// (e.g. `DayPotentialStore` reading and writing `DailyAnchor`).
     var modelContext: ModelContext { modelContainer.mainContext }
@@ -275,6 +298,11 @@ final class AppEnvironment {
         bindBLE()
         loadHistory()
         startUsageTracking()
+        prewarmDashboards()
+        // Register the notification categories up front: without them a nudge
+        // arrives with no menu buttons on it.
+        notifications.refreshCategories(disabled: disabledInterventions,
+                                        pacerHoldsAvailable: false)
         Task {
             let context = modelContainer.mainContext
             let uploader = SessionUploader(client: sync.client, userID: userID)
@@ -328,6 +356,30 @@ final class AppEnvironment {
     }
 
     // MARK: Private — History loading
+
+    /// Warms everything the tabs read, while the splash is still up, so the
+    /// first tap on any of them lands on ready data rather than a cold fetch.
+    ///
+    /// Ordered deliberately: history first (Today's Potential needs the tick
+    /// history to find a rested window), then the anchor pipeline, then the
+    /// row sets the Activities and Track tabs open on.
+    private func prewarmDashboards() {
+        Task { @MainActor in
+            // loadHistory() publishes asynchronously; give the anchor pass the
+            // history it depends on rather than racing it.
+            for _ in 0..<40 where tickHistory.isEmpty {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            await dayPotential.refresh(env: self)
+
+            let context = modelContainer.mainContext
+            _ = try? context.fetch(FetchDescriptor<ActivityLog>())
+            _ = try? context.fetch(FetchDescriptor<DailyAnchor>())
+            var sessions = FetchDescriptor<HRVSession>(sortBy: [SortDescriptor(\.startedAt, order: .reverse)])
+            sessions.fetchLimit = 60
+            _ = try? context.fetch(sessions)
+        }
+    }
 
     private func loadHistory() {
         // Fetch + map up to ~43k rows OFF the main thread so app launch isn't

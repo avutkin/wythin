@@ -195,6 +195,32 @@ struct SettingsView: View {
                         }
                         .tint(Theme.accent)
 
+                        // Always visible, on or off: the point of this row is to
+                        // explain a quiet day, which is exactly what you want to
+                        // read *before* deciding to turn nudges on.
+                        HStack {
+                            Text("Right now")
+                                .font(Theme.monoBody).foregroundStyle(Theme.text)
+                            Spacer()
+                            Text(nudgeStateLabel)
+                                .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+                        }
+
+                        Button {
+                            Task { await env.sendTestNudge() }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "paperplane")
+                                    Text("Send a test nudge")
+                                }
+                                .font(Theme.monoBody)
+                                .foregroundStyle(Theme.accent)
+                                Text("Arrives in 5 seconds — background the app to see the real banner and its buttons.")
+                                    .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+                            }
+                        }
+
                         if env.nudgesEnabled {
                             if notificationsAuthorized == false {
                                 Button {
@@ -210,14 +236,6 @@ struct SettingsView: View {
                                     .font(Theme.monoBody)
                                     .foregroundStyle(Theme.accent)
                                 }
-                            }
-
-                            HStack {
-                                Text("Right now")
-                                    .font(Theme.monoBody).foregroundStyle(Theme.text)
-                                Spacer()
-                                Text(nudgeStateLabel)
-                                    .font(Theme.monoLabel).foregroundStyle(Theme.dim)
                             }
 
                             Divider()

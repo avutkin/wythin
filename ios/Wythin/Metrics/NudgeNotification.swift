@@ -65,7 +65,9 @@ enum NudgeNotification {
 
     // MARK: Content
 
-    static func request(for trigger: NudgeTriggerID, content: NudgeContent) -> UNNotificationRequest {
+    static func request(for trigger: NudgeTriggerID,
+                        content: NudgeContent,
+                        after delay: TimeInterval? = nil) -> UNNotificationRequest {
         let payload = UNMutableNotificationContent()
         payload.title = content.title
         payload.body = content.body
@@ -74,10 +76,14 @@ enum NudgeNotification {
         payload.sound = .default
         payload.interruptionLevel = .active
         // nil trigger: deliver now, from live code, with the state that caused
-        // it still in memory.
+        // it still in memory. A delay is only used by the test nudge, so the app
+        // can be backgrounded before it lands.
+        let fire = delay.map {
+            UNTimeIntervalNotificationTrigger(timeInterval: max($0, 1), repeats: false)
+        }
         return UNNotificationRequest(identifier: "wythin.nudge.\(trigger.rawValue)",
                                      content: payload,
-                                     trigger: nil)
+                                     trigger: fire)
     }
 }
 
@@ -87,7 +93,16 @@ protocol NudgeDelivering: AnyObject {
     func refreshCategories(disabled: Set<NudgeInterventionID>, pacerHoldsAvailable: Bool)
     func requestAuthorization() async -> Bool
     func authorizationStatus() async -> UNAuthorizationStatus
-    func deliver(_ content: NudgeContent, trigger: NudgeTriggerID) async
+    func deliver(_ content: NudgeContent, trigger: NudgeTriggerID, after delay: TimeInterval?) async
+}
+
+extension NudgeDelivering {
+    func deliver(_ content: NudgeContent, trigger: NudgeTriggerID) async {
+        await deliver(content, trigger: trigger, after: nil)
+    }
+    func deliver(_ content: NudgeContent, trigger: NudgeTriggerID, after delay: TimeInterval) async {
+        await deliver(content, trigger: trigger, after: .some(delay))
+    }
 }
 
 final class NudgeNotificationService: NudgeDelivering {
@@ -114,7 +129,9 @@ final class NudgeNotificationService: NudgeDelivering {
         await center.notificationSettings().authorizationStatus
     }
 
-    func deliver(_ content: NudgeContent, trigger: NudgeTriggerID) async {
-        try? await center.add(NudgeNotification.request(for: trigger, content: content))
+    func deliver(_ content: NudgeContent, trigger: NudgeTriggerID, after delay: TimeInterval?) async {
+        try? await center.add(NudgeNotification.request(for: trigger,
+                                                        content: content,
+                                                        after: delay))
     }
 }
