@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- No tracking: the app has no third-party SDKs and links no ad or
+	     analytics frameworks, so there is nothing to correlate with other
+	     apps' data and no tracking domains to list. -->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+
+	<!-- Required-reason APIs. UserDefaults is the only one the app touches;
+	     it stores this app's own settings (server URL, profile answers,
+	     anchor state) and never reads another app's data. -->
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- NSPrivacyCollectedDataTypes is intentionally absent. The app does
+	     collect email, phone, age/gender and heart-rate-derived metrics, but
+	     those entries must match the App Privacy answers in App Store
+	     Connect exactly. Fill both in one pass so they cannot drift. -->
+</dict>
+</plist>
