@@ -22,11 +22,20 @@ struct ActivityMetricDef: Identifiable {
 extension ActivityMetricDef {
     /// Benefit-signed % change of `current` vs `base` (positive = better),
     /// e.g. this session's during-average vs the 2-month baseline.
+    ///
+    /// Clamped to ±100%. A `.target`-direction metric (e.g. Harmony/DFA α1,
+    /// target 1.0) has a benefit of `-|x - target|`, which is ill-conditioned
+    /// near the target — a healthy, near-target base makes `bb` tiny, so a
+    /// modest absolute move in `current` can blow up to an enormous percent.
+    /// Without the clamp that one outlier metric would swamp the mean this
+    /// feeds (impactDeltaPct), which is why it's clamped here rather than at
+    /// each call site: every consumer of benefitDelta gets the same bound.
     func benefitDelta(current: Double?, base: Double?) -> Double? {
         guard let c = current, let b = base else { return nil }
         let bb = direction.benefit(b)
         guard bb != 0 else { return nil }
-        return (direction.benefit(c) - bb) / abs(bb) * 100
+        let pct = (direction.benefit(c) - bb) / abs(bb) * 100
+        return min(max(pct, -100), 100)
     }
 
     /// Position of `value` on a 0…1 benefit axis spanning `others` (higher =

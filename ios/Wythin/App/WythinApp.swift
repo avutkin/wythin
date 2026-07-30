@@ -6,12 +6,16 @@ struct WythinApp: App {
 
     private let container: ModelContainer
 
+    /// Exists only so notification taps have somewhere to land — the app is
+    /// otherwise a pure SwiftUI `@main` with no delegate.
+    @UIApplicationDelegateAdaptor(WythinAppDelegate.self) private var appDelegate
+
     @Environment(\.scenePhase) private var scenePhase
     @State private var env: AppEnvironment
     @State private var showSplash = true
 
     init() {
-        let schema = Schema([HRVSession.self, HRVSample.self, ResonanceResult.self, TrainSession.self, ActivityLog.self, DailyAnchor.self])
+        let schema = Schema([HRVSession.self, HRVSample.self, ResonanceResult.self, TrainSession.self, ActivityLog.self, DailyAnchor.self, UsageEventLog.self])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         // Attempt to open the store; if schema has changed delete and recreate so the
         // app never crashes on launch after adding new optional model fields.
@@ -71,6 +75,7 @@ struct ContentView: View {
     @AppStorage("didShowCloudSyncNotice") private var didShowCloudSyncNotice = false
     @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
     @State private var showCloudNotice = false
+    @State private var nudgePractice: NudgePractice?
 
     var body: some View {
         Group {
@@ -124,6 +129,64 @@ struct ContentView: View {
                 onTurnOff: { cloudSyncEnabled = false; didShowCloudSyncNotice = true; showCloudNotice = false }
             )
             .interactiveDismissDisabled()
+        }
+        // ── Nudges ────────────────────────────────────────────────────────
+        .overlay(alignment: .top) {
+            if let nudge = env.pendingInAppNudge {
+                NudgeCardView(
+                    nudge: nudge,
+                    onPick: { option in
+                        env.actOnNudge(NudgeAction(trigger: nudge.trigger, intervention: option))
+                    },
+                    onDismiss: { env.pendingInAppNudge = nil })
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.25), value: env.pendingInAppNudge)
+        .onAppear {
+            // A tap can arrive before any view is listening, so the router
+            // buffers it and replays on connect.
+            NudgeRouter.shared.handler = { action in env.pendingNudgeAction = action }
+            NudgeRouter.shared.onDismiss = { _ in env.pendingInAppNudge = nil }
+        }
+        .onChange(of: env.pendingNudgeAction) { _, action in
+            guard let action else { return }
+            env.pendingNudgeAction = nil
+            present(action)
+        }
+        .fullScreenCover(item: $nudgePractice) { practice in
+            switch practice {
+            case .resonance: ResonanceSessionView()
+            case .observe:   NudgeTimerView(kind: .observe)
+            case .stretch:   NudgeTimerView(kind: .stretch)
+            }
+        }
+    }
+
+    /// Which practice a nudge asked for. Walking is not a screen — it starts a
+    /// live activity and sends the user outside.
+    enum NudgePractice: String, Identifiable {
+        case resonance, observe, stretch
+        var id: String { rawValue }
+    }
+
+    private func present(_ action: NudgeAction) {
+        switch action.intervention {
+        case .resonance, .sighing, .box:
+            // Sighing and box need pacer holds that do not exist yet; the menu
+            // filters them out, so this is resonance in practice.
+            nudgePractice = .resonance
+        case .observe:
+            nudgePractice = .observe
+        case .stretch:
+            nudgePractice = .stretch
+        case .walk:
+            _ = ActivityLogging.begin(type: .walk, subtype: nil, customName: nil,
+                                      targetMinutes: NudgeInterventionLibrary
+                                          .intervention(.walk).minutes,
+                                      context: modelContext)
+            selectedTab = .activities
         }
     }
 }

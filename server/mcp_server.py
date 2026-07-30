@@ -69,8 +69,13 @@ async def _whoami(user_id: str) -> dict:
             "SELECT id, display_name, created_at FROM users WHERE id = $1", user_id)
     if row is None:
         return {}
-    return {"id": str(row["id"]), "display_name": row["display_name"],
-            "created_at": row["created_at"].isoformat()}
+    out = {"id": str(row["id"]), "display_name": row["display_name"],
+           "created_at": row["created_at"].isoformat()}
+    # Fold the onboarding profile into "who I am" (goals/practices/devices/etc.)
+    profile = await _profile(user_id)
+    if profile:
+        out["profile"] = profile
+    return out
 
 
 async def _list_sessions(user_id: str, limit: int, since: Optional[str], until: Optional[str]) -> list[dict]:
@@ -130,7 +135,8 @@ async def _get_session_samples(user_id: str, session_id: str, limit: int = 2000)
 
 @mcp.tool()
 async def whoami(ctx: Context) -> dict:
-    """Return your Wythin account info (id, display name). Confirms your token works."""
+    """Return who you are: account (id, display name) plus your onboarding profile
+    (goals, current practices, devices, basic details) when available."""
     return await _whoami(await _auth(ctx))
 
 
@@ -234,3 +240,26 @@ async def get_metric_trend(ctx: Context, metric: str, since: str, until: str, bu
 async def get_metric_stats(ctx: Context, metric: str, since: str, until: str) -> dict:
     """avg/min/max/count of one metric over [since, until). Good for comparisons across ranges."""
     return await _metric_stats(await _auth(ctx), metric, since, until)
+
+
+async def _profile(user_id: str) -> dict:
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT phone, email, age_range, gender, goals, practices, devices, updated_at "
+            "FROM profiles WHERE user_id = $1", user_id)
+    if row is None:
+        return {}
+    return {
+        "phone": row["phone"], "email": row["email"],
+        "age_range": row["age_range"], "gender": row["gender"],
+        "goals": list(row["goals"] or []),
+        "practices": list(row["practices"] or []),
+        "devices": list(row["devices"] or []),
+        "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+    }
+
+
+@mcp.tool()
+async def get_profile(ctx: Context) -> dict:
+    """Return your onboarding profile: goals, current practices, devices, and basic details."""
+    return await _profile(await _auth(ctx))

@@ -35,4 +35,5 @@ async def delete_my_data(user_id: str = Depends(current_user_id)):
             "metric_samples": await _del("metric_samples"),
             "sessions":       await _del("sessions"),
             "activities":     await _del("activities"),
+            "profiles":       await _del("profiles"),
         }

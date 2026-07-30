@@ -91,6 +91,14 @@ async def usage_stats(days: int = 90):
                 FROM practice_days pd
                 LEFT JOIN streaks s ON s.user_id = pd.user_id
                 GROUP BY pd.user_id
+            ),
+            usage_agg AS (
+                SELECT user_id,
+                    COUNT(*) FILTER (WHERE event_type = 'foreground')                                AS opens_total,
+                    COALESCE(SUM(duration_ms) FILTER (WHERE event_type = 'foreground'), 0) / 60000.0  AS active_min_total,
+                    COUNT(*) FILTER (WHERE event_type = 'ecg_recording')                             AS ecg_total,
+                    GREATEST(COUNT(DISTINCT date_trunc('day', ts)), 1)                               AS usage_days
+                FROM usage_events GROUP BY user_id
             )
             SELECT
               u.id, u.device_id, u.display_name,
@@ -102,11 +110,16 @@ async def usage_stats(days: int = 90):
               AVG(s.avg_rsa_ms)                  AS avg_rsa,
               COALESCE(c.current_streak, 0)      AS current_streak,
               COALESCE(c.days_active_7d, 0)      AS days_active_7d,
-              COALESCE(c.practiced_today, FALSE) AS practiced_today
+              COALESCE(c.practiced_today, FALSE) AS practiced_today,
+              COALESCE(ua.opens_total::float / ua.usage_days, 0)  AS avg_opens_day,
+              COALESCE(ua.active_min_total / ua.usage_days, 0)    AS avg_active_min_day,
+              COALESCE(ua.ecg_total::float / ua.usage_days, 0)    AS avg_ecg_day
             FROM users u
             LEFT JOIN sessions s    ON s.user_id = u.id
             LEFT JOIN consistency c ON c.user_id = u.id
-            GROUP BY u.id, c.current_streak, c.days_active_7d, c.practiced_today
+            LEFT JOIN usage_agg ua  ON ua.user_id = u.id
+            GROUP BY u.id, c.current_streak, c.days_active_7d, c.practiced_today,
+                     ua.opens_total, ua.active_min_total, ua.ecg_total, ua.usage_days
             ORDER BY last_seen DESC NULLS LAST
             """
         )
@@ -150,6 +163,9 @@ async def usage_stats(days: int = 90):
                 "current_streak":  r["current_streak"],
                 "days_active_7d":  r["days_active_7d"],
                 "practiced_today": r["practiced_today"],
+                "avg_opens_day":      round(_f(r["avg_opens_day"]), 1),
+                "avg_active_min_day": round(_f(r["avg_active_min_day"]), 1),
+                "avg_ecg_day":        round(_f(r["avg_ecg_day"]), 1),
             }
             for r in users
         ],
@@ -300,6 +316,47 @@ async def activity_detail(activity_id: str):
     if row is None:
         raise HTTPException(status_code=404, detail="activity not found")
     return _activity_row(row)
+
+
+@router.get("/users/{user_id}/usage")
+async def user_usage(user_id: str, days: int = 30):
+    """Per-day app-usage series for one user: opens, active minutes, ECG
+    recordings and ECG minutes — plus per-active-day averages."""
+    days = max(1, min(days, 730))
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+              date_trunc('day', ts)::date AS day,
+              COUNT(*) FILTER (WHERE event_type = 'foreground')                                    AS opens,
+              COALESCE(SUM(duration_ms) FILTER (WHERE event_type = 'foreground'), 0) / 60000.0      AS active_min,
+              COUNT(*) FILTER (WHERE event_type = 'ecg_recording')                                 AS ecg_recordings,
+              COALESCE(SUM(duration_ms) FILTER (WHERE event_type = 'ecg_recording'), 0) / 60000.0   AS ecg_min
+            FROM usage_events
+            WHERE user_id = $1::uuid AND ts > NOW() - ($2::int * INTERVAL '1 day')
+            GROUP BY day
+            ORDER BY day
+            """,
+            user_id, days,
+        )
+    series = [
+        {"day": r["day"].isoformat(), "opens": r["opens"],
+         "active_min": round(float(r["active_min"]), 1),
+         "ecg_recordings": r["ecg_recordings"],
+         "ecg_min": round(float(r["ecg_min"]), 1)}
+        for r in rows
+    ]
+    n = len(series) or 1
+    return {
+        "days": days,
+        "series": series,
+        "averages": {
+            "opens_day":      round(sum(s["opens"] for s in series) / n, 1),
+            "active_min_day": round(sum(s["active_min"] for s in series) / n, 1),
+            "ecg_day":        round(sum(s["ecg_recordings"] for s in series) / n, 1),
+        },
+    }
 
 
 @router.get("/sessions/{session_id}/samples")

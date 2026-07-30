@@ -61,18 +61,24 @@ enum LiveStateTrendCompute {
     /// (≈2 minutes at 2 s/tick).
     static let minimumPoints = 30
 
+    /// Arc resolution: 5 time-based buckets across whatever window is requested.
+    private static let bucketCount = 5
+
     /// Summarizes the last `windowMinutes` of quality-filtered history into one
     /// MetricTrend per core metric. Returns nil if there isn't enough valid
     /// data yet.
-    static func summarize(_ history: [MetricsHistoryPoint], windowMinutes: Int = 10, now: Date = .now) -> [String: MetricTrend]? {
+    ///
+    /// `minimumPoints` defaults to the 2 s/tick foreground figure. Callers
+    /// sampling at a slower cadence must lower it: at the 30 s background tick a
+    /// 10-minute window holds only 20 points, so the default would refuse every
+    /// time.
+    static func summarize(_ history: [MetricsHistoryPoint],
+                          windowMinutes: Int = 10,
+                          minimumPoints: Int = LiveStateTrendCompute.minimumPoints,
+                          now: Date = .now) -> [String: MetricTrend]? {
         let cutoff = now.addingTimeInterval(-Double(windowMinutes) * 60)
         let window = history.filter { $0.timestamp >= cutoff }
         guard window.count >= minimumPoints else { return nil }
-
-        // Bucket edges come from timestamps, not counts, so a gap in the data
-        // doesn't silently shift the arc the model reads.
-        let bucketCount = 5
-        let bucketSec   = Double(windowMinutes) * 60 / Double(bucketCount)
 
         var result: [String: MetricTrend] = [:]
         for (key, path) in keyPaths {
@@ -82,22 +88,57 @@ enum LiveStateTrendCompute {
             let dayValues = history.compactMap(path)
             let dayMean = dayValues.isEmpty ? nil : dayValues.reduce(0, +) / Float(dayValues.count)
 
-            var buckets: [Float] = []
-            for i in 0..<bucketCount {
-                let lo = cutoff.addingTimeInterval(Double(i) * bucketSec)
-                let hi = cutoff.addingTimeInterval(Double(i + 1) * bucketSec)
-                let inBucket = window
-                    .filter { $0.timestamp >= lo && $0.timestamp < hi }
-                    .compactMap(path)
-                guard !inBucket.isEmpty else { buckets = []; break }
-                buckets.append(inBucket.reduce(0, +) / Float(inBucket.count))
-            }
-
             result[key] = trend(for: values,
                                 dayMean: dayMean,
-                                buckets: buckets.count == bucketCount ? buckets : nil)
+                                buckets: buckets(in: window, cutoff: cutoff,
+                                                 windowMinutes: windowMinutes, value: path))
         }
         guard !result.isEmpty else { return nil }
+        return result
+    }
+
+    /// Same direction/shape/volatility semantics as `summarize`, for one series
+    /// that is deliberately absent from `keyPaths`.
+    ///
+    /// `keyPaths` is the server payload contract — adding entries to it would
+    /// change what `/insights` receives — so derived series the nudge engine
+    /// needs (the autonomic balance dial, ACC motion) come through here instead.
+    static func seriesTrend(_ history: [MetricsHistoryPoint],
+                            windowMinutes: Int,
+                            minimumPoints: Int,
+                            now: Date = .now,
+                            value: (MetricsHistoryPoint) -> Float?) -> MetricTrend? {
+        let cutoff = now.addingTimeInterval(-Double(windowMinutes) * 60)
+        let window = history.filter { $0.timestamp >= cutoff }
+        guard window.count >= minimumPoints else { return nil }
+
+        let values = window.compactMap(value)
+        guard !values.isEmpty else { return nil }
+
+        return trend(for: values,
+                     dayMean: nil,
+                     buckets: buckets(in: window, cutoff: cutoff,
+                                      windowMinutes: windowMinutes, value: value))
+    }
+
+    /// Bucket edges come from timestamps, not counts, so a gap in the data
+    /// doesn't silently shift the arc. Any empty bucket discards the whole set —
+    /// a partial arc is worse than none.
+    private static func buckets(in window: [MetricsHistoryPoint],
+                                cutoff: Date,
+                                windowMinutes: Int,
+                                value: (MetricsHistoryPoint) -> Float?) -> [Float]? {
+        let bucketSec = Double(windowMinutes) * 60 / Double(bucketCount)
+        var result: [Float] = []
+        for i in 0..<bucketCount {
+            let lo = cutoff.addingTimeInterval(Double(i) * bucketSec)
+            let hi = cutoff.addingTimeInterval(Double(i + 1) * bucketSec)
+            let inBucket = window
+                .filter { $0.timestamp >= lo && $0.timestamp < hi }
+                .compactMap(value)
+            guard !inBucket.isEmpty else { return nil }
+            result.append(inBucket.reduce(0, +) / Float(inBucket.count))
+        }
         return result
     }
 

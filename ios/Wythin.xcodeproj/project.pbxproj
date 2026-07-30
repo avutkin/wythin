@@ -7,23 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A220 /* DayPotentialStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F220 /* DayPotentialStrip.swift */; };
-		A219 /* DayPotentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F219 /* DayPotentialStore.swift */; };
-		AT19 /* DayLoadSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT19 /* DayLoadSummaryTests.swift */; };
-		AT18 /* DayPotentialInsightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT18 /* DayPotentialInsightTests.swift */; };
-		AT17 /* TrendShapeComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT17 /* TrendShapeComputeTests.swift */; };
-		AT16 /* StreakComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT16 /* StreakComputeTests.swift */; };
-		AT15 /* PotentialScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT15 /* PotentialScoreTests.swift */; };
-		AT14 /* AnchorBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT14 /* AnchorBaselineTests.swift */; };
-		A218 /* DayLoadSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F218 /* DayLoadSummary.swift */; };
-		A217 /* DayPotentialInsight.swift in Sources */ = {isa = PBXBuildFile; fileRef = F217 /* DayPotentialInsight.swift */; };
-		A216 /* TrendShapeCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F216 /* TrendShapeCompute.swift */; };
-		A215 /* StreakCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F215 /* StreakCompute.swift */; };
-		A214 /* PotentialScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F214 /* PotentialScore.swift */; };
-		A213 /* AnchorBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F213 /* AnchorBaseline.swift */; };
-		A211 /* DailyAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F211 /* DailyAnchor.swift */; };
-		AT13 /* AnchorDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT13 /* AnchorDetectorTests.swift */; };
-		A210 /* AnchorDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F210 /* AnchorDetector.swift */; };
+		43A37C75E1DB1B68CE8566C1 /* ActivityTypeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */; };
+		519BA43B55690D5F8761EBBF /* UsageUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE6F0E9C8772030B86BA730E /* UsageUploader.swift */; };
 		A101 /* WythinApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F101 /* WythinApp.swift */; };
 		A102 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F102 /* AppEnvironment.swift */; };
 		A103 /* BLEService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F103 /* BLEService.swift */; };
@@ -37,7 +22,6 @@
 		A111 /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F111 /* SyncService.swift */; };
 		A112 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F112 /* APIClient.swift */; };
 		A113 /* SessionUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F113 /* SessionUploader.swift */; };
-		A208 /* ActivityUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F208 /* ActivityUploader.swift */; };
 		A114 /* HRVSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F114 /* HRVSession.swift */; };
 		A115 /* HRVSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = F115 /* HRVSample.swift */; };
 		A116 /* ResonanceResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = F116 /* ResonanceResult.swift */; };
@@ -61,14 +45,7 @@
 		A134 /* BiofeedbackViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F134 /* BiofeedbackViews.swift */; };
 		A135 /* TrainSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F135 /* TrainSession.swift */; };
 		A136 /* ActivityLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F136 /* ActivityLog.swift */; };
-		A200 /* Practice.swift in Sources */ = {isa = PBXBuildFile; fileRef = F200 /* Practice.swift */; };
-		A201 /* PracticeCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F201 /* PracticeCatalog.swift */; };
 		A137 /* ActivitiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F137 /* ActivitiesView.swift */; };
-		A203 /* ActivityLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = F203 /* ActivityLogging.swift */; };
-		A204 /* PracticeHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F204 /* PracticeHubView.swift */; };
-		A205 /* PracticeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F205 /* PracticeDetailView.swift */; };
-		A206 /* ResonanceSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F206 /* ResonanceSessionView.swift */; };
-		A207 /* BiofeedbackSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F207 /* BiofeedbackSessionView.swift */; };
 		A138 /* PolyvagalState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F138 /* PolyvagalState.swift */; };
 		A139 /* CurrentStateCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F139 /* CurrentStateCard.swift */; };
 		A140 /* RecommendedActionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F140 /* RecommendedActionCard.swift */; };
@@ -78,21 +55,53 @@
 		A144 /* SignalQualityTier+Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F144 /* SignalQualityTier+Theme.swift */; };
 		A145 /* InsightGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F145 /* InsightGenerator.swift */; };
 		A146 /* LiveStateTrendCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F146 /* LiveStateTrendCompute.swift */; };
-		A199 /* LiveStateInsight.swift in Sources */ = {isa = PBXBuildFile; fileRef = F199 /* LiveStateInsight.swift */; };
 		A147 /* LiveStateWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F147 /* LiveStateWidget.swift */; };
 		A148 /* MetricTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = F148 /* MetricTile.swift */; };
 		A149 /* ActivityMetricsGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = F149 /* ActivityMetricsGrid.swift */; };
 		A150 /* ActivityWindowChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = F150 /* ActivityWindowChart.swift */; };
 		A151 /* ActivityMetricStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = F151 /* ActivityMetricStats.swift */; };
 		A152 /* ActivityImpact.swift in Sources */ = {isa = PBXBuildFile; fileRef = F152 /* ActivityImpact.swift */; };
-		A202 /* AutonomicCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F202 /* AutonomicCompute.swift */; };
-		A153 /* PracticeImpactGauge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F153 /* PracticeImpactGauge.swift */; };
+		A153 /* PracticeImpactMeter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F153 /* PracticeImpactMeter.swift */; };
 		A154 /* MetricProgressRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F154 /* MetricProgressRow.swift */; };
 		A155 /* HeartRateCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F155 /* HeartRateCompute.swift */; };
-		A209 /* MotionCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F209 /* MotionCompute.swift */; };
 		A160 /* ClientProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = F160 /* ClientProfile.swift */; };
 		A161 /* OnboardingFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F161 /* OnboardingFlow.swift */; };
 		A162 /* OnboardingScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F162 /* OnboardingScreens.swift */; };
+		A199 /* LiveStateInsight.swift in Sources */ = {isa = PBXBuildFile; fileRef = F199 /* LiveStateInsight.swift */; };
+		A200 /* Practice.swift in Sources */ = {isa = PBXBuildFile; fileRef = F200 /* Practice.swift */; };
+		A201 /* PracticeCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F201 /* PracticeCatalog.swift */; };
+		A202 /* AutonomicCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F202 /* AutonomicCompute.swift */; };
+		A203 /* ActivityLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = F203 /* ActivityLogging.swift */; };
+		A204 /* PracticeHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F204 /* PracticeHubView.swift */; };
+		A205 /* PracticeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F205 /* PracticeDetailView.swift */; };
+		A206 /* ResonanceSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F206 /* ResonanceSessionView.swift */; };
+		A207 /* BiofeedbackSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F207 /* BiofeedbackSessionView.swift */; };
+		A208 /* ActivityUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F208 /* ActivityUploader.swift */; };
+		A209 /* MotionCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F209 /* MotionCompute.swift */; };
+		A210 /* AnchorDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F210 /* AnchorDetector.swift */; };
+		A211 /* DailyAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F211 /* DailyAnchor.swift */; };
+		A213 /* AnchorBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F213 /* AnchorBaseline.swift */; };
+		A214 /* PotentialScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F214 /* PotentialScore.swift */; };
+		A215 /* StreakCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F215 /* StreakCompute.swift */; };
+		A216 /* TrendShapeCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F216 /* TrendShapeCompute.swift */; };
+		A217 /* DayPotentialInsight.swift in Sources */ = {isa = PBXBuildFile; fileRef = F217 /* DayPotentialInsight.swift */; };
+		A218 /* DayLoadSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F218 /* DayLoadSummary.swift */; };
+		A219 /* DayPotentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F219 /* DayPotentialStore.swift */; };
+		A220 /* DayPotentialStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F220 /* DayPotentialStrip.swift */; };
+		A221 /* NudgeSampleBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F221 /* NudgeSampleBuffer.swift */; };
+		A222 /* NudgeSignals.swift in Sources */ = {isa = PBXBuildFile; fileRef = F222 /* NudgeSignals.swift */; };
+		A230 /* ActivityDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F230 /* ActivityDetailView.swift */; };
+		A231 /* ActivityFormSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = F231 /* ActivityFormSheets.swift */; };
+		A240 /* DailyRollup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F240 /* DailyRollup.swift */; };
+		A241 /* ExerciseVeto.swift in Sources */ = {isa = PBXBuildFile; fileRef = F241 /* ExerciseVeto.swift */; };
+		A242 /* NudgeTriggers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F242 /* NudgeTriggers.swift */; };
+		A243 /* NudgeGating.swift in Sources */ = {isa = PBXBuildFile; fileRef = F243 /* NudgeGating.swift */; };
+		A244 /* NudgeEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F244 /* NudgeEngine.swift */; };
+		A245 /* NudgeCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F245 /* NudgeCopy.swift */; };
+		A246 /* NudgeNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = F246 /* NudgeNotification.swift */; };
+		A247 /* NudgeRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = F247 /* NudgeRouting.swift */; };
+		A248 /* NudgeTimerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F248 /* NudgeTimerView.swift */; };
+		A249 /* NudgeCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F249 /* NudgeCardView.swift */; };
 		ARES1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FRES1 /* Assets.xcassets */; };
 		ARES2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = FRES2 /* PrivacyInfo.xcprivacy */; };
 		AT01 /* MetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT01 /* MetricsTests.swift */; };
@@ -102,10 +111,34 @@
 		AT05 /* LiveStateTrendComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT05 /* LiveStateTrendComputeTests.swift */; };
 		AT06 /* PayloadBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT06 /* PayloadBuilderTests.swift */; };
 		AT07 /* ActivityMetricStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT07 /* ActivityMetricStatsTests.swift */; };
-		AT08 /* ActivityImpactTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT08 /* ActivityImpactTests.swift */; };
 		AT10 /* ClientProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT10 /* ClientProfileTests.swift */; };
 		AT11 /* PracticeCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT11 /* PracticeCatalogTests.swift */; };
 		AT12 /* MotionComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT12 /* MotionComputeTests.swift */; };
+		AT13 /* AnchorDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT13 /* AnchorDetectorTests.swift */; };
+		AT14 /* AnchorBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT14 /* AnchorBaselineTests.swift */; };
+		AT15 /* PotentialScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT15 /* PotentialScoreTests.swift */; };
+		AT16 /* StreakComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT16 /* StreakComputeTests.swift */; };
+		AT17 /* TrendShapeComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT17 /* TrendShapeComputeTests.swift */; };
+		AT18 /* DayPotentialInsightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT18 /* DayPotentialInsightTests.swift */; };
+		AT19 /* DayLoadSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT19 /* DayLoadSummaryTests.swift */; };
+		AT20 /* DayPotentialStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT20 /* DayPotentialStateTests.swift */; };
+		AT21 /* NudgeSampleBufferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT21 /* NudgeSampleBufferTests.swift */; };
+		AT22 /* NudgeSignalsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT22 /* NudgeSignalsTests.swift */; };
+		AT23 /* DurationPresetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT23 /* DurationPresetTests.swift */; };
+		AT24 /* ActivityTargetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT24 /* ActivityTargetTests.swift */; };
+		AT25 /* SubtypeMemoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT25 /* SubtypeMemoryTests.swift */; };
+		AT26 /* ImpactDeltaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT26 /* ImpactDeltaTests.swift */; };
+		AT30 /* DailyRollupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT30 /* DailyRollupTests.swift */; };
+		AT31 /* NudgeFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT31 /* NudgeFixture.swift */; };
+		AT32 /* ExerciseVetoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT32 /* ExerciseVetoTests.swift */; };
+		AT33 /* NudgeTriggersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT33 /* NudgeTriggersTests.swift */; };
+		AT34 /* NudgeGatingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT34 /* NudgeGatingTests.swift */; };
+		AT35 /* NudgeEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT35 /* NudgeEngineTests.swift */; };
+		AT36 /* NudgeCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT36 /* NudgeCopyTests.swift */; };
+		AT37 /* NudgeNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT37 /* NudgeNotificationTests.swift */; };
+		BB44FFFA4FD2ED2B440F60EA /* UsageEventLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 679350D1BBA9E9E28C249EC1 /* UsageEventLog.swift */; };
+		F7233A74A7B0B97C62834AF5 /* PracticeImpactGauge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5157D6102C251A37AF413C96 /* PracticeImpactGauge.swift */; };
+		AT38 /* UsageUploaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT38 /* UsageUploaderTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -119,23 +152,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		F220 /* DayPotentialStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStrip.swift; sourceTree = "<group>"; };
-		F219 /* DayPotentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStore.swift; sourceTree = "<group>"; };
-		FT19 /* DayLoadSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLoadSummaryTests.swift; sourceTree = "<group>"; };
-		FT18 /* DayPotentialInsightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsightTests.swift; sourceTree = "<group>"; };
-		FT17 /* TrendShapeComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendShapeComputeTests.swift; sourceTree = "<group>"; };
-		FT16 /* StreakComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakComputeTests.swift; sourceTree = "<group>"; };
-		FT15 /* PotentialScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScoreTests.swift; sourceTree = "<group>"; };
-		FT14 /* AnchorBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaselineTests.swift; sourceTree = "<group>"; };
-		F218 /* DayLoadSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLoadSummary.swift; sourceTree = "<group>"; };
-		F217 /* DayPotentialInsight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsight.swift; sourceTree = "<group>"; };
-		F216 /* TrendShapeCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendShapeCompute.swift; sourceTree = "<group>"; };
-		F215 /* StreakCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakCompute.swift; sourceTree = "<group>"; };
-		F214 /* PotentialScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScore.swift; sourceTree = "<group>"; };
-		F213 /* AnchorBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaseline.swift; sourceTree = "<group>"; };
-		F211 /* DailyAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyAnchor.swift; sourceTree = "<group>"; };
-		FT13 /* AnchorDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetectorTests.swift; sourceTree = "<group>"; };
-		F210 /* AnchorDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetector.swift; sourceTree = "<group>"; };
+		12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTypeTests.swift; sourceTree = "<group>"; };
+		5157D6102C251A37AF413C96 /* PracticeImpactGauge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PracticeImpactGauge.swift; sourceTree = "<group>"; };
+		679350D1BBA9E9E28C249EC1 /* UsageEventLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UsageEventLog.swift; sourceTree = "<group>"; };
 		F101 /* WythinApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WythinApp.swift; sourceTree = "<group>"; };
 		F102 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		F103 /* BLEService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEService.swift; sourceTree = "<group>"; };
@@ -149,7 +168,6 @@
 		F111 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 		F112 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		F113 /* SessionUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionUploader.swift; sourceTree = "<group>"; };
-		F208 /* ActivityUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityUploader.swift; sourceTree = "<group>"; };
 		F114 /* HRVSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HRVSession.swift; sourceTree = "<group>"; };
 		F115 /* HRVSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HRVSample.swift; sourceTree = "<group>"; };
 		F116 /* ResonanceResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResonanceResult.swift; sourceTree = "<group>"; };
@@ -173,14 +191,7 @@
 		F134 /* BiofeedbackViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiofeedbackViews.swift; sourceTree = "<group>"; };
 		F135 /* TrainSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainSession.swift; sourceTree = "<group>"; };
 		F136 /* ActivityLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLog.swift; sourceTree = "<group>"; };
-		F200 /* Practice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Practice.swift; sourceTree = "<group>"; };
-		F201 /* PracticeCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeCatalog.swift; sourceTree = "<group>"; };
 		F137 /* ActivitiesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivitiesView.swift; sourceTree = "<group>"; };
-		F203 /* ActivityLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogging.swift; sourceTree = "<group>"; };
-		F204 /* PracticeHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeHubView.swift; sourceTree = "<group>"; };
-		F205 /* PracticeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeDetailView.swift; sourceTree = "<group>"; };
-		F206 /* ResonanceSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResonanceSessionView.swift; sourceTree = "<group>"; };
-		F207 /* BiofeedbackSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiofeedbackSessionView.swift; sourceTree = "<group>"; };
 		F138 /* PolyvagalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolyvagalState.swift; sourceTree = "<group>"; };
 		F139 /* CurrentStateCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentStateCard.swift; sourceTree = "<group>"; };
 		F140 /* RecommendedActionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendedActionCard.swift; sourceTree = "<group>"; };
@@ -190,21 +201,55 @@
 		F144 /* SignalQualityTier+Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SignalQualityTier+Theme.swift"; sourceTree = "<group>"; };
 		F145 /* InsightGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightGenerator.swift; sourceTree = "<group>"; };
 		F146 /* LiveStateTrendCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateTrendCompute.swift; sourceTree = "<group>"; };
-		F199 /* LiveStateInsight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateInsight.swift; sourceTree = "<group>"; };
 		F147 /* LiveStateWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateWidget.swift; sourceTree = "<group>"; };
 		F148 /* MetricTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricTile.swift; sourceTree = "<group>"; };
 		F149 /* ActivityMetricsGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricsGrid.swift; sourceTree = "<group>"; };
 		F150 /* ActivityWindowChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityWindowChart.swift; sourceTree = "<group>"; };
 		F151 /* ActivityMetricStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricStats.swift; sourceTree = "<group>"; };
 		F152 /* ActivityImpact.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityImpact.swift; sourceTree = "<group>"; };
-		F202 /* AutonomicCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutonomicCompute.swift; sourceTree = "<group>"; };
-		F153 /* PracticeImpactGauge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeImpactGauge.swift; sourceTree = "<group>"; };
+		F153 /* PracticeImpactMeter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeImpactMeter.swift; sourceTree = "<group>"; };
 		F154 /* MetricProgressRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricProgressRow.swift; sourceTree = "<group>"; };
 		F155 /* HeartRateCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateCompute.swift; sourceTree = "<group>"; };
 		F160 /* ClientProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientProfile.swift; sourceTree = "<group>"; };
 		F161 /* OnboardingFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFlow.swift; sourceTree = "<group>"; };
 		F162 /* OnboardingScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingScreens.swift; sourceTree = "<group>"; };
+		F199 /* LiveStateInsight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateInsight.swift; sourceTree = "<group>"; };
+		F200 /* Practice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Practice.swift; sourceTree = "<group>"; };
+		F201 /* PracticeCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeCatalog.swift; sourceTree = "<group>"; };
+		F202 /* AutonomicCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutonomicCompute.swift; sourceTree = "<group>"; };
+		F203 /* ActivityLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogging.swift; sourceTree = "<group>"; };
+		F204 /* PracticeHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeHubView.swift; sourceTree = "<group>"; };
+		F205 /* PracticeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeDetailView.swift; sourceTree = "<group>"; };
+		F206 /* ResonanceSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResonanceSessionView.swift; sourceTree = "<group>"; };
+		F207 /* BiofeedbackSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiofeedbackSessionView.swift; sourceTree = "<group>"; };
+		F208 /* ActivityUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityUploader.swift; sourceTree = "<group>"; };
+		F209 /* MotionCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionCompute.swift; sourceTree = "<group>"; };
+		F210 /* AnchorDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetector.swift; sourceTree = "<group>"; };
+		F211 /* DailyAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyAnchor.swift; sourceTree = "<group>"; };
+		F213 /* AnchorBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaseline.swift; sourceTree = "<group>"; };
+		F214 /* PotentialScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScore.swift; sourceTree = "<group>"; };
+		F215 /* StreakCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakCompute.swift; sourceTree = "<group>"; };
+		F216 /* TrendShapeCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendShapeCompute.swift; sourceTree = "<group>"; };
+		F217 /* DayPotentialInsight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsight.swift; sourceTree = "<group>"; };
+		F218 /* DayLoadSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLoadSummary.swift; sourceTree = "<group>"; };
+		F219 /* DayPotentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStore.swift; sourceTree = "<group>"; };
+		F220 /* DayPotentialStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStrip.swift; sourceTree = "<group>"; };
+		F221 /* NudgeSampleBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeSampleBuffer.swift; sourceTree = "<group>"; };
+		F222 /* NudgeSignals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeSignals.swift; sourceTree = "<group>"; };
+		F230 /* ActivityDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityDetailView.swift; sourceTree = "<group>"; };
+		F231 /* ActivityFormSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityFormSheets.swift; sourceTree = "<group>"; };
+		F240 /* DailyRollup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyRollup.swift; sourceTree = "<group>"; };
+		F241 /* ExerciseVeto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseVeto.swift; sourceTree = "<group>"; };
+		F242 /* NudgeTriggers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeTriggers.swift; sourceTree = "<group>"; };
+		F243 /* NudgeGating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeGating.swift; sourceTree = "<group>"; };
+		F244 /* NudgeEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeEngine.swift; sourceTree = "<group>"; };
+		F245 /* NudgeCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeCopy.swift; sourceTree = "<group>"; };
+		F246 /* NudgeNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeNotification.swift; sourceTree = "<group>"; };
+		F247 /* NudgeRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeRouting.swift; sourceTree = "<group>"; };
+		F248 /* NudgeTimerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeTimerView.swift; sourceTree = "<group>"; };
+		F249 /* NudgeCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeCardView.swift; sourceTree = "<group>"; };
 		FAPP /* Wythin.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Wythin.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FE6F0E9C8772030B86BA730E /* UsageUploader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UsageUploader.swift; sourceTree = "<group>"; };
 		FINFO /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		FRES1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FRES2 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -215,12 +260,33 @@
 		FT05 /* LiveStateTrendComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateTrendComputeTests.swift; sourceTree = "<group>"; };
 		FT06 /* PayloadBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayloadBuilderTests.swift; sourceTree = "<group>"; };
 		FT07 /* ActivityMetricStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricStatsTests.swift; sourceTree = "<group>"; };
-		FT08 /* ActivityImpactTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityImpactTests.swift; sourceTree = "<group>"; };
 		FT10 /* ClientProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientProfileTests.swift; sourceTree = "<group>"; };
 		FT11 /* PracticeCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeCatalogTests.swift; sourceTree = "<group>"; };
 		FT12 /* MotionComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionComputeTests.swift; sourceTree = "<group>"; };
-		F209 /* MotionCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionCompute.swift; sourceTree = "<group>"; };
+		FT13 /* AnchorDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetectorTests.swift; sourceTree = "<group>"; };
+		FT14 /* AnchorBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaselineTests.swift; sourceTree = "<group>"; };
+		FT15 /* PotentialScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScoreTests.swift; sourceTree = "<group>"; };
+		FT16 /* StreakComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakComputeTests.swift; sourceTree = "<group>"; };
+		FT17 /* TrendShapeComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendShapeComputeTests.swift; sourceTree = "<group>"; };
+		FT18 /* DayPotentialInsightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsightTests.swift; sourceTree = "<group>"; };
+		FT19 /* DayLoadSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLoadSummaryTests.swift; sourceTree = "<group>"; };
+		FT20 /* DayPotentialStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStateTests.swift; sourceTree = "<group>"; };
+		FT21 /* NudgeSampleBufferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeSampleBufferTests.swift; sourceTree = "<group>"; };
+		FT22 /* NudgeSignalsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeSignalsTests.swift; sourceTree = "<group>"; };
+		FT23 /* DurationPresetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DurationPresetTests.swift; sourceTree = "<group>"; };
+		FT24 /* ActivityTargetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTargetTests.swift; sourceTree = "<group>"; };
+		FT25 /* SubtypeMemoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtypeMemoryTests.swift; sourceTree = "<group>"; };
+		FT26 /* ImpactDeltaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImpactDeltaTests.swift; sourceTree = "<group>"; };
+		FT30 /* DailyRollupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyRollupTests.swift; sourceTree = "<group>"; };
+		FT31 /* NudgeFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeFixture.swift; sourceTree = "<group>"; };
+		FT32 /* ExerciseVetoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseVetoTests.swift; sourceTree = "<group>"; };
+		FT33 /* NudgeTriggersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeTriggersTests.swift; sourceTree = "<group>"; };
+		FT34 /* NudgeGatingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeGatingTests.swift; sourceTree = "<group>"; };
+		FT35 /* NudgeEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeEngineTests.swift; sourceTree = "<group>"; };
+		FT36 /* NudgeCopyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeCopyTests.swift; sourceTree = "<group>"; };
+		FT37 /* NudgeNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeNotificationTests.swift; sourceTree = "<group>"; };
 		FTST /* WythinTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WythinTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FT38 /* UsageUploaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageUploaderTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -264,8 +330,11 @@
 				F203 /* ActivityLogging.swift */,
 				F149 /* ActivityMetricsGrid.swift */,
 				F150 /* ActivityWindowChart.swift */,
-				F153 /* PracticeImpactGauge.swift */,
+				F153 /* PracticeImpactMeter.swift */,
 				F154 /* MetricProgressRow.swift */,
+				F230 /* ActivityDetailView.swift */,
+				F231 /* ActivityFormSheets.swift */,
+				5157D6102C251A37AF413C96 /* PracticeImpactGauge.swift */,
 			);
 			path = Activities;
 			sourceTree = "<group>";
@@ -275,8 +344,18 @@
 			children = (
 				F101 /* WythinApp.swift */,
 				F102 /* AppEnvironment.swift */,
+				F247 /* NudgeRouting.swift */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		GAPP_BIO /* Biofeedback */ = {
+			isa = PBXGroup;
+			children = (
+				F134 /* BiofeedbackViews.swift */,
+				F207 /* BiofeedbackSessionView.swift */,
+			);
+			path = Biofeedback;
 			sourceTree = "<group>";
 		};
 		GAPP_BLE /* BLE */ = {
@@ -355,6 +434,15 @@
 				F202 /* AutonomicCompute.swift */,
 				F155 /* HeartRateCompute.swift */,
 				F209 /* MotionCompute.swift */,
+				F246 /* NudgeNotification.swift */,
+				F245 /* NudgeCopy.swift */,
+				F244 /* NudgeEngine.swift */,
+				F243 /* NudgeGating.swift */,
+				F242 /* NudgeTriggers.swift */,
+				F241 /* ExerciseVeto.swift */,
+				F222 /* NudgeSignals.swift */,
+				F221 /* NudgeSampleBuffer.swift */,
+				F240 /* DailyRollup.swift */,
 			);
 			path = Metrics;
 			sourceTree = "<group>";
@@ -373,6 +461,7 @@
 				F201 /* PracticeCatalog.swift */,
 				F138 /* PolyvagalState.swift */,
 				F160 /* ClientProfile.swift */,
+				679350D1BBA9E9E28C249EC1 /* UsageEventLog.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -412,6 +501,7 @@
 				F113 /* SessionUploader.swift */,
 				F208 /* ActivityUploader.swift */,
 				F145 /* InsightGenerator.swift */,
+				FE6F0E9C8772030B86BA730E /* UsageUploader.swift */,
 			);
 			path = Sync;
 			sourceTree = "<group>";
@@ -421,17 +511,10 @@
 			children = (
 				F204 /* PracticeHubView.swift */,
 				F205 /* PracticeDetailView.swift */,
+				F249 /* NudgeCardView.swift */,
+				F248 /* NudgeTimerView.swift */,
 			);
 			path = Train;
-			sourceTree = "<group>";
-		};
-		GAPP_BIO /* Biofeedback */ = {
-			isa = PBXGroup;
-			children = (
-				F134 /* BiofeedbackViews.swift */,
-				F207 /* BiofeedbackSessionView.swift */,
-			);
-			path = Biofeedback;
 			sourceTree = "<group>";
 		};
 		GAPP_UI /* UI */ = {
@@ -472,6 +555,20 @@
 			isa = PBXGroup;
 			children = (
 				FT19 /* DayLoadSummaryTests.swift */,
+				FT20 /* DayPotentialStateTests.swift */,
+				FT38 /* UsageUploaderTests.swift */,
+				FT37 /* NudgeNotificationTests.swift */,
+				FT36 /* NudgeCopyTests.swift */,
+				FT35 /* NudgeEngineTests.swift */,
+				FT34 /* NudgeGatingTests.swift */,
+				FT33 /* NudgeTriggersTests.swift */,
+				FT32 /* ExerciseVetoTests.swift */,
+				FT31 /* NudgeFixture.swift */,
+				FT24 /* ActivityTargetTests.swift */,
+				FT25 /* SubtypeMemoryTests.swift */,
+				FT23 /* DurationPresetTests.swift */,
+				FT22 /* NudgeSignalsTests.swift */,
+				FT21 /* NudgeSampleBufferTests.swift */,
 				FT18 /* DayPotentialInsightTests.swift */,
 				FT17 /* TrendShapeComputeTests.swift */,
 				FT16 /* StreakComputeTests.swift */,
@@ -485,10 +582,12 @@
 				FT05 /* LiveStateTrendComputeTests.swift */,
 				FT06 /* PayloadBuilderTests.swift */,
 				FT07 /* ActivityMetricStatsTests.swift */,
-				FT08 /* ActivityImpactTests.swift */,
+				12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */,
+				FT26 /* ImpactDeltaTests.swift */,
 				FT10 /* ClientProfileTests.swift */,
 				FT11 /* PracticeCatalogTests.swift */,
 				FT12 /* MotionComputeTests.swift */,
+				FT30 /* DailyRollupTests.swift */,
 			);
 			path = WythinTests;
 			sourceTree = "<group>";
@@ -597,6 +696,7 @@
 				A210 /* AnchorDetector.swift in Sources */,
 				A101 /* WythinApp.swift in Sources */,
 				A102 /* AppEnvironment.swift in Sources */,
+				A247 /* NudgeRouting.swift in Sources */,
 				A103 /* BLEService.swift in Sources */,
 				A104 /* PolarH10Profile.swift in Sources */,
 				A105 /* DataBuffer.swift in Sources */,
@@ -615,6 +715,7 @@
 				A116 /* ResonanceResult.swift in Sources */,
 				A135 /* TrainSession.swift in Sources */,
 				A127 /* MetricsHistoryPoint.swift in Sources */,
+				A240 /* DailyRollup.swift in Sources */,
 				A117 /* Theme.swift in Sources */,
 				A118 /* WaveformRenderer.swift in Sources */,
 				A132 /* SplashView.swift in Sources */,
@@ -635,6 +736,8 @@
 				A203 /* ActivityLogging.swift in Sources */,
 				A204 /* PracticeHubView.swift in Sources */,
 				A205 /* PracticeDetailView.swift in Sources */,
+				A249 /* NudgeCardView.swift in Sources */,
+				A248 /* NudgeTimerView.swift in Sources */,
 				A206 /* ResonanceSessionView.swift in Sources */,
 				A207 /* BiofeedbackSessionView.swift in Sources */,
 				A138 /* PolyvagalState.swift in Sources */,
@@ -653,17 +756,30 @@
 				A148 /* MetricTile.swift in Sources */,
 				A149 /* ActivityMetricsGrid.swift in Sources */,
 				A150 /* ActivityWindowChart.swift in Sources */,
-				A153 /* PracticeImpactGauge.swift in Sources */,
+				A153 /* PracticeImpactMeter.swift in Sources */,
 				A154 /* MetricProgressRow.swift in Sources */,
+				A230 /* ActivityDetailView.swift in Sources */,
+				A231 /* ActivityFormSheets.swift in Sources */,
 				A151 /* ActivityMetricStats.swift in Sources */,
 				A152 /* ActivityImpact.swift in Sources */,
 				A202 /* AutonomicCompute.swift in Sources */,
 				A155 /* HeartRateCompute.swift in Sources */,
 				A209 /* MotionCompute.swift in Sources */,
+				A246 /* NudgeNotification.swift in Sources */,
+				A245 /* NudgeCopy.swift in Sources */,
+				A244 /* NudgeEngine.swift in Sources */,
+				A243 /* NudgeGating.swift in Sources */,
+				A242 /* NudgeTriggers.swift in Sources */,
+				A241 /* ExerciseVeto.swift in Sources */,
+				A222 /* NudgeSignals.swift in Sources */,
+				A221 /* NudgeSampleBuffer.swift in Sources */,
 				A123 /* ResonateView.swift in Sources */,
 				A124 /* PacerCircleView.swift in Sources */,
 				A125 /* HistoryView.swift in Sources */,
 				A126 /* SettingsView.swift in Sources */,
+				BB44FFFA4FD2ED2B440F60EA /* UsageEventLog.swift in Sources */,
+				519BA43B55690D5F8761EBBF /* UsageUploader.swift in Sources */,
+				F7233A74A7B0B97C62834AF5 /* PracticeImpactGauge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -672,9 +788,24 @@
 			buildActionMask = 2147483647;
 			files = (
 				AT19 /* DayLoadSummaryTests.swift in Sources */,
+				AT20 /* DayPotentialStateTests.swift in Sources */,
+				AT38 /* UsageUploaderTests.swift in Sources */,
+				AT37 /* NudgeNotificationTests.swift in Sources */,
+				AT36 /* NudgeCopyTests.swift in Sources */,
+				AT35 /* NudgeEngineTests.swift in Sources */,
+				AT34 /* NudgeGatingTests.swift in Sources */,
+				AT33 /* NudgeTriggersTests.swift in Sources */,
+				AT32 /* ExerciseVetoTests.swift in Sources */,
+				AT31 /* NudgeFixture.swift in Sources */,
+				AT24 /* ActivityTargetTests.swift in Sources */,
+				AT25 /* SubtypeMemoryTests.swift in Sources */,
+				AT23 /* DurationPresetTests.swift in Sources */,
+				AT22 /* NudgeSignalsTests.swift in Sources */,
+				AT21 /* NudgeSampleBufferTests.swift in Sources */,
 				AT18 /* DayPotentialInsightTests.swift in Sources */,
 				AT17 /* TrendShapeComputeTests.swift in Sources */,
 				AT16 /* StreakComputeTests.swift in Sources */,
+				AT30 /* DailyRollupTests.swift in Sources */,
 				AT15 /* PotentialScoreTests.swift in Sources */,
 				AT14 /* AnchorBaselineTests.swift in Sources */,
 				AT13 /* AnchorDetectorTests.swift in Sources */,
@@ -686,7 +817,8 @@
 				AT06 /* PayloadBuilderTests.swift in Sources */,
 				AT10 /* ClientProfileTests.swift in Sources */,
 				AT07 /* ActivityMetricStatsTests.swift in Sources */,
-				AT08 /* ActivityImpactTests.swift in Sources */,
+				43A37C75E1DB1B68CE8566C1 /* ActivityTypeTests.swift in Sources */,
+				AT26 /* ImpactDeltaTests.swift in Sources */,
 				AT11 /* PracticeCatalogTests.swift in Sources */,
 				AT12 /* MotionComputeTests.swift in Sources */,
 			);

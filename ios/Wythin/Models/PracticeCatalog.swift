@@ -108,7 +108,7 @@ enum PracticeCatalog {
         Practice(
             id: "zone-2-run", title: "Zone 2 Run", subtitle: "Easy aerobic pace",
             teacherID: "theo-brandt", category: .movement,
-            activityType: .run, subtype: "Easy Run", defaultDurationMins: 30,
+            activityType: .exercise, subtype: "Easy Run", defaultDurationMins: 30,
             description: "Keep it conversational. Live HR and recovery help you hold an easy aerobic zone and build a base.",
             tags: ["Endurance", "Biofeedback"],
             art: PracticeArt(symbol: "figure.run", hexStops: ["#F97316", "#7C2D12"]),

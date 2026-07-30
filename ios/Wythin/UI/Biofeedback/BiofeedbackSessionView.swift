@@ -98,7 +98,7 @@ struct BiofeedbackSessionView: View {
         .onAppear {
             if logEntry == nil {
                 logEntry = ActivityLogging.begin(type: activityType, subtype: subtype,
-                                                 customName: nil, context: ctx)
+                                                 customName: nil, targetMinutes: nil, context: ctx)
                 prevTrainState = trainState
             }
         }

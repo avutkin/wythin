@@ -195,3 +195,32 @@ async def test_activity_detail():
     async with _client() as client:
         nf = await client.get("/admin/activities/00000000-0000-0000-0000-0000000000fe")
         assert nf.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_user_usage_aggregation():
+    """Upload usage events, then confirm the per-user usage aggregation
+    endpoint and the /admin/stats per-user usage averages."""
+    from datetime import datetime, timezone, timedelta
+    base = datetime.now(timezone.utc) - timedelta(hours=2)
+    async with _client() as client:
+        up = await client.post("/v1/usage", headers={"X-User-ID": "test-usage-agg"}, json={"events": [
+            {"client_event_id": "aaaa1111-0000-0000-0000-000000000001", "event_type": "foreground",    "ts": base.isoformat(),                         "duration_ms": 120000},
+            {"client_event_id": "aaaa1111-0000-0000-0000-000000000002", "event_type": "foreground",    "ts": (base + timedelta(minutes=30)).isoformat(), "duration_ms": 60000},
+            {"client_event_id": "aaaa1111-0000-0000-0000-000000000003", "event_type": "ecg_recording", "ts": base.isoformat(),                         "duration_ms": 600000},
+        ]})
+        assert up.status_code == 200, up.text
+
+        stats = await client.get("/admin/stats", params={"days": 3650})
+        u = next(x for x in stats.json()["users"] if x["device_id"] == "test-usage-agg")
+        assert {"avg_opens_day", "avg_active_min_day", "avg_ecg_day"} <= set(u)
+
+        r = await client.get(f"/admin/users/{u['id']}/usage", params={"days": 30})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["series"], "expected a per-day row"
+    row = d["series"][-1]
+    assert row["opens"] == 2 and row["ecg_recordings"] == 1
+    assert abs(row["active_min"] - 3.0) < 0.1   # 120s + 60s = 180s = 3.0 min
+    assert abs(row["ecg_min"] - 10.0) < 0.1     # 600s = 10 min
+    assert d["averages"]["opens_day"] >= 2

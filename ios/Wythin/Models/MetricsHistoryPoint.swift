@@ -123,11 +123,18 @@ struct MetricsHistoryPoint {
         lfHF:      Float? = nil,
         coherence: Float? = nil,
         breathBPM: Float? = nil,
-        cbi:       Float? = nil
+        cbi:       Float? = nil,
+        dfa1:      Float? = nil,
+        rcmse:     Float? = nil,
+        pip:       Float? = nil,
+        dc:        Float? = nil,
+        motion:    Float? = nil,
+        signalQuality:  Float? = nil,
+        ecgQualityTier: Int?   = nil
     ) {
         self.timestamp = timestamp
         self.ieRatio = nil
-        self.vti = nil
+        self.vti = rmssd.map { log($0) }
         self.rmssd = rmssd
         self.rsaMs = rsaMs
         self.sdnn = sdnn
@@ -141,16 +148,16 @@ struct MetricsHistoryPoint {
         self.cbi = cbi
         self.breathBPM = breathBPM
         self.meanBPM = meanBPM
-        self.dfa1 = nil
-        self.signalQuality = nil
+        self.dfa1 = dfa1
+        self.signalQuality = signalQuality
         self.rrInvalidRate = nil
         self.rrCorrectedRate = nil
-        self.ecgQualityTier = nil
-        self.rcmse = nil
-        self.pip = nil
+        self.ecgQualityTier = ecgQualityTier
+        self.rcmse = rcmse
+        self.pip = pip
         self.ials = nil
-        self.dc = nil
-        self.motion = nil
+        self.dc = dc
+        self.motion = motion
     }
 
     /// Convenience initializer covering the fields the anchor pipeline reads.

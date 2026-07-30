@@ -7,43 +7,59 @@ import SwiftData
 enum ActivityType: String, CaseIterable, Codable {
     case exercise     = "Exercise"
     case walk         = "Walk"
-    case run          = "Run"
     case meditation   = "Meditation"
     case breathwork   = "Breathwork"
     case meal         = "Meal"
     case nap          = "Nap"
-    case coldExposure = "Cold Exposure"
-    case sauna        = "Sauna"
-    case alcohol      = "Alcohol"
+    case thermal      = "Thermal"
+    case drinks       = "Drinks"
+    case work         = "Work"
     case custom       = "Custom"
+
+    /// The nine tiles shown in the picker grid — Custom is offered separately
+    /// beneath it so it stays reachable without spending a tile.
+    static var pickerCases: [ActivityType] { allCases.filter { $0 != .custom } }
+
+    /// Resolves a stored `activityType` string, including types that have
+    /// since been merged into a broader one. Old entries keep their own
+    /// subtype ("Tempo Run", "Espresso"), so nothing is lost — only the tile
+    /// they group under changed.
+    static func fromStored(_ raw: String) -> ActivityType {
+        if let type = ActivityType(rawValue: raw) { return type }
+        switch raw {
+        case "Run":                      return .exercise
+        case "Cold Exposure", "Sauna":   return .thermal
+        case "Coffee", "Alcohol":        return .drinks
+        default:                         return .custom
+        }
+    }
 
     var icon: String {
         switch self {
-        case .exercise:     return "dumbbell"
+        case .exercise:     return "figure.run"
         case .walk:         return "figure.walk"
-        case .run:          return "figure.run"
         case .meditation:   return "brain.head.profile"
         case .breathwork:   return "lungs"
         case .meal:         return "fork.knife"
         case .nap:          return "moon.zzz"
-        case .coldExposure: return "thermometer.snowflake"
-        case .sauna:        return "flame"
-        case .alcohol:      return "wineglass"
+        case .thermal:      return "thermometer.snowflake"
+        case .drinks:       return "cup.and.saucer.fill"
+        case .work:         return "laptopcomputer"
         case .custom:       return "pencil.circle"
         }
     }
 
     var color: Color {
         switch self {
-        case .exercise, .run:    return Theme.warn
+        case .exercise:          return Theme.warn
         case .walk:              return Theme.accent
         case .meditation:        return Theme.hrv
         case .breathwork:        return Theme.breathe
         case .meal:              return Theme.rsa
         case .nap:               return Theme.ulf
-        case .coldExposure:      return Color(hex: "#67E8F9")
-        case .sauna:             return Color(hex: "#FCD34D")
-        case .alcohol:           return Color(hex: "#F9A8D4")
+        case .thermal:           return Color(hex: "#67E8F9")
+        case .drinks:            return Color(hex: "#C89F6B")
+        case .work:              return Theme.ulf
         case .custom:            return Theme.dim
         }
     }
@@ -51,13 +67,12 @@ enum ActivityType: String, CaseIterable, Codable {
     var subtypes: [String] {
         switch self {
         case .exercise:
-            return ["Yoga", "HIIT", "Power Lifting", "Pilates", "Cycling",
+            return ["Easy Run", "Tempo Run", "Intervals", "Long Run", "Trail Run",
+                    "Yoga", "HIIT", "Power Lifting", "Pilates", "Cycling",
                     "Swimming", "Stretching", "CrossFit", "Boxing",
                     "Rowing", "Climbing", "Martial Arts"]
         case .walk:
             return ["Nature Walk", "City Walk", "Hiking", "Treadmill"]
-        case .run:
-            return ["Easy Run", "Tempo Run", "Intervals", "Long Run", "Trail Run", "Race"]
         case .meditation:
             return ["Vipassana", "Guided", "Body Scan", "Loving-Kindness",
                     "Transcendental", "Zen", "Mantra", "Open Awareness", "Yoga Nidra"]
@@ -68,31 +83,16 @@ enum ActivityType: String, CaseIterable, Codable {
             return ["Breakfast", "Lunch", "Dinner", "Snack", "Fast Breaking"]
         case .nap:
             return ["Power Nap", "Full Cycle"]
-        case .coldExposure:
-            return ["Cold Shower", "Ice Bath", "Cold Plunge", "Cryotherapy"]
-        case .sauna:
-            return ["Finnish", "Infrared", "Steam"]
-        case .alcohol:
-            return ["Beer", "Wine", "Spirits", "Cocktail"]
+        case .thermal:
+            return ["Cold Shower", "Ice Bath", "Cold Plunge", "Cryotherapy",
+                    "Sauna", "Infrared Sauna", "Steam Room"]
+        case .drinks:
+            return ["Espresso", "Filter Coffee", "Latte", "Cold Brew", "Decaf",
+                    "Beer", "Wine", "Spirits", "Cocktail"]
+        case .work:
+            return ["Deep Work", "Meetings", "Email", "Creative", "Reading"]
         case .custom:
             return []
-        }
-    }
-
-    // Hour ranges (start inclusive) for time-of-day fallback pre-selection
-    var defaultHours: [Int] {
-        switch self {
-        case .meditation:   return [5, 6, 7, 8, 21, 22]
-        case .walk:         return [7, 8, 9, 16, 17, 18]
-        case .exercise:     return [9, 10, 15, 16, 17]
-        case .run:          return [6, 7, 8, 17, 18]
-        case .meal:         return [7, 8, 12, 13, 18, 19, 20]
-        case .breathwork:   return [6, 7, 21, 22]
-        case .nap:          return [13, 14, 15]
-        case .coldExposure: return [7, 8, 9]
-        case .sauna:        return [18, 19, 20]
-        case .alcohol:      return [19, 20, 21]
-        case .custom:       return []
         }
     }
 }
@@ -111,6 +111,11 @@ final class ActivityLog {
     var endedAt:         Date?
     var notes:           String?
     var isManual:        Bool    // true = retrospective entry
+
+    /// Optional intended duration for a live activity, in minutes. Drives the
+    /// banner's progress display only — nothing ever stops an activity on a
+    /// timer. Always nil for retrospective entries.
+    var targetMinutes: Int?
 
     /// OpenAI-generated interpretation + recommendation for this activity's
     /// HRV response. `nil` means "not yet generated" — eligible for retry
@@ -132,23 +137,23 @@ final class ActivityLog {
     var beforeDC:    Float?;  var duringDC:    Float?;  var afterDC:    Float?
     var beforeDFA1:  Float?;  var duringDFA1:  Float?;  var afterDFA1:  Float?
 
-    /// Cached overall practice impact (0–100), computed once at capture from
-    /// quality-filtered samples so the activity-row badge and the detail
-    /// gauge always show the same number.
-    var impactScore: Int?
-
-    /// Overall practice impact for display. Prefers the precise score stored at
-    /// capture; falls back to a cheap estimate from the stored before/during
-    /// averages so the value is always shown — and identical in the row badge
-    /// and the detail gauge (both read this).
-    var displayImpactScore: Int? {
-        if let s = impactScore { return s }
-        let uplifts: [Double] = activityMetricDefs.compactMap { def in
-            let d = self[keyPath: def.duringKey].map(Double.init)
-            let b = self[keyPath: def.beforeKey].map(Double.init)
-            return def.benefitDelta(current: d, base: b)
+    /// Mean benefit-signed change from the before-window to the during-window
+    /// across the nine metrics — literally the average of the per-metric
+    /// numbers shown on the rows below the meter, so the two agree to within
+    /// rounding at the displayed whole-percent precision. (The one residual
+    /// source of drift: VTI is deliberately computed as ln(mean(RMSSD)), not
+    /// mean(ln(RMSSD)), so its window average and a point-by-point mean of
+    /// per-sample VTI can differ slightly — see the comment on vtiFromRMSSD.)
+    /// Computed, never cached: the stored window averages and the detail
+    /// view's ActivityMetricStats both derive from the same quality-filtered
+    /// samples, so there is nothing to keep in sync.
+    var impactDeltaPct: Double? {
+        let deltas = activityMetricDefs.compactMap { def in
+            def.benefitDelta(current: self[keyPath: def.duringKey].map(Double.init),
+                             base:    self[keyPath: def.beforeKey].map(Double.init))
         }
-        return ActivityImpact.score(uplifts: uplifts)
+        guard !deltas.isEmpty else { return nil }
+        return deltas.reduce(0, +) / Double(deltas.count)
     }
 
     init(activityType:    String,
@@ -156,7 +161,8 @@ final class ActivityLog {
          customName:      String? = nil,
          startedAt:       Date    = .now,
          endedAt:         Date?   = nil,
-         isManual:        Bool    = false) {
+         isManual:        Bool    = false,
+         targetMinutes:   Int?    = nil) {
         self.id              = UUID()
         self.activityType    = activityType
         self.activitySubtype = activitySubtype
@@ -164,6 +170,7 @@ final class ActivityLog {
         self.startedAt       = startedAt
         self.endedAt         = endedAt
         self.isManual        = isManual
+        self.targetMinutes   = targetMinutes
     }
 
     var isActive: Bool { endedAt == nil && !isManual }
@@ -180,7 +187,7 @@ final class ActivityLog {
     }
 
     var activityTypeEnum: ActivityType {
-        ActivityType(rawValue: activityType) ?? .custom
+        ActivityType.fromStored(activityType)
     }
 
     var duration: TimeInterval? {
@@ -224,16 +231,29 @@ final class ActivityLog {
     /// entries with no samples in range simply stay nil, and re-running
     /// produces the same values for entries already filled.
     static func backfillMissingWindows(context: ModelContext) {
-        let desc = FetchDescriptor<ActivityLog>(
-            predicate: #Predicate { $0.isManual == false }
-        )
-        guard let all = try? context.fetch(desc) else { return }
-        let needsFill = all.filter { $0.endedAt != nil && ($0.duringStress == nil || $0.impactScore == nil) }
-        guard !needsFill.isEmpty else { return }
-        for entry in needsFill {
-            entry.computeHRVWindows(context: context)
+        // Bump when the stored metric set changes. v2 adds DC / DFA1 / RCMSE / PIP,
+        // which the original nil-Stress guard never backfilled — so older entries
+        // showed "—" for e.g. Vagal Tone in the row while the detail (which
+        // recomputes live) still had the value. On a version bump we recompute
+        // every finished entry once from the samples still in store, then fall back
+        // to the cheap ongoing guard.
+        let currentVersion = 2
+        let versionKey = "activityBackfillVersion"
+        let migrating = UserDefaults.standard.integer(forKey: versionKey) < currentVersion
+
+        guard let all = try? context.fetch(FetchDescriptor<ActivityLog>()) else { return }
+        let needsFill = all.filter { entry in
+            guard entry.endedAt != nil else { return false }
+            if migrating { return true }
+            return entry.duringStress == nil
         }
-        try? context.save()
+        if !needsFill.isEmpty {
+            for entry in needsFill {
+                entry.computeHRVWindows(context: context)
+            }
+            try? context.save()
+        }
+        UserDefaults.standard.set(currentVersion, forKey: versionKey)
     }
 
     // MARK: HRV window computation
@@ -252,7 +272,7 @@ final class ActivityLog {
             predicate: allPredicate,
             sortBy: [SortDescriptor(\.timestamp)]
         )
-        desc.fetchLimit = 2_000
+        desc.fetchLimit = 10_000   // match the detail chart's fetch so long sessions aren't truncated
         guard let rawSamples = try? context.fetch(desc) else { return }
         // Gate samples through the same wear/artifact quality filter the Live
         // view and the activity detail charts use, so these stored window
@@ -260,9 +280,13 @@ final class ActivityLog {
         // noisy beats (SDNN≈0) pull HRV/SDNN below the filtered live values.
         let samples = rawSamples.filter { MetricsQualityFilter.isValid(MetricsHistoryPoint(from: $0)) }
 
+        // During/after boundary is half-open at `end` — [startedAt, end) / [end, afterEnd] —
+        // matching ActivityMetricStats' partition exactly, so these stored window
+        // averages and the detail view's per-metric stats agree on which sample
+        // owns the boundary timestamp.
         let before = samples.filter { $0.timestamp >= beforeStart && $0.timestamp < startedAt }
-        let during = samples.filter { $0.timestamp >= startedAt   && $0.timestamp <= end       }
-        let after  = samples.filter { $0.timestamp > end          && $0.timestamp <= afterEnd  }
+        let during = samples.filter { $0.timestamp >= startedAt   && $0.timestamp < end        }
+        let after  = samples.filter { $0.timestamp >= end         && $0.timestamp <= afterEnd  }
 
         func avg(_ arr: [HRVSample], _ kp: KeyPath<HRVSample, Float?>) -> Float? {
             let vals = arr.compactMap { $0[keyPath: kp] }
@@ -300,19 +324,5 @@ final class ActivityLog {
         beforePIP   = avg(before, \.pip);        duringPIP   = avg(during, \.pip);        afterPIP   = avg(after, \.pip)
         beforeDC    = avg(before, \.dc);         duringDC    = avg(during, \.dc);         afterDC    = avg(after, \.dc)
         beforeDFA1  = avg(before, \.dfa1);       duringDFA1  = avg(during, \.dfa1);       afterDFA1  = avg(after, \.dfa1)
-
-        // Overall practice impact — the single source of truth for both the
-        // row badge and the detail gauge. Computed exactly the way the detail
-        // card does: benefit-signed during-vs-before uplift per metric over
-        // quality-filtered points, averaged by ActivityImpact.score.
-        let points = MetricsQualityFilter.filter(samples.map { MetricsHistoryPoint(from: $0) })
-        let uplifts = activityMetricDefs.compactMap { def in
-            ActivityMetricStats(points: points,
-                                extract: def.extract,
-                                direction: def.direction,
-                                startedAt: startedAt,
-                                endedAt: end).avgUpliftPct
-        }
-        impactScore = ActivityImpact.score(uplifts: uplifts)
     }
 }

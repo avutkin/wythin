@@ -87,13 +87,16 @@ enum PotentialScore {
         // Validity: circadian comparability.
         guard abs(anchor.hour - baseline.medianHour) <= maxHourDeviation else { return nil }
 
-        guard let lnZ = baseline.lnRMSSD.z(anchor.lnRMSSD),
-              let hrZraw = baseline.restingHR.z(anchor.restingHR) else { return nil }
+        // Prior-blended throughout: a baseline built from two or three anchors
+        // has an SD too unstable to divide by directly. See `BaselineStat.z`.
+        guard let lnZ = baseline.lnRMSSD.z(anchor.lnRMSSD, prior: BaselinePrior.lnRMSSD),
+              let hrZraw = baseline.restingHR.z(anchor.restingHR, prior: BaselinePrior.restingHR)
+        else { return nil }
         let hrZ = -hrZraw   // benefit-signed: lower resting HR is better
 
         let dcZ: Float? = {
             guard let dc = anchor.dc, let stat = baseline.dc else { return nil }
-            return stat.z(dc)
+            return stat.z(dc, prior: BaselinePrior.dc)
         }()
 
         // Core, with DC's weight redistributed proportionally when absent.
@@ -108,15 +111,21 @@ enum PotentialScore {
         let raw = min(max((50 + 25 * capacityZ).rounded(), 0), 100)
 
         // Penalties — capped, never bonuses.
+        // Stability needs 8 anchors before its own distribution exists, so it
+        // would otherwise switch on abruptly and drop the score up to 10 points
+        // for no reason the user did anything about — right as the baseline is
+        // declared firm. Ramp it in over the following `strength` days instead.
         let stability: Float = {
             guard let cv7 = baseline.cv7, let stat = baseline.cv7Stat,
                   let z = stat.z(cv7) else { return 0 }
-            return min(max(10 * z / 2, 0), 10)
+            let ramp = min(max(Float(baseline.anchorCount - AnchorBaseline.firmAnchors)
+                               / BaselinePrior.strength, 0), 1)
+            return min(max(10 * z / 2, 0), 10) * ramp
         }()
 
         let fragmentation: Float = {
             guard let pip = anchor.pip, let stat = baseline.pip,
-                  let z = stat.z(pip) else { return 0 }
+                  let z = stat.z(pip, prior: BaselinePrior.pip) else { return 0 }
             return min(max(10 * z / 2, 0), 10)
         }()
 

@@ -50,6 +50,17 @@ final class AppEnvironment {
     /// to avoid O(n) removeFirst on every append once the buffer is full.
     var tickHistory: [MetricsHistoryPoint] = []
 
+    /// Bumped when `tickHistory` is bulk-(re)loaded — the initial async load and
+    /// the foreground merge — but NOT on live 2-s appends. Lets the today charts
+    /// refresh exactly when history lands, without re-rendering all 9 charts every
+    /// tick (which the 15 s snapshot cadence deliberately avoids).
+    var historyRevision: Int = 0
+
+    // Usage telemetry: foreground interval start + a poll task watching the
+    // strap connection for ECG-recording (connect→disconnect) intervals.
+    private var foregroundStart: Date? = Date()
+    private var usageRecordingTask: Task<Void, Never>?
+
     var isInForeground: Bool = true {
         didSet {
             if !isInForeground {
@@ -59,13 +70,23 @@ final class AppEnvironment {
                     try? modelContainer.mainContext.save()
                     pendingSaveCount = 0
                 }
+                // Record the just-ended foreground interval as a usage event.
+                if let start = foregroundStart {
+                    logUsageEvent(type: "foreground", start: start)
+                    foregroundStart = nil
+                }
             } else {
+                foregroundStart = Date()
                 // Returning to foreground — merge any samples saved during background
                 // into tickHistory so intraday charts show the full picture.
                 reloadRecentHistory()
                 retryPendingInsights()
                 // Make sure the paired strap is (re)armed for seamless auto-connect.
                 ble.ensureAutoConnect()
+                surfacePendingFocusWindow()
+                // tickHistory is kept current in the background now, so refresh the
+                // charts from it immediately on open (no fetch/refill wait).
+                historyRevision += 1
             }
         }
     }
@@ -93,7 +114,161 @@ final class AppEnvironment {
 
     // MARK: Private
 
+    // MARK: Nudges (SP6 Phase 1 — shadow mode)
+
+    /// Evaluates state shifts on the live stream and records what would have
+    /// fired. Nothing is delivered: no notifications, no UI, no permission
+    /// prompt. Phase 2 turns delivery on once the thresholds are tuned.
+    let nudges = NudgeEngine()
+
+    /// Delivery is opt-in and **off by default**: the thresholds are still
+    /// first guesses, so being interrupted has to be something the user
+    /// chooses rather than something that starts happening.
+    var nudgesEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "nudgesEnabled") }
+        set { UserDefaults.standard.set(newValue, forKey: "nudgesEnabled") }
+    }
+
+    /// Options the user has switched off — removed from every menu.
+    var disabledInterventions: Set<NudgeInterventionID> {
+        get {
+            let raw = UserDefaults.standard.stringArray(forKey: "nudgeDisabledOptions") ?? []
+            return Set(raw.compactMap(NudgeInterventionID.init(rawValue:)))
+        }
+        set {
+            UserDefaults.standard.set(newValue.map(\.rawValue), forKey: "nudgeDisabledOptions")
+            notifications.refreshCategories(disabled: newValue, pacerHoldsAvailable: false)
+        }
+    }
+
+    /// Shown as a card while the app is open, instead of a banner.
+    var pendingInAppNudge: InAppNudge?
+    /// Set by a notification tap; consumed by ContentView.
+    var pendingNudgeAction: NudgeAction?
+    /// Most recent focus window, surfaced in the past tense on next open.
+    var lastFocusWindowAt: Date?
+    /// Why nothing fired, for the settings row.
+    private(set) var lastNudgeSuppression: NudgeSuppressionReason?
+
+    let notifications: NudgeDelivering = NudgeNotificationService()
+
+    private var nudgeBaseline: AnchorBaseline?
+    private var nudgeBaselineAt: Date?
+    private var lastNudgeEvalAt = Date.distantPast
+
+    /// Anchors change once a day at most, so rebuilding hourly is generous.
+    private let nudgeBaselineTTL: TimeInterval = 3600
+
+    private func evaluateNudgesIfDue(now: Date) {
+        guard now.timeIntervalSince(lastNudgeEvalAt) >= NudgeEngine.evaluationInterval else { return }
+        lastNudgeEvalAt = now
+        refreshNudgeBaselineIfStale(now: now)
+
+        let context = modelContainer.mainContext
+        let activeActivity = (try? context.fetch(FetchDescriptor<ActivityLog>()))?
+            .contains(where: \.isActive) ?? false
+
+        let evaluation = nudges.evaluate(baseline: nudgeBaseline,
+                                         bleStandby: false,   // standby short-circuits the tick loop
+                                         activityInProgress: activeActivity,
+                                         now: now)
+
+        guard let evaluation else { return }
+        lastNudgeSuppression = evaluation.suppression
+        guard let selected = evaluation.selected else { return }
+        deliver(selected, at: now)
+    }
+
+    /// The focus window never pushes — a notification would interrupt the exact
+    /// absorbed state it is reporting. Everything else takes a banner when
+    /// backgrounded and an in-app card when not.
+    private func deliver(_ trigger: NudgeTriggerID, at now: Date) {
+        guard nudgesEnabled else { return }
+
+        if trigger == .focusWindow {
+            lastFocusWindowAt = now
+            return
+        }
+
+        let options = NudgeInterventionLibrary.menu(for: trigger,
+                                                    disabled: disabledInterventions,
+                                                    pacerHoldsAvailable: false)
+        guard !options.isEmpty else { return }
+        let content = NudgeCopy.render(trigger, options: options)
+
+        if isInForeground {
+            pendingInAppNudge = InAppNudge(trigger: trigger, content: content)
+        } else {
+            Task { await notifications.deliver(content, trigger: trigger) }
+        }
+    }
+
+    /// Fires a real nudge on demand, to prove the delivery path end to end:
+    /// permission, banner, the menu as action buttons, and tap routing.
+    ///
+    /// Always goes out as a notification with a short delay, so the app can be
+    /// backgrounded first — that is the path worth testing, and the one that is
+    /// impossible to see while looking at the screen.
+    func sendTestNudge(after delay: TimeInterval = 5) async {
+        let trigger = NudgeTriggerID.stuckStill
+        let options = NudgeInterventionLibrary.menu(for: trigger,
+                                                    disabled: disabledInterventions,
+                                                    pacerHoldsAvailable: false)
+        let base = NudgeCopy.render(trigger, options: options)
+        let content = NudgeContent(title: base.title,
+                                   body: "\(base.body) (test)",
+                                   options: options)
+        await notifications.deliver(content, trigger: trigger, after: delay)
+    }
+
+    /// Called when the user acts on a nudge, from a notification or the card.
+    func actOnNudge(_ action: NudgeAction) {
+        pendingInAppNudge = nil
+        pendingNudgeAction = action
+    }
+
+    /// A focus window is never pushed — a notification would interrupt the very
+    /// state it is reporting — so it waits and is shown in the past tense the
+    /// next time the app is opened.
+    private func surfacePendingFocusWindow() {
+        guard nudgesEnabled, let at = lastFocusWindowAt else { return }
+        lastFocusWindowAt = nil
+        let content = NudgeCopy.render(.focusWindow, options: [])
+        let when = Self.focusTimeFormatter.string(from: at)
+        pendingInAppNudge = InAppNudge(
+            trigger: .focusWindow,
+            content: NudgeContent(title: "\(content.title) · \(when)",
+                                  body: content.body,
+                                  options: []))
+    }
+
+    private static let focusTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f
+    }()
+
+    private func refreshNudgeBaselineIfStale(now: Date) {
+        if let at = nudgeBaselineAt, now.timeIntervalSince(at) < nudgeBaselineTTL { return }
+        nudgeBaselineAt = now
+
+        let context = modelContainer.mainContext
+        guard let anchors = try? context.fetch(FetchDescriptor<DailyAnchor>()) else { return }
+
+        // Today is excluded so the baseline is what came *before* now, matching
+        // how the day-potential score builds it.
+        let today = Calendar.current.startOfDay(for: now)
+        let history = anchors.map(\.reading).filter { $0.day < today }
+        let hour = Double(Calendar.current.component(.hour, from: now))
+        nudgeBaseline = AnchorBaseline.build(history: history, todayHour: hour, now: now)
+    }
+
     private let modelContainer: ModelContainer
+
+    /// Today's capacity read. App-owned rather than view-owned so it is
+    /// computed once at launch and survives tab switches — the score must be
+    /// on the moment the Live tab appears, not computed when it does.
+    let dayPotential = DayPotentialStore()
 
     /// Main-actor context for stores that own their own persistence
     /// (e.g. `DayPotentialStore` reading and writing `DailyAnchor`).
@@ -107,6 +282,7 @@ final class AppEnvironment {
     private let trimBatch       = 600      // trim this many entries at once (amortises O(n) shift)
     private let saveInterval    = 30       // persist to disk every 60 s (30 ticks × 2 s)
     private var pendingSaveCount = 0       // ticks accumulated since last save
+    private var lastSaveAt: Date = .distantPast   // wall-clock cap so bg saves land ≤2 min
     private var lastBackgroundTick: Date = .distantPast  // throttles bg computation to 30 s
     private var lastMetricSyncAt: Date = .distantPast     // throttles cloud sync attempts to ~120 s
 
@@ -121,12 +297,20 @@ final class AppEnvironment {
 
         bindBLE()
         loadHistory()
+        startUsageTracking()
+        prewarmDashboards()
+        // Register the notification categories up front: without them a nudge
+        // arrives with no menu buttons on it.
+        notifications.refreshCategories(disabled: disabledInterventions,
+                                        pacerHoldsAvailable: false)
         Task {
             let context = modelContainer.mainContext
             let uploader = SessionUploader(client: sync.client, userID: userID)
             await uploader.flushPending(context: context)
             let activityUploader = ActivityUploader(client: sync.client, userID: userID)
             await activityUploader.flushPending(context: context)
+            let usageUploader = UsageUploader(client: sync.client, userID: userID)
+            await usageUploader.flushPending(context: context)
         }
     }
 
@@ -173,16 +357,51 @@ final class AppEnvironment {
 
     // MARK: Private — History loading
 
+    /// Warms everything the tabs read, while the splash is still up, so the
+    /// first tap on any of them lands on ready data rather than a cold fetch.
+    ///
+    /// Ordered deliberately: history first (Today's Potential needs the tick
+    /// history to find a rested window), then the anchor pipeline, then the
+    /// row sets the Activities and Track tabs open on.
+    private func prewarmDashboards() {
+        Task { @MainActor in
+            // loadHistory() publishes asynchronously; give the anchor pass the
+            // history it depends on rather than racing it.
+            for _ in 0..<40 where tickHistory.isEmpty {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            await dayPotential.refresh(env: self)
+
+            let context = modelContainer.mainContext
+            _ = try? context.fetch(FetchDescriptor<ActivityLog>())
+            _ = try? context.fetch(FetchDescriptor<DailyAnchor>())
+            var sessions = FetchDescriptor<HRVSession>(sortBy: [SortDescriptor(\.startedAt, order: .reverse)])
+            sessions.fetchLimit = 60
+            _ = try? context.fetch(sessions)
+        }
+    }
+
     private func loadHistory() {
-        let context = modelContainer.mainContext
-        let cutoff  = Date().addingTimeInterval(-86_400)
-        var descriptor = FetchDescriptor<HRVSample>(
-            predicate: #Predicate { $0.timestamp >= cutoff },
-            sortBy:    [SortDescriptor(\.timestamp)]
-        )
-        descriptor.fetchLimit = maxTickHistory
-        let samples = (try? context.fetch(descriptor)) ?? []
-        tickHistory = samples.map { MetricsHistoryPoint(from: $0) }
+        // Fetch + map up to ~43k rows OFF the main thread so app launch isn't
+        // blocked; publish on the main actor and bump the revision so the today
+        // charts fill the instant the data lands (no wait for the 15 s poll).
+        let container = modelContainer
+        let cutoff    = Date().addingTimeInterval(-86_400)
+        let limit     = maxTickHistory
+        Task { @MainActor in
+            let pts: [MetricsHistoryPoint] = await Task.detached {
+                let ctx = ModelContext(container)
+                var descriptor = FetchDescriptor<HRVSample>(
+                    predicate: #Predicate { $0.timestamp >= cutoff },
+                    sortBy:    [SortDescriptor(\.timestamp)]
+                )
+                descriptor.fetchLimit = limit
+                let samples = (try? ctx.fetch(descriptor)) ?? []
+                return samples.map { MetricsHistoryPoint(from: $0) }
+            }.value
+            self.tickHistory = pts
+            self.historyRevision += 1
+        }
     }
 
     /// Merge samples written during background into tickHistory.
@@ -203,6 +422,7 @@ final class AppEnvironment {
         if tickHistory.count > maxTickHistory + trimBatch {
             tickHistory.removeFirst(tickHistory.count - maxTickHistory)
         }
+        historyRevision += 1
     }
 
     /// Retry any activities that finished without a generated insight,
@@ -245,6 +465,43 @@ final class AppEnvironment {
             return v.squareRoot()
         }
         return (std(w.map(\.x)) + std(w.map(\.y)) + std(w.map(\.z))) / 3
+    }
+
+    // MARK: - Usage telemetry
+
+    /// Buffer a usage event (foreground interval / ECG-recording wear) locally
+    /// and kick an upload. No-op when cloud sync is off or the interval is empty.
+    func logUsageEvent(type: String, start: Date) {
+        let syncOn = UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true
+        guard syncOn else { return }
+        let durationMs = Int(Date().timeIntervalSince(start) * 1000)
+        guard durationMs > 0 else { return }
+        let ctx = modelContainer.mainContext
+        ctx.insert(UsageEventLog(eventType: type, ts: start, durationMs: durationMs))
+        try? ctx.save()
+        let uploader = UsageUploader(client: sync.client, userID: userID)
+        Task { await uploader.flushPending(context: ctx) }
+    }
+
+    /// Poll the strap connection ~every 5 s to record ECG-recording
+    /// (connect→disconnect) intervals as usage events.
+    private func startUsageTracking() {
+        usageRecordingTask?.cancel()
+        usageRecordingTask = Task { @MainActor [weak self] in
+            var recordingStart: Date? = nil
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard let self else { return }
+                let connected: Bool
+                if case .connected = self.ble.state { connected = true } else { connected = false }
+                if connected, recordingStart == nil {
+                    recordingStart = Date()
+                } else if !connected, let start = recordingStart {
+                    self.logUsageEvent(type: "ecg_recording", start: start)
+                    recordingStart = nil
+                }
+            }
+        }
     }
 
     private func bindBLE() {
@@ -307,7 +564,12 @@ final class AppEnvironment {
                 // Off-body standby: ECG/ACC streams are paused, so there's no live
                 // data to process. Skip so stale/empty buckets never reach the
                 // charts; BLEService resumes automatically when the strap is worn.
-                if case .standby = self.ble.state { continue }
+                if case .standby = self.ble.state {
+                    // The strap is off: stillness and load stretches are broken,
+                    // and whatever resumes later is a new run.
+                    self.nudges.interrupt()
+                    continue
+                }
 
                 let inForeground = self.isInForeground
 
@@ -343,7 +605,7 @@ final class AppEnvironment {
                 let contact = ble.sensorContact
                 let ecgPoor = tick.ecgQuality?.tier == .poor
                 let rrBad   = (tick.signalQuality ?? 1) < 0.5
-                let still   = accMotion.map { $0 < accStillnessThreshold } ?? false
+                let still   = accMotion.map { $0 < self.accStillnessThreshold } ?? false
 
                 var score = 0
                 if contact == false { score += 3 } else if contact == true { score -= 1 }
@@ -363,13 +625,24 @@ final class AppEnvironment {
                     offBodySince = nil
                 }
 
-                // ── Foreground-only: update live display ──────────────────────
+                // Keep the chart history current in BOTH foreground and background
+                // so the charts are already up-to-date the instant the app is
+                // opened — no post-foreground fetch/refill delay.
+                let point = MetricsHistoryPoint(from: tick)
+                self.tickHistory.append(point)
+                if self.tickHistory.count > self.maxTickHistory + self.trimBatch {
+                    self.tickHistory.removeFirst(self.trimBatch)
+                }
+
+                // ── Always: shadow nudge engine (SP6 Phase 1) ─────────────────
+                // Records what *would* have fired so the thresholds can be tuned
+                // against real wear. Delivers nothing to the user.
+                self.nudges.ingest(point, now: point.timestamp)
+                self.evaluateNudgesIfDue(now: point.timestamp)
+
+                // ── Foreground-only: live table + live cloud stream ───────────
                 if inForeground {
                     self.latestTick = tick
-                    self.tickHistory.append(MetricsHistoryPoint(from: tick))
-                    if self.tickHistory.count > self.maxTickHistory + self.trimBatch {
-                        self.tickHistory.removeFirst(self.trimBatch)
-                    }
                     self.sync.sendTick(tick, userID: self.userID)
                 }
 
@@ -393,9 +666,14 @@ final class AppEnvironment {
                 let activeSession = self.currentSession ?? self.autoSession!
                 activeSession.samples.append(HRVSample(from: tick))
                 self.pendingSaveCount += 1
-                if self.pendingSaveCount >= self.saveInterval {
+                // Save every `saveInterval` ticks OR at least every 2 minutes of
+                // wall-clock — so background data (30 s ticks) reaches disk within
+                // ~2 min instead of ~15, and re-opening shows recent data.
+                if self.pendingSaveCount >= self.saveInterval
+                    || Date().timeIntervalSince(self.lastSaveAt) >= 120 {
                     try? context.save()
                     self.pendingSaveCount = 0
+                    self.lastSaveAt = Date()
                 }
             }
         }

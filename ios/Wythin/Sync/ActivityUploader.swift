@@ -15,7 +15,7 @@ struct ActivityUploadPayload: Codable {
     let startedAt:       String   // ISO8601
     let endedAt:         String?
     let isManual:        Bool
-    let impactScore:     Int?
+    let impactDeltaPct:  Float?
     let notes:           String?
 
     let beforeHR: Float?;     let duringHR: Float?;     let afterHR: Float?
@@ -38,7 +38,7 @@ struct ActivityUploadPayload: Codable {
         case startedAt       = "started_at"
         case endedAt         = "ended_at"
         case isManual        = "is_manual"
-        case impactScore     = "impact_score"
+        case impactDeltaPct  = "impact_delta_pct"
         case notes
         case beforeHR = "before_hr",         duringHR = "during_hr",         afterHR = "after_hr"
         case beforeRMSSD = "before_rmssd",   duringRMSSD = "during_rmssd",   afterRMSSD = "after_rmssd"
@@ -62,7 +62,7 @@ struct ActivityUploadPayload: Codable {
         startedAt       = iso.string(from: e.startedAt)
         endedAt         = e.endedAt.map { iso.string(from: $0) }
         isManual        = e.isManual
-        impactScore     = e.impactScore
+        impactDeltaPct  = e.impactDeltaPct.map(Float.init)
         notes           = e.notes
         beforeHR = e.beforeHR;         duringHR = e.duringHR;         afterHR = e.afterHR
         beforeRMSSD = e.beforeRMSSD;   duringRMSSD = e.duringRMSSD;   afterRMSSD = e.afterRMSSD
@@ -82,9 +82,16 @@ struct ActivityUploadPayload: Codable {
 
 /// Uploads finished ActivityLog records to the server. No local schema change:
 /// a UserDefaults watermark (last uploaded `endedAt`) avoids re-uploading, while
-/// the server upserts on client_activity_id so any re-send is harmless. On the
-/// first run the watermark is `.distantPast`, so it backfills existing activities.
-actor ActivityUploader {
+/// the server upserts on client_activity_id so any re-send is harmless — including
+/// re-sends from this build, which omits `impact_score` entirely; the server
+/// COALESCEs that column on conflict so an absent value never clears a real
+/// historical score written by an older build. On the first run the watermark
+/// is `.distantPast`, so it backfills existing activities.
+/// Main-actor isolated for the same reason as `UsageUploader`: it operates on
+/// the caller's `ModelContext`, which is not thread-safe and belongs to the main
+/// actor. An `actor` here would do SwiftData work on a background executor.
+@MainActor
+final class ActivityUploader {
 
     private let client: APIClient
     private let userID: String

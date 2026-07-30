@@ -87,12 +87,29 @@ extension PayloadBuilderTests {
             anchorHour: 7.2, anchorDurationMin: 5, late: false, confidence: "high",
             components: ["recovery_capacity": MetricComponentPayload(z: 0.8, level: "top of usual")],
             modifiers: ["fragmentation": 0],
-            baselineAnchors: 41, baselineTarget: 60, baselineSufficient: true,
+            baselineAnchors: 41, baselineTarget: 7, baselineSufficient: true,
+            provisional: false,
             recent: [64, 58, 61, 66, 69, 70, 72],
             streakCurrent: 4, streakBest: 6, graceUsed: false)
         let json = String(data: try JSONEncoder().encode(payload), encoding: .utf8) ?? ""
         XCTAssertTrue(json.contains("\"mode\":\"day_potential\""))
         XCTAssertTrue(json.contains("\"score\":72"))
         XCTAssertTrue(json.contains("streak_current"))
+    }
+
+    /// The server branches on this to decide whether it may claim norms, so it
+    /// has to survive encoding under the snake_case key the API expects.
+    func testDayPotentialPayloadEncodesProvisional() throws {
+        let payload = DayPotentialPayload(
+            score: 61, band: "good",
+            anchorHour: 7.2, anchorDurationMin: 5, late: false, confidence: "high",
+            components: [:], modifiers: [:],
+            baselineAnchors: 3, baselineTarget: 7, baselineSufficient: false,
+            provisional: true,
+            recent: [58, 61],
+            streakCurrent: 3, streakBest: 3, graceUsed: false)
+        let json = String(data: try JSONEncoder().encode(payload), encoding: .utf8) ?? ""
+        XCTAssertTrue(json.contains("\"provisional\":true"))
+        XCTAssertTrue(json.contains("\"baseline_sufficient\":false"))
     }
 }

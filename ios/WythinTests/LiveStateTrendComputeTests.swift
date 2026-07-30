@@ -87,6 +87,84 @@ final class LiveStateTrendComputeTests: XCTestCase {
         XCTAssertEqual(hr?.volatility, "moderate")
     }
 
+    // MARK: - Background cadence (30 s/tick)
+
+    /// Points spaced 30s apart — the background tick cadence.
+    private func backgroundPoints(count: Int, hr: Float, now: Date) -> [MetricsHistoryPoint] {
+        (0..<count).map { i in
+            MetricsHistoryPoint(timestamp: now.addingTimeInterval(-Double(count - i) * 30),
+                                meanBPM: hr)
+        }
+    }
+
+    /// A 10-minute window at the 30s background cadence holds only 20 points,
+    /// which is below the 30-point default — so the default correctly refuses.
+    func testDefaultMinimumRejectsShortWindowAtBackgroundCadence() {
+        let now = Date()
+        let history = backgroundPoints(count: 20, hr: 70, now: now)
+        XCTAssertNil(LiveStateTrendCompute.summarize(history, windowMinutes: 10, now: now))
+    }
+
+    /// ...but a caller that knows the cadence can lower the bar and get a result.
+    /// Without this the nudge engine's fast window can never evaluate in background.
+    func testSummarizesShortWindowWhenCallerLowersMinimum() {
+        let now = Date()
+        let history = backgroundPoints(count: 20, hr: 70, now: now)
+        let result = LiveStateTrendCompute.summarize(history, windowMinutes: 10,
+                                                     minimumPoints: 12, now: now)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?["hr"]?.mean, 70)
+    }
+
+    func testStillRejectsWhenBelowTheLoweredMinimum() {
+        let now = Date()
+        let history = backgroundPoints(count: 8, hr: 70, now: now)
+        XCTAssertNil(LiveStateTrendCompute.summarize(history, windowMinutes: 10,
+                                                     minimumPoints: 12, now: now))
+    }
+
+    // MARK: - Derived single series
+    //
+    // `balance` and `motion` are not in keyPaths (that list is the server payload
+    // contract) but the nudge engine needs the same direction/shape/volatility
+    // semantics for them.
+
+    func testSeriesTrendComputesDirectionAndShapeForADerivedSeries() {
+        let now = Date()
+        // Motion climbing steadily across a 30-min window at 30s cadence.
+        let history = (0..<60).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: now.addingTimeInterval(-Double(60 - i) * 30),
+                                motion: 5 + Float(i) * 0.5)
+        }
+        let trend = LiveStateTrendCompute.seriesTrend(history, windowMinutes: 30,
+                                                      minimumPoints: 36, now: now) { $0.motion }
+        XCTAssertEqual(trend?.direction, "rising")
+        XCTAssertEqual(trend?.shape, "steady-rise")
+        XCTAssertEqual(trend?.buckets?.count, 5)
+    }
+
+    func testSeriesTrendReturnsNilBelowMinimumPoints() {
+        let now = Date()
+        let history = (0..<10).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: now.addingTimeInterval(-Double(10 - i) * 30),
+                                motion: 5)
+        }
+        let trend = LiveStateTrendCompute.seriesTrend(history, windowMinutes: 30,
+                                                      minimumPoints: 36, now: now) { $0.motion }
+        XCTAssertNil(trend)
+    }
+
+    func testSeriesTrendReturnsNilWhenSeriesIsAllNil() {
+        let now = Date()
+        let history = (0..<60).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: now.addingTimeInterval(-Double(60 - i) * 30),
+                                motion: nil)
+        }
+        let trend = LiveStateTrendCompute.seriesTrend(history, windowMinutes: 30,
+                                                      minimumPoints: 36, now: now) { $0.motion }
+        XCTAssertNil(trend)
+    }
+
     func testFlatWindowReadsAsLowVolatilityPlateau() {
         let now = Date()
         let history = (0..<300).map { i in

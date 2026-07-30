@@ -3,15 +3,20 @@ import SwiftUI
 // MARK: - SplashView
 
 /// Full-screen splash shown on launch.
-/// Displays a random quote about the power of breath, with attribution.
-/// Brief brand overlay (~2.5 s); the app loads behind it. Tap the arrow to skip.
+///
+/// Opens on pure black and reveals in three beats — the quote first, then the
+/// skip hint, then the brand — so the first thing the eye lands on is the
+/// words, not the logo. The app is already loading behind it; the whole
+/// sequence is skippable from the moment the hint appears.
 struct SplashView: View {
 
     let onFinished: () -> Void
 
-    @State private var opacity:        Double = 1   // whole-view fade on dismiss
-    @State private var contentOpacity: Double = 0   // brand + quote fade in together
-    @State private var arrowOpacity:   Double = 0
+    @State private var opacity:      Double  = 1   // whole-view fade on dismiss
+    @State private var quoteOpacity: Double  = 0
+    @State private var quoteOffset:  CGFloat = 14  // slight rise as it lands
+    @State private var skipOpacity:  Double  = 0
+    @State private var brandOpacity: Double  = 0
     @State private var quote = quotes.randomElement()!
 
     private func dismiss() {
@@ -21,88 +26,112 @@ struct SplashView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: "#0C0C0C").ignoresSafeArea()
+            Color.black.ignoresSafeArea()
 
-            VStack(spacing: 0) {
+            // The quote is centred on the SCREEN, not in the space left over
+            // by the brand — so it reads as the subject of the composition,
+            // and its position doesn't shift when the brand fades in.
+            quoteBlock
+                .opacity(quoteOpacity)
+                .offset(y: quoteOffset)
 
-                // ── Logo ───────────────────────────────────────────────
-                VStack(spacing: 16) {
-                    Image("WythinLogo")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 60, height: 60)
-                        .foregroundStyle(Color.white)
-
-                    VStack(spacing: 10) {
-                        Text("wythin")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(Color.white)
-                            .tracking(4)
-
-                        Text("Discover the Universe Inside You")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(Color.white.opacity(0.7))
-                            .tracking(1)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 24)
-                    }
-                }
-                .padding(.top, 64)
-                .opacity(contentOpacity)
-
-                Spacer()
-
-                // ── Quote ──────────────────────────────────────────────
-                VStack(spacing: 0) {
-                    Text(quote.text)
-                        .font(.system(size: 18, design: .monospaced))
-                        .foregroundStyle(Color.white)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(8)
-                        .padding(.horizontal, 40)
-
-                    Spacer().frame(height: 32)
-
-                    Rectangle()
-                        .fill(Color.white.opacity(0.25))
-                        .frame(width: 20, height: 1)
-
-                    Spacer().frame(height: 24)
-
-                    Text(quote.author.uppercased())
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.55))
-                        .tracking(4.5)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 48)
-                }
-                .opacity(contentOpacity)
-
-                Spacer()
-
-                // ── Arrow dismiss ──────────────────────────────────────
-                Button(action: dismiss) {
-                    HStack(spacing: 0) {
-                        Rectangle()
-                            .frame(width: 32, height: 1)
-                        Image(systemName: "arrowtriangle.right.fill")
-                            .font(.system(size: 7))
-                    }
-                    .foregroundStyle(Color(hex: "#00E5A0"))
-                }
-                .opacity(arrowOpacity)
-                .padding(.bottom, 52)
+            VStack {
+                brandBlock
+                    .opacity(brandOpacity)
+                Spacer(minLength: 0)
             }
-            .opacity(opacity)
+
+            VStack {
+                Spacer(minLength: 0)
+                skipButton
+                    .opacity(skipOpacity)
+            }
         }
+        .opacity(opacity)
+        // The whole screen is tappable to skip; the chevron just makes that
+        // discoverable.
+        .contentShape(Rectangle())
+        .onTapGesture { if skipOpacity > 0 { dismiss() } }
         .onAppear {
-            // The real app is already loading behind this overlay, so keep the
-            // splash brief: show the Wythin brand immediately and auto-dismiss
-            // in ~2.5 s (skippable via the arrow almost at once).
-            withAnimation(.easeIn(duration: 0.7)) { contentOpacity = 1 }
-            withAnimation(.easeIn(duration: 0.5).delay(0.7)) { arrowOpacity = 1 }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { dismiss() }
+            withAnimation(.easeOut(duration: 1.2).delay(0.25)) {
+                quoteOpacity = 1
+                quoteOffset  = 0
+            }
+            withAnimation(.easeIn(duration: 0.6).delay(1.7))  { skipOpacity  = 1 }
+            withAnimation(.easeIn(duration: 0.9).delay(2.1))  { brandOpacity = 1 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5.2) { dismiss() }
         }
+    }
+
+    // MARK: - Pieces
+
+    /// Last to arrive, and deliberately quiet — the words lead, the mark follows.
+    private var brandBlock: some View {
+        VStack(spacing: 14) {
+            Image("WythinLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 44, height: 44)
+                .foregroundStyle(Theme.text)
+
+            VStack(spacing: 8) {
+                Text("wythin")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Theme.text)
+                    .tracking(6)
+
+                Text("Discover the Universe Inside You")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Theme.text.opacity(0.42))
+                    .tracking(1.4)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+        }
+        .padding(.top, 56)
+    }
+
+    private var quoteBlock: some View {
+        VStack(spacing: 0) {
+            Text(quote.text)
+                .font(.system(size: 19, weight: .light, design: .serif))
+                .foregroundStyle(Theme.text.opacity(0.92))
+                .multilineTextAlignment(.center)
+                .lineSpacing(9)
+                .padding(.horizontal, 40)
+
+            Spacer().frame(height: 30)
+
+            Rectangle()
+                .fill(Theme.text.opacity(0.18))
+                .frame(width: 24, height: 0.5)
+
+            Spacer().frame(height: 22)
+
+            Text(quote.author.uppercased())
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(Theme.text.opacity(0.4))
+                .tracking(4)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 48)
+        }
+    }
+
+    /// White, not accent — this is a way out, not a call to action.
+    private var skipButton: some View {
+        Button(action: dismiss) {
+            HStack(spacing: 8) {
+                Rectangle()
+                    .frame(width: 28, height: 0.5)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .medium))
+            }
+            .foregroundStyle(Theme.text.opacity(0.45))
+            .contentShape(Rectangle())
+            .padding(12)
+        }
+        .buttonStyle(.plain)
+        .padding(.bottom, 44)
     }
 
     // MARK: - Quote Library
