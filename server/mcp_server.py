@@ -49,16 +49,26 @@ async def _auth(ctx: Context) -> str:
     return await resolve_bearer(header)
 
 
+# A "session" is a logged practice (the `activities` the app actually records);
+# the legacy `sessions`/`hrv_samples` tables are never populated. Its per-sample
+# rows are the `metric_samples` that fall inside the activity's time window.
 def _session_row(r) -> dict:
     return {
         "id": str(r["id"]),
+        "activity_type": r["activity_type"],
+        "name": r["custom_name"] or r["activity_type"],
         "started_at": r["started_at"].isoformat() if r["started_at"] else None,
         "ended_at": r["ended_at"].isoformat() if r["ended_at"] else None,
-        "best_resonance_bpm": r["best_resonance_bpm"],
-        "avg_rsa_ms": r["avg_rsa_ms"],
-        "avg_coherence": r["avg_coherence"],
+        "impact_score": r["impact_score"],
+        "avg_hr": r["during_hr"],
+        "avg_rmssd": r["during_rmssd"],
+        "avg_rsa_ms": r["during_rsa"],
         "notes": r["notes"],
     }
+
+
+_SESSION_COLS = ("id, activity_type, custom_name, started_at, ended_at, "
+                 "impact_score, during_hr, during_rmssd, during_rsa, notes")
 
 
 # ---- data helpers (unit-testable without the MCP transport) ----
@@ -89,8 +99,8 @@ async def _list_sessions(user_id: str, limit: int, since: Optional[str], until: 
         args.append(dt_until); clauses.append(f"started_at < ${len(args)}")
     args.append(limit)
     sql = (
-        "SELECT id, started_at, ended_at, best_resonance_bpm, avg_rsa_ms, avg_coherence, notes "
-        "FROM sessions WHERE " + " AND ".join(clauses) +
+        f"SELECT {_SESSION_COLS} "
+        "FROM activities WHERE " + " AND ".join(clauses) +
         f" ORDER BY started_at DESC LIMIT ${len(args)}"
     )
     async with get_pool().acquire() as conn:
@@ -102,8 +112,8 @@ async def _get_session(user_id: str, session_id: str) -> dict:
     sid = _valid_uuid(session_id)
     async with get_pool().acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT id, started_at, ended_at, best_resonance_bpm, avg_rsa_ms, avg_coherence, notes "
-            "FROM sessions WHERE id = $1 AND user_id = $2", sid, user_id)
+            f"SELECT {_SESSION_COLS} "
+            "FROM activities WHERE id = $1 AND user_id = $2", sid, user_id)
     if row is None:
         raise ValueError("session not found")
     return _session_row(row)
@@ -113,19 +123,26 @@ async def _get_session_samples(user_id: str, session_id: str, limit: int = 2000)
     sid = _valid_uuid(session_id)
     limit = max(1, min(int(limit), _MAX_SAMPLES))
     async with get_pool().acquire() as conn:
-        owns = await conn.fetchval(
-            "SELECT 1 FROM sessions WHERE id = $1 AND user_id = $2", sid, user_id)
-        if not owns:
+        act = await conn.fetchrow(
+            "SELECT started_at, ended_at FROM activities WHERE id = $1 AND user_id = $2",
+            sid, user_id)
+        if act is None:
             raise ValueError("session not found")
+        # The window's samples: metric_samples for this user within the practice.
+        window_end = act["ended_at"] or act["started_at"]
         rows = await conn.fetch(
-            "SELECT ts, mean_bpm, rmssd, sdnn, pnn50, lf_hf, rsa_ms, coherence, cbi, breath_bpm "
-            "FROM hrv_samples WHERE session_id = $1 ORDER BY ts LIMIT $2", sid, limit)
+            "SELECT ts, mean_bpm, rmssd, sdnn, pnn50, lf_hf, rsa_ms, coherence, cbi, "
+            "breath_bpm, dfa1, rcmse, pip, dc, vti "
+            "FROM metric_samples WHERE user_id = $1 AND ts >= $2 AND ts <= $3 "
+            "ORDER BY ts LIMIT $4", user_id, act["started_at"], window_end, limit)
     return [
         {
             "ts": r["ts"].isoformat() if r["ts"] else None,
             "mean_bpm": r["mean_bpm"], "rmssd": r["rmssd"], "sdnn": r["sdnn"],
             "pnn50": r["pnn50"], "lf_hf": r["lf_hf"], "rsa_ms": r["rsa_ms"],
             "coherence": r["coherence"], "cbi": r["cbi"], "breath_bpm": r["breath_bpm"],
+            "dfa1": r["dfa1"], "rcmse": r["rcmse"], "pip": r["pip"],
+            "dc": r["dc"], "vti": r["vti"],
         }
         for r in rows
     ]
@@ -143,20 +160,22 @@ async def whoami(ctx: Context) -> dict:
 @mcp.tool()
 async def list_sessions(ctx: Context, limit: int = 50,
                         since: Optional[str] = None, until: Optional[str] = None) -> list[dict]:
-    """List your recorded HRV/breathing sessions, newest first.
+    """List your logged practice sessions (breathing/activities), newest first.
+    Each carries type, name, start/end, impact score and during-practice averages.
     limit caps the count; since/until are ISO-8601 datetimes filtering by start time."""
     return await _list_sessions(await _auth(ctx), limit, since, until)
 
 
 @mcp.tool()
 async def get_session(ctx: Context, session_id: str) -> dict:
-    """Get the summary of one of your sessions by its id."""
+    """Get the summary of one of your practice sessions by its id."""
     return await _get_session(await _auth(ctx), session_id)
 
 
 @mcp.tool()
 async def get_session_samples(ctx: Context, session_id: str, limit: int = 2000) -> list[dict]:
-    """Get the per-sample HRV rows (chronological) within one of your sessions."""
+    """Get the per-sample metric rows (chronological) recorded during one of your
+    practice sessions — the metric_samples that fall inside its time window."""
     return await _get_session_samples(await _auth(ctx), session_id, limit)
 
 

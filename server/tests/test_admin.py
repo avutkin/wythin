@@ -202,17 +202,25 @@ async def test_user_usage_aggregation():
     """Upload usage events, then confirm the per-user usage aggregation
     endpoint and the /admin/stats per-user usage averages."""
     from datetime import datetime, timezone, timedelta
-    base = datetime.now(timezone.utc) - timedelta(hours=2)
+    import uuid
+    # Isolated per run: fixed ids + a fixed device would keep the first run's
+    # timestamps alive across runs (the usage endpoint dedupes on client_event_id).
+    # Anchor to a fixed midday-UTC on a past day so the two foreground events share
+    # one UTC day and never straddle midnight — day bucketing is UTC (see init_pool).
+    sfx = uuid.uuid4().hex[:8]
+    device = f"test-usage-agg-{sfx}"
+    base = (datetime.now(timezone.utc) - timedelta(days=1)).replace(
+        hour=12, minute=0, second=0, microsecond=0)
     async with _client() as client:
-        up = await client.post("/v1/usage", headers={"X-User-ID": "test-usage-agg"}, json={"events": [
-            {"client_event_id": "aaaa1111-0000-0000-0000-000000000001", "event_type": "foreground",    "ts": base.isoformat(),                         "duration_ms": 120000},
-            {"client_event_id": "aaaa1111-0000-0000-0000-000000000002", "event_type": "foreground",    "ts": (base + timedelta(minutes=30)).isoformat(), "duration_ms": 60000},
-            {"client_event_id": "aaaa1111-0000-0000-0000-000000000003", "event_type": "ecg_recording", "ts": base.isoformat(),                         "duration_ms": 600000},
+        up = await client.post("/v1/usage", headers={"X-User-ID": device}, json={"events": [
+            {"client_event_id": str(uuid.uuid4()), "event_type": "foreground",    "ts": base.isoformat(),                         "duration_ms": 120000},
+            {"client_event_id": str(uuid.uuid4()), "event_type": "foreground",    "ts": (base + timedelta(minutes=30)).isoformat(), "duration_ms": 60000},
+            {"client_event_id": str(uuid.uuid4()), "event_type": "ecg_recording", "ts": base.isoformat(),                         "duration_ms": 600000},
         ]})
         assert up.status_code == 200, up.text
 
         stats = await client.get("/admin/stats", params={"days": 3650})
-        u = next(x for x in stats.json()["users"] if x["device_id"] == "test-usage-agg")
+        u = next(x for x in stats.json()["users"] if x["device_id"] == device)
         assert {"avg_opens_day", "avg_active_min_day", "avg_ecg_day"} <= set(u)
 
         r = await client.get(f"/admin/users/{u['id']}/usage", params={"days": 30})

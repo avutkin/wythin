@@ -50,15 +50,21 @@ async def test_tool_helpers_scope_to_user():
     await init_pool()
     await create_schema()
     try:
-        uid_a = await get_or_create_user("mcp-scope-A")
-        uid_b = await get_or_create_user("mcp-scope-B")
+        # Unique device ids per run: the test DB persists between runs and
+        # activities have no idempotency key, so fresh users keep this isolated.
+        import uuid as _uuid
+        sfx = _uuid.uuid4().hex[:8]
+        uid_a = await get_or_create_user(f"mcp-scope-A-{sfx}")
+        uid_b = await get_or_create_user(f"mcp-scope-B-{sfx}")
         async with get_pool().acquire() as conn:
+            # A "session" is a logged activity; its samples are the user's
+            # metric_samples within the activity window.
             sid = await conn.fetchval(
-                "INSERT INTO sessions (user_id, started_at, avg_rsa_ms) "
-                "VALUES ($1, NOW(), 30) RETURNING id", uid_a)
+                "INSERT INTO activities (user_id, activity_type, started_at, ended_at, during_rsa) "
+                "VALUES ($1, 'breathing', NOW() - interval '5 min', NOW(), 30) RETURNING id", uid_a)
             await conn.execute(
-                "INSERT INTO hrv_samples (session_id, ts, mean_bpm, rmssd) "
-                "VALUES ($1, NOW(), 62, 40)", str(sid))
+                "INSERT INTO metric_samples (user_id, ts, mean_bpm, rmssd) "
+                "VALUES ($1, NOW() - interval '1 min', 62, 40) ON CONFLICT DO NOTHING", uid_a)
 
         # A sees exactly its session; B sees none
         assert len(await _list_sessions(uid_a, 50, None, None)) == 1
@@ -85,6 +91,26 @@ async def test_mcp_tools_registered_and_mounted():
     assert {"whoami", "list_sessions", "get_session", "get_session_samples",
             "get_day_summary", "get_metric_trend", "get_metric_stats"} <= tools
     assert any(getattr(r, "path", "") == "/mcp" for r in app.routes)
+
+
+@pytest.mark.asyncio
+async def test_mcp_transport_requires_bearer():
+    """The /mcp mount is gated at the transport: anonymous and bad-token callers
+    get a real 401 before reaching FastMCP, so initialize/tools/list are not
+    readable without a valid personal token."""
+    async with _client() as c:
+        body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        # Anonymous → 401 (previously reached tools/list unauthenticated).
+        r = await c.post("/mcp/", json=body)
+        assert r.status_code == 401
+        # Malformed token → 401.
+        r = await c.post("/mcp/", json=body,
+                         headers={"Authorization": "Bearer not-a-wyth-token"})
+        assert r.status_code == 401
+        # (The valid-token path reaches FastMCP, whose session manager requires
+        # the app lifespan; its reachability is covered by the mount test and the
+        # live server. Here we assert only that the transport gate rejects
+        # unauthenticated callers — the security fix.)
 
 
 @pytest.mark.asyncio

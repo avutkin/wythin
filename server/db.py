@@ -17,7 +17,12 @@ _pool: asyncpg.Pool | None = None
 
 async def init_pool() -> None:
     global _pool
-    _pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+    # Pin the session timezone to UTC so timestamp handling never depends on the
+    # host's timezone: naive datetimes and date_trunc()/::date bucketing all
+    # resolve in UTC, matching the tz-aware UTC values the app uploads. Keeps the
+    # data anchored to its own timestamps even if the box's tz ever changes.
+    _pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10,
+                                      server_settings={"timezone": "UTC"})
 
 
 async def close_pool() -> None:
