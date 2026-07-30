@@ -28,6 +28,9 @@ struct OnboardingScaffold<Content: View>: View {
     let continueTitle: String
     let onBack:        (() -> Void)?
     let onContinue:    () -> Void
+    /// Optional escape hatch for steps that ask for personal detail. Steps that
+    /// leave this nil render no skip affordance at all.
+    var onSkip:        (() -> Void)? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -68,29 +71,43 @@ struct OnboardingScaffold<Content: View>: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 12) {
-            if let onBack {
-                Button(action: onBack) {
-                    Image(systemName: "chevron.left")
+        VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                if let onBack {
+                    Button(action: onBack) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Theme.dim)
+                            .frame(width: 52, height: 52)
+                            .background(Theme.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+                Button(action: onContinue) {
+                    Text(continueTitle)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Theme.dim)
-                        .frame(width: 52, height: 52)
-                        .background(Theme.surface)
+                        .foregroundStyle(canContinue ? Theme.text : Theme.dim)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(canContinue
+                                    ? AnyShapeStyle(LinearGradient.onboardingPrimary)
+                                    : AnyShapeStyle(Theme.surface))
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
+                .disabled(!canContinue)
             }
-            Button(action: onContinue) {
-                Text(continueTitle)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(canContinue ? Theme.text : Theme.dim)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(canContinue
-                                ? AnyShapeStyle(LinearGradient.onboardingPrimary)
-                                : AnyShapeStyle(Theme.surface))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            // Deliberately quiet: a plain text button, no fill, so it reads as
+            // available without competing with Continue.
+            if let onSkip {
+                Button(action: onSkip) {
+                    Text("Skip for now")
+                        .font(Theme.monoBody)
+                        .foregroundStyle(Theme.dim)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 32)
+                }
             }
-            .disabled(!canContinue)
         }
         .padding(.horizontal, 24)
         .padding(.top, 12)
@@ -216,6 +233,7 @@ struct OnboardingFieldScreen: View {
     let isValid:      Bool
     let onBack:       (() -> Void)?
     let onContinue:   () -> Void
+    var onSkip:       (() -> Void)? = nil
 
     var body: some View {
         OnboardingScaffold(
@@ -225,7 +243,8 @@ struct OnboardingFieldScreen: View {
             canContinue: isValid,
             continueTitle: "Continue",
             onBack: onBack,
-            onContinue: onContinue
+            onContinue: onContinue,
+            onSkip: onSkip
         ) {
             TextField("", text: $text, prompt: Text(placeholder).foregroundColor(Theme.dim))
                 .font(.system(size: 20, weight: .medium))
@@ -254,6 +273,7 @@ struct OnboardingMultiSelectScreen: View {
     @Binding var selection: [String]
     let onBack:     () -> Void
     let onContinue: () -> Void
+    var onSkip:     (() -> Void)? = nil
 
     // "Other" free-text: any selection value that isn't a preset option id is
     // treated as the custom entry, so it survives back-navigation.
@@ -271,7 +291,8 @@ struct OnboardingMultiSelectScreen: View {
             canContinue: !selection.isEmpty,
             continueTitle: "Continue",
             onBack: onBack,
-            onContinue: onContinue
+            onContinue: onContinue,
+            onSkip: onSkip
         ) {
             VStack(spacing: 10) {
                 ForEach(options) { opt in
@@ -346,6 +367,7 @@ struct OnboardingAboutYouScreen: View {
     @Binding var gender:   String?
     let onBack:     () -> Void
     let onContinue: () -> Void
+    var onSkip:     (() -> Void)? = nil
 
     private let ages    = ["18–24", "25–34", "35–44", "45–54", "55+"]
     private let genders = ["Female", "Male", "Non-binary", "Prefer not to say"]
@@ -358,7 +380,8 @@ struct OnboardingAboutYouScreen: View {
             canContinue: ageRange != nil && gender != nil,
             continueTitle: "Continue",
             onBack: onBack,
-            onContinue: onContinue
+            onContinue: onContinue,
+            onSkip: onSkip
         ) {
             VStack(alignment: .leading, spacing: 18) {
                 pickerGroup(title: "AGE", options: ages, selection: $ageRange)
