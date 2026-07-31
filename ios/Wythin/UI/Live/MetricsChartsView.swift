@@ -746,6 +746,7 @@ struct MetricsChartsView: View, Equatable {
             pipCard
             dfa1Card
             lfhfCard
+            breathRateCard
             rsaCard
             vtiCard
             hrvCard
@@ -999,6 +1000,43 @@ struct MetricsChartsView: View, Equatable {
             history: history, rawHistory: rawHistory, date: date,
             bucketTransform: { v in v > 0 ? log(v) : 0 }
         ) { $0.rmssd.map(Double.init) }
+    }
+
+    // MARK: Breath Rate
+
+    /// Breathing rate from the chest-strap accelerometer (Z-axis Welch PSD).
+    /// The y-domain mirrors `BreathingCompute.breathBand` (0.08–0.50 Hz), the
+    /// only range the estimator can report — so a fixed domain is honest and
+    /// keeps the 6 br/min resonance line in a stable place all day.
+    private var breathRateCard: some View {
+        MetricChartCard(
+            title:   "Breath Rate",
+            technicalName: "br/min",
+            subtitle: "How fast you're breathing",
+            yLabel:  "br/min",
+            color:   Theme.breathe,
+            windows: TimeWindow.allCases,
+            refs: [
+                RefLine(value:  6, label:  "6  resonance", color: Theme.coh),
+                RefLine(value: 12, label: "12  rest",      color: Theme.rsa),
+                RefLine(value: 20, label: "20  fast",      color: Theme.warn),
+            ],
+            yDomain: 4...30,
+            win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
+            // The PSD peak jitters between FFT bins even after parabolic
+            // interpolation, so smooth it like RSA.
+            smooth:  true,
+            info: MetricInfo(
+                "How many breaths you take per minute. It's the one signal on this screen you can change on purpose, right now, just by breathing differently.",
+                physical:    "Your chest rises and falls with each breath, and the strap's motion sensor picks that up. Counting those rises gives your breathing rate.",
+                physiology:  "Slower breathing gives your body's brake more time to act on each out-breath. Fast, shallow breathing does the opposite — it keeps you revved up, and it's often the first thing to change when you're stressed.",
+                training:    "This is your steering wheel. Most people find their sweet spot near 6 breaths per minute — try settling there and watch Conscious Breathing rise underneath it.",
+                sensitivity: "Immediate — it follows your very next breath. It's also the easiest metric here to change deliberately.",
+                levels:      "Resonance: around 6 br/min\nRestful:   6–12 br/min\nTypical:   12–16 br/min\nFast:      20+ br/min",
+                notes:       "Measured from body movement, so walking, driving, or fidgeting can be mistaken for breathing. Trust it most when you're still."
+            ),
+            history: history, rawHistory: rawHistory, date: date
+        ) { $0.breathBPM.map(Double.init) }
     }
 
     // MARK: RSA
