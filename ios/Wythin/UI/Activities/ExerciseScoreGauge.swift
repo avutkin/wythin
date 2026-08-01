@@ -24,7 +24,7 @@ struct ExerciseScoreGauge: View {
     @State private var rayBloom:   CGFloat = 0
 
     private let lineWidth:   CGFloat = 14
-    private let subLineWidth: CGFloat = 5
+    private let subLineWidth: CGFloat = 3.5
     private let knobRadius:  CGFloat = 13
     private let arcFraction: CGFloat = 240.0 / 360.0
     private let rotation = Angle.degrees(150)
@@ -42,6 +42,24 @@ struct ExerciseScoreGauge: View {
     private var reduceMotion: Bool { UIAccessibility.isReduceMotionEnabled }
 
     var body: some View {
+        VStack(spacing: 6) {
+            dial
+            // Outside the dial: centred inside it, the caption collides with
+            // both the score and the knob once the fill passes ~85 %.
+            Text(caption)
+                .font(Theme.monoLabel)
+                .foregroundStyle(crowned ? gold : Theme.dim)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(crowned
+            ? "Session score \(score) out of 100. \(caption). Crowned."
+            : "Session score \(score) out of 100. \(caption).")
+        .onAppear(perform: animateIn)
+    }
+
+    private var dial: some View {
         GeometryReader { geo in
             let inset  = knobRadius + lineWidth / 2 + 4
             let d      = min(geo.size.width, geo.size.height) - inset * 2
@@ -85,17 +103,17 @@ struct ExerciseScoreGauge: View {
 
                 // Sub-circle: Load, inside the score ring.
                 if let loadFraction {
-                    let sd = d - lineWidth * 2 - 10
+                    let sd = d - lineWidth * 2 - 18
                     Circle()
                         .trim(from: 0, to: arcFraction)
-                        .stroke(Theme.surface.opacity(0.6),
+                        .stroke(Theme.surface.opacity(0.35),
                                 style: StrokeStyle(lineWidth: subLineWidth, lineCap: .round))
                         .rotationEffect(rotation)
                         .frame(width: sd, height: sd)
                         .position(center)
                     Circle()
                         .trim(from: 0, to: arcFraction * CGFloat(min(max(loadFraction, 0), 1)) * sweep)
-                        .stroke(Theme.rsa.opacity(0.85),
+                        .stroke(Theme.rsa.opacity(0.55),
                                 style: StrokeStyle(lineWidth: subLineWidth, lineCap: .round))
                         .rotationEffect(rotation)
                         .frame(width: sd, height: sd)
@@ -117,26 +135,14 @@ struct ExerciseScoreGauge: View {
                         .shadow(color: crowned ? gold.opacity(crownGlow) : .clear, radius: 8)
                 }
 
-                VStack(spacing: 2) {
-                    Text("\(score)")
-                        .font(.system(size: 42, weight: .bold, design: .rounded))
-                        .foregroundStyle(Theme.text)
-                        .monospacedDigit()
-                    Text(caption)
-                        .font(Theme.monoLabel)
-                        .foregroundStyle(crowned ? gold : Theme.dim)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
-                .position(center)
+                Text("\(score)")
+                    .font(.system(size: 42, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.text)
+                    .monospacedDigit()
+                    .position(center)
             }
         }
-        .frame(height: 196)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(crowned
-            ? "Session score \(score) out of 100. \(caption). Crowned."
-            : "Session score \(score) out of 100. \(caption).")
-        .onAppear(perform: animateIn)
+        .frame(height: 186)
     }
 
     private func animateIn() {

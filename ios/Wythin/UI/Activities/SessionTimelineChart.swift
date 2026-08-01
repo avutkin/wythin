@@ -22,67 +22,45 @@ struct SessionTimelineChart: View {
     /// Pre-session DC, the reference for "how much vagal tone is withdrawn".
     let dcPre:     Float?
 
-    private struct Sample: Identifiable {
-        let id:    Int
-        let date:  Date
-        let hrr:   Double     // % of HR reserve in use
-        let withdrawn: Double?  // % of pre-session vagal tone withdrawn
+    /// Built once per render. Previously a computed property that
+    /// `hasVagalTrace` re-evaluated, bucketing up to 10,000 samples twice on
+    /// every pass.
+    private var samples: [TimelinePoint] {
+        SessionTimelineSeries.build(
+            samples: points.map { (date: $0.timestamp, hr: $0.meanBPM, dc: $0.dc) },
+            startedAt: startedAt, endedAt: endedAt,
+            restingHR: restingHR, ceiling: ceiling, dcPre: dcPre)
     }
-
-    /// Buckets to ~120 points regardless of session length, matching
-    /// ActivityWindowChart so the two read at the same density.
-    private var bucketed: [Sample] {
-        let span = endedAt.timeIntervalSince(startedAt)
-        guard span > 0 else { return [] }
-        let bucket = max(span / 120, 1)
-
-        var hrSum: [Int: Double] = [:], hrN: [Int: Int] = [:]
-        var dcSum: [Int: Double] = [:], dcN: [Int: Int] = [:]
-
-        for pt in points where pt.timestamp >= startedAt && pt.timestamp < endedAt {
-            let key = Int(pt.timestamp.timeIntervalSince(startedAt) / bucket)
-            if let hr = pt.meanBPM {
-                hrSum[key, default: 0] += ExerciseIntensity.hrReserve(
-                    hr: hr, restingHR: restingHR, ceiling: ceiling) * 100
-                hrN[key, default: 0] += 1
-            }
-            if let dc = pt.dc { dcSum[key, default: 0] += Double(dc); dcN[key, default: 0] += 1 }
-        }
-
-        return hrSum.keys.sorted().map { key in
-            let date = startedAt.addingTimeInterval(Double(key) * bucket + bucket / 2)
-            var withdrawn: Double?
-            if let pre = dcPre, pre > 0, let sum = dcSum[key], let n = dcN[key], n > 0 {
-                withdrawn = min(max((1 - (sum / Double(n)) / Double(pre)) * 100, 0), 100)
-            }
-            return Sample(id: key, date: date,
-                          hrr: hrSum[key]! / Double(hrN[key]!),
-                          withdrawn: withdrawn)
-        }
-    }
-
-    private var hasVagalTrace: Bool { bucketed.contains { $0.withdrawn != nil } }
 
     var body: some View {
-        let samples = bucketed
+        let samples = self.samples
+        let hasVagalTrace = samples.contains { $0.withdrawn != nil }
         VStack(alignment: .leading, spacing: 8) {
             Chart {
                 // The cost band, drawn first so the lines sit on top of it.
                 if hasVagalTrace {
                     ForEach(samples) { s in
                         if let w = s.withdrawn {
+                            // Keyed by segment for the same reason as the
+                            // lines: without it the fill sweeps across a
+                            // dropout as one continuous wedge, which is the
+                            // same false claim the broken stroke avoids.
                             AreaMark(x: .value("Time", s.date),
                                      yStart: .value("HR", s.hrr),
-                                     yEnd: .value("Vagal", w))
+                                     yEnd: .value("Vagal", w),
+                                     series: .value("Series", "cost-\(s.segment)"))
                                 .foregroundStyle(Theme.hrv.opacity(0.16))
                         }
                     }
                 }
 
+                // Optional y-values: a nil at a coverage gap breaks the stroke
+                // instead of drawing a straight, confident line across minutes
+                // the strap never recorded.
                 ForEach(samples) { s in
                     LineMark(x: .value("Time", s.date),
                              y: .value("% used", s.hrr),
-                             series: .value("Series", "HR reserve"))
+                             series: .value("Series", "hr-\(s.segment)"))
                         .foregroundStyle(Theme.rsa)
                         .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
                 }
@@ -91,7 +69,7 @@ struct SessionTimelineChart: View {
                     if let w = s.withdrawn {
                         LineMark(x: .value("Time", s.date),
                                  y: .value("% used", w),
-                                 series: .value("Series", "Vagal withdrawn"))
+                                 series: .value("Series", "vagal-\(s.segment)"))
                             .foregroundStyle(Theme.hrv)
                             .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
                     }
@@ -125,17 +103,20 @@ struct SessionTimelineChart: View {
                 legendItem(Theme.rsa, "% HR reserve")
                 if hasVagalTrace {
                     legendItem(Theme.hrv, "% vagal withdrawn")
-                    legendItem(Theme.hrv.opacity(0.3), "autonomic cost")
+                    legendItem(Theme.hrv.opacity(0.3), "autonomic cost", block: true)
                 }
             }
         }
     }
 
-    private func legendItem(_ color: Color, _ label: String) -> some View {
+    private func legendItem(_ color: Color, _ label: String,
+                            block: Bool = false) -> some View {
         HStack(spacing: 5) {
+            // A swatch has to match the mark it stands for: a hairline for a
+            // line series, a filled block for an area.
             RoundedRectangle(cornerRadius: 2)
                 .fill(color)
-                .frame(width: 9, height: 3)
+                .frame(width: 9, height: block ? 9 : 3)
             Text(label)
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(Theme.dim)
