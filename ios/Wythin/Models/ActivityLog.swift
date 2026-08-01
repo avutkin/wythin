@@ -16,15 +16,22 @@ enum ActivityType: String, CaseIterable, Codable {
     case work         = "Work"
     case custom       = "Custom"
 
-    /// The nine tiles shown in the picker grid — Custom is offered separately
-    /// beneath it so it stays reachable without spending a tile.
-    static var pickerCases: [ActivityType] { allCases.filter { $0 != .custom } }
+    /// The eight tiles shown in the picker grid — Custom is offered separately
+    /// beneath it so it stays reachable without spending a tile, and Walk has
+    /// folded into Exercise (its subtypes moved across).
+    static var pickerCases: [ActivityType] {
+        allCases.filter { $0 != .custom && $0 != .walk }
+    }
 
     /// Resolves a stored `activityType` string, including types that have
     /// since been merged into a broader one. Old entries keep their own
     /// subtype ("Tempo Run", "Espresso"), so nothing is lost — only the tile
     /// they group under changed.
     static func fromStored(_ raw: String) -> ActivityType {
+        // Checked before the rawValue lookup, because "Walk" still parses as
+        // `.walk` — the case is retained for entries already in flight, but it
+        // is no longer a tile and must present as Exercise.
+        if raw == ActivityType.walk.rawValue { return .exercise }
         if let type = ActivityType(rawValue: raw) { return type }
         switch raw {
         case "Run":                      return .exercise
@@ -67,10 +74,14 @@ enum ActivityType: String, CaseIterable, Codable {
     var subtypes: [String] {
         switch self {
         case .exercise:
+            // The last four came across when Walk merged in. Everything with a
+            // potential activation belongs on one tile — a walk is simply a
+            // low-load, low-suppression session of the same kind.
             return ["Easy Run", "Tempo Run", "Intervals", "Long Run", "Trail Run",
                     "Yoga", "HIIT", "Power Lifting", "Pilates", "Cycling",
                     "Swimming", "Stretching", "CrossFit", "Boxing",
-                    "Rowing", "Climbing", "Martial Arts"]
+                    "Rowing", "Climbing", "Martial Arts",
+                    "Nature Walk", "City Walk", "Hiking", "Treadmill"]
         case .walk:
             return ["Nature Walk", "City Walk", "Hiking", "Treadmill"]
         case .meditation:

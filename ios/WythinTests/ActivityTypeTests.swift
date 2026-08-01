@@ -5,8 +5,8 @@ final class ActivityTypeTests: XCTestCase {
 
     // MARK: - Grid shape
 
-    func testPickerHasExactlyNineTiles() {
-        XCTAssertEqual(ActivityType.pickerCases.count, 9)
+    func testPickerHasExactlyEightTiles() {
+        XCTAssertEqual(ActivityType.pickerCases.count, 8)
         XCTAssertFalse(ActivityType.pickerCases.contains(.custom),
                        "Custom is offered below the grid, not as a tile")
     }
@@ -27,9 +27,36 @@ final class ActivityTypeTests: XCTestCase {
     }
 
     func testCurrentTypesStillResolve() {
-        for type in ActivityType.allCases {
+        // Walk is excluded: its raw value now deliberately resolves to Exercise,
+        // which is the merge (see testStoredWalkResolvesToExercise).
+        for type in ActivityType.allCases where type != .walk {
             XCTAssertEqual(ActivityType.fromStored(type.rawValue), type)
         }
+    }
+
+    // MARK: - Walk merge
+
+    func testWalkIsNoLongerAPickerTile() {
+        XCTAssertFalse(ActivityType.pickerCases.contains(.walk),
+                       "Walk folded into Exercise; it must not spend a tile")
+        XCTAssertEqual(ActivityType.pickerCases.count, 8)
+    }
+
+    func testStoredWalkResolvesToExercise() {
+        XCTAssertEqual(ActivityType.fromStored("Walk"), .exercise)
+    }
+
+    func testWalkSubtypesMovedOntoExercise() {
+        let ex = ActivityType.exercise.subtypes
+        for sub in ["Nature Walk", "City Walk", "Hiking", "Treadmill"] {
+            XCTAssertTrue(ex.contains(sub), "\(sub) must be reachable under Exercise")
+        }
+    }
+
+    func testLegacyWalkEntryKeepsItsSubtypeButShowsAsExercise() {
+        let entry = ActivityLog(activityType: "Walk", activitySubtype: "Hiking")
+        XCTAssertEqual(entry.activityTypeEnum, .exercise)
+        XCTAssertEqual(entry.displayName, "Hiking", "history must not lose its label")
     }
 
     func testUnknownRawValueFallsBackToCustom() {
