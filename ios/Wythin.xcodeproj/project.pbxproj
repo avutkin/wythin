@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		43A37C75E1DB1B68CE8566C1 /* ActivityTypeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */; };
+		04B07817C335F28A352F88E9 /* ActivityClassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20866A7D973F59840EBFADEE /* ActivityClassTests.swift */; };
 		519BA43B55690D5F8761EBBF /* UsageUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE6F0E9C8772030B86BA730E /* UsageUploader.swift */; };
 		A101 /* WythinApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F101 /* WythinApp.swift */; };
 		A102 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F102 /* AppEnvironment.swift */; };
@@ -69,6 +70,7 @@
 		A149 /* ActivityMetricsGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = F149 /* ActivityMetricsGrid.swift */; };
 		A150 /* ActivityWindowChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = F150 /* ActivityWindowChart.swift */; };
 		A151 /* ActivityMetricStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = F151 /* ActivityMetricStats.swift */; };
+		4516A3624454CAF6AFEFA8D9 /* ActivityClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4818A387CECCADE5C48195E6 /* ActivityClass.swift */; };
 		A152 /* ActivityImpact.swift in Sources */ = {isa = PBXBuildFile; fileRef = F152 /* ActivityImpact.swift */; };
 		A153 /* PracticeImpactMeter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F153 /* PracticeImpactMeter.swift */; };
 		A154 /* MetricProgressRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F154 /* MetricProgressRow.swift */; };
@@ -172,6 +174,7 @@
 
 /* Begin PBXFileReference section */
 		12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTypeTests.swift; sourceTree = "<group>"; };
+		20866A7D973F59840EBFADEE /* ActivityClassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityClassTests.swift; sourceTree = "<group>"; };
 		5157D6102C251A37AF413C96 /* PracticeImpactGauge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PracticeImpactGauge.swift; sourceTree = "<group>"; };
 		679350D1BBA9E9E28C249EC1 /* UsageEventLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UsageEventLog.swift; sourceTree = "<group>"; };
 		F101 /* WythinApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WythinApp.swift; sourceTree = "<group>"; };
@@ -234,6 +237,7 @@
 		F149 /* ActivityMetricsGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricsGrid.swift; sourceTree = "<group>"; };
 		F150 /* ActivityWindowChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityWindowChart.swift; sourceTree = "<group>"; };
 		F151 /* ActivityMetricStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricStats.swift; sourceTree = "<group>"; };
+		4818A387CECCADE5C48195E6 /* ActivityClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityClass.swift; sourceTree = "<group>"; };
 		F152 /* ActivityImpact.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityImpact.swift; sourceTree = "<group>"; };
 		F153 /* PracticeImpactMeter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeImpactMeter.swift; sourceTree = "<group>"; };
 		F154 /* MetricProgressRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricProgressRow.swift; sourceTree = "<group>"; };
@@ -471,6 +475,7 @@
 				F146 /* LiveStateTrendCompute.swift */,
 				F199 /* LiveStateInsight.swift */,
 				F151 /* ActivityMetricStats.swift */,
+				4818A387CECCADE5C48195E6 /* ActivityClass.swift */,
 				F152 /* ActivityImpact.swift */,
 				F202 /* AutonomicCompute.swift */,
 				F155 /* HeartRateCompute.swift */,
@@ -629,6 +634,7 @@
 				FT06 /* PayloadBuilderTests.swift */,
 				FT07 /* ActivityMetricStatsTests.swift */,
 				12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */,
+				20866A7D973F59840EBFADEE /* ActivityClassTests.swift */,
 				FT26 /* ImpactDeltaTests.swift */,
 				FT10 /* ClientProfileTests.swift */,
 				FT11 /* PracticeCatalogTests.swift */,
@@ -825,6 +831,7 @@
 				A230 /* ActivityDetailView.swift in Sources */,
 				A231 /* ActivityFormSheets.swift in Sources */,
 				A151 /* ActivityMetricStats.swift in Sources */,
+				4516A3624454CAF6AFEFA8D9 /* ActivityClass.swift in Sources */,
 				A152 /* ActivityImpact.swift in Sources */,
 				A202 /* AutonomicCompute.swift in Sources */,
 				A155 /* HeartRateCompute.swift in Sources */,
@@ -887,6 +894,7 @@
 				AT10 /* ClientProfileTests.swift in Sources */,
 				AT07 /* ActivityMetricStatsTests.swift in Sources */,
 				43A37C75E1DB1B68CE8566C1 /* ActivityTypeTests.swift in Sources */,
+				04B07817C335F28A352F88E9 /* ActivityClassTests.swift in Sources */,
 				AT26 /* ImpactDeltaTests.swift in Sources */,
 				AT11 /* PracticeCatalogTests.swift in Sources */,
 				AT12 /* MotionComputeTests.swift in Sources */,
