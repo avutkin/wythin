@@ -148,6 +148,7 @@
 		AT11 /* PracticeCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT11 /* PracticeCatalogTests.swift */; };
 		AT12 /* MotionComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT12 /* MotionComputeTests.swift */; };
 		AT13 /* AnchorDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT13 /* AnchorDetectorTests.swift */; };
+		AT38 /* AnchorBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT38 /* AnchorBackfillTests.swift */; };
 		AT14 /* AnchorBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT14 /* AnchorBaselineTests.swift */; };
 		AT15 /* PotentialScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT15 /* PotentialScoreTests.swift */; };
 		AT16 /* StreakComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT16 /* StreakComputeTests.swift */; };
@@ -343,6 +344,7 @@
 		FT11 /* PracticeCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeCatalogTests.swift; sourceTree = "<group>"; };
 		FT12 /* MotionComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionComputeTests.swift; sourceTree = "<group>"; };
 		FT13 /* AnchorDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetectorTests.swift; sourceTree = "<group>"; };
+		FT38 /* AnchorBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBackfillTests.swift; sourceTree = "<group>"; };
 		FT14 /* AnchorBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaselineTests.swift; sourceTree = "<group>"; };
 		FT15 /* PotentialScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScoreTests.swift; sourceTree = "<group>"; };
 		FT16 /* StreakComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakComputeTests.swift; sourceTree = "<group>"; };
@@ -689,6 +691,7 @@
 				FT15 /* PotentialScoreTests.swift */,
 				FT14 /* AnchorBaselineTests.swift */,
 				FT13 /* AnchorDetectorTests.swift */,
+				FT38 /* AnchorBackfillTests.swift */,
 				FT01 /* MetricsTests.swift */,
 				FT02 /* BLETests.swift */,
 				FT03 /* ECGQualityComputeTests.swift */,
@@ -972,6 +975,7 @@
 				AT15 /* PotentialScoreTests.swift in Sources */,
 				AT14 /* AnchorBaselineTests.swift in Sources */,
 				AT13 /* AnchorDetectorTests.swift in Sources */,
+				AT38 /* AnchorBackfillTests.swift in Sources */,
 				AT01 /* MetricsTests.swift in Sources */,
 				AT02 /* BLETests.swift in Sources */,
 				AT03 /* ECGQualityComputeTests.swift in Sources */,

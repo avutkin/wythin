@@ -73,7 +73,10 @@ final class DayPotentialStore {
         let today   = Calendar.current.startOfDay(for: Date())
 
         if !backfilled {
-            AnchorBackfill.runIfNeeded(context: context)
+            // Awaited, not fired and forgotten: the anchors read below are the
+            // ones it rewrites. It does its work on its own background context,
+            // so the await is a hand-off rather than a main-thread stall.
+            await AnchorBackfill.runIfNeeded(container: env.modelContainer)
             backfilled = true
         }
 
