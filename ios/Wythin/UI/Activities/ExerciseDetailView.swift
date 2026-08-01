@@ -92,6 +92,7 @@ struct ExerciseDetailView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     header
+                    overallCard
                     sessionCard
                     suppressionCard
                     recoveryCard
@@ -154,6 +155,41 @@ struct ExerciseDetailView: View {
                         .foregroundStyle(Theme.dim)
                 }
             }
+        }
+    }
+
+    /// The headline. Built from the three axes only — Load is displayed beside
+    /// it but never feeds it, so the crown cannot be won by going harder.
+    private var overall: AxisValue {
+        ExerciseOverallScore.compute(suppression: suppression,
+                                     recovery: recovery,
+                                     efficiency: efficiency)
+    }
+
+    @ViewBuilder
+    private var overallCard: some View {
+        switch overall {
+        case let .score(score, word):
+            VStack(spacing: 12) {
+                Text("SESSION SCORE")
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+                ExerciseScoreGauge(score: score,
+                                   caption: word,
+                                   crowned: ExerciseOverallScore.earnsCrown(overall))
+            }
+            .cardStyle()
+        case let .unavailable(reason):
+            VStack(spacing: 6) {
+                Text("SESSION SCORE")
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+                Text(reason)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(Theme.dim)
+            }
+            .frame(maxWidth: .infinity)
+            .cardStyle()
         }
     }
 

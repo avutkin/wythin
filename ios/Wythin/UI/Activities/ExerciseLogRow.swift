@@ -58,6 +58,17 @@ struct ExerciseLogRow: View {
         "\((entry.scoreHistoryCount ?? 0) + 1) of \(ExerciseResponse.minimumHistory)"
     }
 
+    /// The headline score, from the three axes only — never from Load.
+    private var overall: AxisValue {
+        ExerciseOverallScore.compute(suppression: suppression,
+                                     recovery: ExerciseResponse.reactivationScore(
+                                        dcAfter: entry.afterDC.map(Double.init),
+                                        dcPre: entry.beforeDC.map(Double.init)),
+                                     efficiency: efficiency)
+    }
+
+    private var crowned: Bool { ExerciseOverallScore.earnsCrown(overall) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
@@ -100,15 +111,32 @@ struct ExerciseLogRow: View {
 
             Spacer()
 
+            // Load first and small — it is the size of the session, not its
+            // quality — then the score, which is what the row is judged on.
             if let load = entry.exerciseLoad {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text("\(Int(load.rounded()))")
-                        .font(.system(size: 19, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Theme.text)
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.dim)
                         .monospacedDigit()
                     Text("LOAD")
-                        .font(.system(size: 8, design: .monospaced))
-                        .foregroundStyle(Theme.dim)
+                        .font(.system(size: 7.5, design: .monospaced))
+                        .foregroundStyle(Theme.dim.opacity(0.7))
+                }
+                .padding(.trailing, 2)
+            }
+
+            if case let .score(score, _) = overall {
+                HStack(spacing: 3) {
+                    if crowned {
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color(hex: "#FFC01F"))
+                    }
+                    Text("\(score)")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(crowned ? Color(hex: "#FFC01F") : Theme.text)
+                        .monospacedDigit()
                 }
             }
 
