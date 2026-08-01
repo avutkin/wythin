@@ -202,7 +202,10 @@ struct ActivitiesView: View {
                         start: start, end: end)
             }
         case .detail(let entry):
-            ActivityDetailView(entry: entry)
+            switch entry.activityTypeEnum.activityClass {
+            case .activating:  ExerciseDetailView(entry: entry)
+            case .restorative: ActivityDetailView(entry: entry)
+            }
         case .edit(let entry):
             EditActivitySheet(entry: entry) { ctx in
                 entry.computeHRVWindows(context: ctx)

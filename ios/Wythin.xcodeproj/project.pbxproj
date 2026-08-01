@@ -76,6 +76,9 @@
 		A148 /* MetricTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = F148 /* MetricTile.swift */; };
 		A149 /* ActivityMetricsGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = F149 /* ActivityMetricsGrid.swift */; };
 		A150 /* ActivityWindowChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = F150 /* ActivityWindowChart.swift */; };
+		18D9F03ADFCE85B5F794E94D /* ExerciseDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAFB2854BF564659AB44437A /* ExerciseDetailView.swift */; };
+		973C076BBA17753FE1E14F39 /* IntensityDomainBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DB14932B2654296DD711453 /* IntensityDomainBar.swift */; };
+		464AD9DEC520D515A61A3DE7 /* SessionTimelineChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB3DAF0C092FF0CCF91FDF70 /* SessionTimelineChart.swift */; };
 		A151 /* ActivityMetricStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = F151 /* ActivityMetricStats.swift */; };
 		10BB7FC13F17B5EE0955D510 /* ExerciseResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BCF24B05B61179BE85725B6 /* ExerciseResponse.swift */; };
 		822C2AE5497CD6845368A9AB /* ExerciseSuppression.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2347BCF92FF25D4B96E71DC2 /* ExerciseSuppression.swift */; };
@@ -254,6 +257,9 @@
 		F148 /* MetricTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricTile.swift; sourceTree = "<group>"; };
 		F149 /* ActivityMetricsGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricsGrid.swift; sourceTree = "<group>"; };
 		F150 /* ActivityWindowChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityWindowChart.swift; sourceTree = "<group>"; };
+		EAFB2854BF564659AB44437A /* ExerciseDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseDetailView.swift; sourceTree = "<group>"; };
+		8DB14932B2654296DD711453 /* IntensityDomainBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntensityDomainBar.swift; sourceTree = "<group>"; };
+		EB3DAF0C092FF0CCF91FDF70 /* SessionTimelineChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTimelineChart.swift; sourceTree = "<group>"; };
 		F151 /* ActivityMetricStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricStats.swift; sourceTree = "<group>"; };
 		2BCF24B05B61179BE85725B6 /* ExerciseResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseResponse.swift; sourceTree = "<group>"; };
 		2347BCF92FF25D4B96E71DC2 /* ExerciseSuppression.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseSuppression.swift; sourceTree = "<group>"; };
@@ -396,6 +402,9 @@
 				F203 /* ActivityLogging.swift */,
 				F149 /* ActivityMetricsGrid.swift */,
 				F150 /* ActivityWindowChart.swift */,
+				EAFB2854BF564659AB44437A /* ExerciseDetailView.swift */,
+				8DB14932B2654296DD711453 /* IntensityDomainBar.swift */,
+				EB3DAF0C092FF0CCF91FDF70 /* SessionTimelineChart.swift */,
 				F153 /* PracticeImpactMeter.swift */,
 				F154 /* MetricProgressRow.swift */,
 				F230 /* ActivityDetailView.swift */,
@@ -861,6 +870,9 @@
 				A148 /* MetricTile.swift in Sources */,
 				A149 /* ActivityMetricsGrid.swift in Sources */,
 				A150 /* ActivityWindowChart.swift in Sources */,
+				18D9F03ADFCE85B5F794E94D /* ExerciseDetailView.swift in Sources */,
+				973C076BBA17753FE1E14F39 /* IntensityDomainBar.swift in Sources */,
+				464AD9DEC520D515A61A3DE7 /* SessionTimelineChart.swift in Sources */,
 				A153 /* PracticeImpactMeter.swift in Sources */,
 				A154 /* MetricProgressRow.swift in Sources */,
 				A230 /* ActivityDetailView.swift in Sources */,
