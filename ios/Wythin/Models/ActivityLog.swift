@@ -177,6 +177,9 @@ final class ActivityLog {
     /// against other sessions, and a List row cannot fetch that history once
     /// per row without a query storm. nil means "not enough history yet" —
     /// distinct from the slope itself being absent.
+    /// Vagal tone rose with heart rate rather than falling — yoga, mobility,
+    /// anything where the brake comes on. Not a failure to measure.
+    var vagalRoseDuring:       Bool = false
     var suppressionScore:      Int?
     var efficiencyScore:       Int?
     /// How many same-subtype sessions the scores above were ranked against,
@@ -428,7 +431,11 @@ final class ActivityLog {
             let hrr = ExerciseIntensity.hrReserve(hr: hr, restingHR: resting, ceiling: ceiling)
             return (hrrPct: hrr * 100, dc: Double(dc), dfa1: s.dfa1.map(Double.init))
         }
-        vsiSlopePer10 = ExerciseSuppression.vsi(samples: vsiSamples)?.slopePer10
+        let vsiFit = ExerciseSuppression.vsi(samples: vsiSamples)
+        // A session where vagal tone rose is not a suppression session, so it
+        // stores no slope to be ranked — but `vagalRose` is worth saying out loud.
+        vsiSlopePer10 = (vsiFit?.vagalRose == true) ? nil : vsiFit?.slopePer10
+        vagalRoseDuring = vsiFit?.vagalRose ?? false
 
         // Efficiency — lnDC against motion impulse, and only where motion is a
         // fair proxy for mechanical work.
@@ -476,7 +483,12 @@ final class ActivityLog {
         let key = scoreGroupKey
         let peers = all.filter { $0.activityTypeEnum.activityClass == .activating
                                   && $0.scoreGroupKey == key }
-        scoreHistoryCount = peers.count
+        // Count peers that can actually be ranked against, not peers that
+        // merely exist. Three sessions whose own slope never fitted contribute
+        // nothing, and counting them produced the nonsense "4 of 3": three
+        // peers present, an empty comparison set, and a progress line claiming
+        // to have overshot a threshold it had not reached.
+        scoreHistoryCount = peers.filter { $0.vsiSlopePer10 != nil }.count
 
         if let slope = vsiSlopePer10 {
             suppressionScore = ExerciseResponse.percentileScore(

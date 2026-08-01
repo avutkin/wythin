@@ -78,14 +78,23 @@ final class ExerciseSuppressionTests: XCTestCase {
         XCTAssertNil(ExerciseSuppression.vsi(samples: samples))
     }
 
-    func testPositiveSlopeIsRejectedAsNoise() {
-        // Vagal tone rising with intensity does not happen physiologically.
-        // Left unguarded, the noisiest sessions would rank as the most
-        // economical — the exact inversion of what the axis measures.
-        let inverted = stride(from: 30.0, through: 80.0, by: 5.0).map {
+    func testRisingVagalToneIsFlaggedRatherThanDiscarded() {
+        // Yoga and mobility work really do raise vagal tone as heart rate
+        // lifts. Discarding that as noise described the app's confusion rather
+        // than the person's session — it is a real fit, flagged, and left
+        // unscored so it is never ranked against sessions that suppressed.
+        let rising = stride(from: 30.0, through: 80.0, by: 5.0).map {
             (hrrPct: $0, dc: exp(1.0 + 0.02 * $0), dfa1: Double?(1.0))
         }
-        XCTAssertNil(ExerciseSuppression.vsi(samples: inverted))
+        let fit = ExerciseSuppression.vsi(samples: rising)
+        XCTAssertNotNil(fit)
+        XCTAssertTrue(fit!.vagalRose)
+        XCTAssertGreaterThan(fit!.slopePer10, 0)
+    }
+
+    func testASuppressingSessionIsNotFlaggedAsRising() {
+        let falling = stride(from: 30.0, through: 80.0, by: 5.0).map { synthetic(hrr: $0) }
+        XCTAssertFalse(ExerciseSuppression.vsi(samples: falling)!.vagalRose)
     }
 
     // MARK: - Depth

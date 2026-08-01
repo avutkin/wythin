@@ -244,20 +244,38 @@ struct ExerciseDetailView: View {
 
     private var suppressionCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let brake = brakePerBeat {
+            if entry.vagalRoseDuring {
+                // Yoga and mobility work: the brake came on, not off. Saying
+                // "no fit" here described the app's difficulty rather than the
+                // person's session.
+                unitHeadline("VAGAL BRAKE STAYED ON", "↑",
+                             "your vagal tone rose during this session rather than being suppressed — there was no brake released to measure",
+                             Theme.accent)
+            } else if let brake = brakePerBeat, brake > 0 {
                 unitHeadline("VAGAL BRAKE GIVEN UP",
                              String(format: "%.2f", brake),
                              "ms of brake released per extra beat per minute",
                              Theme.hrv)
             } else {
-                axisHeader("VAGAL BRAKE", suppression, Theme.hrv)
+                unitHeadline("VAGAL BRAKE", "—",
+                             "not enough heart-rate rise in this session to measure a release against",
+                             Theme.dim)
             }
-            Text("Your heart speeds up mainly by releasing the vagal brake. This is how much brake you gave up for each extra beat — the lower it is, the less of your recovery system the effort had to switch off.")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(Theme.dim)
-                .fixedSize(horizontal: false, vertical: true)
-            CostScatterChart(points: hrCostPoints, xLabel: "heart rate",
-                             tint: Theme.hrv, baselineSlope: nil)
+            if !entry.vagalRoseDuring {
+                Text("Your heart speeds up mainly by releasing the vagal brake. This is how much brake you gave up for each extra beat — the lower it is, the less of your recovery system the effort had to switch off.")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // The chart is drawn only where a release was actually measured.
+            // Previously it fitted its own line from the dots and drew it even
+            // when the score had rejected that fit, so the picture asserted a
+            // relationship the header denied.
+            if entry.vsiSlopePer10 != nil || entry.vagalRoseDuring {
+                CostScatterChart(points: hrCostPoints, xLabel: "heart rate",
+                                 tint: entry.vagalRoseDuring ? Theme.accent : Theme.hrv,
+                                 baselineSlope: nil)
+            }
         }
         .cardStyle()
     }

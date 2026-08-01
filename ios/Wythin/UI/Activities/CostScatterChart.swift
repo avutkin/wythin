@@ -107,7 +107,9 @@ struct CostScatterChart: View {
                         }
                     }
                 }
-                Text("Each dot is one moment. Vagal tone runs up the side, work runs across. A steeper fall means more vagal tone spent for the same work.")
+                Text(fit.slope > 0
+                     ? "Each dot is one moment. Vagal tone runs up the side, work runs across. Here the line rises: your vagal tone went up as you worked, which is what a genuinely restorative session looks like."
+                     : "Each dot is one moment. Vagal tone runs up the side, work runs across. A steeper fall means more vagal tone spent for the same work.")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)

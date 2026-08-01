@@ -14,6 +14,10 @@ struct VSIFit {
     /// drawn from eight points is not silently presented like one drawn from
     /// four hundred.
     let sampleCount: Int
+
+    /// Vagal tone rose with heart rate — no suppression to measure. True for
+    /// yoga and mobility work, where the brake comes on rather than off.
+    var vagalRose: Bool = false
 }
 
 /// Vagal Suppression Index — how deeply the vagus had to be switched off *for
@@ -69,14 +73,18 @@ enum ExerciseSuppression {
         guard den > 0 else { return nil }
         let slope = (num / den) * 10
 
-        // A positive slope says vagal tone *rose* as intensity rose, which does
-        // not happen physiologically. It means the window was dominated by
-        // artifact, or by so little real intensity change that the fit is
-        // reading noise. Scoring it would rank the noisiest sessions as the
-        // most economical — the exact inversion of what the axis is for.
-        guard slope <= 0 else { return nil }
-
-        return VSIFit(slopePer10: slope, sampleCount: usable.count)
+        // A positive slope means vagal tone *rose* as heart rate rose.
+        //
+        // At real training intensity that is artifact. But in yoga, stretching
+        // and mobility work it is exactly what happens: the heart rate lift is
+        // small, the breathing is deliberate, and the vagal brake comes on
+        // rather than off. Calling that "no fit" was wrong — the fit is fine,
+        // the session simply did not suppress anything.
+        //
+        // So it is returned, flagged, and left unscored: ranking it against
+        // sessions that did suppress would compare two different things.
+        return VSIFit(slopePer10: slope, sampleCount: usable.count,
+                      vagalRose: slope > 0)
     }
 
     /// The plain-language Vagal Suppression Index: how much vagal brake was
