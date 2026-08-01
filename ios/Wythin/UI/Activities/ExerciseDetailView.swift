@@ -166,6 +166,29 @@ struct ExerciseDetailView: View {
                                      efficiency: efficiency)
     }
 
+    /// Session samples as (work, vagal tone) pairs. Vagal tone is plotted as
+    /// lnDC — the same space the slope is fitted in — so the drawn line and the
+    /// stored number cannot disagree.
+    private var hrCostPoints: [(x: Double, y: Double)] {
+        chartPoints.compactMap { pt in
+            guard pt.timestamp >= entry.startedAt, pt.timestamp < windowEnd,
+                  let hr = pt.meanBPM, let dc = pt.dc, dc > 0 else { return nil }
+            if let a = pt.dfa1, ExerciseIntensity.domain(dfa1: Double(a)) == .severe { return nil }
+            return (x: ExerciseIntensity.hrReserve(hr: hr, restingHR: restingHR,
+                                                   ceiling: ceiling) * 100,
+                    y: log(Double(dc)))
+        }
+    }
+
+    private var motionCostPoints: [(x: Double, y: Double)] {
+        chartPoints.compactMap { pt in
+            guard pt.timestamp >= entry.startedAt, pt.timestamp < windowEnd,
+                  let motion = pt.motion, let dc = pt.dc, dc > 0 else { return nil }
+            if let a = pt.dfa1, ExerciseIntensity.domain(dfa1: Double(a)) == .severe { return nil }
+            return (x: Double(motion), y: log(Double(dc)))
+        }
+    }
+
     /// Load as a share of a heavy hour, for the inner ring. Capped rather than
     /// normalised against history so the ring means the same thing on day one
     /// as it does after a year.
@@ -222,13 +245,12 @@ struct ExerciseDetailView: View {
     private var suppressionCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             axisHeader("SUPPRESSION · VSI", suppression, Theme.hrv)
-            if let slope = entry.vsiSlopePer10 {
-                readout([("VSI", String(format: "%.2f", slope) + " lnDC / 10 %HRR")])
-            }
-            Text("How much vagal tone this heart rate cost. Lower is cheaper.")
+            Text("How much vagal tone it cost to hold this heart rate.")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(Theme.dim)
                 .fixedSize(horizontal: false, vertical: true)
+            CostScatterChart(points: hrCostPoints, xLabel: "heart rate",
+                             tint: Theme.hrv, baselineSlope: nil)
         }
         .cardStyle()
     }
@@ -236,10 +258,11 @@ struct ExerciseDetailView: View {
     private var recoveryCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             axisHeader("RECOVERY", recovery, Theme.accent)
-            Text("Vagal tone regained ten minutes after you stopped. Six further checkpoints arrive in a later release.")
+            Text("How much of your resting vagal tone came back in the ten minutes after you stopped.")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(Theme.dim)
                 .fixedSize(horizontal: false, vertical: true)
+            RecoveryCurveChart(points: chartPoints, endedAt: windowEnd, dcPre: entry.beforeDC)
         }
         .cardStyle()
     }
@@ -247,15 +270,16 @@ struct ExerciseDetailView: View {
     private var efficiencyCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             axisHeader("EFFICIENCY", efficiency, Theme.breathe)
-            if let slope = entry.efficiencySlope {
-                readout([("per motion", String(format: "%.2f", slope))])
-            }
             Text(entry.hasExternalWorkSignal
-                 ? "The same question against mechanical work rather than heart rate."
-                 : "Chest motion does not measure this kind of work, so there is no denominator to divide by.")
+                 ? "The same question, against how much you physically moved instead of your heart rate."
+                 : "Chest movement does not track this kind of work, so there is nothing to measure the cost against.")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(Theme.dim)
                 .fixedSize(horizontal: false, vertical: true)
+            if entry.hasExternalWorkSignal {
+                CostScatterChart(points: motionCostPoints, xLabel: "movement",
+                                 tint: Theme.breathe, baselineSlope: nil)
+            }
         }
         .cardStyle()
     }
@@ -290,6 +314,22 @@ struct ExerciseDetailView: View {
                 .foregroundStyle(Theme.text.opacity(0.9))
                 .fixedSize(horizontal: false, vertical: true)
 
+            Divider().overlay(Theme.border)
+
+            let coach = SessionCoachSummary.build(
+                overall: overall, suppression: suppression, recovery: recovery,
+                efficiency: efficiency, load: entry.exerciseLoad,
+                moderateSec: entry.domainModerateSec ?? 0,
+                heavySec: entry.domainHeavySec ?? 0,
+                severeSec: entry.domainSevereSec ?? 0,
+                loadPercentile: nil)
+
+            bulletGroup("WHAT WENT WELL", coach.strengths, Theme.accent)
+            if !coach.improvements.isEmpty {
+                bulletGroup("WHAT TO CHANGE NEXT TIME", coach.improvements, Theme.domainHeavy)
+            }
+            bulletGroup("YOUR NEXT SESSION", [coach.nextSession], Theme.breathe)
+
             if entry.insightText != nil {
                 Divider().overlay(Theme.border)
             }
@@ -297,6 +337,30 @@ struct ExerciseDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardStyle()
+    }
+
+    /// One labelled group of coach bullets. The dot carries the group's colour
+    /// so praise, correction and prescription are separable at a glance.
+    private func bulletGroup(_ title: String, _ lines: [String], _ tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(tint)
+                .tracking(1.1)
+            ForEach(lines, id: \.self) { line in
+                HStack(alignment: .top, spacing: 8) {
+                    Circle()
+                        .fill(tint)
+                        .frame(width: 4, height: 4)
+                        .padding(.top, 6)
+                    Text(line)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(Theme.text.opacity(0.9))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder

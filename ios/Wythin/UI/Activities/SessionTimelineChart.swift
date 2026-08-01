@@ -100,13 +100,23 @@ struct SessionTimelineChart: View {
 
             // Two series, so a legend is not optional.
             HStack(spacing: 14) {
-                legendItem(Theme.rsa, "% HR reserve")
+                legendItem(Theme.rsa, "effort")
                 if hasVagalTrace {
-                    legendItem(Theme.hrv, "% vagal withdrawn")
-                    legendItem(Theme.hrv.opacity(0.3), "autonomic cost", block: true)
+                    legendItem(Theme.hrv, "vagal tone spent")
+                    legendItem(Theme.hrv.opacity(0.3), "the gap = what it cost", block: true)
                 }
             }
+            explainer
         }
+    }
+
+    /// "autonomic cost" named a quantity without explaining it. The gap
+    /// between the two lines is the whole reading, so the chart says so.
+    private var explainer: some View {
+        Text("Both lines rise as you work. Where the blue sits above the orange, you were spending more vagal tone than the effort alone accounts for — that gap is the cost.")
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(Theme.dim)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func legendItem(_ color: Color, _ label: String,

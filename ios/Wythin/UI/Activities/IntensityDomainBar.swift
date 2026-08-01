@@ -43,12 +43,19 @@ struct IntensityDomainBar: View {
 
                 HStack(spacing: 12) {
                     ForEach(segments, id: \.domain) { seg in
-                        Text("\(minutes(seg.seconds)) \(seg.label)")
+                        Text("\(minutes(seg.seconds)) min \(seg.label)")
                             .font(.system(size: 9, design: .monospaced))
                             .foregroundStyle(seg.color)
                             .monospacedDigit()
                     }
                 }
+                // "29 moderate" says nothing on its own. These are effort
+                // zones read from the heartbeat's own structure, not heart-rate
+                // zones, so they need naming in plain words.
+                Text("How long you spent in each effort zone — moderate is conversational, heavy is above your aerobic threshold, severe is all-out.")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(
