@@ -101,3 +101,43 @@ final class ExerciseSuppressionTests: XCTestCase {
         XCTAssertNil(ExerciseSuppression.depth(dcTrough: 2, dcPre: 0))
     }
 }
+
+// MARK: - Brake per beat (the always-available form)
+
+extension ExerciseSuppressionTests {
+
+    func testBrakePerBeatIsMillisecondsOfBrakePerExtraBeat() {
+        // DC 9 → 3 is 6 ms of brake released; HR 60 → 120 is 60 extra beats.
+        let v = ExerciseSuppression.brakePerBeat(dcPre: 9, dcDuring: 3,
+                                                 hrPre: 60, hrDuring: 120)
+        XCTAssertEqual(v!, 0.1, accuracy: 0.0001)
+    }
+
+    func testACheaperSessionGivesUpLessBrakePerBeat() {
+        let costly = ExerciseSuppression.brakePerBeat(dcPre: 9, dcDuring: 2,
+                                                      hrPre: 60, hrDuring: 120)!
+        let cheap  = ExerciseSuppression.brakePerBeat(dcPre: 9, dcDuring: 6,
+                                                      hrPre: 60, hrDuring: 120)!
+        XCTAssertLessThan(cheap, costly)
+    }
+
+    func testNoMeaningfulHeartRateRiseYieldsNothing() {
+        // Dividing by a near-zero ΔHR inflates the ratio for no reason.
+        XCTAssertNil(ExerciseSuppression.brakePerBeat(dcPre: 9, dcDuring: 8,
+                                                      hrPre: 60, hrDuring: 62))
+    }
+
+    func testMissingWindowsYieldNothing() {
+        XCTAssertNil(ExerciseSuppression.brakePerBeat(dcPre: nil, dcDuring: 3,
+                                                      hrPre: 60, hrDuring: 120))
+        XCTAssertNil(ExerciseSuppression.brakePerBeat(dcPre: 9, dcDuring: 3,
+                                                      hrPre: 60, hrDuring: nil))
+    }
+
+    func testItWorksWhereTheSlopeCannotBeFitted() {
+        // The whole point: two window averages are enough, so a lifting session
+        // with no usable per-sample DC still gets a Suppression reading.
+        XCTAssertNotNil(ExerciseSuppression.brakePerBeat(dcPre: 8.4, dcDuring: 5.1,
+                                                         hrPre: 62, hrDuring: 104))
+    }
+}

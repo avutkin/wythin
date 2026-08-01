@@ -79,6 +79,35 @@ enum ExerciseSuppression {
         return VSIFit(slopePer10: slope, sampleCount: usable.count)
     }
 
+    /// The plain-language Vagal Suppression Index: how much vagal brake was
+    /// given up per extra beat of heart rate.
+    ///
+    /// `slopePer10` above is the refined form, fitted across the whole session.
+    /// It needs DC at many points, and during resistance work DC frequently
+    /// cannot be computed at all — PRSA wants 150 clean intervals and twenty
+    /// deceleration anchors, which a set of heavy singles does not provide. So
+    /// the axis fell back to a dash on exactly the sessions people most want it
+    /// for.
+    ///
+    /// This form needs only the two window averages the app already stores, so
+    /// it is available whenever the session is. It is also the definition in
+    /// plain words — ΔDC over ΔHR — and it carries a unit a person can hold:
+    /// milliseconds of brake released per beat per minute gained.
+    ///
+    /// Returns nil when heart rate did not meaningfully rise, since dividing by
+    /// a near-zero ΔHR produces a number that is large for no reason.
+    static func brakePerBeat(dcPre: Double?, dcDuring: Double?,
+                             hrPre: Double?, hrDuring: Double?) -> Double? {
+        guard let dcPre, let dcDuring, let hrPre, let hrDuring else { return nil }
+        let deltaHR = hrDuring - hrPre
+        guard deltaHR >= minimumHRRise else { return nil }
+        return (dcPre - dcDuring) / deltaHR
+    }
+
+    /// Below this rise in heart rate there was no meaningful activation to
+    /// normalise against.
+    static let minimumHRRise: Double = 8
+
     /// Fraction of pre-session vagal tone withdrawn at the trough, 0…1.
     ///
     /// Descriptive only. Depth is the size of the stimulus, not its quality —

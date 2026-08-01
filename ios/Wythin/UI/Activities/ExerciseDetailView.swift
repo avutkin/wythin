@@ -244,8 +244,15 @@ struct ExerciseDetailView: View {
 
     private var suppressionCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            axisHeader("SUPPRESSION · VSI", suppression, Theme.hrv)
-            Text("How much vagal tone it cost to hold this heart rate.")
+            if let brake = brakePerBeat {
+                unitHeadline("VAGAL BRAKE GIVEN UP",
+                             String(format: "%.2f", brake),
+                             "ms of brake released per extra beat per minute",
+                             Theme.hrv)
+            } else {
+                axisHeader("VAGAL BRAKE", suppression, Theme.hrv)
+            }
+            Text("Your heart speeds up mainly by releasing the vagal brake. This is how much brake you gave up for each extra beat — the lower it is, the less of your recovery system the effort had to switch off.")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(Theme.dim)
                 .fixedSize(horizontal: false, vertical: true)
@@ -257,17 +264,28 @@ struct ExerciseDetailView: View {
 
     private var recoveryCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            axisHeader("RECOVERY", recovery, Theme.accent)
-            Text("How much of your resting vagal tone came back in the ten minutes after you stopped.")
+            if case let .score(pct, _) = recovery {
+                unitHeadline("VAGAL TONE BACK", "\(pct)%",
+                             "of your resting level, ten minutes after stopping",
+                             Theme.accent)
+            } else {
+                axisHeader("RECOVERY", recovery, Theme.accent)
+            }
+            Text("Not a duration — a percentage. 100% would mean your vagal brake was fully restored by ten minutes.")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(Theme.dim)
                 .fixedSize(horizontal: false, vertical: true)
-            RecoveryCurveChart(points: chartPoints, endedAt: windowEnd, dcPre: entry.beforeDC)
+            RecoveryCurveChart(points: chartPoints, startedAt: entry.startedAt,
+                               endedAt: windowEnd, dcPre: entry.beforeDC)
         }
         .cardStyle()
     }
 
+    @ViewBuilder
     private var efficiencyCard: some View {
+        // Nothing to say without a mechanical signal, so the card is absent
+        // rather than present and empty. A dash is not information.
+        if entry.hasExternalWorkSignal {
         VStack(alignment: .leading, spacing: 10) {
             axisHeader("EFFICIENCY", efficiency, Theme.breathe)
             Text(entry.hasExternalWorkSignal
@@ -276,12 +294,11 @@ struct ExerciseDetailView: View {
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(Theme.dim)
                 .fixedSize(horizontal: false, vertical: true)
-            if entry.hasExternalWorkSignal {
-                CostScatterChart(points: motionCostPoints, xLabel: "movement",
-                                 tint: Theme.breathe, baselineSlope: nil)
-            }
+            CostScatterChart(points: motionCostPoints, xLabel: "movement",
+                             tint: Theme.breathe, baselineSlope: nil)
         }
         .cardStyle()
+        }
     }
 
     /// One deterministic line naming what happened, so the top of the screen
@@ -330,10 +347,7 @@ struct ExerciseDetailView: View {
             }
             bulletGroup("YOUR NEXT SESSION", [coach.nextSession], Theme.breathe)
 
-            if entry.insightText != nil {
-                Divider().overlay(Theme.border)
-            }
-            coachBody
+
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardStyle()
@@ -361,30 +375,6 @@ struct ExerciseDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private var coachBody: some View {
-        if let insight = entry.insightText {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("COACH")
-                    .font(Theme.monoLabel)
-                    .foregroundStyle(Theme.dim)
-                let parts = insight.split(separator: "\n", maxSplits: 1,
-                                          omittingEmptySubsequences: false)
-                Text(parts.first.map(String.init) ?? insight)
-                    .font(Theme.monoBody.weight(.semibold))
-                    .foregroundStyle(Theme.text)
-                    .fixedSize(horizontal: false, vertical: true)
-                if parts.count > 1 {
-                    Text(parts[1].trimmingCharacters(in: .whitespacesAndNewlines))
-                        .font(Theme.monoBody)
-                        .foregroundStyle(Theme.text.opacity(0.85))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
     }
 
     /// The nine metrics, unchanged, for when you want the underlying numbers.
@@ -427,6 +417,39 @@ struct ExerciseDetailView: View {
     }
 
     // MARK: - Shared pieces
+
+    /// A number with its unit spelled out underneath.
+    ///
+    /// A bare "30" next to a bare "58" is unreadable when one is a percentage
+    /// and the other is an effort-time product. Every headline states what it
+    /// is measuring in.
+    private func unitHeadline(_ title: String, _ value: String,
+                              _ unit: String, _ tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(Theme.dim)
+                .tracking(1.1)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(value)
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .foregroundStyle(tint)
+                    .monospacedDigit()
+            }
+            Text(unit)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(Theme.dim)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var brakePerBeat: Double? {
+        ExerciseSuppression.brakePerBeat(dcPre: entry.beforeDC.map(Double.init),
+                                         dcDuring: entry.duringDC.map(Double.init),
+                                         hrPre: entry.beforeHR.map(Double.init),
+                                         hrDuring: entry.duringHR.map(Double.init))
+    }
 
     private func axisHeader(_ name: String, _ value: AxisValue, _ tint: Color) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {

@@ -26,15 +26,40 @@ struct ExerciseLogRow: View {
     /// Nothing is computed here and nothing is fetched: the scores are
     /// percentiles against same-subtype history, which was resolved once when
     /// the session ended rather than once per row on every scroll.
-    private var axes: [(String, AxisValue, Color)] {
-        [
-            ("SUPPRESSION", suppression, Theme.hrv),
-            ("RECOVERY",
-             ExerciseResponse.reactivationScore(dcAfter: entry.afterDC.map(Double.init),
-                                                dcPre: entry.beforeDC.map(Double.init)),
-             Theme.accent),
-            ("EFFICIENCY", efficiency, Theme.breathe),
-        ]
+    /// Only axes that actually have something to report.
+    ///
+    /// Two dashes out of three told the reader nothing except that the app was
+    /// unsure, so an axis with no value is now left out rather than displayed
+    /// empty. Every surviving chip carries its unit: a bare "30" beside a bare
+    /// "58" is unreadable when one is a percentage and the other is not.
+    private var axes: [(title: String, value: String, unit: String, tint: Color)] {
+        var out: [(String, String, String, Color)] = []
+
+        if let brake = brakePerBeat {
+            out.append(("VAGAL BRAKE GIVEN UP", String(format: "%.2f", brake),
+                        "ms per extra bpm", Theme.hrv))
+        }
+        if let pct = recoveryPercent {
+            out.append(("VAGAL TONE BACK", "\(pct)%", "of resting, at 10 min", Theme.accent))
+        }
+        if let load = entry.exerciseLoad {
+            out.append(("LOAD", "\(Int(load.rounded()))", "effort × time", Theme.rsa))
+        }
+        return out.map { ($0.0, $0.1, $0.2, $0.3) }
+    }
+
+    /// ΔDC per extra bpm — the index itself, in units, rather than a percentile.
+    private var brakePerBeat: Double? {
+        ExerciseSuppression.brakePerBeat(dcPre: entry.beforeDC.map(Double.init),
+                                         dcDuring: entry.duringDC.map(Double.init),
+                                         hrPre: entry.beforeHR.map(Double.init),
+                                         hrDuring: entry.duringHR.map(Double.init))
+    }
+
+    private var recoveryPercent: Int? {
+        guard let after = entry.afterDC.map(Double.init),
+              let pre = entry.beforeDC.map(Double.init), pre > 0 else { return nil }
+        return Int((min(max(after / pre * 100, 0), 100)).rounded())
     }
 
     private var suppression: AxisValue {
@@ -111,32 +136,24 @@ struct ExerciseLogRow: View {
 
             Spacer()
 
-            // Load first and small — it is the size of the session, not its
-            // quality — then the score, which is what the row is judged on.
-            if let load = entry.exerciseLoad {
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text("\(Int(load.rounded()))")
-                        .font(.system(size: 13, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Theme.dim)
-                        .monospacedDigit()
-                    Text("LOAD")
-                        .font(.system(size: 7.5, design: .monospaced))
-                        .foregroundStyle(Theme.dim.opacity(0.7))
-                }
-                .padding(.trailing, 2)
-            }
-
             if case let .score(score, _) = overall {
-                HStack(spacing: 3) {
-                    if crowned {
-                        Image(systemName: "crown.fill")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Color(hex: "#FFC01F"))
+                // Labelled, like everything else on this row. An unlabelled
+                // number beside three labelled ones reads as a fourth unit.
+                VStack(alignment: .trailing, spacing: 0) {
+                    HStack(spacing: 3) {
+                        if crowned {
+                            Image(systemName: "crown.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Color(hex: "#FFC01F"))
+                        }
+                        Text("\(score)")
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                            .foregroundStyle(crowned ? Color(hex: "#FFC01F") : Theme.text)
+                            .monospacedDigit()
                     }
-                    Text("\(score)")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundStyle(crowned ? Color(hex: "#FFC01F") : Theme.text)
-                        .monospacedDigit()
+                    Text("SCORE / 100")
+                        .font(.system(size: 7.5, design: .monospaced))
+                        .foregroundStyle(Theme.dim)
                 }
             }
 
@@ -146,10 +163,15 @@ struct ExerciseLogRow: View {
         }
     }
 
+    @ViewBuilder
     private var chips: some View {
-        HStack(spacing: 6) {
-            ForEach(axes, id: \.0) { name, value, tint in
-                AxisChip(name: name, value: value, tint: tint)
+        let items = axes
+        if !items.isEmpty {
+            HStack(spacing: 6) {
+                ForEach(items, id: \.title) { item in
+                    AxisChip(name: item.title, value: item.value,
+                             unit: item.unit, tint: item.tint)
+                }
             }
         }
     }
@@ -161,7 +183,8 @@ struct ExerciseLogRow: View {
 /// never a zero, which would be indistinguishable from a real result.
 struct AxisChip: View {
     let name:  String
-    let value: AxisValue
+    let value: String
+    let unit:  String
     let tint:  Color
 
     var body: some View {
@@ -172,28 +195,19 @@ struct AxisChip: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
 
-            switch value {
-            case let .score(score, word):
-                Text("\(score)")
-                    .font(.system(size: 17, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(tint)
-                    .monospacedDigit()
-                Text(word)
-                    .font(.system(size: 8.5, design: .monospaced))
-                    .foregroundStyle(Theme.dim)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+            Text(value)
+                .font(.system(size: 17, weight: .semibold, design: .monospaced))
+                .foregroundStyle(tint)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
 
-            case let .unavailable(reason):
-                Text("—")
-                    .font(.system(size: 17, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Theme.dim)
-                Text(reason)
-                    .font(.system(size: 8.5, design: .monospaced))
-                    .foregroundStyle(Theme.dim)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
+            Text(unit)
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundStyle(Theme.dim)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
