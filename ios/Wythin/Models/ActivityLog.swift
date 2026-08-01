@@ -148,6 +148,29 @@ final class ActivityLog {
     var beforeDC:    Float?;  var duringDC:    Float?;  var afterDC:    Float?
     var beforeDFA1:  Float?;  var duringDFA1:  Float?;  var afterDFA1:  Float?
 
+    // MARK: Exercise response
+    //
+    // Written by `computeExerciseResponse` for activating entries only, and
+    // left nil for restorative ones. Stored rather than computed because the
+    // list row holds no sample series — only the window averages above — while
+    // the VSI slope needs the whole series to be fitted. All optional, so
+    // SwiftData migrates without a schema version bump.
+
+    /// HR-reserve impulse with Banister weighting. Unitless magnitude.
+    var exerciseLoad:          Double?
+    /// Slope of lnDC against %HRR, per 10 %HRR. Negative = vagal tone falls
+    /// with intensity, as it should.
+    var vsiSlopePer10:         Double?
+    /// Slope of lnDC against motion impulse, for motion-bearing subtypes only.
+    var efficiencySlope:       Double?
+    /// Whether this subtype's motion is a fair proxy for mechanical work. False
+    /// for lifting, yoga, cycling and swimming — see ExerciseIntensity.
+    var hasExternalWorkSignal: Bool = false
+    /// Seconds in each DFA α1 domain across the during-window.
+    var domainModerateSec:     Double?
+    var domainHeavySec:        Double?
+    var domainSevereSec:       Double?
+
     /// Mean benefit-signed change from the before-window to the during-window
     /// across the nine metrics — literally the average of the per-metric
     /// numbers shown on the rows below the meter, so the two agree to within
@@ -248,7 +271,10 @@ final class ActivityLog {
         // recomputes live) still had the value. On a version bump we recompute
         // every finished entry once from the samples still in store, then fall back
         // to the cheap ongoing guard.
-        let currentVersion = 2
+        // v3 adds the exercise response (Load, VSI slope, efficiency slope,
+        // domain split) for activating entries. Restorative entries recompute
+        // their windows as before and simply gain nothing.
+        let currentVersion = 3
         let versionKey = "activityBackfillVersion"
         let migrating = UserDefaults.standard.integer(forKey: versionKey) < currentVersion
 
@@ -261,6 +287,7 @@ final class ActivityLog {
         if !needsFill.isEmpty {
             for entry in needsFill {
                 entry.computeHRVWindows(context: context)
+                entry.computeExerciseResponse(context: context)
             }
             try? context.save()
         }
@@ -335,5 +362,95 @@ final class ActivityLog {
         beforePIP   = avg(before, \.pip);        duringPIP   = avg(during, \.pip);        afterPIP   = avg(after, \.pip)
         beforeDC    = avg(before, \.dc);         duringDC    = avg(during, \.dc);         afterDC    = avg(after, \.dc)
         beforeDFA1  = avg(before, \.dfa1);       duringDFA1  = avg(during, \.dfa1);       afterDFA1  = avg(after, \.dfa1)
+    }
+
+    // MARK: Exercise response computation
+
+    /// Computes Load, the VSI slope, the Efficiency slope and the intensity
+    /// domain split for an activating entry, and stores them.
+    ///
+    /// A no-op for restorative entries: they keep the nine-metric benefit-delta
+    /// model untouched, and must not acquire exercise fields even accidentally.
+    /// Call after `computeHRVWindows`, which supplies the DC baseline.
+    func computeExerciseResponse(context: ModelContext) {
+        guard activityTypeEnum.activityClass == .activating else { return }
+        guard let end = endedAt else { return }
+
+        // Same window, quality gate and half-open [startedAt, end) partition as
+        // computeHRVWindows, so the two never disagree about which sample is in.
+        let predicate = #Predicate<HRVSample> {
+            $0.timestamp >= startedAt && $0.timestamp < end
+        }
+        var desc = FetchDescriptor<HRVSample>(predicate: predicate,
+                                              sortBy: [SortDescriptor(\.timestamp)])
+        desc.fetchLimit = 10_000
+        guard let raw = try? context.fetch(desc) else { return }
+        let during = raw.filter { MetricsQualityFilter.isValid(MetricsHistoryPoint(from: $0)) }
+        guard !during.isEmpty else { return }
+
+        let resting = restingHRBaseline(context: context)
+        let ceiling = HRCeiling.ceiling(bpm: heartRateHistory(context: context),
+                                        restingHR: resting)
+
+        // Load
+        let hrSamples = during.compactMap { s -> (date: Date, hr: Float)? in
+            guard let hr = s.meanBPM else { return nil }
+            return (date: s.timestamp, hr: hr)
+        }
+        exerciseLoad = ExerciseIntensity.load(samples: hrSamples,
+                                              restingHR: resting, ceiling: ceiling)
+
+        // Intensity domains
+        let dfaSamples = during.compactMap { s -> (date: Date, dfa1: Double)? in
+            guard let a = s.dfa1 else { return nil }
+            return (date: s.timestamp, dfa1: Double(a))
+        }
+        let split = ExerciseIntensity.domainSplit(samples: dfaSamples)
+        domainModerateSec = split[.moderate]
+        domainHeavySec    = split[.heavy]
+        domainSevereSec   = split[.severe]
+
+        // Suppression — lnDC against %HRR
+        let vsiSamples = during.compactMap { s -> (hrrPct: Double, dc: Double, dfa1: Double?)? in
+            guard let hr = s.meanBPM, let dc = s.dc else { return nil }
+            let hrr = ExerciseIntensity.hrReserve(hr: hr, restingHR: resting, ceiling: ceiling)
+            return (hrrPct: hrr * 100, dc: Double(dc), dfa1: s.dfa1.map(Double.init))
+        }
+        vsiSlopePer10 = ExerciseSuppression.vsi(samples: vsiSamples)?.slopePer10
+
+        // Efficiency — lnDC against motion impulse, and only where motion is a
+        // fair proxy for mechanical work.
+        hasExternalWorkSignal = activitySubtype
+            .map(ExerciseIntensity.motionBearingSubtypes.contains) ?? false
+        if hasExternalWorkSignal {
+            let workSamples = during.compactMap { s -> (hrrPct: Double, dc: Double, dfa1: Double?)? in
+                guard let motion = s.motion, let dc = s.dc else { return nil }
+                // Reuses the VSI fitter: the regressor is motion rather than
+                // %HRR, which is the whole difference between the two axes.
+                return (hrrPct: Double(motion), dc: Double(dc), dfa1: s.dfa1.map(Double.init))
+            }
+            efficiencySlope = ExerciseSuppression.vsi(samples: workSamples)?.slopePer10
+        } else {
+            efficiencySlope = nil
+        }
+    }
+
+    /// Resting heart rate for the reserve span. Prefers the day's anchor
+    /// baseline; falls back to the 5th percentile of recent history so a first
+    /// week without anchors still produces a usable denominator.
+    private func restingHRBaseline(context: ModelContext) -> Float {
+        let history = heartRateHistory(context: context).sorted()
+        guard !history.isEmpty else { return 60 }
+        return history[Int(0.05 * Float(history.count - 1))]
+    }
+
+    /// `meanBPM` over the last 180 days, for the ceiling and resting estimates.
+    private func heartRateHistory(context: ModelContext) -> [Float] {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -180, to: endedAt ?? .now)
+            ?? .distantPast
+        let predicate = #Predicate<HRVSample> { $0.timestamp >= cutoff }
+        var desc = FetchDescriptor<HRVSample>(predicate: predicate)
+        desc.fetchLimit = 200_000
+        return ((try? context.fetch(desc)) ?? []).compactMap(\.meanBPM)
     }
 }

@@ -201,6 +201,7 @@ struct ActivitiesView: View {
         case .edit(let entry):
             EditActivitySheet(entry: entry) { ctx in
                 entry.computeHRVWindows(context: ctx)
+                entry.computeExerciseResponse(context: ctx)
                 try? ctx.save()
                 Task { await InsightGenerator(client: env.sync.client).generate(for: entry, context: ctx) }
             }

@@ -37,6 +37,7 @@ enum ActivityLogging {
     static func end(_ entry: ActivityLog, context: ModelContext, client: InsightAPIClient) {
         entry.endedAt = .now
         entry.computeHRVWindows(context: context)
+        entry.computeExerciseResponse(context: context)
         try? context.save()
         Task { await InsightGenerator(client: client).generate(for: entry, context: context) }
     }
@@ -53,8 +54,9 @@ enum ActivityLogging {
             endedAt:         end,
             isManual:        true
         )
-        entry.computeHRVWindows(context: context)
         context.insert(entry)
+        entry.computeHRVWindows(context: context)
+        entry.computeExerciseResponse(context: context)
         try? context.save()
         Task { await InsightGenerator(client: client).generate(for: entry, context: context) }
     }
