@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from .db import init_pool, close_pool, create_schema
 from .auth import key_ok
+from .auth_user import resolve_bearer, AuthError
 from .mcp_server import mcp
 from .routers import sessions, stream, admin, insights, tokens, me, activities, metrics, profile, usage
 
@@ -45,7 +46,7 @@ app.add_middleware(
 _OPEN_PATHS = {"/health", "/admin/dashboard"}
 # Per-user routes authenticate via Bearer token inside the route, so they
 # bypass the shared X-API-Key gate. (/v1/tokens stays gated — app-only.)
-_BEARER_PREFIXES = ("/v1/me", "/mcp")
+_BEARER_PREFIXES = ("/v1/me",)
 
 
 def _bearer_exempt(path: str) -> bool:
@@ -55,12 +56,31 @@ def _bearer_exempt(path: str) -> bool:
     return any(path == p or path.startswith(p + "/") for p in _BEARER_PREFIXES)
 
 
+def _mcp_path(path: str) -> bool:
+    """The MCP endpoint is mounted at /mcp (streamable-HTTP under /mcp/)."""
+    return path == "/mcp" or path.startswith("/mcp/")
+
+
 @app.middleware("http")
 async def api_key_gate(request: Request, call_next):
-    # Everything outside _OPEN_PATHS/_BEARER_PREFIXES needs the key (only
-    # enforced when API_KEY is configured — see server/auth.py).
-    if request.url.path in _OPEN_PATHS or _bearer_exempt(request.url.path):
+    path = request.url.path
+    if path in _OPEN_PATHS:
         return await call_next(request)
+    # MCP authenticates per request with a personal Bearer token. Enforce it at
+    # the transport — not just inside each tool — so anonymous callers can't read
+    # initialize/tools/list, and a bad token returns a real 401 (which lets an
+    # MCP client re-issue credentials) rather than an in-band tool error.
+    if _mcp_path(path):
+        try:
+            await resolve_bearer(request.headers.get("authorization"))
+        except AuthError as e:
+            return JSONResponse({"detail": e.detail}, status_code=e.status)
+        return await call_next(request)
+    # /v1/me authenticates inside the route.
+    if _bearer_exempt(path):
+        return await call_next(request)
+    # Everything else needs the shared key (only enforced when API_KEY is
+    # configured — see server/auth.py).
     if not key_ok(request.headers.get("x-api-key")):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return await call_next(request)

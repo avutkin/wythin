@@ -1,41 +1,22 @@
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv*/
+
+# Legacy Just Breathe dashboard data
 data/
 just-breathe.db
 just-breathe.db-shm
 just-breathe.db-wal
-__pycache__/
-*.pyc
-.venv/
-.worktrees/
 just-breathe.log
-.CFUserTextEncoding
-.cache/
-.claude.json
-.claude/
-.config/
-.cursor/
-.gitconfig
 .justbreathe_h10_addr
-.matplotlib/
-.node_repl_history
-.npm/
-.ssh/
-.swiftpm/
-.zprofile
-.zsh_history
-.zsh_sessions/
-Applications/
-Desktop/
-Documents/
-Downloads/
-Library/
-Movies/
-Music/
-Pictures/
-Public/
-ios/JustBreathe.xcodeproj/xcuserdata/
-ios/JustBreathe.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Xcode user state
+ios/Wythin.xcodeproj/xcuserdata/
+ios/Wythin.xcodeproj/project.xcworkspace/xcuserdata/
 
 # Hetzner deploy secrets
 server/deploy/.env
-.venv313
