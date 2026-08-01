@@ -73,8 +73,16 @@ struct ExerciseDetailView: View {
                                            dcPre: entry.beforeDC.map(Double.init))
     }
 
+    /// The row chip has room only for "2 of 3"; here there is space to say what
+    /// that actually means, so it does.
     private var historyProgress: String {
-        "\((entry.scoreHistoryCount ?? 0) + 1) of \(ExerciseResponse.minimumHistory)"
+        let have = (entry.scoreHistoryCount ?? 0) + 1
+        let need = ExerciseResponse.minimumHistory
+        let remaining = max(need - have, 0)
+        guard remaining > 0 else { return "\(have) of \(need)" }
+        return remaining == 1
+            ? "1 more session to compare"
+            : "\(remaining) more sessions to compare"
     }
 
     // MARK: - Body
@@ -290,13 +298,13 @@ struct ExerciseDetailView: View {
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.dim)
             case let .unavailable(reason):
-                Text("—")
-                    .font(.system(size: 24, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Theme.dim)
+                // No oversized dash here. At 24pt a lone em-dash floats at
+                // mid-cap-height beside a 10pt label and reads as a rendering
+                // fault rather than an absent value — the reason carries it.
                 Spacer()
                 Text(reason)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(Theme.dim)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Theme.dim.opacity(0.9))
             }
         }
     }
