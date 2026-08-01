@@ -69,7 +69,13 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var selectedTab: AppTab = .live
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
-    @AppStorage("didBackfillWindowsV2") private var didBackfillWindowsV2 = false
+    // The version lives inside backfillMissingWindows; this flag must not
+    // second-guess it. It was pinned at "V2" and is already true for every
+    // existing install, so the v3 bump inside the function was unreachable and
+    // no pre-existing activity ever gained its exercise fields. Renamed rather
+    // than reset so the gate opens once and the function's own version counter
+    // becomes the single source of truth from here on.
+    @AppStorage("didRunActivityBackfill") private var didRunActivityBackfill = false
     // One-time cloud-sync disclosure (sync is on by default; the notice gives an
     // explicit, informed choice on first launch after onboarding).
     @AppStorage("didShowCloudSyncNotice") private var didShowCloudSyncNotice = false
@@ -91,9 +97,11 @@ struct ContentView: View {
         .task {
             // One-time: fill Stress Balance (and other post-hoc fields) on
             // sessions logged before those fields existed.
-            guard !didBackfillWindowsV2 else { return }
+            // Called on every launch: the function is idempotent and versions
+            // itself internally, so it is cheap when there is nothing to do and
+            // correct when a new field has been added.
             ActivityLog.backfillMissingWindows(context: modelContext)
-            didBackfillWindowsV2 = true
+            didRunActivityBackfill = true
         }
     }
 

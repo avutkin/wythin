@@ -78,6 +78,16 @@ final class ExerciseSuppressionTests: XCTestCase {
         XCTAssertNil(ExerciseSuppression.vsi(samples: samples))
     }
 
+    func testPositiveSlopeIsRejectedAsNoise() {
+        // Vagal tone rising with intensity does not happen physiologically.
+        // Left unguarded, the noisiest sessions would rank as the most
+        // economical — the exact inversion of what the axis measures.
+        let inverted = stride(from: 30.0, through: 80.0, by: 5.0).map {
+            (hrrPct: $0, dc: exp(1.0 + 0.02 * $0), dfa1: Double?(1.0))
+        }
+        XCTAssertNil(ExerciseSuppression.vsi(samples: inverted))
+    }
+
     // MARK: - Depth
 
     func testDepthIsTheFractionOfVagalToneWithdrawn() {

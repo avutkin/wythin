@@ -101,6 +101,34 @@ final class ExerciseIntensityTests: XCTestCase {
 
     // MARK: - External work signal
 
+    func testSubtypelessSessionUsesMeasuredMotion() {
+        // Most real sessions carry no subtype. A label-only rule disabled
+        // Efficiency for nearly all of them.
+        let varying: [Float] = [10, 25, 40, 55, 70]
+        XCTAssertTrue(ExerciseIntensity.hasExternalWorkSignal(subtype: nil, motion: varying))
+
+        let flat: [Float] = [12, 12.5, 13, 12.8, 12.2]
+        XCTAssertFalse(ExerciseIntensity.hasExternalWorkSignal(subtype: nil, motion: flat),
+                       "flat motion is no denominator")
+    }
+
+    func testMisleadingSubtypeOverridesEvenStrongMotion() {
+        // A barbell session moves the chest plenty; none of it tracks the load.
+        let varying: [Float] = [10, 30, 60, 90]
+        XCTAssertFalse(ExerciseIntensity.hasExternalWorkSignal(subtype: "Power Lifting",
+                                                               motion: varying))
+        XCTAssertFalse(ExerciseIntensity.hasExternalWorkSignal(subtype: "Yoga", motion: varying))
+    }
+
+    func testKnownMotionBearingSubtypeWinsEvenOnThinMotion() {
+        XCTAssertTrue(ExerciseIntensity.hasExternalWorkSignal(subtype: "Intervals",
+                                                              motion: [20, 21]))
+    }
+
+    func testEmptyMotionIsNoSignal() {
+        XCTAssertFalse(ExerciseIntensity.hasExternalWorkSignal(subtype: nil, motion: []))
+    }
+
     func testMotionBearingSubtypesAreRecognised() {
         for sub in ["Intervals", "Easy Run", "Nature Walk", "Hiking", "Rowing"] {
             XCTAssertTrue(ExerciseIntensity.motionBearingSubtypes.contains(sub),

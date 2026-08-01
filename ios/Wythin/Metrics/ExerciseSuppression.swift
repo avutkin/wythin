@@ -67,8 +67,16 @@ enum ExerciseSuppression {
             den += (xs[i] - mx) * (xs[i] - mx)
         }
         guard den > 0 else { return nil }
+        let slope = (num / den) * 10
 
-        return VSIFit(slopePer10: (num / den) * 10, sampleCount: usable.count)
+        // A positive slope says vagal tone *rose* as intensity rose, which does
+        // not happen physiologically. It means the window was dominated by
+        // artifact, or by so little real intensity change that the fit is
+        // reading noise. Scoring it would rank the noisiest sessions as the
+        // most economical — the exact inversion of what the axis is for.
+        guard slope <= 0 else { return nil }
+
+        return VSIFit(slopePer10: slope, sampleCount: usable.count)
     }
 
     /// Fraction of pre-session vagal tone withdrawn at the trough, 0…1.

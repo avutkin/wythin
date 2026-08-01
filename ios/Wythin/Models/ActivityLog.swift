@@ -432,8 +432,9 @@ final class ActivityLog {
 
         // Efficiency — lnDC against motion impulse, and only where motion is a
         // fair proxy for mechanical work.
-        hasExternalWorkSignal = activitySubtype
-            .map(ExerciseIntensity.motionBearingSubtypes.contains) ?? false
+        hasExternalWorkSignal = ExerciseIntensity.hasExternalWorkSignal(
+            subtype: activitySubtype,
+            motion: during.compactMap(\.motion))
         if hasExternalWorkSignal {
             let workSamples = during.compactMap { s -> (hrrPct: Double, dc: Double, dfa1: Double?)? in
                 guard let motion = s.motion, let dc = s.dc else { return nil }
@@ -449,20 +450,32 @@ final class ActivityLog {
         scoreSlopesAgainstHistory(context: context)
     }
 
-    /// Ranks this session's slopes against other completed sessions of the same
-    /// subtype, and stores the resulting 0–100 scores.
+    /// What this session is compared against: its subtype when it has one,
+    /// otherwise its type. Sessions are usually logged without a subtype, so
+    /// keying strictly on subtype leaves them with no peers at all.
+    var scoreGroupKey: String {
+        activitySubtype ?? typeLabel
+    }
+
+    /// Ranks this session's slopes against other completed sessions in the same
+    /// group, and stores the resulting 0–100 scores.
     ///
     /// Done here, where a context is already in hand, so the list row can render
     /// from stored values instead of issuing a fetch per row.
     private func scoreSlopesAgainstHistory(context: ModelContext) {
-        let cutoff  = Calendar.current.date(byAdding: .day, value: -90, to: startedAt) ?? .distantPast
-        let subtype = activitySubtype
-        let myID    = id
+        let cutoff = Calendar.current.date(byAdding: .day, value: -90, to: startedAt) ?? .distantPast
+        let myID   = id
         let predicate = #Predicate<ActivityLog> {
-            $0.activitySubtype == subtype && $0.startedAt >= cutoff
-                && $0.endedAt != nil && $0.id != myID
+            $0.startedAt >= cutoff && $0.endedAt != nil && $0.id != myID
         }
-        let peers = (try? context.fetch(FetchDescriptor<ActivityLog>(predicate: predicate))) ?? []
+        let all = (try? context.fetch(FetchDescriptor<ActivityLog>(predicate: predicate))) ?? []
+        // Compare like with like, but never at the cost of comparing with
+        // nothing: most sessions carry no subtype, and keying strictly on one
+        // left almost every real session with an empty peer set. Falls back to
+        // the activity type, which is a coarser but honest grouping.
+        let key = scoreGroupKey
+        let peers = all.filter { $0.activityTypeEnum.activityClass == .activating
+                                  && $0.scoreGroupKey == key }
         scoreHistoryCount = peers.count
 
         if let slope = vsiSlopePer10 {

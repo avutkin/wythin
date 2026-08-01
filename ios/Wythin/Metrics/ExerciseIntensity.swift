@@ -48,6 +48,35 @@ enum ExerciseIntensity {
         "Nature Walk", "City Walk", "Hiking", "Treadmill",
     ]
 
+    /// Subtypes where motion is present but *uncorrelated* with work, so it
+    /// must never be used as a denominator no matter what the signal looks
+    /// like. A heavy single moves the chest less than a light set of ten.
+    static let motionMisleadingSubtypes: Set<String> = [
+        "Power Lifting", "Yoga", "Pilates", "Stretching",
+        "Cycling", "Swimming", "Climbing",
+    ]
+
+    /// Minimum spread in motion (mg) across work samples for a regression
+    /// against it to mean anything.
+    static let minimumMotionSpan: Float = 8
+
+    /// Whether this session has a usable external-work denominator.
+    ///
+    /// Most sessions are logged with no subtype at all, so a label-only rule
+    /// silently disabled Efficiency for nearly everyone. The label is still
+    /// authoritative where it exists — it is the only thing that knows a
+    /// barbell from a treadmill — but where it is absent the measurement
+    /// decides: motion that genuinely varies across the session can be
+    /// regressed against; motion that sits flat cannot.
+    static func hasExternalWorkSignal(subtype: String?, motion: [Float]) -> Bool {
+        if let subtype {
+            if motionMisleadingSubtypes.contains(subtype) { return false }
+            if motionBearingSubtypes.contains(subtype)    { return true }
+        }
+        guard let lo = motion.min(), let hi = motion.max() else { return false }
+        return hi - lo >= minimumMotionSpan
+    }
+
     // MARK: - Intensity
 
     /// Fraction of the heart-rate reserve in use, 0…1.

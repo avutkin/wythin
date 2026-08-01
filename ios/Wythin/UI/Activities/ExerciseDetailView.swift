@@ -93,11 +93,11 @@ struct ExerciseDetailView: View {
                 VStack(spacing: 16) {
                     header
                     overallCard
+                    coachCard
                     sessionCard
                     suppressionCard
                     recoveryCard
                     efficiencyCard
-                    coachCard
                     rawMetrics
                 }
                 .padding(.horizontal)
@@ -166,6 +166,13 @@ struct ExerciseDetailView: View {
                                      efficiency: efficiency)
     }
 
+    /// Load as a share of a heavy hour, for the inner ring. Capped rather than
+    /// normalised against history so the ring means the same thing on day one
+    /// as it does after a year.
+    private var loadFraction: Double? {
+        entry.exerciseLoad.map { min($0 / 150, 1) }
+    }
+
     @ViewBuilder
     private var overallCard: some View {
         switch overall {
@@ -176,7 +183,8 @@ struct ExerciseDetailView: View {
                     .foregroundStyle(Theme.dim)
                 ExerciseScoreGauge(score: score,
                                    caption: word,
-                                   crowned: ExerciseOverallScore.earnsCrown(overall))
+                                   crowned: ExerciseOverallScore.earnsCrown(overall),
+                                   loadFraction: loadFraction)
             }
             .cardStyle()
         case let .unavailable(reason):
@@ -252,10 +260,49 @@ struct ExerciseDetailView: View {
         .cardStyle()
     }
 
+    /// One deterministic line naming what happened, so the top of the screen
+    /// always says something even before the model has written an insight.
+    private var summaryLine: String {
+        var parts: [String] = []
+        if let load = entry.exerciseLoad {
+            parts.append("Load \(Int(load.rounded()))")
+        }
+        let heavy = (entry.domainHeavySec ?? 0) + (entry.domainSevereSec ?? 0)
+        if heavy > 60 {
+            parts.append("\(Int((heavy / 60).rounded())) min at or above threshold")
+        } else if (entry.domainModerateSec ?? 0) > 60 {
+            parts.append("held in the moderate domain throughout")
+        }
+        if case let .score(v, _) = recovery {
+            parts.append("\(v)% of vagal tone back at ten minutes")
+        }
+        return parts.isEmpty ? entry.durationString : parts.joined(separator: " · ")
+    }
+
     @ViewBuilder
     private var coachCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("SUMMARY")
+                .font(Theme.monoLabel)
+                .foregroundStyle(Theme.dim)
+            Text(summaryLine)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(Theme.text.opacity(0.9))
+                .fixedSize(horizontal: false, vertical: true)
+
+            if entry.insightText != nil {
+                Divider().overlay(Theme.border)
+            }
+            coachBody
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardStyle()
+    }
+
+    @ViewBuilder
+    private var coachBody: some View {
         if let insight = entry.insightText {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("COACH")
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
@@ -273,7 +320,6 @@ struct ExerciseDetailView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .cardStyle()
         }
     }
 
