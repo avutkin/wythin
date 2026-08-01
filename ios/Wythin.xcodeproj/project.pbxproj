@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		43A37C75E1DB1B68CE8566C1 /* ActivityTypeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */; };
+		DB47876B9E7EA9FD18FF19C9 /* ExerciseIntensityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95B9519E06B06D323F47D5B1 /* ExerciseIntensityTests.swift */; };
 		04C27CD78B1B40DBA5522FB9 /* HRCeilingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCEA22F3FB1E016118D8EE01 /* HRCeilingTests.swift */; };
 		04B07817C335F28A352F88E9 /* ActivityClassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20866A7D973F59840EBFADEE /* ActivityClassTests.swift */; };
 		519BA43B55690D5F8761EBBF /* UsageUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE6F0E9C8772030B86BA730E /* UsageUploader.swift */; };
@@ -71,6 +72,7 @@
 		A149 /* ActivityMetricsGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = F149 /* ActivityMetricsGrid.swift */; };
 		A150 /* ActivityWindowChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = F150 /* ActivityWindowChart.swift */; };
 		A151 /* ActivityMetricStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = F151 /* ActivityMetricStats.swift */; };
+		29C3BF21639F950B8C1C9A6A /* ExerciseIntensity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2947E0AD9572915BC1AA8DC /* ExerciseIntensity.swift */; };
 		70A1B22BDEFF77D6DDA234B8 /* HRCeiling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5036107B88E8AD2B0D89CE /* HRCeiling.swift */; };
 		4516A3624454CAF6AFEFA8D9 /* ActivityClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4818A387CECCADE5C48195E6 /* ActivityClass.swift */; };
 		A152 /* ActivityImpact.swift in Sources */ = {isa = PBXBuildFile; fileRef = F152 /* ActivityImpact.swift */; };
@@ -176,6 +178,7 @@
 
 /* Begin PBXFileReference section */
 		12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTypeTests.swift; sourceTree = "<group>"; };
+		95B9519E06B06D323F47D5B1 /* ExerciseIntensityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseIntensityTests.swift; sourceTree = "<group>"; };
 		CCEA22F3FB1E016118D8EE01 /* HRCeilingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HRCeilingTests.swift; sourceTree = "<group>"; };
 		20866A7D973F59840EBFADEE /* ActivityClassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityClassTests.swift; sourceTree = "<group>"; };
 		5157D6102C251A37AF413C96 /* PracticeImpactGauge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PracticeImpactGauge.swift; sourceTree = "<group>"; };
@@ -240,6 +243,7 @@
 		F149 /* ActivityMetricsGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricsGrid.swift; sourceTree = "<group>"; };
 		F150 /* ActivityWindowChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityWindowChart.swift; sourceTree = "<group>"; };
 		F151 /* ActivityMetricStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricStats.swift; sourceTree = "<group>"; };
+		E2947E0AD9572915BC1AA8DC /* ExerciseIntensity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseIntensity.swift; sourceTree = "<group>"; };
 		7C5036107B88E8AD2B0D89CE /* HRCeiling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HRCeiling.swift; sourceTree = "<group>"; };
 		4818A387CECCADE5C48195E6 /* ActivityClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityClass.swift; sourceTree = "<group>"; };
 		F152 /* ActivityImpact.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityImpact.swift; sourceTree = "<group>"; };
@@ -479,6 +483,7 @@
 				F146 /* LiveStateTrendCompute.swift */,
 				F199 /* LiveStateInsight.swift */,
 				F151 /* ActivityMetricStats.swift */,
+				E2947E0AD9572915BC1AA8DC /* ExerciseIntensity.swift */,
 				7C5036107B88E8AD2B0D89CE /* HRCeiling.swift */,
 				4818A387CECCADE5C48195E6 /* ActivityClass.swift */,
 				F152 /* ActivityImpact.swift */,
@@ -639,6 +644,7 @@
 				FT06 /* PayloadBuilderTests.swift */,
 				FT07 /* ActivityMetricStatsTests.swift */,
 				12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */,
+				95B9519E06B06D323F47D5B1 /* ExerciseIntensityTests.swift */,
 				CCEA22F3FB1E016118D8EE01 /* HRCeilingTests.swift */,
 				20866A7D973F59840EBFADEE /* ActivityClassTests.swift */,
 				FT26 /* ImpactDeltaTests.swift */,
@@ -837,6 +843,7 @@
 				A230 /* ActivityDetailView.swift in Sources */,
 				A231 /* ActivityFormSheets.swift in Sources */,
 				A151 /* ActivityMetricStats.swift in Sources */,
+				29C3BF21639F950B8C1C9A6A /* ExerciseIntensity.swift in Sources */,
 				70A1B22BDEFF77D6DDA234B8 /* HRCeiling.swift in Sources */,
 				4516A3624454CAF6AFEFA8D9 /* ActivityClass.swift in Sources */,
 				A152 /* ActivityImpact.swift in Sources */,
@@ -901,6 +908,7 @@
 				AT10 /* ClientProfileTests.swift in Sources */,
 				AT07 /* ActivityMetricStatsTests.swift in Sources */,
 				43A37C75E1DB1B68CE8566C1 /* ActivityTypeTests.swift in Sources */,
+				DB47876B9E7EA9FD18FF19C9 /* ExerciseIntensityTests.swift in Sources */,
 				04C27CD78B1B40DBA5522FB9 /* HRCeilingTests.swift in Sources */,
 				04B07817C335F28A352F88E9 /* ActivityClassTests.swift in Sources */,
 				AT26 /* ImpactDeltaTests.swift in Sources */,
