@@ -171,6 +171,18 @@ final class ActivityLog {
     var domainHeavySec:        Double?
     var domainSevereSec:       Double?
 
+    /// 0–100 axis scores, resolved against same-subtype history at session end.
+    ///
+    /// Stored rather than derived in the view: the scores are percentiles
+    /// against other sessions, and a List row cannot fetch that history once
+    /// per row without a query storm. nil means "not enough history yet" —
+    /// distinct from the slope itself being absent.
+    var suppressionScore:      Int?
+    var efficiencyScore:       Int?
+    /// How many same-subtype sessions the scores above were ranked against,
+    /// so the row can say "2 of 3" rather than simply going blank.
+    var scoreHistoryCount:     Int?
+
     /// Mean benefit-signed change from the before-window to the during-window
     /// across the nine metrics — literally the average of the per-metric
     /// numbers shown on the rows below the meter, so the two agree to within
@@ -432,6 +444,43 @@ final class ActivityLog {
             efficiencySlope = ExerciseSuppression.vsi(samples: workSamples)?.slopePer10
         } else {
             efficiencySlope = nil
+        }
+
+        scoreSlopesAgainstHistory(context: context)
+    }
+
+    /// Ranks this session's slopes against other completed sessions of the same
+    /// subtype, and stores the resulting 0–100 scores.
+    ///
+    /// Done here, where a context is already in hand, so the list row can render
+    /// from stored values instead of issuing a fetch per row.
+    private func scoreSlopesAgainstHistory(context: ModelContext) {
+        let cutoff  = Calendar.current.date(byAdding: .day, value: -90, to: startedAt) ?? .distantPast
+        let subtype = activitySubtype
+        let myID    = id
+        let predicate = #Predicate<ActivityLog> {
+            $0.activitySubtype == subtype && $0.startedAt >= cutoff
+                && $0.endedAt != nil && $0.id != myID
+        }
+        let peers = (try? context.fetch(FetchDescriptor<ActivityLog>(predicate: predicate))) ?? []
+        scoreHistoryCount = peers.count
+
+        if let slope = vsiSlopePer10 {
+            suppressionScore = ExerciseResponse.percentileScore(
+                value: slope,
+                history: peers.compactMap(\.vsiSlopePer10),
+                lowerIsBetter: false)
+        } else {
+            suppressionScore = nil
+        }
+
+        if hasExternalWorkSignal, let slope = efficiencySlope {
+            efficiencyScore = ExerciseResponse.percentileScore(
+                value: slope,
+                history: peers.compactMap(\.efficiencySlope),
+                lowerIsBetter: false)
+        } else {
+            efficiencyScore = nil
         }
     }
 

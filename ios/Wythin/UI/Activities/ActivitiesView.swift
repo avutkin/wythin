@@ -145,7 +145,12 @@ struct ActivitiesView: View {
             ForEach(dayGroups) { group in
                 Section {
                     ForEach(group.entries) { entry in
-                        ActivityLogRow(entry: entry)
+                        Group {
+                            switch entry.activityTypeEnum.activityClass {
+                            case .activating:  ExerciseLogRow(entry: entry)
+                            case .restorative: ActivityLogRow(entry: entry)
+                            }
+                        }
                             .contentShape(Rectangle())
                             .onTapGesture { activeSheet = .detail(entry) }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {

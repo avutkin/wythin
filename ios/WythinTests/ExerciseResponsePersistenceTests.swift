@@ -176,6 +176,91 @@ final class ExerciseResponsePersistenceTests: XCTestCase {
         XCTAssertNil(entry.exerciseLoad, "an active session has no response yet")
     }
 
+    // MARK: - Scores ranked against same-subtype history
+
+    func testScoreIsWithheldUntilThereIsHistoryToRankAgainst() throws {
+        let ctx = makeContext()
+        let end = seed(ctx)
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Intervals",
+                                startedAt: start, endedAt: end)
+        ctx.insert(entry)
+        entry.computeExerciseResponse(context: ctx)
+
+        XCTAssertNotNil(entry.vsiSlopePer10, "the slope itself exists")
+        XCTAssertNil(entry.suppressionScore,
+                     "but one session cannot be ranked, so no score is invented")
+        XCTAssertEqual(entry.scoreHistoryCount, 0)
+    }
+
+    func testScoreAppearsOnceThreePeersExist() throws {
+        let ctx = makeContext()
+        let end = seed(ctx)
+
+        // Three earlier Intervals sessions with slopes to rank against.
+        for i in 1...3 {
+            let peer = ActivityLog(activityType: "Exercise", activitySubtype: "Intervals",
+                                   startedAt: start.addingTimeInterval(Double(-i) * 86_400),
+                                   endedAt: end.addingTimeInterval(Double(-i) * 86_400))
+            peer.vsiSlopePer10 = -0.30 - Double(i) * 0.02
+            ctx.insert(peer)
+        }
+        try? ctx.save()
+
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Intervals",
+                                startedAt: start, endedAt: end)
+        ctx.insert(entry)
+        entry.computeExerciseResponse(context: ctx)
+
+        XCTAssertEqual(entry.scoreHistoryCount, 3)
+        XCTAssertNotNil(entry.suppressionScore)
+    }
+
+    func testPeersOfADifferentSubtypeDoNotCount() throws {
+        // A yoga session tells you nothing about the cost of an interval set.
+        let ctx = makeContext()
+        let end = seed(ctx)
+        for i in 1...3 {
+            let peer = ActivityLog(activityType: "Exercise", activitySubtype: "Yoga",
+                                   startedAt: start.addingTimeInterval(Double(-i) * 86_400),
+                                   endedAt: end.addingTimeInterval(Double(-i) * 86_400))
+            peer.vsiSlopePer10 = -0.30
+            ctx.insert(peer)
+        }
+        try? ctx.save()
+
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Intervals",
+                                startedAt: start, endedAt: end)
+        ctx.insert(entry)
+        entry.computeExerciseResponse(context: ctx)
+
+        XCTAssertEqual(entry.scoreHistoryCount, 0)
+        XCTAssertNil(entry.suppressionScore)
+    }
+
+    func testEfficiencyScoreIsNeverSetWithoutAnExternalSignal() throws {
+        let ctx = makeContext()
+        let end = seed(ctx)
+        for i in 1...3 {
+            let peer = ActivityLog(activityType: "Exercise", activitySubtype: "Power Lifting",
+                                   startedAt: start.addingTimeInterval(Double(-i) * 86_400),
+                                   endedAt: end.addingTimeInterval(Double(-i) * 86_400))
+            peer.efficiencySlope = -0.30
+            peer.vsiSlopePer10   = -0.28   // so suppression has peers to rank against
+            ctx.insert(peer)
+        }
+        try? ctx.save()
+
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Power Lifting",
+                                startedAt: start, endedAt: end)
+        ctx.insert(entry)
+        entry.computeExerciseResponse(context: ctx)
+
+        XCTAssertNil(entry.efficiencyScore,
+                     "no mechanical denominator means no score, however much history exists")
+        XCTAssertNotNil(entry.suppressionScore,
+                        "suppression still ranks — it normalises by heart rate")
+    }
+
     func testRecomputeIsIdempotent() throws {
         let ctx = makeContext()
         let end = seed(ctx)

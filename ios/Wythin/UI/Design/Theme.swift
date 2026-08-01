@@ -18,6 +18,15 @@ enum Theme {
     static let breathe = Color(hex: "#58A6FF")   // blue — breathing
     static let ulf     = Color(hex: "#A78BFA")   // muted violet — ULF
 
+    // Exercise intensity domains, from DFA α1. Moderate reuses `accent`.
+    //
+    // Deliberately not `rsa` and `warn`: that pair sits at ΔE 10.9 in normal
+    // vision, which is genuinely hard to tell apart in a stacked bar where the
+    // two segments touch. These were validated against the card surface at
+    // ΔE 22.3 normal and 11.8 protan.
+    static let domainHeavy  = Color(hex: "#FDBA2D")   // DFA α1 0.50–0.75
+    static let domainSevere = Color(hex: "#F43F5E")   // DFA α1 < 0.50
+
     // Text
     static let text    = Color(hex: "#FFFFFF")   // pure white
     static let dim     = Color(hex: "#787878")   // medium gray

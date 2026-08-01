@@ -61,6 +61,7 @@
 		A135 /* TrainSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F135 /* TrainSession.swift */; };
 		A136 /* ActivityLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F136 /* ActivityLog.swift */; };
 		A137 /* ActivitiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F137 /* ActivitiesView.swift */; };
+		80FD4071E16403CDD0C0F55D /* ExerciseLogRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C610ECB383624DF3DB2E902 /* ExerciseLogRow.swift */; };
 		F84F7CB62F996193D6F7DBA1 /* ActivityLogRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10284DCB6D50B66249C5AB82 /* ActivityLogRow.swift */; };
 		A138 /* PolyvagalState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F138 /* PolyvagalState.swift */; };
 		A139 /* CurrentStateCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F139 /* CurrentStateCard.swift */; };
@@ -238,6 +239,7 @@
 		F135 /* TrainSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainSession.swift; sourceTree = "<group>"; };
 		F136 /* ActivityLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLog.swift; sourceTree = "<group>"; };
 		F137 /* ActivitiesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivitiesView.swift; sourceTree = "<group>"; };
+		2C610ECB383624DF3DB2E902 /* ExerciseLogRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseLogRow.swift; sourceTree = "<group>"; };
 		10284DCB6D50B66249C5AB82 /* ActivityLogRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogRow.swift; sourceTree = "<group>"; };
 		F138 /* PolyvagalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolyvagalState.swift; sourceTree = "<group>"; };
 		F139 /* CurrentStateCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentStateCard.swift; sourceTree = "<group>"; };
@@ -389,6 +391,7 @@
 			isa = PBXGroup;
 			children = (
 				F137 /* ActivitiesView.swift */,
+				2C610ECB383624DF3DB2E902 /* ExerciseLogRow.swift */,
 				10284DCB6D50B66249C5AB82 /* ActivityLogRow.swift */,
 				F203 /* ActivityLogging.swift */,
 				F149 /* ActivityMetricsGrid.swift */,
@@ -833,6 +836,7 @@
 				A200 /* Practice.swift in Sources */,
 				A201 /* PracticeCatalog.swift in Sources */,
 				A137 /* ActivitiesView.swift in Sources */,
+				80FD4071E16403CDD0C0F55D /* ExerciseLogRow.swift in Sources */,
 				F84F7CB62F996193D6F7DBA1 /* ActivityLogRow.swift in Sources */,
 				A203 /* ActivityLogging.swift in Sources */,
 				A204 /* PracticeHubView.swift in Sources */,
