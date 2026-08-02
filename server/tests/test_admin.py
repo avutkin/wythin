@@ -51,28 +51,26 @@ async def test_dashboard_shell_open_but_stats_gated(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_stats_shape():
-    """Upload a session, then confirm /admin/stats returns the expected shape
-    and reflects the new data. Requires a live database."""
-    payload = {
-        "id":            "00000000-0000-0000-0000-0000000000a1",
-        "started_at":    "2025-02-01T09:00:00Z",
-        "ended_at":      "2025-02-01T09:12:00Z",
-        "avg_rsa_ms":    30.0,
-        "avg_coherence": 0.66,
-        "samples": [
-            {"ts": "2025-02-01T09:00:02Z", "mean_bpm": 60.0, "rmssd": 40.0, "coherence": 0.7},
-        ],
-    }
-    async with _client() as client:
-        up = await client.post("/sessions", json=payload, headers={"X-User-ID": "test-stats-user"})
-        assert up.status_code == 200
+    """Record a strap session, then confirm /admin/stats returns the expected
+    shape and reflects the new data. Requires a live database."""
+    from datetime import datetime, timezone, timedelta
+    import uuid
 
-        r = await client.get("/admin/stats", params={"days": 3650})
+    device = f"test-stats-{uuid.uuid4().hex[:8]}"
+    async with _client() as client:
+        up = await client.post("/v1/usage", headers={"X-User-ID": device}, json={"events": [
+            {"client_event_id": str(uuid.uuid4()), "event_type": "ecg_recording",
+             "ts": (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat(),
+             "duration_ms": 720_000},
+        ]})
+        assert up.status_code == 200, up.text
+
+        r = await client.get("/admin/stats", params={"range": "all"})
     assert r.status_code == 200
     data = r.json()
 
     assert set(data["kpis"]) == {
-        "total_users", "active_7d", "active_30d",
+        "total_users", "active_users",
         "total_sessions", "total_minutes", "avg_session_min", "median_streak",
     }
     assert data["kpis"]["total_users"] >= 1
@@ -232,3 +230,63 @@ async def test_user_usage_aggregation():
     assert abs(row["active_min"] - 3.0) < 0.1   # 120s + 60s = 180s = 3.0 min
     assert abs(row["ecg_min"] - 10.0) < 0.1     # 600s = 10 min
     assert d["averages"]["opens_day"] >= 2
+
+
+@pytest.mark.asyncio
+async def test_sessions_are_strap_wear_over_one_minute():
+    """A session is the strap being live for at least a minute — an
+    `ecg_recording` usage event with duration_ms >= 60000. Shorter recordings
+    and `foreground` events are not sessions, and the range picker scopes both
+    the KPIs and the per-user rows. Requires a database."""
+    from datetime import datetime, timezone, timedelta
+    import uuid
+
+    device = f"test-strap-{uuid.uuid4().hex[:8]}"
+    now = datetime.now(timezone.utc)
+    recent = now - timedelta(minutes=5)   # inside every range
+    old = now - timedelta(days=10)        # inside 90d, outside 24h
+    async with _client() as client:
+        up = await client.post("/v1/usage", headers={"X-User-ID": device}, json={"events": [
+            # 10 min of strap — a session.
+            {"client_event_id": str(uuid.uuid4()), "event_type": "ecg_recording",
+             "ts": recent.isoformat(), "duration_ms": 600_000},
+            # 30 s of strap — under the one-minute bar, not a session.
+            {"client_event_id": str(uuid.uuid4()), "event_type": "ecg_recording",
+             "ts": recent.isoformat(), "duration_ms": 30_000},
+            # 15 min of app in the foreground — not a session, not practice minutes.
+            {"client_event_id": str(uuid.uuid4()), "event_type": "foreground",
+             "ts": recent.isoformat(), "duration_ms": 900_000},
+            # 6 min of strap ten days ago — a session, but only in the wider ranges.
+            {"client_event_id": str(uuid.uuid4()), "event_type": "ecg_recording",
+             "ts": old.isoformat(), "duration_ms": 360_000},
+        ]})
+        assert up.status_code == 200, up.text
+
+        wide = (await client.get("/admin/stats", params={"range": "90d"})).json()
+        day = (await client.get("/admin/stats", params={"range": "24h"})).json()
+        today = await client.get("/admin/stats", params={"range": "today", "tz_offset": 0})
+
+    # 90 days: both qualifying straps, 16 minutes. The 30 s strap and the
+    # foreground event contribute nothing.
+    me = next(u for u in wide["users"] if u["device_id"] == device)
+    assert me["session_count"] == 2, me
+    assert abs(me["total_minutes"] - 16.0) < 0.1, me
+
+    # 24 hours: only the recent 10-minute strap.
+    me24 = next(u for u in day["users"] if u["device_id"] == device)
+    assert me24["session_count"] == 1, me24
+    assert abs(me24["total_minutes"] - 10.0) < 0.1, me24
+
+    k = day["kpis"]
+    assert set(k) == {"total_users", "active_users", "total_sessions",
+                      "total_minutes", "avg_session_min", "median_streak"}
+    assert k["total_sessions"] >= 1 and k["active_users"] >= 1
+    assert k["total_minutes"] >= 10.0
+    assert k["avg_session_min"] > 0
+
+    # Short ranges bucket the chart by hour, longer ones by day, and the recent
+    # strap has to land in a bucket.
+    assert day["bucket"] == "hour" and wide["bucket"] == "day"
+    assert day["sessions_per_day"], "expected a bucket holding the recent strap"
+    assert sum(p["sessions"] for p in day["sessions_per_day"]) >= 1
+    assert today.status_code == 200

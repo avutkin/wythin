@@ -97,9 +97,12 @@
       <span class="spacer"></span>
       <div class="controls">
         <select id="range">
-          <option value="30">Last 30 days</option>
-          <option value="90" selected>Last 90 days</option>
-          <option value="365">Last year</option>
+          <option value="today">Today</option>
+          <option value="24h">Last 24 hours</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+          <option value="90d" selected>Last 90 days</option>
+          <option value="all">All time</option>
         </select>
         <button id="refresh" title="Refresh">↻</button>
         <button id="changeKey" title="Change API key">🔑</button>
@@ -112,7 +115,7 @@
     <section id="view-overview">
       <div class="kpis" id="kpis"></div>
       <div class="panel">
-        <h2>Sessions per day</h2>
+        <h2 id="chart-title">Sessions per day</h2>
         <svg class="chart" id="chart" preserveAspectRatio="none"></svg>
       </div>
       <div class="panel">
@@ -211,19 +214,41 @@
   const stamp = () => $("#updated").textContent = "updated " + new Date().toLocaleTimeString();
 
   // ── Overview ──────────────────────────────────────────────────────────
+  // Labels for the range picker. Day boundaries are the viewer's, not UTC's —
+  // tz_offset carries the browser's offset so "today" starts at local midnight.
+  const RANGE_LABEL = { today: "today", "24h": "24h", "7d": "7d", "30d": "30d", "90d": "90d", all: "all time" };
+  const pad2 = (n) => String(n).padStart(2, "0");
+
   async function loadOverview() {
-    const d = await api(`stats?days=${$("#range").value}`);
+    const d = await api(`stats?range=${$("#range").value}&tz_offset=${new Date().getTimezoneOffset()}`);
     state.overview = d;
     show("overview");
     $("#crumb").innerHTML = "";
-    const k = d.kpis;
+    const k = d.kpis, r = RANGE_LABEL[d.range] || d.range;
+    // Everything but total users is scoped to the picked range. A session is
+    // the strap live for at least a minute; minutes are that strap time.
     const cards = [
-      ["Total users", fmt(k.total_users)], ["Active · 7d", fmt(k.active_7d)],
-      ["Active · 30d", fmt(k.active_30d)], ["Total sessions", fmt(k.total_sessions)],
-      ["Practice minutes", fmt(k.total_minutes)], ["Avg session", fmt(k.avg_session_min, 1) + " <small>min</small>"],
+      ["Total users", fmt(k.total_users)],
+      [`Active · ${r}`, fmt(k.active_users)],
+      [`Sessions · ${r}`, fmt(k.total_sessions)],
+      ["Practice minutes", fmt(k.total_minutes)],
+      ["Avg session", fmt(k.avg_session_min, 1) + " <small>min</small>"],
+      ["Median streak", fmt(k.median_streak, 1) + " <small>d</small>"],
     ];
     $("#kpis").innerHTML = cards.map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
-    barChart($("#chart"), (d.sessions_per_day || []).map(s => ({ label: s.day.slice(5), value: s.sessions, title: `${s.day}: ${s.sessions}` })));
+
+    // Short ranges are bucketed by hour, longer ones by day. Bucket starts come
+    // back as instants, so render them through the local clock.
+    const hourly = d.bucket === "hour";
+    $("#chart-title").textContent = hourly ? "Sessions per hour" : "Sessions per day";
+    barChart($("#chart"), (d.sessions_per_day || []).map(s => {
+      const t = new Date(s.t);
+      return {
+        label: hourly ? pad2(t.getHours()) : `${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`,
+        value: s.sessions,
+        title: `${hourly ? t.toLocaleString() : t.toLocaleDateString()}: ${s.sessions}`,
+      };
+    }));
     drawUserTable(d.users || []);
     stamp();
   }
