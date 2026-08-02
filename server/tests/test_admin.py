@@ -293,6 +293,43 @@ async def test_sessions_are_strap_wear_over_one_minute():
 
 
 @pytest.mark.asyncio
+async def test_stats_carries_onboarding_goals_and_practices():
+    """The user table shows what each person is optimising for, so /admin/stats
+    carries their onboarding goals and practices. Users who never completed
+    onboarding come back as empty lists, not nulls. Requires a database."""
+    from datetime import datetime, timezone, timedelta
+    import uuid
+
+    sfx = uuid.uuid4().hex[:8]
+    with_profile, without = f"test-prof-{sfx}", f"test-noprof-{sfx}"
+    goals = ["Reduce stress", "Sleep better", "Focus"]
+    practices = ["Breathwork", "Meditation"]
+    async with _client() as client:
+        r = await client.post("/v1/profile", headers={"X-User-ID": with_profile}, json={
+            "email": "someone@example.com", "age_range": "35-44",
+            "goals": goals, "practices": practices, "devices": ["Polar H10"],
+        })
+        assert r.status_code == 200, r.text
+        # Both users need a signal so the range filter keeps them.
+        for device in (with_profile, without):
+            u = await client.post("/v1/usage", headers={"X-User-ID": device}, json={"events": [
+                {"client_event_id": str(uuid.uuid4()), "event_type": "foreground",
+                 "ts": (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat(),
+                 "duration_ms": 60_000},
+            ]})
+            assert u.status_code == 200, u.text
+
+        data = (await client.get("/admin/stats", params={"range": "24h"})).json()
+
+    row = next(u for u in data["users"] if u["device_id"] == with_profile)
+    assert row["goals"] == goals
+    assert row["practices"] == practices
+
+    bare = next(u for u in data["users"] if u["device_id"] == without)
+    assert bare["goals"] == [] and bare["practices"] == []
+
+
+@pytest.mark.asyncio
 async def test_user_table_lists_only_users_active_in_range():
     """The user table follows the range picker: a user shows up only if they
     gave some sign of life inside it — an app open, a strap session or a logged

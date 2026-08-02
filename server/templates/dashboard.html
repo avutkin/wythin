@@ -85,6 +85,8 @@
   th:hover { color: var(--accent); }
   th .arrow { opacity: .5; font-size: 9px; }
   td .device { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  td .chips { display: inline-block; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+  td .chips .more { color: var(--dim); font-family: var(--mono); font-size: 11px; }
   td .name { font-weight: 550; }
   tr.clickable { cursor: pointer; }
   tr.clickable:hover td { background: var(--surface); }
@@ -272,8 +274,19 @@
     stamp();
   }
 
+  // Onboarding answers are user-typed text — escape them, and keep the cell
+  // narrow by showing the first two with a +N overflow (full list on hover).
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const chips = (arr) => {
+    if (!arr || !arr.length) return "—";
+    const head = arr.slice(0, 2).map(esc).join(", ");
+    return `<span class="chips" title="${esc(arr.join(", "))}">${head}${arr.length > 2 ? ` <span class="more">+${arr.length - 2}</span>` : ""}</span>`;
+  };
+
   const UCOLS = [
-    { k: "display_name", label: "User", cell: (u) => `<span class="name">${u.display_name || "—"}</span><br><span class="device">${(u.device_id||"").slice(0,12) || u.id.slice(0,8)}</span>` },
+    { k: "display_name", label: "User", cell: (u) => `<span class="name">${esc(u.display_name) || "—"}</span><br><span class="device">${esc((u.device_id||"").slice(0,12)) || u.id.slice(0,8)}</span>` },
+    { k: "goals", label: "Objectives", cell: (u) => chips(u.goals) },
+    { k: "practices", label: "Practices", cell: (u) => chips(u.practices) },
     { k: "first_seen", label: "First seen", cell: (u) => fmtDate(u.first_seen) },
     { k: "last_seen", label: "Last seen", cell: (u) => ago(u.last_seen) },
     { k: "current_streak", label: "Streak", cell: (u) => u.current_streak ? `${u.current_streak}d${u.practiced_today ? " •" : ""}` : "—" },

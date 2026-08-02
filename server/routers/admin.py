@@ -202,8 +202,12 @@ async def usage_stats(
               COALESCE(c.practiced_today, FALSE) AS practiced_today,
               COALESCE(ua.opens_total::float / ua.usage_days, 0)  AS avg_opens_day,
               COALESCE(ua.active_min_total / ua.usage_days, 0)    AS avg_active_min_day,
-              COALESCE(ua.ecg_total::float / ua.usage_days, 0)    AS avg_ecg_day
+              COALESCE(ua.ecg_total::float / ua.usage_days, 0)    AS avg_ecg_day,
+              -- What they told onboarding they're optimising for.
+              COALESCE(pr.goals, '{}')                            AS goals,
+              COALESCE(pr.practices, '{}')                        AS practices
             FROM users u
+            LEFT JOIN profiles pr   ON pr.user_id = u.id
             LEFT JOIN in_range ir   ON ir.user_id = u.id
             LEFT JOIN seen sn       ON sn.user_id = u.id
             LEFT JOIN metrics m     ON m.user_id  = u.id
@@ -261,6 +265,8 @@ async def usage_stats(
                 "avg_opens_day":      round(_f(r["avg_opens_day"]), 1),
                 "avg_active_min_day": round(_f(r["avg_active_min_day"]), 1),
                 "avg_ecg_day":        round(_f(r["avg_ecg_day"]), 1),
+                "goals":              list(r["goals"] or []),
+                "practices":          list(r["practices"] or []),
             }
             for r in users
         ],
