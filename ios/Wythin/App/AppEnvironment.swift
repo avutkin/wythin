@@ -179,6 +179,51 @@ final class AppEnvironment {
         deliver(selected, at: now)
     }
 
+    /// Freezes today's anchor as soon as a qualifying rest exists, without
+    /// waiting for the Live tab to be opened — a morning recorded and never
+    /// looked at is still a morning.
+    ///
+    /// Cheap because it exits on the day check in the overwhelming common case:
+    /// once today's anchor exists, this is one fetch every five minutes.
+    private func detectAnchorIfDue(now: Date) {
+        guard now.timeIntervalSince(lastAnchorCheckAt) >= anchorCheckInterval else { return }
+        lastAnchorCheckAt = now
+
+        let today   = Calendar.current.startOfDay(for: now)
+        let context = modelContainer.mainContext
+        let stored: [DailyAnchor]
+        do {
+            stored = try context.fetch(FetchDescriptor<DailyAnchor>())
+        } catch {
+            // A fetch that threw is not "no anchor today". Reading it as one
+            // and inserting would leave a second row for a day that already has
+            // one — `DailyAnchor` has no unique constraint on `day` and nothing
+            // dedupes, so both would feed `AnchorBaseline.build` from then on.
+            // `lastAnchorCheckAt` has already moved, so this retries in five
+            // minutes. Same rule as `AnchorBackfill.replay`.
+            print("❌ detectAnchorIfDue: anchor fetch — \(error)")
+            return
+        }
+        guard !stored.contains(where: { $0.day == today }) else { return }
+
+        let points = MetricsQualityFilter.filter(tickHistory.filter { $0.timestamp >= today })
+        guard let reading = AnchorDetector.detect(points) else { return }
+
+        // Asymmetric on purpose. This path polls every five minutes with nobody
+        // watching, so whichever poll first catches a rest past `minSec` would
+        // freeze it — landing `durationSec` roughly uniformly in [180, 480) and
+        // dropping DC on the short half. The day's anchor would then routinely
+        // be a different kind of measurement from the baseline it is scored
+        // against. Waiting for `preferredMinSec` costs at most one more poll.
+        //
+        // `DayPotentialStore.refresh` keeps the 180 s floor: a user who pulled
+        // to refresh has asked for whatever this morning actually gave.
+        guard reading.durationSec >= AnchorThresholds.preferredMinSec else { return }
+
+        context.insert(DailyAnchor(from: reading))
+        try? context.save()
+    }
+
     /// The focus window never pushes — a notification would interrupt the exact
     /// absorbed state it is reporting. Everything else takes a banner when
     /// backgrounded and an in-app card when not.
@@ -263,7 +308,10 @@ final class AppEnvironment {
         nudgeBaseline = AnchorBaseline.build(history: history, todayHour: hour, now: now)
     }
 
-    private let modelContainer: ModelContainer
+    /// Internal rather than private so callers that must do bulk work off the
+    /// main actor can open their own `ModelContext` on it — see
+    /// `AnchorBackfill`. The container is `Sendable`; a context is not.
+    let modelContainer: ModelContainer
 
     /// Today's capacity read. App-owned rather than view-owned so it is
     /// computed once at launch and survives tab switches — the score must be
@@ -285,6 +333,9 @@ final class AppEnvironment {
     private var lastSaveAt: Date = .distantPast   // wall-clock cap so bg saves land ≤2 min
     private var lastBackgroundTick: Date = .distantPast  // throttles bg computation to 30 s
     private var lastMetricSyncAt: Date = .distantPast     // throttles cloud sync attempts to ~120 s
+    private var lastAnchorCheckAt: Date = .distantPast     // throttles anchor detection to ~5 min
+    /// Anchors are frozen once a day, so checking every five minutes is generous.
+    private let anchorCheckInterval: TimeInterval = 300
 
     // MARK: Init
 
@@ -639,6 +690,7 @@ final class AppEnvironment {
                 // against real wear. Delivers nothing to the user.
                 self.nudges.ingest(point, now: point.timestamp)
                 self.evaluateNudgesIfDue(now: point.timestamp)
+                self.detectAnchorIfDue(now: point.timestamp)
 
                 // ── Foreground-only: live table + live cloud stream ───────────
                 if inForeground {

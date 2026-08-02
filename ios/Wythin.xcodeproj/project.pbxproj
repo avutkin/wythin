@@ -148,19 +148,20 @@
 		AT11 /* PracticeCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT11 /* PracticeCatalogTests.swift */; };
 		AT12 /* MotionComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT12 /* MotionComputeTests.swift */; };
 		AT13 /* AnchorDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT13 /* AnchorDetectorTests.swift */; };
+		AT43 /* AnchorBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT43 /* AnchorBackfillTests.swift */; };
 		AT14 /* AnchorBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT14 /* AnchorBaselineTests.swift */; };
 		AT15 /* PotentialScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT15 /* PotentialScoreTests.swift */; };
 		AT16 /* StreakComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT16 /* StreakComputeTests.swift */; };
-		AT30 /* DailyRollupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT30 /* DailyRollupTests.swift */; };
-		AT31 /* TrackCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT31 /* TrackCacheTests.swift */; };
-		AT32 /* TrackPeriodTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT32 /* TrackPeriodTests.swift */; };
-		AT33 /* TrackMetricSpecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT33 /* TrackMetricSpecTests.swift */; };
-		AT34 /* TrackSeriesBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT34 /* TrackSeriesBuilderTests.swift */; };
-		AT35 /* ConsistencySummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT35 /* ConsistencySummaryTests.swift */; };
+		AT44 /* TrackCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT44 /* TrackCacheTests.swift */; };
+		AT45 /* TrackPeriodTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT45 /* TrackPeriodTests.swift */; };
+		AT46 /* TrackMetricSpecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT46 /* TrackMetricSpecTests.swift */; };
+		AT47 /* TrackSeriesBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT47 /* TrackSeriesBuilderTests.swift */; };
+		AT48 /* ConsistencySummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT48 /* ConsistencySummaryTests.swift */; };
 		AT40 /* RSAComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT40 /* RSAComputeTests.swift */; };
 		AT41 /* WelchPSDParsevalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT41 /* WelchPSDParsevalTests.swift */; };
 		AT42 /* MetricsQualityFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT42 /* MetricsQualityFilterTests.swift */; };
-		AT36 /* ConsistencyCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT36 /* ConsistencyCardTests.swift */; };
+		ATCS /* ChartSegmenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FTCS /* ChartSegmenterTests.swift */; };
+		AT49 /* ConsistencyCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT49 /* ConsistencyCardTests.swift */; };
 		AT17 /* TrendShapeComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT17 /* TrendShapeComputeTests.swift */; };
 		AT18 /* DayPotentialInsightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT18 /* DayPotentialInsightTests.swift */; };
 		AT19 /* DayLoadSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT19 /* DayLoadSummaryTests.swift */; };
@@ -342,19 +343,20 @@
 		FT11 /* PracticeCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeCatalogTests.swift; sourceTree = "<group>"; };
 		FT12 /* MotionComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionComputeTests.swift; sourceTree = "<group>"; };
 		FT13 /* AnchorDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetectorTests.swift; sourceTree = "<group>"; };
+		FT43 /* AnchorBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBackfillTests.swift; sourceTree = "<group>"; };
 		FT14 /* AnchorBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaselineTests.swift; sourceTree = "<group>"; };
 		FT15 /* PotentialScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScoreTests.swift; sourceTree = "<group>"; };
 		FT16 /* StreakComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakComputeTests.swift; sourceTree = "<group>"; };
-		FT30 /* DailyRollupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyRollupTests.swift; sourceTree = "<group>"; };
-		FT31 /* TrackCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackCacheTests.swift; sourceTree = "<group>"; };
-		FT32 /* TrackPeriodTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPeriodTests.swift; sourceTree = "<group>"; };
-		FT33 /* TrackMetricSpecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackMetricSpecTests.swift; sourceTree = "<group>"; };
-		FT34 /* TrackSeriesBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackSeriesBuilderTests.swift; sourceTree = "<group>"; };
-		FT35 /* ConsistencySummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencySummaryTests.swift; sourceTree = "<group>"; };
+		FT44 /* TrackCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackCacheTests.swift; sourceTree = "<group>"; };
+		FT45 /* TrackPeriodTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPeriodTests.swift; sourceTree = "<group>"; };
+		FT46 /* TrackMetricSpecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackMetricSpecTests.swift; sourceTree = "<group>"; };
+		FT47 /* TrackSeriesBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackSeriesBuilderTests.swift; sourceTree = "<group>"; };
+		FT48 /* ConsistencySummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencySummaryTests.swift; sourceTree = "<group>"; };
 		FT40 /* RSAComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSAComputeTests.swift; sourceTree = "<group>"; };
 		FT41 /* WelchPSDParsevalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelchPSDParsevalTests.swift; sourceTree = "<group>"; };
 		FT42 /* MetricsQualityFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsQualityFilterTests.swift; sourceTree = "<group>"; };
-		FT36 /* ConsistencyCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencyCardTests.swift; sourceTree = "<group>"; };
+		FTCS /* ChartSegmenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartSegmenterTests.swift; sourceTree = "<group>"; };
+		FT49 /* ConsistencyCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencyCardTests.swift; sourceTree = "<group>"; };
 		FT17 /* TrendShapeComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendShapeComputeTests.swift; sourceTree = "<group>"; };
 		FT18 /* DayPotentialInsightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsightTests.swift; sourceTree = "<group>"; };
 		FT19 /* DayLoadSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLoadSummaryTests.swift; sourceTree = "<group>"; };
@@ -687,6 +689,7 @@
 				FT15 /* PotentialScoreTests.swift */,
 				FT14 /* AnchorBaselineTests.swift */,
 				FT13 /* AnchorDetectorTests.swift */,
+				FT43 /* AnchorBackfillTests.swift */,
 				FT01 /* MetricsTests.swift */,
 				FT02 /* BLETests.swift */,
 				FT03 /* ECGQualityComputeTests.swift */,
@@ -709,15 +712,16 @@
 				FT11 /* PracticeCatalogTests.swift */,
 				FT12 /* MotionComputeTests.swift */,
 				FT30 /* DailyRollupTests.swift */,
-				FT31 /* TrackCacheTests.swift */,
-				FT32 /* TrackPeriodTests.swift */,
-				FT33 /* TrackMetricSpecTests.swift */,
-				FT34 /* TrackSeriesBuilderTests.swift */,
-				FT35 /* ConsistencySummaryTests.swift */,
-				FT36 /* ConsistencyCardTests.swift */,
+				FT44 /* TrackCacheTests.swift */,
+				FT45 /* TrackPeriodTests.swift */,
+				FT46 /* TrackMetricSpecTests.swift */,
+				FT47 /* TrackSeriesBuilderTests.swift */,
+				FT48 /* ConsistencySummaryTests.swift */,
+				FT49 /* ConsistencyCardTests.swift */,
 				FT40 /* RSAComputeTests.swift */,
 				FT41 /* WelchPSDParsevalTests.swift */,
 				FT42 /* MetricsQualityFilterTests.swift */,
+				FTCS /* ChartSegmenterTests.swift */,
 			);
 			path = WythinTests;
 			sourceTree = "<group>";
@@ -960,15 +964,16 @@
 				AT17 /* TrendShapeComputeTests.swift in Sources */,
 				AT16 /* StreakComputeTests.swift in Sources */,
 				AT30 /* DailyRollupTests.swift in Sources */,
-				AT31 /* TrackCacheTests.swift in Sources */,
-				AT32 /* TrackPeriodTests.swift in Sources */,
-				AT33 /* TrackMetricSpecTests.swift in Sources */,
-				AT34 /* TrackSeriesBuilderTests.swift in Sources */,
-				AT35 /* ConsistencySummaryTests.swift in Sources */,
-				AT36 /* ConsistencyCardTests.swift in Sources */,
+				AT44 /* TrackCacheTests.swift in Sources */,
+				AT45 /* TrackPeriodTests.swift in Sources */,
+				AT46 /* TrackMetricSpecTests.swift in Sources */,
+				AT47 /* TrackSeriesBuilderTests.swift in Sources */,
+				AT48 /* ConsistencySummaryTests.swift in Sources */,
+				AT49 /* ConsistencyCardTests.swift in Sources */,
 				AT15 /* PotentialScoreTests.swift in Sources */,
 				AT14 /* AnchorBaselineTests.swift in Sources */,
 				AT13 /* AnchorDetectorTests.swift in Sources */,
+				AT43 /* AnchorBackfillTests.swift in Sources */,
 				AT01 /* MetricsTests.swift in Sources */,
 				AT02 /* BLETests.swift in Sources */,
 				AT03 /* ECGQualityComputeTests.swift in Sources */,
@@ -993,6 +998,7 @@
 				AT40 /* RSAComputeTests.swift in Sources */,
 				AT41 /* WelchPSDParsevalTests.swift in Sources */,
 				AT42 /* MetricsQualityFilterTests.swift in Sources */,
+				ATCS /* ChartSegmenterTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -37,6 +37,59 @@ private struct RefLine {
     let color: Color
 }
 
+// MARK: - Chart Segmenter
+
+/// Assigns a contiguous-run id ("segment") to each bucket that carries a value.
+/// Each run is drawn as a separate `LineMark` series, and Swift Charts draws no
+/// line *between* series — so segment breaks are what make the line break across
+/// genuine sensor-off gaps.
+///
+/// Extracted from `MetricChartCard.points` purely so the gap rule is unit
+/// testable. It regressed once, silently, and only at the 24h window — a
+/// one-token error that no other window could expose.
+enum ChartSegmenter {
+
+    /// - Parameters:
+    ///   - valueKeys:       bucket keys carrying a value for this metric, ascending.
+    ///   - presentKeys:     every bucket with any sample at all (sensor on), across all metrics.
+    ///   - bucketSeconds:   width of one bucket.
+    ///   - gapBreakSeconds: empty span that counts as the sensor being off.
+    /// - Returns: one segment id per entry of `valueKeys`, in the same order.
+    static func segments(valueKeys: [Int],
+                         presentKeys: Set<Int>,
+                         bucketSeconds: TimeInterval,
+                         gapBreakSeconds: TimeInterval) -> [Int] {
+        var out: [Int] = []
+        out.reserveCapacity(valueKeys.count)
+        var segment = 0
+        var prevKey: Int?
+
+        for key in valueKeys {
+            if let pk = prevKey {
+                // The empty span between two PRESENT buckets is the number of
+                // buckets MISSING between them — `key - pk - 1` — not their
+                // index distance. Adjacent buckets have an empty span of zero
+                // and must stay joined.
+                //
+                // The earlier `key - pk` form made every adjacent pair look
+                // like a full bucket-width gap. Harmless at 30m (bucket 15s)
+                // and 2h (60s), both under the 300s threshold — but at 24h the
+                // bucket is 720s, so the test was true on EVERY point, every
+                // point became its own segment, and the line rendered as
+                // isolated dots. Keep the `- 1`.
+                let emptySpan = Double(key - pk - 1) * bucketSeconds
+                if emptySpan >= gapBreakSeconds {
+                    let sensorOnBetween = (pk + 1 ..< key).contains { presentKeys.contains($0) }
+                    if !sensorOnBetween { segment += 1 }   // sensor truly off across the gap
+                }
+            }
+            out.append(segment)
+            prevKey = key
+        }
+        return out
+    }
+}
+
 // MARK: - Bucketed Data Point
 
 private struct ChartPoint: Identifiable {
@@ -366,22 +419,20 @@ private struct MetricChartCard: View {
         // ≥ gapBreakSeconds (strap off). A metric that's momentarily
         // uncomputable while the sensor is on stays connected (bridged), and
         // brief (< 5 min) sensor dropouts stay connected too.
+        let valueKeys = sums.keys.sorted().filter { (counts[$0] ?? 0) > 0 }
+        let segs = ChartSegmenter.segments(valueKeys:       valueKeys,
+                                           presentKeys:     presentKeys,
+                                           bucketSeconds:   bucket,
+                                           gapBreakSeconds: gapBreakSeconds)
         var result: [ChartPoint] = []
-        var segment = 0
-        var prevKey: Int?
-        for key in sums.keys.sorted() {
-            guard let n = counts[key], n > 0 else { continue }
-            if let pk = prevKey, Double(key - pk) * bucket >= gapBreakSeconds {
-                let sensorOnBetween = (pk + 1 ..< key).contains { presentKeys.contains($0) }
-                if !sensorOnBetween { segment += 1 }   // sensor truly off across the gap
-            }
+        result.reserveCapacity(valueKeys.count)
+        for (i, key) in valueKeys.enumerated() {
             let mid = Double(key) * bucket + bucket / 2
-            var val = sums[key]! / Double(n)
+            var val = sums[key]! / Double(counts[key]!)
             if let transform = bucketTransform { val = transform(val) }
             let q: Float? = qualCnt[key].map { (qualSum[key] ?? 0) / Float($0) }
             result.append(ChartPoint(id: key, date: Date(timeIntervalSince1970: mid),
-                                     val: val, quality: q, segment: segment))
-            prevKey = key
+                                     val: val, quality: q, segment: segs[i]))
         }
         return result
     }
@@ -1005,9 +1056,10 @@ struct MetricsChartsView: View, Equatable {
     // MARK: Breath Rate
 
     /// Breathing rate from the chest-strap accelerometer (Z-axis Welch PSD).
-    /// The y-domain mirrors `BreathingCompute.breathBand` (0.08–0.50 Hz), the
-    /// only range the estimator can report — so a fixed domain is honest and
-    /// keeps the 6 br/min resonance line in a stable place all day.
+    /// `yDomain` mirrors `BreathingCompute.breathBand` (0.08–0.50 Hz), the only
+    /// range the estimator can report; note it applies only as the empty-window
+    /// fallback, since `chartBody` auto-fits the axis to the visible values plus
+    /// the reference lines.
     private var breathRateCard: some View {
         MetricChartCard(
             title:   "Breath Rate",

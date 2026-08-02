@@ -9,18 +9,74 @@ enum AnchorThresholds {
     static let stillnessSD: Float = 20
     /// Fallback when `motion` is absent (backfilled history): SD of HR, bpm.
     static let hrStabilitySD: Float = 3
-    static let minSignalQuality: Float = 0.9
     static let maxInvalidRate: Float = 0.05
     static let minECGTier: Int = 1
     static let breathRange: ClosedRange<Float> = 8...20
     /// Preferred window length — below this DC is dropped from the score.
     static let preferredMinSec: Double = 300
+    /// The span the medians are taken over, however long the rest ran. A
+    /// 12-minute rest and a 70-minute rest must produce comparable numbers,
+    /// which they cannot if the median follows whatever the morning allowed.
+    static let anchorWindowSec: Double = 300
     /// Absolute minimum window length.
     static let minSec: Double = 180
     /// Windows starting before this hour are preferred over later ones.
     static let morningCutoffHour: Int = 12
-    /// Largest gap between consecutive ticks still counted as continuous.
-    static let maxGapSec: Double = 6
+    /// Runs starting before this hour are not candidates at all. Sleep is the
+    /// stillest, cleanest signal there is, so an overnight stretch outscores
+    /// every waking rest and would be labelled the morning read — and a history
+    /// mixing hour≈1 and hour≈7 anchors fails `PotentialScore`'s hour-tolerance
+    /// check, which is how a clean signal turns into `notComparable`.
+    ///
+    /// A run that *starts* before the floor is skipped whole rather than
+    /// trimmed: its head is the part the medians would come from, and that head
+    /// is the asleep part.
+    static let earliestAnchorHour: Int = 4
+    /// Rejected samples tolerated inside a run before it counts as broken. A
+    /// stir of one or two ticks is not the end of a rest; a sustained one is.
+    static let maxRejectedInGap: Int = 2
+    /// Wall clock of *stirring* tolerated inside a run, where stirring is the
+    /// time the rejected samples themselves stand for — the bracket-to-bracket
+    /// hole less one tick interval, since the accepted sample that closes the
+    /// hole occupies an interval whether or not anything was rejected.
+    ///
+    /// The count alone is cadence-blind in the wrong direction (two rejected
+    /// ticks are 4 s of movement at the 2 s foreground rate and 60 s at the
+    /// 30 s background rate), but so is a raw hole bound: measured
+    /// bracket-to-bracket, one rejected background tick is already a 60 s hole,
+    /// which would make background stir tolerance exactly zero.
+    ///
+    /// **The guarantee:** a run breaks when more than `maxStirSec` of *observed
+    /// non-still time* sits inside it, at whatever cadence the samples were
+    /// recorded. A single rejected sample is therefore tolerated only while the
+    /// tick interval is at or below `maxStirSec`; past that, one rejected tick
+    /// genuinely is more than that much not-still, and breaking is the honest
+    /// reading.
+    ///
+    /// 45 rather than 30, because the background interval is not 30.000 s and
+    /// nothing rounds it: the tick loop gates on `elapsed >= 30` from a 2 s
+    /// poll and restamps `lastBackgroundTick` from a later `Date()`
+    /// (`AppEnvironment.tickLoop`), and the sample carries a third `Date()`
+    /// taken inside `MetricsEngine.compute`. Consecutive background ticks are
+    /// always a little *over* 30 s apart. At 30 the bound sat exactly on that
+    /// error term with the sign against the user — one rejected tick in a real
+    /// background rest measures ~30.x s of stirring, broke the run, and left
+    /// two halves that both failed the 300 s freeze gate, losing the day its
+    /// anchor. 45 sits strictly between one background interval (~30.1) and two
+    /// (~60.2), so it tolerates one and not two with margin on both sides.
+    ///
+    /// Foreground is untouched: 45 s of stirring at 2 s ticks is 22 rejected
+    /// samples, and `maxRejectedInGap` fires at three. It is the operative
+    /// bound there, as this one is in the background.
+    static let maxStirSec: Double = 45
+    /// Wall-clock hole beyond which two stretches are separate rests however
+    /// clean they are — nothing was rejected because nothing was recorded at
+    /// all (app killed, strap off). A BLE reconnect settles well inside it, so
+    /// it does not cost a run.
+    static let maxGapCeilingSec: Double = 120
+    /// A run must carry this many samples whatever its span. At 30 s ticks a
+    /// 3-minute run is 6 points, and a median over fewer is not a median.
+    static let minSamples: Int = 6
 }
 
 // MARK: - Reading
@@ -49,8 +105,7 @@ struct AnchorReading: Equatable {
 // MARK: - Detector
 
 /// Finds the first *rested* window of a day — the standardized condition the
-/// day's capacity score is built on. Pure: no persistence, no clock beyond
-/// what is passed in.
+/// day's capacity score is built on. Pure: no persistence, no clock.
 ///
 /// Standardization is the point. The daily-monitoring literature (Plews et
 /// al.) depends on posture, time of day and condition being held constant;
@@ -58,18 +113,30 @@ struct AnchorReading: Equatable {
 /// measures load rather than capacity.
 enum AnchorDetector {
 
-    static func detect(_ points: [MetricsHistoryPoint], now: Date = .now) -> AnchorReading? {
-        let usable = points
-            .filter { passesPointGates($0) }
-            .sorted { $0.timestamp < $1.timestamp }
-        guard !usable.isEmpty else { return nil }
+    static func detect(_ points: [MetricsHistoryPoint]) -> AnchorReading? {
+        // Sorted but NOT pre-filtered: `continuousRuns` needs to see the rejected
+        // samples, because a rejected sample is what distinguishes "the rest
+        // ended" from "the tick loop was throttled".
+        let all = points.sorted { $0.timestamp < $1.timestamp }
+        guard !all.isEmpty else { return nil }
 
-        let runs = continuousRuns(usable).filter { run in
-            duration(run) >= AnchorThresholds.minSec && passesRunGates(run)
+        let cal = Calendar.current
+        let runs = continuousRuns(all).filter { run in
+            // Every gate is applied to the leading window — the span the
+            // medians actually come from — not to the whole rest. Two reasons:
+            // a run must not pass on motion known somewhere in its tail while
+            // the window the anchor is built from never had it, and a run whose
+            // head is too sparse to median must be *skipped* so a later, denser
+            // rest can still anchor the day. Checking the sample count only
+            // inside `reading` made one unusable run fatal for the whole day.
+            let window = leadingWindow(run)
+            return window.count >= AnchorThresholds.minSamples
+                && duration(run) >= AnchorThresholds.minSec
+                && cal.component(.hour, from: run[0].timestamp) >= AnchorThresholds.earliestAnchorHour
+                && passesRunGates(window)
         }
         guard !runs.isEmpty else { return nil }
 
-        let cal = Calendar.current
         let morning = runs.first { run in
             cal.component(.hour, from: run[0].timestamp) < AnchorThresholds.morningCutoffHour
         }
@@ -81,35 +148,87 @@ enum AnchorDetector {
     // MARK: Gates
 
     private static func passesPointGates(_ p: MetricsHistoryPoint) -> Bool {
-        guard let q = p.signalQuality, q >= AnchorThresholds.minSignalQuality else { return false }
-        guard let inv = p.rrInvalidRate, inv <= AnchorThresholds.maxInvalidRate else { return false }
-        guard let tier = p.ecgQualityTier, tier >= AnchorThresholds.minECGTier else { return false }
+        // `signalQuality` is defined as `1 - rrInvalidRate` (MetricsEngine), so
+        // the two fields are one measurement stored twice. Rows written before
+        // `rrInvalidRate` existed carry only `signalQuality` — require whichever
+        // is present rather than both, or backfilled history is thrown away for
+        // being old rather than for being bad.
+        guard let invalid = p.rrInvalidRate ?? p.signalQuality.map({ 1 - $0 }),
+              invalid <= AnchorThresholds.maxInvalidRate else { return false }
+        // An absent tier means the row predates the field, not that the ECG was
+        // poor. Tolerated, and paid for in confidence — exactly as absent
+        // `motion` is.
+        if let tier = p.ecgQualityTier, tier < AnchorThresholds.minECGTier { return false }
         guard p.vti != nil, p.meanBPM != nil else { return false }
         if let m = p.motion, m > AnchorThresholds.stillnessSD { return false }
         if let b = p.breathBPM, !AnchorThresholds.breathRange.contains(b) { return false }
         return true
     }
 
-    /// When motion is unknown for the whole run, fall back to HR stability.
-    private static func passesRunGates(_ run: [MetricsHistoryPoint]) -> Bool {
-        let motionKnown = run.contains { $0.motion != nil }
+    /// When motion is unknown across the window the medians come from, fall
+    /// back to HR stability. Callers pass the window, not the whole run — a
+    /// tail that was instrumented says nothing about the head that is measured.
+    private static func passesRunGates(_ window: [MetricsHistoryPoint]) -> Bool {
+        let motionKnown = window.contains { $0.motion != nil }
         guard !motionKnown else { return true }
-        let hrs = run.compactMap { $0.meanBPM }
+        let hrs = window.compactMap { $0.meanBPM }
         guard hrs.count >= 2 else { return false }
         return sd(hrs) <= AnchorThresholds.hrStabilitySD
     }
 
     // MARK: Assembly
 
-    private static func continuousRuns(_ points: [MetricsHistoryPoint]) -> [[MetricsHistoryPoint]] {
+    /// One pass over the raw stream. A sample that fails the point gates is not
+    /// dropped silently — it is counted, because it is evidence the rest ended.
+    ///
+    /// Note the caller applies `MetricsQualityFilter` first, which removes
+    /// strap-off samples entirely. Those read as absence rather than rejection
+    /// here, which is right: taking the strap off is not stirring. The
+    /// `maxGapCeilingSec` ceiling is what catches a long removal.
+    private static func continuousRuns(_ all: [MetricsHistoryPoint]) -> [[MetricsHistoryPoint]] {
         var runs: [[MetricsHistoryPoint]] = []
         var current: [MetricsHistoryPoint] = []
-        for p in points {
-            if let last = current.last,
-               p.timestamp.timeIntervalSince(last.timestamp) > AnchorThresholds.maxGapSec {
-                runs.append(current)
-                current = []
+        var rejectedSinceLast = 0
+        // The raw tick intervals spanning the current hole — accepted or
+        // rejected, since a rejected sample still marks when the recorder fired.
+        // There are `rejectedSinceLast + 1` of them, and their median is the
+        // cadence in force right where the hole is, read off the samples alone.
+        // A whole-day average would not do: a day mixes 2 s foreground stretches
+        // with 30 s background ones.
+        var spacings: [Double] = []
+        var previous: Date?
+
+        for p in all {
+            if let prev = previous { spacings.append(p.timestamp.timeIntervalSince(prev)) }
+            previous = p.timestamp
+
+            guard passesPointGates(p) else {
+                rejectedSinceLast += 1
+                continue
             }
+            if let last = current.last {
+                let hole = p.timestamp.timeIntervalSince(last.timestamp)
+                // The stir bound applies only where something was actually
+                // rejected: that hole is time we know the person was not still,
+                // whereas an equally long hole with nothing rejected is just
+                // the tick loop having been throttled. Each rejected sample
+                // stands for one cadence interval of movement, so the stir is
+                // the hole less the one interval the closing sample owns.
+                // `?? 0` fails closed. The fallback is unreachable — a non-nil
+                // `current.last` means at least one interval was recorded — but
+                // `?? hole` would make `stir` zero and the run unbreakable, so
+                // the dead branch should err towards splitting, not merging.
+                let cadence = median(spacings) ?? 0
+                let stir = rejectedSinceLast > 0 ? hole - cadence : 0
+                if rejectedSinceLast > AnchorThresholds.maxRejectedInGap
+                    || stir > AnchorThresholds.maxStirSec
+                    || hole > AnchorThresholds.maxGapCeilingSec {
+                    runs.append(current)
+                    current = []
+                }
+            }
+            rejectedSinceLast = 0
+            spacings = []
             current.append(p)
         }
         if !current.isEmpty { runs.append(current) }
@@ -122,22 +241,31 @@ enum AnchorDetector {
     }
 
     private static func reading(from run: [MetricsHistoryPoint], late: Bool) -> AnchorReading? {
-        guard let lnRMSSD = median(run.compactMap { $0.vti }),
-              let restingHR = median(run.compactMap { $0.meanBPM }),
-              let start = run.first?.timestamp else { return nil }
-
+        // The whole qualifying rest — this is what the provenance line reports,
+        // and what DC's stability requirement is judged on.
         let dur = duration(run)
-        // DC is a phase-rectified statistic — it needs the longer window to be
-        // stable, so a short anchor drops it rather than reporting it noisily.
+
+        // The standardised head of it — this is what the medians see. The
+        // sample-count guard is belt and braces: `detect` already filtered runs
+        // on it, so a run that reaches here cannot fail it.
+        let window = leadingWindow(run)
+        guard window.count >= AnchorThresholds.minSamples,
+              let lnRMSSD  = median(window.compactMap { $0.vti }),
+              let restingHR = median(window.compactMap { $0.meanBPM }),
+              let start = window.first?.timestamp else { return nil }
+
+        // DC is a phase-rectified statistic — it needs the longer record to be
+        // stable, so a short rest drops it rather than reporting it noisily.
         let longEnoughForDC = dur >= AnchorThresholds.preferredMinSec
-        let motionKnown = run.contains { $0.motion != nil }
+        let motionKnown = window.contains { $0.motion != nil }
+        let ecgKnown    = window.contains { $0.ecgQualityTier != nil }
 
         let cal = Calendar.current
         let hour = Double(cal.component(.hour, from: start))
                  + Double(cal.component(.minute, from: start)) / 60
 
         let confidence: AnchorConfidence
-        if !motionKnown                  { confidence = .low }
+        if !motionKnown || !ecgKnown     { confidence = .low }
         else if longEnoughForDC && !late { confidence = .high }
         else                             { confidence = .medium }
 
@@ -146,20 +274,31 @@ enum AnchorDetector {
             durationSec: dur,
             hour:        hour,
             lnRMSSD:     lnRMSSD,
-            dc:          longEnoughForDC ? median(run.compactMap { $0.dc }) : nil,
+            dc:          longEnoughForDC ? median(window.compactMap { $0.dc }) : nil,
             restingHR:   restingHR,
-            pip:         median(run.compactMap { $0.pip }),
-            dfa1:        median(run.compactMap { $0.dfa1 }),
-            breathBPM:   median(run.compactMap { $0.breathBPM }),
+            pip:         median(window.compactMap { $0.pip }),
+            dfa1:        median(window.compactMap { $0.dfa1 }),
+            breathBPM:   median(window.compactMap { $0.breathBPM }),
             late:        late,
             motionKnown: motionKnown,
             confidence:  confidence)
     }
 
+    /// The first `anchorWindowSec` of a run, half-open so the span is exactly
+    /// the constant rather than one tick more. Shorter runs are returned
+    /// whole — they have no tail to trim.
+    private static func leadingWindow(_ run: [MetricsHistoryPoint]) -> [MetricsHistoryPoint] {
+        guard let start = run.first?.timestamp else { return run }
+        let cutoff = start.addingTimeInterval(AnchorThresholds.anchorWindowSec)
+        return Array(run.prefix { $0.timestamp < cutoff })
+    }
+
     // MARK: Stats
 
     /// Median, not mean — one stray tick must not move the day's anchor.
-    static func median(_ values: [Float]) -> Float? {
+    /// Generic so the same rule reads tick spacings (`Double`) as well as
+    /// metrics (`Float`); an uneven interval must not move the cadence either.
+    static func median<T: FloatingPoint>(_ values: [T]) -> T? {
         guard !values.isEmpty else { return nil }
         let s = values.sorted()
         let mid = s.count / 2

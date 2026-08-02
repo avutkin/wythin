@@ -61,4 +61,43 @@ final class HRVSample {
         self.lfPower    = tick.lfPower
         self.hfPower    = tick.hfPower
     }
+
+    /// Convenience initializer covering the fields the anchor pipeline reads,
+    /// mirroring `MetricsHistoryPoint.init(anchorTestTimestamp:)` — so
+    /// `AnchorBackfill` can be exercised against a real store without standing
+    /// up a whole `MetricsTick`. Unlisted fields stay nil.
+    init(
+        anchorTestTimestamp: Date,
+        meanBPM: Float? = nil,
+        vti: Float? = nil,
+        rmssd: Float? = nil,
+        sdnn: Float? = nil,
+        dc: Float? = nil,
+        pip: Float? = nil,
+        dfa1: Float? = nil,
+        breathBPM: Float? = nil,
+        motion: Float? = nil,
+        signalQuality: Float? = nil,
+        rrInvalidRate: Float? = nil,
+        ecgQualityTier: Int? = nil
+    ) {
+        self.timestamp = anchorTestTimestamp
+        self.meanBPM   = meanBPM
+        self.vti       = vti
+        self.rmssd     = rmssd
+        self.sdnn      = sdnn
+        self.dc        = dc
+        self.pip       = pip
+        self.dfa1      = dfa1
+        self.breathBPM = breathBPM
+        self.motion    = motion
+        self.signalQuality  = signalQuality
+        self.rrInvalidRate  = rrInvalidRate
+        self.ecgQualityTier = ecgQualityTier
+
+        self.pnn50 = nil; self.lfHF = nil; self.rsaMs = nil; self.rsaIdx = nil
+        self.coherence = nil; self.cbi = nil; self.ieRatio = nil
+        self.rrCorrectedRate = nil; self.rcmse = nil; self.ials = nil
+        self.ulfPower = nil; self.vlfPower = nil; self.lfPower = nil; self.hfPower = nil
+    }
 }
