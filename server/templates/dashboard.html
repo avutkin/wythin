@@ -119,7 +119,7 @@
         <svg class="chart" id="chart" preserveAspectRatio="none"></svg>
       </div>
       <div class="panel">
-        <h2>Users <span class="sub">— click a row</span></h2>
+        <h2>Users <span class="sub" id="user-count">— click a row</span></h2>
         <div class="tablewrap"><table id="table"></table></div>
       </div>
     </section>
@@ -249,6 +249,12 @@
         title: `${hourly ? t.toLocaleString() : t.toLocaleDateString()}: ${s.sessions}`,
       };
     }));
+    // The table lists only users active in the range; total users stays the
+    // all-time roster, so say how much of it is on screen.
+    const shown = (d.users || []).length;
+    $("#user-count").textContent = d.range === "all"
+      ? `— all ${shown}, click a row`
+      : `— ${shown} of ${k.total_users} active in ${r}, click a row`;
     drawUserTable(d.users || []);
     stamp();
   }
@@ -270,7 +276,7 @@
   ];
   function drawUserTable(users) {
     const t = $("#table");
-    if (!users.length) { t.innerHTML = `<tr><td class="empty" colspan="${UCOLS.length}">no users yet</td></tr>`; return; }
+    if (!users.length) { t.innerHTML = `<tr><td class="empty" colspan="${UCOLS.length}">no users active in this range</td></tr>`; return; }
     const sorted = [...users].sort((a, b) => {
       const av = a[state.sortKey], bv = b[state.sortKey];
       if (av == null) return 1; if (bv == null) return -1;

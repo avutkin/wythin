@@ -133,8 +133,21 @@ async def usage_stats(
                 WHERE ($2::timestamptz IS NULL OR ts >= $2)
                 GROUP BY user_id
             ),
+            -- Last sign of life, from every signal a user can produce. Usage
+            -- events alone would report "never" for someone who only logs
+            -- activities or streams metrics, while their streak column showed
+            -- them active — and would hide them from the range filter below.
             seen AS (
-                SELECT user_id, MAX(ts) AS last_seen FROM usage_events GROUP BY user_id
+                SELECT user_id, MAX(ts) AS last_seen FROM (
+                    SELECT user_id, ts                             FROM usage_events
+                    UNION ALL
+                    SELECT user_id, COALESCE(ended_at, started_at) FROM activities
+                    UNION ALL
+                    SELECT user_id, ts                             FROM metric_samples
+                    UNION ALL
+                    SELECT user_id, COALESCE(ended_at, started_at) FROM sessions
+                ) x
+                GROUP BY user_id
             ),
             metrics AS (
                 SELECT user_id, AVG(coherence) AS avg_coherence, AVG(rsa_ms) AS avg_rsa
@@ -196,6 +209,9 @@ async def usage_stats(
             LEFT JOIN metrics m     ON m.user_id  = u.id
             LEFT JOIN consistency c ON c.user_id  = u.id
             LEFT JOIN usage_agg ua  ON ua.user_id = u.id
+            -- Only users active within the range. "All time" ($2 IS NULL) keeps
+            -- the full roster, including accounts that never did anything.
+            WHERE $2::timestamptz IS NULL OR sn.last_seen >= $2
             ORDER BY last_seen DESC NULLS LAST
             """,
             _SESSION_MIN_MS, since, off, today_local,

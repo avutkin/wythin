@@ -290,3 +290,62 @@ async def test_sessions_are_strap_wear_over_one_minute():
     assert day["sessions_per_day"], "expected a bucket holding the recent strap"
     assert sum(p["sessions"] for p in day["sessions_per_day"]) >= 1
     assert today.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_user_table_lists_only_users_active_in_range():
+    """The user table follows the range picker: a user shows up only if they
+    gave some sign of life inside it — an app open, a strap session or a logged
+    activity. Dormant accounts drop out instead of filling the table with
+    dashes. Requires a database."""
+    from datetime import datetime, timezone, timedelta
+    import uuid
+
+    now = datetime.now(timezone.utc)
+    sfx = uuid.uuid4().hex[:8]
+    recent_dev, stale_dev, act_dev = (
+        f"test-recent-{sfx}", f"test-stale-{sfx}", f"test-act-only-{sfx}")
+
+    async def _usage(client, device, ts, kind="foreground", ms=120_000):
+        r = await client.post("/v1/usage", headers={"X-User-ID": device}, json={"events": [
+            {"client_event_id": str(uuid.uuid4()), "event_type": kind,
+             "ts": ts.isoformat(), "duration_ms": ms},
+        ]})
+        assert r.status_code == 200, r.text
+
+    async with _client() as client:
+        # Opened the app ten minutes ago — active in every range.
+        await _usage(client, recent_dev, now - timedelta(minutes=10))
+        # Last opened the app ten days ago — dormant in the short ranges.
+        await _usage(client, stale_dev, now - timedelta(days=10))
+        # No usage events at all, only a logged activity an hour ago. This is
+        # the row that used to read "last seen: never" while showing activity.
+        act = await client.post("/activities", headers={"X-User-ID": act_dev}, json={
+            "id": str(uuid.uuid4()),
+            "activity_type": "Meditation",
+            "started_at": (now - timedelta(hours=1)).isoformat(),
+            "ended_at": now.isoformat(),
+        })
+        assert act.status_code == 200, act.text
+
+        day = (await client.get("/admin/stats", params={"range": "24h"})).json()
+        wide = (await client.get("/admin/stats", params={"range": "90d"})).json()
+        every = (await client.get("/admin/stats", params={"range": "all"})).json()
+
+    def devices(payload):
+        return {u["device_id"] for u in payload["users"]}
+
+    assert recent_dev in devices(day)
+    assert stale_dev not in devices(day), "a user dormant for 10 days is not active in 24h"
+    assert {recent_dev, stale_dev} <= devices(wide)
+    assert {recent_dev, stale_dev} <= devices(every)
+
+    # An activity is a sign of life on its own, and it sets last seen.
+    assert act_dev in devices(day), "a logged activity counts as activity"
+    seen = next(u for u in day["users"] if u["device_id"] == act_dev)["last_seen"]
+    assert seen is not None, "activity-only users must not read 'never'"
+
+    # The table is a subset of the roster, and total_users stays the all-time
+    # denominator rather than shrinking with the range.
+    assert len(day["users"]) <= day["kpis"]["total_users"]
+    assert len(day["users"]) < len(every["users"])
