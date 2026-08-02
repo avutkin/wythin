@@ -37,6 +37,10 @@ enum ExerciseSuppression {
     /// line is being fitted through what is effectively one x-value.
     static let minimumHRRSpan: Double = 5
 
+    /// The same idea in milli-g, for the motion regression Efficiency uses.
+    /// Matches the floor that decides motion is a usable work signal at all.
+    static var minimumMotionSpan: Double { Double(ExerciseIntensity.minimumMotionSpan) }
+
     /// Slope of lnDC against %HRR, in lnDC per 10 %HRR.
     ///
     /// Severe-domain samples are excluded: DC has floored there, so the
@@ -48,7 +52,14 @@ enum ExerciseSuppression {
     /// Returns `nil` — rather than a number — when there is nothing honest to
     /// report: too few points, no spread in intensity, or a session spent
     /// entirely above the severe threshold.
-    static func vsi(samples: [(hrrPct: Double, dc: Double, dfa1: Double?)]) -> VSIFit? {
+    /// - Parameter minimumSpan: how much spread in x the fit needs to mean
+    ///   anything, **in the units of x**. Defaults to the %HRR figure. Efficiency
+    ///   regresses against motion in milli-g, where five points of spread is a
+    ///   completely different and far weaker bar than five points of heart-rate
+    ///   reserve — reusing one constant across two units silently accepted fits
+    ///   that should have been rejected.
+    static func vsi(samples: [(hrrPct: Double, dc: Double, dfa1: Double?)],
+                    minimumSpan: Double = minimumHRRSpan) -> VSIFit? {
         let usable = samples.filter { s in
             guard s.dc > 0 else { return false }   // ln(0) and ln(<0) poison the fit
             if let a = s.dfa1, ExerciseIntensity.domain(dfa1: a) == .severe { return false }
@@ -57,7 +68,7 @@ enum ExerciseSuppression {
         guard usable.count >= minimumSamples else { return nil }
 
         let xs = usable.map(\.hrrPct)
-        guard let lo = xs.min(), let hi = xs.max(), hi - lo >= minimumHRRSpan else { return nil }
+        guard let lo = xs.min(), let hi = xs.max(), hi - lo >= minimumSpan else { return nil }
 
         let ys = usable.map { log($0.dc) }
         let n  = Double(usable.count)

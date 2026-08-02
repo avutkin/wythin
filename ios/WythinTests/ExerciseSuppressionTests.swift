@@ -150,3 +150,28 @@ extension ExerciseSuppressionTests {
                                                          hrPre: 62, hrDuring: 104))
     }
 }
+
+// MARK: - The span guard is expressed in the units of x
+
+extension ExerciseSuppressionTests {
+
+    func testTheSpanGuardUsesTheCallersUnits() {
+        // Motion in milli-g with only 6 mg of spread: acceptable under the %HRR
+        // default of 5, rejected under the motion floor of 8. One constant
+        // across two units silently accepted fits it should have refused.
+        let narrow = stride(from: 20.0, through: 26.0, by: 1.0).map {
+            (hrrPct: $0, dc: exp(2.0 - 0.02 * $0), dfa1: Double?(1.0))
+        }
+        XCTAssertNotNil(ExerciseSuppression.vsi(samples: narrow))
+        XCTAssertNil(ExerciseSuppression.vsi(
+            samples: narrow, minimumSpan: ExerciseSuppression.minimumMotionSpan))
+    }
+
+    func testAWideEnoughMotionSpanStillFits() {
+        let wide = stride(from: 10.0, through: 60.0, by: 5.0).map {
+            (hrrPct: $0, dc: exp(2.0 - 0.02 * $0), dfa1: Double?(1.0))
+        }
+        XCTAssertNotNil(ExerciseSuppression.vsi(
+            samples: wide, minimumSpan: ExerciseSuppression.minimumMotionSpan))
+    }
+}

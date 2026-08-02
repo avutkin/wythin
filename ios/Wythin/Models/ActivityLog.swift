@@ -412,9 +412,9 @@ final class ActivityLog {
         let during = raw.filter { MetricsQualityFilter.isValid(MetricsHistoryPoint(from: $0)) }
         guard !during.isEmpty else { return }
 
-        let resting = restingHRBaseline(context: context)
-        let ceiling = HRCeiling.ceiling(bpm: heartRateHistory(context: context),
-                                        restingHR: resting)
+        let span    = reserveSpan(context: context)
+        let resting = span.restingHR
+        let ceiling = span.ceiling
 
         // Load
         let hrSamples = during.compactMap { s -> (date: Date, hr: Float)? in
@@ -458,7 +458,13 @@ final class ActivityLog {
                 // %HRR, which is the whole difference between the two axes.
                 return (hrrPct: Double(motion), dc: Double(dc), dfa1: s.dfa1.map(Double.init))
             }
-            efficiencySlope = ExerciseSuppression.vsi(samples: workSamples)?.slopePer10
+            // Judged in milli-g, not in %HRR, and — as with Suppression — a fit
+            // where vagal tone rose is not an economy measurement, so it stores
+            // nothing to be ranked rather than being scored as excellent.
+            let workFit = ExerciseSuppression.vsi(
+                samples: workSamples,
+                minimumSpan: ExerciseSuppression.minimumMotionSpan)
+            efficiencySlope = (workFit?.vagalRose == true) ? nil : workFit?.slopePer10
         } else {
             efficiencySlope = nil
         }
@@ -537,22 +543,25 @@ final class ActivityLog {
         }
     }
 
-    /// Resting heart rate for the reserve span. Prefers the day's anchor
-    /// baseline; falls back to the 5th percentile of recent history so a first
-    /// week without anchors still produces a usable denominator.
-    private func restingHRBaseline(context: ModelContext) -> Float {
-        let history = heartRateHistory(context: context).sorted()
-        guard !history.isEmpty else { return 60 }
-        return history[Int(0.05 * Float(history.count - 1))]
-    }
-
-    /// `meanBPM` over the last 180 days, for the ceiling and resting estimates.
-    private func heartRateHistory(context: ModelContext) -> [Float] {
+    /// The resting-to-ceiling span this session's intensity is measured against.
+    ///
+    /// Shared with the detail view so the chart and the stored numbers cannot
+    /// disagree about what 50 %HRR means.
+    func reserveSpan(context: ModelContext) -> ReserveSpan {
         let cutoff = Calendar.current.date(byAdding: .day, value: -180, to: endedAt ?? .now)
             ?? .distantPast
+
+        let anchorPredicate = #Predicate<DailyAnchor> { $0.day >= cutoff }
+        let anchors = ((try? context.fetch(FetchDescriptor<DailyAnchor>(predicate: anchorPredicate))) ?? [])
+            .map(\.restingHR)
+
         let predicate = #Predicate<HRVSample> { $0.timestamp >= cutoff }
         var desc = FetchDescriptor<HRVSample>(predicate: predicate)
         desc.fetchLimit = 200_000
-        return ((try? context.fetch(desc)) ?? []).compactMap(\.meanBPM)
+        let samples = (try? context.fetch(desc)) ?? []
+
+        return ReserveSpan.build(anchorRestingHRs: anchors,
+                                 bpm: samples.compactMap(\.meanBPM),
+                                 motion: samples.map(\.motion))
     }
 }

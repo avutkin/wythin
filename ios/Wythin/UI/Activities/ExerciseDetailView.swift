@@ -43,14 +43,11 @@ struct ExerciseDetailView: View {
     /// The same reserve span the stored response was computed against, so the
     /// chart and the numbers above it cannot disagree.
     private func loadReserveSpan() {
-        let cutoff = Calendar.current.date(byAdding: .day, value: -180, to: windowEnd) ?? .distantPast
-        let predicate = #Predicate<HRVSample> { $0.timestamp >= cutoff }
-        var desc = FetchDescriptor<HRVSample>(predicate: predicate)
-        desc.fetchLimit = 200_000
-        let history = ((try? ctx.fetch(desc)) ?? []).compactMap(\.meanBPM).sorted()
-        guard !history.isEmpty else { return }
-        restingHR = history[Int(0.05 * Float(history.count - 1))]
-        ceiling   = HRCeiling.ceiling(bpm: history, restingHR: restingHR)
+        // The same definition the stored response used — not a second copy of
+        // it, which is how a chart ends up disagreeing with the number above it.
+        let span = entry.reserveSpan(context: ctx)
+        restingHR = span.restingHR
+        ceiling   = span.ceiling
     }
 
     // MARK: - Axis values
