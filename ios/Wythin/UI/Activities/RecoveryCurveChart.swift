@@ -1,13 +1,13 @@
 import Charts
 import SwiftUI
 
-/// The whole arc of the vagal brake: where it sat before, how far it was
-/// pushed down during, and how far back up it climbed afterwards.
+/// The whole arc of the vagal brake across the three windows the app measures:
+/// the five minutes before, the session itself, and the ten minutes after.
 ///
-/// Showing only the tail hid the thing that gives the tail meaning. The dashed
-/// line is your pre-session level, the shaded band is the session itself, and
-/// the marker is the moment vagal tone crossed back — or a plain statement that
-/// it had not crossed back by the time the recording ends.
+/// The x-axis is anchored to the session, not to the clock: 0 is when you
+/// started, so the session occupies 0 → duration and recovery runs on from
+/// there. Signed minutes counted back from the end made "−40m" mean a point
+/// before the session began, which read as an error even when it was not.
 struct RecoveryCurveChart: View {
     let points:    [MetricsHistoryPoint]
     let startedAt: Date
@@ -15,84 +15,86 @@ struct RecoveryCurveChart: View {
     /// Pre-session DC — the level being returned to.
     let dcPre:     Float?
 
+    /// Which window a sample belongs to. Each is its own series, because a
+    /// per-point foregroundStyle on one series does not repaint the segments —
+    /// the whole line took a single colour, so "after" was drawn as "during".
+    private enum Phase: String { case before, during, after }
+
     private struct Dot: Identifiable {
         let id: Int
-        let minutes: Double     // relative to session end; negative = during
+        let minutes: Double      // from session start
         let dc: Double
+        let phase: Phase
     }
+
+    private var sessionMinutes: Double { endedAt.timeIntervalSince(startedAt) / 60 }
 
     private var dots: [Dot] {
         points
             .filter { $0.dc != nil }
             .sorted { $0.timestamp < $1.timestamp }
             .enumerated()
-            .map { Dot(id: $0.offset,
-                       minutes: $0.element.timestamp.timeIntervalSince(endedAt) / 60,
-                       dc: Double($0.element.dc!)) }
+            .map { i, p in
+                let m = p.timestamp.timeIntervalSince(startedAt) / 60
+                let phase: Phase = m < 0 ? .before : (m <= sessionMinutes ? .during : .after)
+                return Dot(id: i, minutes: m, dc: Double(p.dc!), phase: phase)
+            }
     }
 
     /// Minutes after the end at which vagal tone first came back within 10 % of
-    /// where it started, and stayed there for the rest of the record.
-    private func minutesToBaseline(_ dots: [Dot], pre: Double) -> Double? {
-        let after = dots.filter { $0.minutes >= 0 }
+    /// where it started, and held there.
+    private func recoveredAt(_ dots: [Dot], pre: Double) -> Double? {
+        let after = dots.filter { $0.phase == .after }
         guard !after.isEmpty else { return nil }
         let target = pre * 0.9
         guard let idx = after.firstIndex(where: { $0.dc >= target }) else { return nil }
-        // Must hold, not merely touch — a single noisy sample is not recovery.
         guard after[idx...].allSatisfy({ $0.dc >= target * 0.92 }) else { return nil }
-        return after[idx].minutes
-    }
-
-    private var sessionStartMinutes: Double {
-        startedAt.timeIntervalSince(endedAt) / 60
+        return after[idx].minutes - sessionMinutes
     }
 
     var body: some View {
         let d = dots
         if let preF = dcPre, preF > 0, d.count >= 3 {
             let pre = Double(preF)
-            let recovered = minutesToBaseline(d, pre: pre)
-            let lastMinute = d.map(\.minutes).max() ?? 0
+            let recovered = recoveredAt(d, pre: pre)
+            let lastAfter = (d.filter { $0.phase == .after }.map(\.minutes).max() ?? sessionMinutes)
+                - sessionMinutes
 
             VStack(alignment: .leading, spacing: 7) {
                 Chart {
-                    RectangleMark(xStart: .value("s", sessionStartMinutes),
-                                  xEnd: .value("e", 0))
+                    RectangleMark(xStart: .value("s", 0), xEnd: .value("e", sessionMinutes))
                         .foregroundStyle(Theme.warn.opacity(0.07))
 
-                    RuleMark(y: .value("Pre-session", pre))
+                    RuleMark(y: .value("Resting", pre))
                         .foregroundStyle(Theme.dim)
                         .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                         .annotation(position: .top, alignment: .leading) {
-                            Text("where you started")
+                            Text("your resting level")
                                 .font(.system(size: 8, design: .monospaced))
                                 .foregroundStyle(Theme.dim)
                         }
 
                     ForEach(d) { p in
                         LineMark(x: .value("Minutes", p.minutes),
-                                 y: .value("Vagal brake", p.dc))
-                            .foregroundStyle(p.minutes < 0 ? Theme.warn : Theme.accent)
+                                 y: .value("Vagal brake", p.dc),
+                                 series: .value("Phase", p.phase.rawValue))
+                            .foregroundStyle(color(p.phase))
                             .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
                     }
 
                     if let r = recovered {
-                        RuleMark(x: .value("Recovered", r))
+                        RuleMark(x: .value("Recovered", sessionMinutes + r))
                             .foregroundStyle(Theme.accent.opacity(0.7))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 2]))
-                            .annotation(position: .top, alignment: .trailing) {
-                                Text("back at \(Int(r)) min")
-                                    .font(.system(size: 8, design: .monospaced))
-                                    .foregroundStyle(Theme.accent)
-                            }
                     }
                 }
                 .chartXAxis {
-                    AxisMarks(values: .automatic(desiredCount: 5)) { value in
+                    AxisMarks(values: [0, sessionMinutes, sessionMinutes + 10]) { value in
                         AxisGridLine().foregroundStyle(Theme.border.opacity(0.5))
                         AxisValueLabel {
                             if let m = value.as(Double.self) {
-                                Text(m < 0 ? "\(Int(m))m" : "+\(Int(m))m")
+                                Text(m <= 0 ? "start"
+                                     : (abs(m - sessionMinutes) < 0.5 ? "end" : "+10m"))
                                     .font(.system(size: 8, design: .monospaced))
                                     .foregroundStyle(Theme.dim)
                             }
@@ -100,22 +102,42 @@ struct RecoveryCurveChart: View {
                     }
                 }
                 .chartYAxis {
-                    AxisMarks { _ in AxisGridLine().foregroundStyle(Theme.border.opacity(0.5)) }
+                    AxisMarks(position: .trailing) { value in
+                        AxisGridLine().foregroundStyle(Theme.border.opacity(0.5))
+                        AxisValueLabel {
+                            if let v = value.as(Double.self) {
+                                Text("\(Int(v / pre * 100))%")
+                                    .font(.system(size: 8, design: .monospaced))
+                                    .foregroundStyle(Theme.dim)
+                            }
+                        }
+                    }
                 }
-                .frame(height: 128)
+                .frame(height: 132)
 
                 HStack(spacing: 14) {
+                    legend(Theme.breathe, "before")
                     legend(Theme.warn, "during")
                     legend(Theme.accent, "after")
                 }
 
                 Text(recovered.map {
-                        "Your vagal brake was back within 10% of its starting level \(Int($0)) minutes after you stopped."
-                     } ?? "Vagal tone had not returned to its starting level by \(Int(max(lastMinute, 0))) minutes after you stopped — the recording ends before full recovery.")
+                        "Back within 10% of your resting level \(Int($0)) minutes after you stopped."
+                     } ?? (lastAfter >= 1
+                        ? "Still below your resting level \(Int(lastAfter)) minutes after you stopped."
+                        : "The recording ends too soon after this session to see recovery."))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    private func color(_ p: Phase) -> Color {
+        switch p {
+        case .before: return Theme.breathe
+        case .during: return Theme.warn
+        case .after:  return Theme.accent
         }
     }
 

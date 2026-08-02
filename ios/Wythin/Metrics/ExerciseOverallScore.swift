@@ -60,7 +60,9 @@ enum ExerciseOverallScore {
     /// awarded on one axis and then withdrawn tomorrow is worse than no crown.
     static func earnsCrown(_ axis: AxisValue) -> Bool {
         guard case let .score(score, word) = axis else { return false }
-        return score >= crownThreshold && !word.hasPrefix("provisional")
+        // Keyed off the caption vocabulary, which is why the provisional wording
+        // and this check must change together.
+        return score >= crownThreshold && !word.contains("alone so far")
     }
 
     /// Plain-language read.
@@ -69,7 +71,8 @@ enum ExerciseOverallScore {
     /// and never scolds — the low end is "a lot to absorb", which is a fact
     /// about the day rather than a verdict on the effort.
     static func caption(for score: Int, components: Int) -> String {
-        guard components >= firmComponents else { return "provisional · \(components) of 3" }
+        // "1 of 3" is internal bookkeeping. Say which axis the number rests on.
+        guard components >= firmComponents else { return "based on recovery alone so far" }
         switch score {
         case crownThreshold...: return "outstanding session"
         case 70..<crownThreshold: return "well absorbed"

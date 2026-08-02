@@ -69,7 +69,7 @@ struct ExerciseDetailView: View {
     }
 
     private var recovery: AxisValue {
-        ExerciseResponse.reactivationScore(dcAfter: entry.afterDC.map(Double.init),
+        ExerciseResponse.reactivationScore(dcAfter: (entry.afterTailDC ?? entry.afterDC).map(Double.init),
                                            dcPre: entry.beforeDC.map(Double.init))
     }
 
@@ -284,12 +284,12 @@ struct ExerciseDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             if case let .score(pct, _) = recovery {
                 unitHeadline("VAGAL TONE BACK", "\(pct)%",
-                             "of your resting level, ten minutes after stopping",
+                             "of your resting level, measured at the ten-minute mark",
                              Theme.accent)
             } else {
                 axisHeader("RECOVERY", recovery, Theme.accent)
             }
-            Text("Not a duration — a percentage. 100% would mean your vagal brake was fully restored by ten minutes.")
+            Text("Where your vagal brake had climbed back to ten minutes after stopping, as a share of your resting level. 100% would mean fully restored.")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(Theme.dim)
                 .fixedSize(horizontal: false, vertical: true)

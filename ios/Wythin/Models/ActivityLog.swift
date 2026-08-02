@@ -177,6 +177,15 @@ final class ActivityLog {
     /// against other sessions, and a List row cannot fetch that history once
     /// per row without a query storm. nil means "not enough history yet" —
     /// distinct from the slope itself being absent.
+    /// Mean DC over the final two minutes of the after-window.
+    ///
+    /// Recovery is quoted "at ten minutes", which means the level reached by
+    /// then — not the average of the ten minutes it took to get there. Using
+    /// the whole-window mean folded in the deepest moments right after
+    /// stopping and reported a recovery materially lower than the one the
+    /// person actually had.
+    var afterTailDC:           Float?
+
     /// Vagal tone rose with heart rate rather than falling — yoga, mobility,
     /// anything where the brake comes on. Not a failure to measure.
     var vagalRoseDuring:       Bool = false
@@ -454,7 +463,26 @@ final class ActivityLog {
             efficiencySlope = nil
         }
 
+        computeRecoveryTail(context: context)
         scoreSlopesAgainstHistory(context: context)
+    }
+
+    /// Mean DC across the last two minutes of the after-window — the level
+    /// recovery actually reached, rather than its average on the way there.
+    private func computeRecoveryTail(context: ModelContext) {
+        guard let end = endedAt else { return }
+        let windowEnd  = end.addingTimeInterval(600)
+        let tailStart  = end.addingTimeInterval(480)
+        let predicate = #Predicate<HRVSample> {
+            $0.timestamp >= tailStart && $0.timestamp <= windowEnd
+        }
+        let raw = (try? context.fetch(FetchDescriptor<HRVSample>(predicate: predicate))) ?? []
+        let vals = raw
+            .filter { MetricsQualityFilter.isValid(MetricsHistoryPoint(from: $0)) }
+            .compactMap(\.dc)
+        // Falls back to the window mean when the strap came off before the tail,
+        // so a short recording degrades rather than going blank.
+        afterTailDC = vals.isEmpty ? afterDC : vals.reduce(0, +) / Float(vals.count)
     }
 
     /// What this session is compared against: its subtype when it has one,

@@ -90,7 +90,8 @@ final class ExerciseOverallScoreTests: XCTestCase {
         let twoAxes = ExerciseOverallScore.compute(suppression: s(90), recovery: s(90),
                                                    efficiency: none)
         guard case let .score(_, word) = twoAxes else { return XCTFail("expected a score") }
-        XCTAssertFalse(word.hasPrefix("provisional"))
+        XCTAssertFalse(word.contains("alone so far"),
+                       "two axes is enough to stop qualifying the score")
         XCTAssertTrue(ExerciseOverallScore.earnsCrown(twoAxes))
     }
 
@@ -105,8 +106,10 @@ final class ExerciseOverallScoreTests: XCTestCase {
         }
     }
 
-    func testProvisionalCaptionNamesItsOwnLimits() {
-        XCTAssertEqual(ExerciseOverallScore.caption(for: 90, components: 1),
-                       "provisional · 1 of 3")
+    func testProvisionalCaptionNamesItsOwnLimitsInPlainWords() {
+        // Not "1 of 3" — that is bookkeeping. Name what the number rests on.
+        let c = ExerciseOverallScore.caption(for: 90, components: 1)
+        XCTAssertTrue(c.contains("recovery"), c)
+        XCTAssertFalse(c.contains("of 3"), c)
     }
 }

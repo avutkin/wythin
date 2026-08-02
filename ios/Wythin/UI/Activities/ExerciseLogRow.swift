@@ -40,7 +40,7 @@ struct ExerciseLogRow: View {
                         "ms per extra bpm", Theme.hrv))
         }
         if let pct = recoveryPercent {
-            out.append(("VAGAL TONE BACK", "\(pct)%", "of resting, at 10 min", Theme.accent))
+            out.append(("VAGAL TONE BACK", "\(pct)%", "of resting, at +10 min", Theme.accent))
         }
         if let load = entry.exerciseLoad {
             out.append(("LOAD", "\(Int(load.rounded()))", "effort × time", Theme.rsa))
@@ -57,7 +57,7 @@ struct ExerciseLogRow: View {
     }
 
     private var recoveryPercent: Int? {
-        guard let after = entry.afterDC.map(Double.init),
+        guard let after = (entry.afterTailDC ?? entry.afterDC).map(Double.init),
               let pre = entry.beforeDC.map(Double.init), pre > 0 else { return nil }
         return Int((min(max(after / pre * 100, 0), 100)).rounded())
     }
@@ -87,7 +87,7 @@ struct ExerciseLogRow: View {
     private var overall: AxisValue {
         ExerciseOverallScore.compute(suppression: suppression,
                                      recovery: ExerciseResponse.reactivationScore(
-                                        dcAfter: entry.afterDC.map(Double.init),
+                                        dcAfter: (entry.afterTailDC ?? entry.afterDC).map(Double.init),
                                         dcPre: entry.beforeDC.map(Double.init)),
                                      efficiency: efficiency)
     }
