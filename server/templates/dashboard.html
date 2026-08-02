@@ -60,9 +60,22 @@
   .mini .cap { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
   .mini .cap .t { font-family: var(--mono); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); }
   .mini .cap .v { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 15px; }
-  .mini svg { width: 100%; height: 90px; display: block; }
-  .mini .line { fill: none; stroke-width: 1.6; }
+  .mini svg { width: 100%; height: 112px; display: block; touch-action: none; }
+  .mini svg:focus { outline: none; }
+  .mini svg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+  .mini .line { fill: none; stroke-width: 2; }
   .mini .area { opacity: .12; }
+  /* Hover layer: a hairline finds the X, a ringed dot marks the reading. */
+  .mini .hair { stroke: var(--dim); stroke-width: 1; opacity: .5; }
+  .mini .dot { stroke: var(--surface); stroke-width: 2; }
+  #tip { position: fixed; z-index: 60; pointer-events: none; opacity: 0; transition: opacity .08s;
+         background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+         padding: 7px 9px; box-shadow: 0 8px 24px rgba(0,0,0,.22); white-space: nowrap; }
+  #tip.on { opacity: 1; }
+  #tip .val { font: 650 14px var(--mono); font-variant-numeric: tabular-nums; color: var(--text); }
+  #tip .who { font: 11px var(--mono); color: var(--dim); margin-top: 2px; }
+  #tip .who .key { display: inline-block; width: 12px; height: 2px; border-radius: 1px; margin-right: 6px; vertical-align: middle; }
+  #tip .when { font: 11px var(--mono); color: var(--dim); margin-top: 1px; }
 
   .tablewrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -374,9 +387,9 @@
   async function loadUserMetrics(id) {
     const d = await api(`users/${id}/metrics?window=${$("#user-window").value}`);
     const s = d.samples || [];
-    $("#user-charts").innerHTML = s.length
-      ? LIVE_SIGNALS.map(sig => miniChart(sig, s)).join("")
-      : `<div class="empty">no live metrics in this window</div>`;
+    const host = $("#user-charts");
+    if (!s.length) { host.innerHTML = `<div class="empty">no live metrics in this window</div>`; return; }
+    renderMinis(host, LIVE_SIGNALS, s, d.window);
   }
 
   async function loadUserUsage(id) {
@@ -389,13 +402,15 @@
     ].map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
     const s = d.series || [];
     if (!s.length) { $("#usage-charts").innerHTML = `<div class="empty">no usage events yet</div>`; return; }
-    const daily = (key, label, unit, color, dp) =>
-      miniChart({ k: key, label, unit, color, d: dp }, s.map(x => ({ ts: x.day, [key]: x[key] })));
-    $("#usage-charts").innerHTML = [
-      daily("opens", "App opens", "", "var(--warn)", 0),
-      daily("active_min", "Active", "min", "var(--accent)", 0),
-      daily("ecg_recordings", "ECG recordings", "", "var(--hrv)", 0),
-    ].join("");
+    const USAGE_SIGNALS = [
+      { k: "opens",          label: "App opens",      unit: "",    color: "var(--warn)",   d: 0 },
+      { k: "active_min",     label: "Active",         unit: "min", color: "var(--accent)", d: 0 },
+      { k: "ecg_recordings", label: "ECG recordings", unit: "",    color: "var(--hrv)",    d: 0 },
+    ];
+    // The series carries one row per day, keyed by `day`; give every signal the
+    // same {ts, …} shape the mini charts read.
+    const rows = s.map(x => ({ ts: x.day, ...x }));
+    renderMinis($("#usage-charts"), USAGE_SIGNALS, rows, "1d");
   }
 
   // ── Session detail ────────────────────────────────────────────────────
@@ -421,7 +436,7 @@
       ["Start", t0 ? fmtTime(s[0].ts) : "—"],
     ].map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
     if (!s.length) { $("#session-charts").innerHTML = `<div class="empty">no samples for this session</div>`; wireCrumb(); return; }
-    $("#session-charts").innerHTML = SIGNALS.map(sig => miniChart(sig, s)).join("");
+    renderMinis($("#session-charts"), SIGNALS, s, "tick");
     wireCrumb();
     stamp();
   }
@@ -482,31 +497,152 @@
     svg.innerHTML = el;
   }
 
-  function miniChart(sig, samples) {
-    const W = 320, H = 90, pad = { l: 4, r: 4, t: 6, b: 6 };
-    const pts = samples.map(s => ({ t: new Date(s.ts).getTime(), v: s[sig.k] })).filter(p => p.v != null && isFinite(p.v));
+  // One shared tooltip for every mini chart. Built with text nodes, never
+  // innerHTML — the readout carries data, not markup.
+  const tip = (() => { const d = document.createElement("div"); d.id = "tip"; document.body.appendChild(d); return d; })();
+  const hideTip = () => tip.classList.remove("on");
+
+  function showTip(cx, cy, sig, p, span) {
+    tip.textContent = "";
+    const val = document.createElement("div"); val.className = "val";
+    val.textContent = sigVal(p.v, sig) + (sig.unit ? " " + sig.unit : "");
+    const who = document.createElement("div"); who.className = "who";
+    const key = document.createElement("span"); key.className = "key"; key.style.background = sig.color;
+    who.append(key, document.createTextNode(sig.label));
+    const when = document.createElement("div"); when.className = "when";
+    when.textContent = new Date(p.t).toLocaleString(undefined, span <= 36 * 3600e3
+      ? { hour: "2-digit", minute: "2-digit" }
+      : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    tip.append(val, who, when);
+    tip.classList.add("on");
+    const r = tip.getBoundingClientRect();
+    tip.style.left = Math.min(innerWidth - r.width - 8, Math.max(8, cx - r.width / 2)) + "px";
+    tip.style.top = Math.max(8, cy - r.height - 14) + "px";
+  }
+
+  const sigVal = (v, sig) => Number(v).toLocaleString(undefined,
+    { maximumFractionDigits: sig.d, minimumFractionDigits: sig.d });
+
+  // Server bucket widths (see _METRIC_WINDOWS). A gap wider than a couple of
+  // buckets means the strap was off — the line breaks there rather than
+  // drawing a straight run across hours of nothing.
+  const BUCKET_MS = { "24h": 5 * 60e3, "7d": 3600e3, "30d": 4 * 3600e3, "1d": 86400e3, tick: 60e3 };
+
+  // Render a grid of mini charts, then redraw them on resize: each chart is
+  // laid out at its true pixel width, so a width change needs a real redraw
+  // rather than an SVG stretch that would smear the axis labels.
+  const miniRedraws = [];
+  function renderMinis(host, sigs, samples, window_) {
+    host.innerHTML = sigs.map(miniShell).join("");
+    const boxes = [...host.querySelectorAll(".mini")];
+    const draw = () => {
+      let live = false;
+      boxes.forEach((box, i) => { if (box.isConnected) { live = true; drawMini(box, sigs[i], samples, window_); } });
+      return live;
+    };
+    draw();
+    miniRedraws.push(draw);
+    return draw;
+  }
+  addEventListener("resize", () => {
+    clearTimeout(state.miniResize);
+    state.miniResize = setTimeout(() => {
+      for (let i = miniRedraws.length - 1; i >= 0; i--) if (!miniRedraws[i]()) miniRedraws.splice(i, 1);
+    }, 150);
+  });
+
+  function miniShell(sig) {
+    return `<div class="mini" data-k="${sig.k}">
+      <div class="cap"><span class="t">${sig.label}</span><span class="v" style="color:${sig.color}"></span></div>
+      <svg tabindex="0" role="img" aria-label="${sig.label} over time"></svg></div>`;
+  }
+
+  function drawMini(box, sig, samples, window_) {
+    const svg = box.querySelector("svg"), cap = box.querySelector(".cap .v");
+    const pts = samples.map(s => ({ t: new Date(s.ts).getTime(), v: s[sig.k] }))
+                       .filter(p => p.v != null && isFinite(p.v));
     const last = pts.length ? pts[pts.length - 1].v : null;
-    const capV = last == null ? "—" : Number(last).toLocaleString(undefined, { maximumFractionDigits: sig.d, minimumFractionDigits: sig.d });
+    cap.textContent = (last == null ? "—" : sigVal(last, sig)) + (sig.unit ? " " + sig.unit : "");
+
+    const W = Math.max(160, Math.round(svg.clientWidth || 320)), H = 112;
+    const pad = { l: 6, r: 8, t: 8, b: 20 };
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     if (pts.length < 2) {
-      return `<div class="mini"><div class="cap"><span class="t">${sig.label}</span><span class="v" style="color:${sig.color}">${capV} ${sig.unit}</span></div>
-              <svg viewBox="0 0 ${W} ${H}"><text x="${W/2}" y="${H/2}" text-anchor="middle" class="tick">no data</text></svg></div>`;
+      svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" class="tick">no data</text>`;
+      return;
     }
+
     const xs = pts.map(p => p.t), vs = pts.map(p => p.v);
-    const x0 = Math.min(...xs), x1 = Math.max(...xs);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), span = x1 - x0;
     let lo = Math.min(...vs), hi = Math.max(...vs);
     if (lo === hi) { lo -= 1; hi += 1; }
-    const px = (t) => pad.l + (x1 === x0 ? 0 : (t - x0) / (x1 - x0)) * (W - pad.l - pad.r);
+    const px = (t) => pad.l + (span ? (t - x0) / span : 0) * (W - pad.l - pad.r);
     const py = (v) => pad.t + (1 - (v - lo) / (hi - lo)) * (H - pad.t - pad.b);
-    const line = pts.map((p, i) => `${i ? "L" : "M"}${px(p.t).toFixed(1)},${py(p.v).toFixed(1)}`).join(" ");
-    const area = `M${px(pts[0].t).toFixed(1)},${(H - pad.b).toFixed(1)} ` +
-                 pts.map(p => `L${px(p.t).toFixed(1)},${py(p.v).toFixed(1)}`).join(" ") +
-                 ` L${px(pts[pts.length-1].t).toFixed(1)},${(H - pad.b).toFixed(1)} Z`;
-    return `<div class="mini">
-      <div class="cap"><span class="t">${sig.label}</span><span class="v" style="color:${sig.color}">${capV} ${sig.unit}</span></div>
-      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-        <path class="area" d="${area}" fill="${sig.color}" />
-        <path class="line" d="${line}" stroke="${sig.color}" />
-      </svg></div>`;
+    const base = H - pad.b;
+
+    // Split into runs of contiguous samples so gaps stay visible as gaps.
+    const maxGap = (BUCKET_MS[window_] || 5 * 60e3) * 2.5;
+    const runs = [[pts[0]]];
+    for (let i = 1; i < pts.length; i++) {
+      if (pts[i].t - pts[i - 1].t > maxGap) runs.push([]);
+      runs[runs.length - 1].push(pts[i]);
+    }
+
+    let el = "";
+    for (const run of runs) {
+      if (run.length === 1) { el += `<circle cx="${px(run[0].t).toFixed(1)}" cy="${py(run[0].v).toFixed(1)}" r="1.8" fill="${sig.color}"/>`; continue; }
+      const d = run.map((p, i) => `${i ? "L" : "M"}${px(p.t).toFixed(1)},${py(p.v).toFixed(1)}`).join(" ");
+      el += `<path class="area" fill="${sig.color}" d="M${px(run[0].t).toFixed(1)},${base} ` +
+            run.map(p => `L${px(p.t).toFixed(1)},${py(p.v).toFixed(1)}`).join(" ") +
+            ` L${px(run[run.length - 1].t).toFixed(1)},${base} Z"/>`;
+      el += `<path class="line" stroke="${sig.color}" d="${d}"/>`;
+    }
+
+    // Time axis: a baseline plus start / middle / end stamps.
+    const fmtT = (t) => new Date(t).toLocaleString(undefined, span <= 36 * 3600e3
+      ? { hour: "2-digit", minute: "2-digit" }
+      : { month: "numeric", day: "numeric" });
+    el += `<line class="axis" x1="${pad.l}" y1="${base}" x2="${W - pad.r}" y2="${base}"/>`;
+    [[x0, pad.l, "start"], [x0 + span / 2, pad.l + (W - pad.l - pad.r) / 2, "middle"], [x1, W - pad.r, "end"]]
+      .forEach(([t, x, anchor]) => {
+        el += `<text class="tick" x="${x.toFixed(1)}" y="${H - 6}" text-anchor="${anchor}">${fmtT(t)}</text>`;
+      });
+
+    el += `<g class="cursor" style="display:none">
+             <line class="hair" y1="${pad.t}" y2="${base}"/>
+             <circle class="dot" r="3.5" fill="${sig.color}"/>
+           </g>`;
+    svg.innerHTML = el;
+
+    // ── Hover / focus readout ──
+    const cursor = svg.querySelector(".cursor"), hair = cursor.querySelector("line"), dot = cursor.querySelector("circle");
+    let idx = -1;
+    const setCursor = (i) => {
+      idx = Math.max(0, Math.min(pts.length - 1, i));
+      const p = pts[idx], x = px(p.t), y = py(p.v);
+      cursor.style.display = "";
+      hair.setAttribute("x1", x); hair.setAttribute("x2", x);
+      dot.setAttribute("cx", x); dot.setAttribute("cy", y);
+      const r = svg.getBoundingClientRect(), sx = r.width / W, sy = r.height / H;
+      showTip(r.left + x * sx, r.top + y * sy, sig, p, span);
+    };
+    const clear = () => { cursor.style.display = "none"; hideTip(); idx = -1; };
+    const nearest = (clientX) => {
+      const r = svg.getBoundingClientRect();
+      const t = x0 + ((clientX - r.left) / r.width * W - pad.l) / (W - pad.l - pad.r) * span;
+      let best = 0;
+      for (let i = 1; i < pts.length; i++) if (Math.abs(pts[i].t - t) < Math.abs(pts[best].t - t)) best = i;
+      return best;
+    };
+    svg.addEventListener("pointermove", (e) => setCursor(nearest(e.clientX)));
+    svg.addEventListener("pointerleave", clear);
+    svg.addEventListener("focus", () => setCursor(idx < 0 ? pts.length - 1 : idx));
+    svg.addEventListener("blur", clear);
+    svg.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft") { setCursor(idx - 1); e.preventDefault(); }
+      else if (e.key === "ArrowRight") { setCursor(idx + 1); e.preventDefault(); }
+      else if (e.key === "Escape") clear();
+    });
   }
 
   // ── Routing ───────────────────────────────────────────────────────────
