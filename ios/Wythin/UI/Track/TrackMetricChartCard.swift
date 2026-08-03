@@ -33,6 +33,7 @@ struct TrackMetricChartCard: View {
                         .foregroundStyle(Theme.dim)
                 }
                 deltaChip
+                referenceLegend
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 1) {
@@ -92,18 +93,33 @@ struct TrackMetricChartCard: View {
         }
     }
 
+    /// A small legend for the chart's dashed reference line — living in the
+    /// header rather than as an in-plot annotation. The line used to carry
+    /// its own label anchored at the plot's trailing edge; that required the
+    /// plot to reserve a margin for it, which is exactly the dead space at
+    /// the right of the bars the card exists to fix. Moving the label up
+    /// here instead lets the bars run the full width of the plot.
+    @ViewBuilder
+    private var referenceLegend: some View {
+        HStack(spacing: 4) {
+            Rectangle()
+                .fill(Theme.dim.opacity(0.6))
+                .frame(width: 9, height: 1)
+            Text(series.referenceIsPersonal ? "your 90d" : "typical")
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundStyle(Theme.dim.opacity(0.8))
+        }
+    }
+
     // MARK: Chart
 
     private var chart: some View {
         Chart {
+            // Labelled by `referenceLegend` in the header, not here — see that
+            // property's doc for why the label moved off the plot.
             RuleMark(y: .value("reference", series.reference))
                 .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
                 .foregroundStyle(Theme.dim.opacity(0.6))
-                .annotation(position: .trailing, alignment: .leading) {
-                    Text(series.referenceIsPersonal ? "your 90d" : "typical")
-                        .font(.system(size: 8, design: .monospaced))
-                        .foregroundStyle(Theme.dim.opacity(0.8))
-                }
 
             ForEach(series.bars) { bar in
                 if let v = bar.value {
@@ -195,28 +211,26 @@ struct TrackMetricChartCard: View {
             }))
         .chartPlotStyle {
             $0.background(Color.black.opacity(0.2))
-                // Reserves room for the "your 90d"/"typical" RuleMark
-                // annotation, which is anchored at the plot's trailing edge
-                // and extends rightward (`position: .trailing, alignment:
-                // .leading`). Swift Charts does not shrink the plot to fit an
-                // overflowing annotation on its own, so without this the
-                // label runs past the plot's layout bounds and is hard-clipped
-                // by `.cardStyle()`'s `.clipShape`. Sized to the longer of the
-                // two labels ("your 90d", 8 monospaced points) plus a small
-                // gap from the plotted bars. That label measures 38.4pt, so 42
-                // left only ~3.6pt of slack — one glyph-metric change away
-                // from clipping again. 48 keeps a real margin; the cost is
-                // ~6pt of plot width, which even the 31-bar month view has.
-                .padding(.trailing, 48)
-                // Safety net: even with bars now anchored inside yDomain
-                // (see barAnchor), nothing should be able to draw outside
-                // the plot area and over the footer text below it. Applied
-                // after the trailing padding so the clip rect includes the
-                // reserved margin the "your 90d"/"typical" annotation sits
-                // in, and — being scoped to the plot's own background/border
-                // layer rather than the whole chart — it does not touch the
-                // top-of-bar value annotations or that trailing label, both
-                // of which Charts renders outside this layer by design.
+                // No trailing padding here. There used to be one: the
+                // "your 90d"/"typical" RuleMark carried a
+                // `position: .trailing, alignment: .leading` annotation that
+                // extended rightward past the plot's own bounds, and Swift
+                // Charts does not shrink a plot to fit an overflowing
+                // annotation on its own — so without a reserved margin that
+                // label ran past the plot and was hard-clipped by
+                // `.cardStyle()`'s `.clipShape`. That annotation now lives in
+                // `referenceLegend` in the header instead, so nothing draws
+                // past the plot's trailing edge any more and the bars can use
+                // the full width. If a future change reintroduces an
+                // in-plot trailing annotation, it will need this margin back.
+                //
+                // Safety net: even with bars anchored inside yDomain (see
+                // barAnchor), nothing should be able to draw outside the plot
+                // area and over the footer text below it. Scoped to the
+                // plot's own background/border layer rather than the whole
+                // chart, so it does not touch the top-of-bar value
+                // annotations, which Charts renders outside this layer by
+                // design.
                 .clipShape(Rectangle())
         }
     }
