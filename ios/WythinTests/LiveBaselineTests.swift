@@ -35,6 +35,49 @@ final class LiveBaselineTests: XCTestCase {
         XCTAssertEqual(b?.stat(for: .hr)?.sd ?? 0, 8, accuracy: 0.01)
     }
 
+    /// Distinguishes pooled variance from a weighted MEAN OF SDs. The two
+    /// formulas coincide whenever weights or SDs are equal (as in the two
+    /// tests above), so only unequal weights AND unequal SDs together can
+    /// catch a regression to the wrong one.
+    ///
+    ///   weighted mean of SD (wrong): (4000·3 + 1000·9) / 5000        = 4.2
+    ///   pooled variance     (right): sqrt((4000·3² + 1000·9²) / 5000)
+    ///                               = sqrt((36000 + 81000) / 5000)
+    ///                               = sqrt(23.4) ≈ 4.8374
+    func testSpreadIsPooledVarianceNotWeightedMeanOfSD() {
+        let long  = DailyRollup(day: Date(), dc: nil, rmssd: nil, rsaMs: nil, rcmse: nil,
+                                pip: nil, dfa1: nil, stressBalance: nil, vti: nil,
+                                meanBPM: 60, sampleCount: 4_000, wearSeconds: 8_000,
+                                mean: [LiveMetric.hr.rawValue: 60],
+                                sd:   [LiveMetric.hr.rawValue: 3])
+        let short = DailyRollup(day: Date().addingTimeInterval(-86_400), dc: nil, rmssd: nil,
+                                rsaMs: nil, rcmse: nil, pip: nil, dfa1: nil, stressBalance: nil,
+                                vti: nil, meanBPM: 60, sampleCount: 1_000, wearSeconds: 2_000,
+                                mean: [LiveMetric.hr.rawValue: 60],
+                                sd:   [LiveMetric.hr.rawValue: 9])
+        let sd = LiveBaseline.build(rollups: [long, short])?.stat(for: .hr)?.sd ?? 0
+        XCTAssertEqual(sd, 4.8374, accuracy: 0.001)
+    }
+
+    /// A day with a `mean` but no matching `sd` must not count toward the
+    /// centre or `n` — only toward the spread would leave `n` overstating how
+    /// much evidence backs it. `DailyRollupCompute.rollup()` always writes
+    /// both together today, so this is unreachable in practice, but nothing in
+    /// `DailyRollup`'s type enforces that pairing.
+    func testDayMissingSDIsExcludedFromCentreAndN() {
+        let complete = rollup(daysAgo: 1, hrMean: 60, hrSD: 8)
+        let missingSDDay = Calendar.current.date(byAdding: .day, value: -2,
+            to: Calendar.current.startOfDay(for: Date()))!
+        let incomplete = DailyRollup(day: missingSDDay, dc: nil, rmssd: nil, rsaMs: nil,
+                                     rcmse: nil, pip: nil, dfa1: nil, stressBalance: nil,
+                                     vti: nil, meanBPM: 100, sampleCount: 1000, wearSeconds: 2000,
+                                     mean: [LiveMetric.hr.rawValue: 100],
+                                     sd: [:])
+        let b = LiveBaseline.build(rollups: [complete, incomplete])
+        XCTAssertEqual(b?.stat(for: .hr)?.n, 1)
+        XCTAssertEqual(b?.stat(for: .hr)?.mean ?? 0, 60, accuracy: 0.01)
+    }
+
     func testPooledSpreadWeightsByDayLength() {
         // A day with 10x the samples should dominate the pooled spread.
         let long  = DailyRollup(day: Date(), dc: nil, rmssd: nil, rsaMs: nil, rcmse: nil,

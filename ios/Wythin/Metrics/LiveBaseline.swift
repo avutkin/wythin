@@ -61,12 +61,17 @@ struct LiveBaseline {
         var stats: [String: BaselineStat] = [:]
         for metric in LiveMetric.allCases {
             let key = metric.rawValue
-            let days = inWindow.filter { $0.mean[key] != nil }
+            // Both mean AND sd required: a day counted toward the centre or `n`
+            // but silently skipped by the variance loop below would let `n`
+            // overstate how much evidence backs the spread, which is what
+            // `BaselineStat.sdBlended` uses to decide how much to trust it over
+            // the prior.
+            let days = inWindow.filter { $0.mean[key] != nil && $0.sd[key] != nil }
             guard !days.isEmpty else { continue }
 
             let centre = days.compactMap { $0.mean[key] }.reduce(0, +) / Double(days.count)
 
-            // Pooled within-day variance, weighted by how long each day ran.
+            // Pooled within-day variance, weighted by sample count.
             // A three-minute day must not count as much as a fourteen-hour one.
             var weightSum = 0.0
             var varSum    = 0.0
