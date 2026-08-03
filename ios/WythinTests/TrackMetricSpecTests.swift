@@ -10,10 +10,44 @@ final class TrackMetricSpecTests: XCTestCase {
         sampleCount: 200, wearSeconds: 400, mean: [:], sd: [:])
 
     func testHasExactlySevenMetricsInOrder() {
+        // Matches `LiveMetric`'s declaration order for the cases the two
+        // screens share (rmssd, rsa, stressBalance, pip, dfa1, dc, rcmse) —
+        // see `testOrderMatchesLiveMetricDeclarationOrder` below, which pins
+        // that relationship directly rather than duplicating it as a literal
+        // label list that could drift out of sync with `LiveMetric` unnoticed.
         XCTAssertEqual(TrackMetrics.all.map(\.def.label), [
-            "Vagal Tone", "Energy Reserve", "Conscious Breathing",
-            "Adaptive Capacity", "Harmony", "Inner Noise", "Stress Balance",
+            "Energy Reserve", "Conscious Breathing", "Stress Balance",
+            "Inner Noise", "Harmony", "Vagal Tone", "Adaptive Capacity",
         ])
+    }
+
+    /// Track's `rollup` closures are keyed to `DailyRollup` fields, but the
+    /// two screens' orderings are meant to agree metric-by-metric — this maps
+    /// each Track spec to the `LiveMetric` case reading the *same*
+    /// underlying quantity, and checks that the sequence of those cases is
+    /// non-decreasing against `LiveMetric.allCases`' own index order. A
+    /// `TrackMetrics.all` reorder that drifts from `LiveMetric` (e.g. two
+    /// specs swapped, or a new one inserted at the wrong spot) fails this
+    /// even though `testHasExactlySevenMetricsInOrder` above is a fine
+    /// regression pin for the current, already-correct order — that test
+    /// alone would not catch a *plausible-looking* wrong order being typed in
+    /// fresh, since it doesn't derive its expectation from `LiveMetric` at all.
+    func testOrderMatchesLiveMetricDeclarationOrder() {
+        let liveCase: [String: LiveMetric] = [
+            "Vagal Tone": .dc, "Energy Reserve": .rmssd, "Conscious Breathing": .rsa,
+            "Adaptive Capacity": .rcmse, "Harmony": .dfa1, "Inner Noise": .pip,
+            "Stress Balance": .stressBalance,
+        ]
+        let liveOrder = LiveMetric.allCases
+        let trackIndicesInLiveOrder = TrackMetrics.all.map { spec -> Int in
+            let live = liveCase[spec.def.label]!
+            return liveOrder.firstIndex(of: live)!
+        }
+        XCTAssertEqual(trackIndicesInLiveOrder, trackIndicesInLiveOrder.sorted(),
+                       "TrackMetrics.all has drifted from LiveMetric's declaration order")
+        // Sanity check the fixture itself covers every Track metric exactly
+        // once, so a typo in `liveCase` can't silently pass the assertion above.
+        XCTAssertEqual(Set(liveCase.keys), Set(TrackMetrics.all.map(\.def.label)))
     }
 
     func testExcludesPulseAndCalmPower() {
@@ -24,7 +58,7 @@ final class TrackMetricSpecTests: XCTestCase {
 
     func testEveryExtractorReadsItsField() {
         let values = TrackMetrics.all.map { $0.rollup(rollup) }
-        XCTAssertEqual(values, [8, 40, 30, 1.4, 1.0, 55, 45])
+        XCTAssertEqual(values, [40, 30, 45, 55, 1.0, 8, 1.4])
     }
 
     func testTrendKeysAreUniqueAndStressBalanceIsNotLfHf() {
