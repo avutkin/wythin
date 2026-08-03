@@ -128,6 +128,15 @@ enum LiveStateClassifier {
     ///
     /// Thresholds are UNCALIBRATED first guesses, tuned only so the states named
     /// in the spec's example quadrants land where they should.
+    ///
+    /// `stable_neutral` is returned for exactly one reason: the call is weak,
+    /// i.e. no axis moved. It is NOT the table's default. Every branch below is
+    /// a conjunction, so a large excursion on a single axis matches none of
+    /// them — and a bare `return .stable_neutral` at the end would print
+    /// "nothing pulling either way" above a WHY list reporting three metrics
+    /// well below usual. The dominant-axis routing at the bottom is what closes
+    /// that, and `testStableNeutralIsReturnedIfAndOnlyIfTheCallIsWeak` sweeps
+    /// the axis cube to keep it closed.
     private static func key(for a: LiveAxes, isWeak: Bool) -> LiveStateKey {
         if isWeak { return .stable_neutral }
 
@@ -150,11 +159,29 @@ enum LiveStateClassifier {
         // "tense but not low-energy" is a wider net than "tense and high-energy".
         if tense     && !lowE             { return .stressed_activated }
         if lowE      && poorR             { return .depleted_numb }
-        if lowE      && goodR && calm     { return .recovering_resetting }
+        // Low energy with recovery clearly rebuilding IS recovering, whether or
+        // not tension has also come down — requiring `calm` on top dropped the
+        // lowE/goodR/neutral-tension corner through the table entirely.
+        if lowE      && goodR             { return .recovering_resetting }
         if highE     && greatR && calm    { return .renewed_thriving }
         if highE     && goodR             { return .engaged_performing }
+        // Energy up with recovery down and no tension signal: still pushing on
+        // reserves that aren't there. Nearer "revved up" than anything calm,
+        // and without this branch the dominant-axis routing below would call a
+        // clearly high-energy reading `depleted_numb` whenever recovery
+        // happened to have moved slightly further.
+        if highE     && poorR             { return .stressed_activated }
         if calm      && goodR             { return .calm_alert }
-        return .stable_neutral
+
+        // No conjunction matched, yet some axis cleared the weak-call floor —
+        // so something IS pulling, and the state must say which way. Route on
+        // the axis that moved most. Ties resolve recovery > energy > tension:
+        // the recovery axis carries the most specific copy, and a tie between
+        // "calm" and "flat" should read as flat, not as clear-and-unhurried.
+        let strongest = max(abs(a.energy), max(abs(a.tension), abs(a.recovery)))
+        if abs(a.recovery) == strongest { return a.recovery > 0 ? .calm_alert : .depleted_numb }
+        if abs(a.energy)   == strongest { return a.energy   > 0 ? .engaged_performing : .depleted_numb }
+        return a.tension > 0 ? .stressed_activated : .calm_alert
     }
 }
 

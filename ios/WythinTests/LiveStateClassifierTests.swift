@@ -73,9 +73,105 @@ final class LiveStateClassifierTests: XCTestCase {
         XCTAssertTrue([.recovering_resetting, .calm_alert].contains(r.key), "got \(r.key)")
     }
 
+    // MARK: The rule table, driven
+
+    /// One metric per axis, so `LiveStateClassifier.axis`'s renormalisation
+    /// makes the axis exactly the value given: energy = `e`, tension = `t`,
+    /// recovery = `r`. Lets the rule table be exercised at named coordinates
+    /// instead of through a weighted sum that has to be solved backwards.
+    private func axes(energy e: Float, tension t: Float, recovery r: Float) -> LiveReading {
+        reading([.rmssd: e, .pip: t, .dc: r])
+    }
+
+    private func key(energy e: Float, tension t: Float, recovery r: Float) -> LiveStateKey {
+        LiveStateClassifier.classify(axes(energy: e, tension: t, recovery: r)).key
+    }
+
+    /// The previous version of this test asserted only
+    /// `LiveStateKey.allCases.count == 9` and never touched the rule table, so
+    /// it would have passed against a table that could not produce four of the
+    /// nine. This drives the table itself.
     func testEveryStateKeyIsReachable() {
-        // Guards against a rule table with an unreachable branch.
-        XCTAssertEqual(LiveStateKey.allCases.count, 9)
+        var reached: Set<LiveStateKey> = []
+        let corners: [(Float, Float, Float)] = [
+            ( 0.0,  0.0,  0.0),   // weak            -> stable_neutral
+            (-1.5,  1.5, -1.5),   // veryTense/lowE/veryPoorR -> shutdown_burnout
+            (-1.0,  0.8, -0.8),   // tense/lowE/poorR         -> overloaded_exhausted
+            ( 0.0,  1.0,  0.0),   // tense/!lowE              -> stressed_activated
+            (-1.0,  0.0, -1.0),   // lowE/poorR               -> depleted_numb
+            (-1.0, -0.5,  0.8),   // lowE/goodR/calm          -> recovering_resetting
+            ( 1.0, -0.5,  1.5),   // highE/greatR/calm        -> renewed_thriving
+            ( 1.0,  0.0,  0.8),   // highE/goodR              -> engaged_performing
+            ( 0.0, -0.8,  0.8),   // calm/goodR               -> calm_alert
+        ]
+        for (e, t, r) in corners { reached.insert(key(energy: e, tension: t, recovery: r)) }
+        XCTAssertEqual(reached.count, 9, "every one of the nine must be reachable; got \(reached)")
+        XCTAssertEqual(Set(LiveStateKey.allCases), reached)
+    }
+
+    func testTheNamedCornersLandOnTheirNamedStates() {
+        XCTAssertEqual(key(energy: -1.5, tension:  1.5, recovery: -1.5), .shutdown_burnout)
+        XCTAssertEqual(key(energy: -1.0, tension:  0.8, recovery: -0.8), .overloaded_exhausted)
+        XCTAssertEqual(key(energy:  0.0, tension:  1.0, recovery:  0.0), .stressed_activated)
+        XCTAssertEqual(key(energy: -1.0, tension:  0.0, recovery: -1.0), .depleted_numb)
+        XCTAssertEqual(key(energy: -1.0, tension: -0.5, recovery:  0.8), .recovering_resetting)
+        XCTAssertEqual(key(energy:  1.0, tension: -0.5, recovery:  1.5), .renewed_thriving)
+        XCTAssertEqual(key(energy:  1.0, tension:  0.0, recovery:  0.8), .engaged_performing)
+        XCTAssertEqual(key(energy:  0.0, tension: -0.8, recovery:  0.8), .calm_alert)
+        XCTAssertEqual(key(energy:  0.0, tension:  0.0, recovery:  0.0), .stable_neutral)
+    }
+
+    // MARK: The fall-through hole
+
+    /// The whole-branch review's worked example. Recovery is 1.4 SD below
+    /// usual and nothing else has moved, so no conjunction in the table
+    /// matches — and the old table returned `stable_neutral`, whose copy reads
+    /// "nothing pulling either way", directly above a WHY list reporting three
+    /// metrics well below usual. The header must not contradict its own
+    /// explanation.
+    func testAStronglyNegativeRecoveryAxisAloneIsNotCalledSteady() {
+        let r = LiveStateClassifier.classify(reading([.hr: 0, .rmssd: -0.5, .rcmse: 0,
+                                                      .pip: 0.2, .stressBalance: 0.1,
+                                                      .rsa: -1.5, .dc: -1.5, .vti: -1.2]))
+        XCTAssertEqual(r.axes.energy,   -0.20, accuracy: 0.001)
+        XCTAssertEqual(r.axes.tension,   0.155, accuracy: 0.001)
+        XCTAssertEqual(r.axes.recovery, -1.395, accuracy: 0.001)
+        XCTAssertFalse(r.isWeak, "1.4 SD on an axis is not a weak call")
+        XCTAssertNotEqual(r.key, .stable_neutral,
+                          "\"nothing pulling either way\" above three metrics well below usual")
+        XCTAssertEqual(r.key, .depleted_numb, "recovery moved most and moved down")
+    }
+
+    func testALargePositiveEnergyExcursionAloneIsNotCalledSteady() {
+        let k = key(energy: 1.4, tension: 0.1, recovery: 0.0)
+        XCTAssertNotEqual(k, .stable_neutral)
+        XCTAssertEqual(k, .engaged_performing)
+    }
+
+    /// `lowE && goodR && !calm` — the third named hole. Low energy with
+    /// recovery clearly rebuilding is exactly `recovering_resetting`; the old
+    /// table required calm on top and dropped it otherwise.
+    func testLowEnergyWithGoodRecoveryAndNeutralTensionIsRecovering() {
+        let k = key(energy: -0.9, tension: 0.0, recovery: 0.9)
+        XCTAssertNotEqual(k, .stable_neutral)
+        XCTAssertEqual(k, .recovering_resetting)
+    }
+
+    /// The invariant behind all of the above, swept rather than sampled:
+    /// `stable_neutral` means "nothing moved", so it must be returned when and
+    /// only when the call is weak. Any other reading has to land on a state
+    /// whose copy matches it.
+    func testStableNeutralIsReturnedIfAndOnlyIfTheCallIsWeak() {
+        let steps: [Float] = [-2.0, -1.3, -0.9, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.9, 1.3, 2.0]
+        for e in steps {
+            for t in steps {
+                for r in steps {
+                    let res = LiveStateClassifier.classify(axes(energy: e, tension: t, recovery: r))
+                    XCTAssertEqual(res.key == .stable_neutral, res.isWeak,
+                                   "axes (\(e), \(t), \(r)) -> \(res.key), isWeak=\(res.isWeak)")
+                }
+            }
+        }
     }
 
     func testStateKeysMatchTheServerContract() {
