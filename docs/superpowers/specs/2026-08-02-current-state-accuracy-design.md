@@ -124,9 +124,41 @@ The axis triple maps to one of the existing nine states through an explicit
 rule table. The nine states, their names and their meanings are unchanged —
 only the thing that chooses between them changes.
 
-**Contribution.** Each metric's signed contribution is `weight × z`. This is
-what ranks the WHY bullets and sizes their impact bars. It is the actual pull
-the metric had on the state, not the model's guess at what mattered.
+**Level and trend, combined asymmetrically.** The axes run on an *effective*
+value, not on raw level. Level is the state; trend is a modifier whose weight
+depends on the level. A fall from a high level does not mean what the same fall
+from a low level means — high-and-easing still feels good, low-and-falling does
+not, and low-but-rising feels better than it looks.
+
+Per metric, both terms in personal SD:
+
+- `L` — level: the window's median against the baseline
+- `T` — trend: slope across the window, in personal SD **per 10 minutes**
+
+```
+gain g(L) = clamp(1 − L/2, 0.25, 1.5)
+effective = L + k · g(L) · T          (k = 0.5)
+```
+
+At a high level the gain shrinks toward 0.25 and a slope barely moves anything;
+at a low level it grows to 1.5 and the same slope moves a lot. Worked: `L=+1.5,
+T=−0.4` → `+1.45`, effectively unchanged. `L=−1.0, T=−0.4` → `−1.30`,
+meaningfully worse. `L=−1.0, T=+0.5` → `−0.63`, noticeably better.
+
+**Smallest worthwhile change.** Below an SWC threshold a slope is reported as
+*flat* and `T` is zeroed — not passed through as a small trend. Without this the
+narration always has a story, because raw slope is never exactly zero, and
+"something is always easing" is a large part of why the current bullets read as
+generic. This is the Plews SWC idea the anchor baseline already cites, applied
+to the live window.
+
+Expressing `T` in SD-per-10-minutes rather than percent is what makes it
+comparable across metrics: 8% of RMSSD and 8% of DFA-α1 are unrelated
+magnitudes, while 0.4 SD means the same thing everywhere.
+
+**Contribution.** Each metric's signed contribution is `weight × effective`.
+This is what ranks the WHY bullets and sizes their impact bars. It is the actual
+pull the metric had on the state, not the model's guess at what mattered.
 
 **Hysteresis.** A newly-computed state must persist across N consecutive
 evaluations before the displayed state changes; N starts at 3. Without this the
@@ -169,16 +201,40 @@ never randomly — or the phrase would change on every view re-render.
 
 ### 4. Narration
 
-The LLM receives the chosen state, per-metric z-scores and contributions, and
-the baseline's size and provisional flag. It writes:
+The LLM receives the chosen state and, per metric, everything already
+interpreted — nothing is left for it to derive:
+
+```
+inner_noise:
+  level:        -1.8 SD   (well below your usual)
+  trend:        -0.4 SD per 10 min   (falling)
+  meaningful:   true      # cleared the SWC gate
+  effective:    -1.85 SD
+  contribution: -0.55
+  rank:         1
+```
+
+plus the baseline's size and provisional flag. Both `level` and `trend` survive
+into the payload even though `effective` combines them, because the interesting
+sentence is often "high and easing, still comfortable" and that needs both
+halves visible.
+
+It writes:
 
 - the **why-clause** completing the collapsed sentence
 - the ranked **WHY** bullets, which may cite specific numbers
 - the **RIGHT NOW** line
 
 Prompt changes: delete the "NEVER compare to a norm" instruction, which is now
-false — norms are supplied. Add a prohibition on choosing or contradicting the
-state, and on inventing a metric ordering; the ranking is given.
+false — norms are supplied. Delete `slope_pct`, which is not comparable between
+metrics. Add a prohibition on choosing or contradicting the state, and on
+inventing a metric ordering; the ranking is given. And state the asymmetry
+explicitly, since it is exactly what a model gets wrong unprompted:
+
+> A fall from a high level is not the same as a fall from a low level. This is
+> already reflected in `effective` and `contribution`. Describe what the numbers
+> show; do not re-weight them or infer significance yourself. A metric with
+> `meaningful: false` has not moved — do not narrate it as a trend.
 
 **State-binding.** The why-clause is bound to the state instance that produced
 it:
@@ -215,25 +271,55 @@ Three sections in one card.
 **RIGHT NOW** (always visible, never inside the drop-down)
 - unchanged in content; it simply does not move when the state expands
 
-**DOES THIS MATCH?** (always visible)
-- four scales: focus, anxiety, energy, mood
+**How do you feel right now?** (a second, independent drop-down)
+- closed: the question plus "A few seconds — helps your numbers mean something"
+- open: the four scales, described in section 6
 
-Expansion state persists via `@AppStorage("currentStateExpanded")`, mirroring
-`dayPotentialExpanded`.
+The card therefore has **two independent drop-downs** — the state's WHY and the
+check-in — persisted separately as `@AppStorage("currentStateExpanded")` and
+`@AppStorage("checkInExpanded")`, mirroring `dayPotentialExpanded`.
 
 The whole collapsed row is the tap target, not just the chevron.
 
 Voice is plain ("Sharp and settled"), not hedged. The hedge lives in the design
-instead of the copy: the scales underneath are what ask whether it landed.
+instead of the copy: the check-in underneath is what asks whether it landed.
 
 ### 6. Check-in
 
-New SwiftData model `FeltStateLog`: timestamp, focus, anxiety, energy, mood, and
-the state key displayed at the time.
+Four scales: **focus, energy, stress, mood**. They map onto what the classifier
+already computes — focus and stress load on Tension, energy on Energy. Mood is
+the deliberate control: nothing in the physiology is expected to predict it, so
+if it later correlates as strongly as focus does, that is evidence of
+overfitting rather than of insight.
 
-Stored locally and synced with everything else. It drives nothing in this
-change — its only job is to accumulate the ground truth that a later calibration
-pass needs.
+**The control.** A continuous drag, not stepped. Anchor words at each end
+(*scattered → razor sharp*, *drained → buzzing*, *calm → overwhelmed*,
+*low → great*) and **no numbers shown** — where the dot sits is the answer.
+28pt knob on a 30pt row, sized for a thumb.
+
+**Untouched is not the middle.** A scale that was never dragged renders with a
+grey centred knob and no fill, and records as *blank*. Each scale therefore
+carries a touched flag independent of its value. Recording an unanswered scale
+as 50 would fill the training set with confident non-answers, which is worse
+than having no data at all.
+
+**Submitting.** One full-width button. After saving, the section collapses
+itself to a green confirmation — "Saved · checked in just now · tap to change" —
+with nothing to dismiss. Partial answers are explicitly fine ("Skip any you
+like").
+
+**Persistence.** Each save writes a `FeltStateLog` row via SwiftData: timestamp,
+the four optional values, and — critically — **the state key displayed at that
+moment**. Without that field a check-in is a mood diary; with it, every row is a
+labelled example of what a given state actually felt like for this person. It
+rides the existing sync to the server like every other model.
+
+Values are stored 0–100 but are **ordinal in truth** — nobody reliably
+distinguishes 63 from 68. The later calibration must bucket or rank rather than
+fit raw points, or it will model drag precision as signal.
+
+It drives nothing in this change. Its only job is to accumulate the ground truth
+a later calibration pass needs.
 
 ### 7. Cleanup
 
@@ -266,6 +352,11 @@ Pure units, no context or environment needed:
 - copy selection determinism — same state and day yields the same phrase
 - state-binding: why-clause cleared on state change, immediate refetch, 60 s
   floor honoured
+- the gain: all four level/trend quadrants land where the worked examples say,
+  and the clamp holds at extreme `L`
+- the SWC gate: a sub-threshold slope zeroes `T` and reports flat
+- `FeltStateLog`: an untouched scale persists as nil, never as the midpoint;
+  the displayed state key is captured on the row
 
 Per the anchor cadence lesson, every window rule is tested at **both** 2 s and
 30 s sample spacing.
@@ -287,3 +378,9 @@ Per the anchor cadence lesson, every window rule is tested at **both** 2 s and
   inexplicably, plain lnRMSSD is the one to trust.
 - State boundary thresholds and the hysteresis count — first guesses, to be
   tuned against check-in data once there is any.
+- The gain constants — `k = 0.5`, clamp `[0.25, 1.5]`, and the SWC threshold.
+  Taken as first guesses so implementation is not blocked. The clamp's lower
+  bound is the consequential one: at 0.25 a high level nearly ignores trend,
+  which is the behaviour asked for, but it also means a genuine collapse from a
+  high level takes longer to register. Revisit once check-ins exist to check it
+  against.
