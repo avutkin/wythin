@@ -157,6 +157,13 @@ private struct DayScrollView: View {
 
     var body: some View {
         LogoRefreshableScrollView(enabled: isToday, onRefresh: {
+            // The local half (name, feeling, WHY) reads only stored rollups
+            // and tick history already in memory, so it recomputes
+            // synchronously here rather than waiting on the network calls
+            // below — without this, pulling down did nothing for it at all
+            // whenever the poll loop wasn't already running (BLE off at
+            // launch), despite the empty-state copy telling the user to.
+            liveStore.recomputeState(env: env)
             // Pull down on today's page to force an immediate update; otherwise
             // the state refreshes automatically at most every 5 minutes.
             await liveStore.refresh(env: env, force: true)
@@ -168,8 +175,8 @@ private struct DayScrollView: View {
                 if isToday {
                     LiveStateWidget(store: liveStore, potentialStore: potentialStore)
                         .padding(.horizontal)
-                    let state = PolyvagalState.infer(from: env.latestTick)
-                    CurrentStateCard(tick: env.latestTick, state: state)
+                    CurrentStateCard(tick: env.latestTick,
+                                     baselineRmssd: liveStore.baseline?.stat(for: .rmssd)?.mean)
                         .padding(.horizontal)
                 }
 

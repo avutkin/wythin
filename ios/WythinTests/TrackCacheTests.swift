@@ -474,4 +474,71 @@ final class TrackCacheTests: XCTestCase {
         cache.load()
         XCTAssertEqual(cache.macroRead(key: "week|123|abc"), "Steady week.")
     }
+
+    // MARK: launch warm-up (bootstrap defect — AppEnvironment.warmLiveBaseline)
+
+    /// Pins the actual defect: `LiveStateStore.recomputeState` calls
+    /// `LiveBaseline.build` on whatever `TrackCache` holds, and until now the
+    /// *only* thing that ever put rollups into an empty cache was
+    /// `TrackCache.refresh`, called solely from `TrackView`. A user who never
+    /// opens Track — or whose cache was just wiped by a `rollupComputeVersion`
+    /// bump — got `LiveBaseline.build(rollups: []) == nil` forever, with the
+    /// Live tab silently falling back to its old rendering.
+    ///
+    /// `computeRollups` + `mergeComputed` are the launch-time replacement:
+    /// this proves that, starting from a cache with nothing on disk, running
+    /// them is enough on its own to make `LiveBaseline.build` succeed —
+    /// without going anywhere near `refresh` or `TrackView`. Fails to compile
+    /// against the pre-fix code, which has neither method.
+    func testWarmUpProducesABaselineFromAnEmptyCache() {
+        let cache = TrackCache(fileURL: url)
+        cache.load()   // fresh install / post-upgrade: nothing on disk yet
+
+        let days = (1...14).map { day($0) }
+        let (rollups, emptyDays) = TrackCache.computeRollups(days: days) { d in self.samples(d) }
+        XCTAssertEqual(rollups.count, 14, "every warmed day clears the quality gate in this fixture")
+        XCTAssertTrue(emptyDays.isEmpty)
+
+        cache.mergeComputed(rollups: rollups, emptyDays: emptyDays)
+
+        XCTAssertNotNil(LiveBaseline.build(rollups: cache.rollups(in: day(14)...day(0))),
+                        "an empty cache must be able to produce a baseline after the warm-up runs")
+    }
+
+    /// A day that computes to no data must still be remembered by the
+    /// warm-up path, the same way `refresh` remembers it — otherwise every
+    /// relaunch re-fetches days the strap was never worn on, forever.
+    func testWarmUpRecordsEmptyDaysSoTheyAreNotRefetched() {
+        let cache = TrackCache(fileURL: url)
+        cache.load()
+
+        let (rollups, emptyDays) = TrackCache.computeRollups(days: [day(3), day(2)]) { _ in [] }
+        XCTAssertTrue(rollups.isEmpty)
+        cache.mergeComputed(rollups: rollups, emptyDays: emptyDays)
+
+        XCTAssertTrue(cache.uncachedDays([day(3), day(2)], today: day(0)).isEmpty)
+    }
+
+    /// `AppEnvironment.trackCache` and `TrackView`'s own `TrackCache` instance
+    /// are two independent writers over the same file. `mergeComputed`
+    /// reloads from disk immediately before merging + saving specifically so
+    /// this can't happen: a stale in-memory snapshot merging and saving would
+    /// otherwise clobber whatever the other instance wrote in between.
+    func testMergeComputedDoesNotClobberADifferentInstancesConcurrentWrite() {
+        let warm = TrackCache(fileURL: url)
+        warm.load()   // both instances start from the same empty file
+
+        // Stands in for TrackView opening in between the warm-up's fetch
+        // finishing and its merge landing.
+        let track = TrackCache(fileURL: url)
+        _ = track.refresh(days: [day(5)], today: day(0)) { samples($0) }
+
+        let (rollups, emptyDays) = TrackCache.computeRollups(days: [day(1)]) { samples($0) }
+        warm.mergeComputed(rollups: rollups, emptyDays: emptyDays)
+
+        let reopened = TrackCache(fileURL: url)
+        reopened.load()
+        XCTAssertEqual(reopened.rollups(in: day(5)...day(5)).count, 1, "Track's write must survive")
+        XCTAssertEqual(reopened.rollups(in: day(1)...day(1)).count, 1, "the warm-up's own write must land too")
+    }
 }

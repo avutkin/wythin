@@ -23,3 +23,6 @@ server/deploy/.env
 
 # Brainstorming mockups (scratch)
 .superpowers/
+
+# Worktrees created for isolated task execution
+.claude/worktrees/

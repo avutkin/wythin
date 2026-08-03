@@ -148,7 +148,13 @@ final class TrackCache {
     /// 2 — macro-trend metric names overlaid with the app's own card names
     ///     (`_MACRO_TREND_METRIC_NAMES`), so the read stops calling Energy
     ///     Reserve "vagal tone" while the Vagal Tone card sits below it.
-    static let macroReadRevision = 2
+    /// 3 — reply reshaped from "two prose sentences" to `•` bullets plus
+    ///     `→` actions, to match `LiveStateWidget`'s bulleted read. A cached
+    ///     value from before this bump is old prose with no `•` markers in
+    ///     it at all; the new renderer would show it as a single unstyled
+    ///     fallback line rather than the bulleted card the rest of the
+    ///     period's data already renders as, so it must not survive the bump.
+    static let macroReadRevision = 3
 
     /// Revision of the *rollup computation* itself: `MetricsQualityFilter`'s
     /// gate, `DailyRollupCompute`'s averaging, or anything else that changes
@@ -181,7 +187,22 @@ final class TrackCache {
     /// 2 — `MetricsQualityFilter` gained the RMSSD/mean-BPM plausibility
     ///     check, rejecting dropped/duplicated-beat artifacts (e.g. RMSSD
     ///     150 ms at HR 165 bpm) that all three prior checks let through.
-    static let rollupComputeVersion = 2
+    /// 3 — `DailyRollupCompute.rollup` gained per-metric `mean`/`sd`
+    ///     dictionaries keyed by `LiveMetric.rawValue`, so no rollup can
+    ///     exist with means but no within-day SDs.
+    /// 4 — the Tension axis's second input changed *meaning* without changing
+    ///     shape: `LiveMetric.lfHF` ("lf_hf", the raw LF/HF ratio) became
+    ///     `LiveMetric.stressBalance` ("stress_balance", the breathing-robust
+    ///     SNS share 0–100). A version 3 rollup holds raw ratios under
+    ///     "lf_hf"; leaving the version alone would not have been enough on
+    ///     its own — the key changed too, so the old entry would simply be
+    ///     missed — but the bump is what guarantees the pooled spread and
+    ///     centre are recomputed from stored samples rather than silently
+    ///     built from however many days happen to carry the new key. Also in
+    ///     this version: a metric with a single sample on a day no longer
+    ///     writes `sd = 0` (it writes nothing), and `count` records each
+    ///     metric's own sample count so the pooled spread can weight by it.
+    static let rollupComputeVersion = 4
 
     nonisolated static var defaultURL: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory,
@@ -284,6 +305,70 @@ final class TrackCache {
                 if rollupsByDay.removeValue(forKey: day) != nil { changed = true }
                 if day < today, noDataDays.insert(day).inserted { changed = true }
             }
+        }
+        if changed { save() }
+        return changed
+    }
+
+    /// Pure day → rollup pass, decoupled from `refresh`'s SwiftData-driven
+    /// loop so it can run off the main actor. `refresh` conflates the fetch,
+    /// the `DailyRollupCompute` pass, and the cached/no-data skip bookkeeping
+    /// into one `@MainActor` method — fine for Track's one-page-at-a-time
+    /// visits, but a multi-day warm-up driven from app launch
+    /// (`AppEnvironment.warmLiveBaseline`) must not run either the fetch or
+    /// the compute on the main actor: up to 60,000 `HRVSample` rows a day,
+    /// repeated across two weeks, is watchdog-kill territory. Takes the fetch
+    /// as a closure — `refresh`'s own pattern — so it is testable without
+    /// SwiftData: supply points directly.
+    ///
+    /// Returns the finished rollups and the days that computed to no data;
+    /// the caller folds both into a live `TrackCache` instance with
+    /// `mergeComputed` once back on the main actor. Does not consult or
+    /// mutate `rollupsByDay`/`noDataDays` — callers are expected to have
+    /// already narrowed `days` to what actually needs fetching (see
+    /// `uncachedDays`), the same way `TrackView.loadRollups` narrows its own
+    /// fetch before calling `refresh`.
+    nonisolated static func computeRollups(
+        days: [Date], fetchDay: (Date) throws -> [MetricsHistoryPoint]
+    ) -> (rollups: [DailyRollup], emptyDays: [Date]) {
+        var rollups:   [DailyRollup] = []
+        var emptyDays: [Date] = []
+        for day in days {
+            guard let points = try? fetchDay(day) else { continue }
+            if let rollup = DailyRollupCompute.rollup(day: day, points: points) {
+                rollups.append(rollup)
+            } else {
+                emptyDays.append(day)
+            }
+        }
+        return (rollups, emptyDays)
+    }
+
+    /// Folds rollups computed elsewhere (off the main actor — see
+    /// `computeRollups`) into this cache and saves once.
+    ///
+    /// Reloads from disk immediately before merging. `TrackView` owns a
+    /// second, independent `TrackCache` instance over the same file
+    /// (`AppEnvironment.trackCache`'s doc explains why two instances exist),
+    /// and `save()` writes this instance's *entire* in-memory snapshot — a
+    /// stale snapshot merged blindly could clobber whatever Track wrote in
+    /// between. Reloading right before the merge closes that window: this
+    /// method and `refresh` are both synchronous `@MainActor` methods with no
+    /// `await` inside them, and an actor runs one non-suspending unit of its
+    /// own isolated work to completion before starting the next, so nothing
+    /// can interleave between this load and this save. The only overlap left
+    /// is two writers computing the *same* day from the same samples, which
+    /// is a harmless no-op merge — the result is deterministic.
+    @discardableResult
+    func mergeComputed(rollups: [DailyRollup], emptyDays: [Date]) -> Bool {
+        load()
+        var changed = false
+        for rollup in rollups where rollupsByDay[rollup.day] != rollup {
+            rollupsByDay[rollup.day] = rollup
+            changed = true
+        }
+        for day in emptyDays where noDataDays.insert(day).inserted {
+            changed = true
         }
         if changed { save() }
         return changed

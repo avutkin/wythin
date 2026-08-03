@@ -45,6 +45,19 @@ enum BreathingCompute {
     // reachable; sub-bin precision below that comes from parabolic interpolation
     // in `computeRate`, not from the band itself.
     private static let breathBand:    ClosedRange<Float> = 0.08...0.50
+    // The PSD is *searched* over a wider window than rates are *accepted* from, so
+    // that every candidate inside `breathBand` has a neighbouring bin on each side
+    // to be compared against. Without the margin, a candidate sitting on the band
+    // edge has nothing to compare to, and the argmax of a monotonically decaying
+    // (drift-dominated) spectrum silently becomes the reported rate. That is what
+    // produced the 8.79 br/min floor when the band started at 0.10 Hz, and then
+    // the 5.86 floor once it started at 0.08 — moving the edge only moved the
+    // artefact to the next bin. Requiring a genuine local maximum removes it.
+    private static let searchBand:    ClosedRange<Float> = 0.03...0.60
+    /// A candidate peak must carry at least this multiple of the mean in-band
+    /// power. Broadband noise throws up shallow local maxima all over the band;
+    /// a real breath is a narrow, dominant line.
+    private static let minPeakToMean: Float = 3.0
     private static let minAccBreath:  Int   = Int(accFS * 6)    // 6 s of data
     private static let minAccPhases:  Int   = Int(accFS * 20)   // 20 s
 
@@ -63,26 +76,43 @@ enum BreathingCompute {
         let (freqs, psd) = HRVCompute.welchPSD(
             signal: z, fs: accFS, nperseg: min(4096, z.count))
 
-        let band = zip(freqs, psd).filter { breathBand.contains($0.0) }
-        guard !band.isEmpty else { return nil }
+        let search = zip(freqs, psd).filter { searchBand.contains($0.0) }
+        guard search.count >= 3 else { return nil }
 
-        let bandFreqs = band.map { $0.0 }
-        let bandPSD   = band.map { $0.1 }
-        guard let peakIdx = bandPSD.indices.max(by: { bandPSD[$0] < bandPSD[$1] }) else {
-            return nil
+        let sFreqs = search.map { $0.0 }
+        let sPSD   = search.map { $0.1 }
+
+        // Take the strongest *strict local maximum* whose frequency falls inside
+        // the physiological band — not the plain argmax. A spectrum with no
+        // breathing in it decays monotonically across this range and so contains
+        // no local maximum at all, which now correctly yields nil ("we cannot see
+        // your breathing") instead of a confident-looking value pinned to the
+        // lowest bin.
+        var best: Int?
+        for i in 1..<(sPSD.count - 1) where breathBand.contains(sFreqs[i]) {
+            guard sPSD[i] > sPSD[i - 1], sPSD[i] >= sPSD[i + 1] else { continue }
+            if best == nil || sPSD[i] > sPSD[best!] { best = i }
         }
-        // The FFT bin grid (Δf ≈ 0.0488 Hz here) is coarse relative to breathing
-        // rates, so the raw argmax bin can sit noticeably off the true peak — this
-        // is exactly what produced the old 8.79 br/min floor. Parabolic
-        // interpolation over the peak bin and its neighbours recovers sub-bin
-        // precision from information the Welch estimate already contains (true
-        // resolution is bounded by 1/T, not by the bin width).
-        let peakHz  = refinePeakHz(freqs: bandFreqs, psd: bandPSD, peakIdx: peakIdx)
-        let peakPSD = bandPSD[peakIdx]
-        let meanPSD = vDSP.mean(bandPSD)
+        guard let peakIdx = best else { return nil }
 
-        let ratio      = meanPSD > 0 ? peakPSD / meanPSD : 1.0
+        let bandPSD = zip(sFreqs, sPSD).filter { breathBand.contains($0.0) }.map { $0.1 }
+        let meanPSD = vDSP.mean(bandPSD)
+        guard meanPSD > 0 else { return nil }
+
+        let ratio = sPSD[peakIdx] / meanPSD
+        guard ratio >= minPeakToMean else { return nil }
+
+        // The FFT bin grid (Δf ≈ 0.0488 Hz here) is coarse relative to breathing
+        // rates, so the raw argmax bin can sit noticeably off the true peak.
+        // Parabolic interpolation over the peak bin and its neighbours recovers
+        // sub-bin precision from information the Welch estimate already contains
+        // (true resolution is bounded by 1/T, not by the bin width). Every
+        // candidate now has both neighbours, so this never degrades to the raw bin
+        // for an edge-of-band peak.
+        let peakHz     = refinePeakHz(freqs: sFreqs, psd: sPSD, peakIdx: peakIdx)
         let regularity = min(ratio / 6.0, 1.0)
+
+        let bandFreqs = sFreqs.filter { breathBand.contains($0) }
 
         return BreathingMetrics(
             peakHz:    peakHz,

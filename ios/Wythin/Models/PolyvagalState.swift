@@ -1,15 +1,5 @@
 import SwiftUI
 
-// MARK: - Cause
-
-struct PolyvagalCause: Identifiable {
-    let id = UUID()
-    let icon:        String
-    let title:       String
-    let description: String
-    let time:        String
-}
-
 // MARK: - Science Fact
 
 struct ScienceFact: Identifiable {
@@ -83,57 +73,6 @@ enum PolyvagalState {
         case .elevated:  return Color(red: 1.00, green: 0.62, blue: 0.22)
         case .low:       return Color(red: 0.42, green: 0.62, blue: 0.90)
         case .unknown:   return Color.gray
-        }
-    }
-
-    // MARK: Causes
-
-    func causes(from tick: MetricsTick?) -> [PolyvagalCause] {
-        let timeFmt = DateFormatter()
-        timeFmt.dateFormat = "HH:mm"
-        let now = timeFmt.string(from: Date())
-
-        switch self {
-        case .elevated:
-            var result: [PolyvagalCause] = []
-            if let bpm = tick?.meanBPM, bpm > 74 {
-                result.append(PolyvagalCause(
-                    icon: "heart.fill",
-                    title: "Elevated heart activity",
-                    description: "HR above your baseline for 4+ min",
-                    time: now))
-            }
-            if let rmssd = tick?.rmssd, rmssd < 35 {
-                result.append(PolyvagalCause(
-                    icon: "waveform.path.ecg",
-                    title: "Reduced recovery response",
-                    description: "Parasympathetic activity is suppressed",
-                    time: now))
-            }
-            if let coh = tick?.coherenceScore, coh < 0.4 {
-                result.append(PolyvagalCause(
-                    icon: "lungs.fill",
-                    title: "Breathing rhythm mismatch",
-                    description: "Irregular breath-heart coupling detected",
-                    time: now))
-            }
-            return result
-        case .low:
-            return [
-                PolyvagalCause(icon: "battery.25", title: "Low energy state",
-                               description: "Parasympathetic tone without activation", time: now),
-                PolyvagalCause(icon: "waveform", title: "Suppressed HRV",
-                               description: "Overall autonomic output is diminished", time: now),
-            ]
-        case .regulated:
-            return [
-                PolyvagalCause(icon: "checkmark.circle.fill", title: "Strong vagal tone",
-                               description: "Parasympathetic system is active and balanced", time: now),
-                PolyvagalCause(icon: "waveform.path.ecg", title: "Coherent HRV pattern",
-                               description: "Heart rhythm is synchronized with breathing", time: now),
-            ]
-        case .unknown:
-            return []
         }
     }
 

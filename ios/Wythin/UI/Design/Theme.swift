@@ -91,6 +91,31 @@ extension View {
     }
 }
 
+// MARK: - Markdown Bullet Styling
+
+/// Renders an LLM bullet's `**bold**` markdown, brightening the bold span(s)
+/// to the primary text color against a dim body. Both the Live widget's
+/// bullets and the Track macro read's bullets ask the model for the exact
+/// same convention — one bold key-idea span per bullet (see
+/// `_LIVE_STATE_SYSTEM_PROMPT` and `_MACRO_TREND_SYSTEM_PROMPT` on the
+/// server) — so there is one renderer for it, not one per screen. This used
+/// to be a `private func` on `LiveStateWidget` alone; the macro read grew its
+/// own separate (monospaced, unstyled) rendering of the identical markup
+/// instead of sharing this, which is exactly the drift this extraction
+/// closes.
+enum MarkdownBullet {
+    static func styled(_ s: String) -> AttributedString {
+        var attr = (try? AttributedString(
+            markdown: s,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        )) ?? AttributedString(s)
+        for run in attr.runs where run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true {
+            attr[run.range].foregroundColor = Theme.text
+        }
+        return attr
+    }
+}
+
 // MARK: - Metric Value Formatter
 
 enum MetricFormat {

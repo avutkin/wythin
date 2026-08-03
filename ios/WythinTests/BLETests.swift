@@ -12,7 +12,7 @@ final class BLETests: XCTestCase {
         //   bytes 1–8: timestamp = 12345678 ns LE
         //   byte 9:   frame info (ignored)
         //   bytes 10–12: sample 1 = 1000 µV (0x0003E8 LE)
-        //   bytes 13–15: sample 2 = -500 µV (0xFFFF0C LE → sign-extended)
+        //   bytes 13–15: sample 2 = -500 µV (0xFFFE0C LE → sign-extended)
         var data = Data(count: 16)
         data[0] = 0x00   // ECG frame type
         // Timestamp: 12345678 = 0x00BC614E LE
@@ -23,8 +23,8 @@ final class BLETests: XCTestCase {
         data[9] = 0x00   // frame info
         // Sample 1: 1000 = 0x0003E8 → bytes [0xE8, 0x03, 0x00]
         data[10] = 0xE8; data[11] = 0x03; data[12] = 0x00
-        // Sample 2: -500 = 0xFFFF0C → bytes [0x0C, 0xFF, 0xFF]
-        data[13] = 0x0C; data[14] = 0xFF; data[15] = 0xFF
+        // Sample 2: -500 = 0xFFFE0C → bytes [0x0C, 0xFE, 0xFF]
+        data[13] = 0x0C; data[14] = 0xFE; data[15] = 0xFF
 
         let frame = PolarH10Profile.parseECGFrame(data)
         XCTAssertNotNil(frame)

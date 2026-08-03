@@ -216,17 +216,70 @@ final class MetricsTests: XCTestCase {
     }
 
     func testBreathingRateAtUpperBandEdgeIsSane() {
-        // A true rate near the top of the searchable band (~29 br/min) puts the
-        // raw peak at the last bin of the band-restricted arrays, which has no
-        // right-hand neighbour for parabolic interpolation. This must fall back
-        // to the raw bin centre rather than producing NaN or extrapolating wildly.
+        // A true rate near the top of the accepted band (~29 br/min). This used to
+        // land on the last bin of the band-restricted arrays with no right-hand
+        // neighbour, so it fell back to the raw bin centre (0.48828125). The
+        // search window now extends past the accepted band, so the bin has a
+        // neighbour on both sides and interpolation applies here too — landing
+        // closer to the true 0.483 Hz than the raw bin ever could.
         let result = BreathingCompute.computeRate(accZ: breathingSignal(hz: 0.483))
         XCTAssertNotNil(result)
         guard let r = result else { return }
         XCTAssertTrue(r.peakHz.isFinite)
         XCTAssertTrue(r.bpm.isFinite)
-        XCTAssertEqual(r.peakHz, 0.48828125, accuracy: 1e-4,
-                       "Edge bin with no right neighbour falls back to the raw bin centre")
+        XCTAssertEqual(r.peakHz, 0.483, accuracy: 0.01,
+                       "Edge-of-band peak is now interpolated, not pinned to the bin centre")
+    }
+
+    // MARK: - Breathing: absence must read as absence
+    //
+    // The same defect has now shipped twice. The band opened at 0.10 Hz, so a
+    // drift-dominated spectrum pinned to bin 3 (8.7890625 br/min); the edge moved
+    // to 0.08 Hz and it pinned to bin 2 (5.859375) instead. Both times the lowest
+    // in-band bin won by default because nothing checked the "peak" was a peak,
+    // and both times it drew a perfectly flat line at full reported confidence.
+    // These tests pin the behaviour rather than either specific floor value.
+
+    /// Slow drift plus sensor noise — no breathing modulation at all.
+    private func driftOnlySignal(seconds: Float = 60, fs: Float = 200) -> [Float] {
+        let n = Int(fs * seconds)
+        var rng = SystemRandomNumberGenerator()
+        return (0..<n).map { i in
+            let t = Float(i) / fs
+            return 0.5 * sin(2 * .pi * 0.01 * t) + Float.random(in: -0.05...0.05, using: &rng)
+        }
+    }
+
+    func testNoBreathingSignalReportsNothing() {
+        XCTAssertNil(BreathingCompute.computeRate(accZ: driftOnlySignal()),
+                     "Drift with no breathing must report nil, not the lowest in-band bin")
+    }
+
+    func testFlatlineReportsNothing() {
+        let flat = [Float](repeating: 0, count: 200 * 60)
+        XCTAssertNil(BreathingCompute.computeRate(accZ: flat),
+                     "A dead signal must report nil, not a confident rate")
+    }
+
+    func testBroadbandNoiseReportsNothing() {
+        var rng = SystemRandomNumberGenerator()
+        let noise = (0..<(200 * 60)).map { _ in Float.random(in: -1...1, using: &rng) }
+        XCTAssertNil(BreathingCompute.computeRate(accZ: noise),
+                     "Noise has no dominant line and must not be read as breathing")
+    }
+
+    func testWeakButRealBreathingIsStillDetected() {
+        // The absence checks must not be so strict that they suppress a genuine
+        // but low-amplitude breath under heavy sensor noise.
+        var rng = SystemRandomNumberGenerator()
+        let fs: Float = 200
+        let sig = (0..<Int(fs * 60)).map { i -> Float in
+            let t = Float(i) / fs
+            return 0.3 * sin(2 * .pi * 0.20 * t) + Float.random(in: -0.5...0.5, using: &rng)
+        }
+        let r = BreathingCompute.computeRate(accZ: sig)
+        XCTAssertNotNil(r, "A real 12 br/min breath under noise must still be found")
+        if let r { XCTAssertEqual(r.bpm, 12.0, accuracy: 2.0) }
     }
 
     func testRefinePeakHzFlatSpectrumFallsBackToRawBin() {

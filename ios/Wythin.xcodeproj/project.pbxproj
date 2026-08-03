@@ -113,9 +113,11 @@
 		A206 /* ResonanceSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F206 /* ResonanceSessionView.swift */; };
 		A207 /* BiofeedbackSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F207 /* BiofeedbackSessionView.swift */; };
 		A208 /* ActivityUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F208 /* ActivityUploader.swift */; };
+		A261 /* FeltStateLogUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F261 /* FeltStateLogUploader.swift */; };
 		A209 /* MotionCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F209 /* MotionCompute.swift */; };
 		A210 /* AnchorDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F210 /* AnchorDetector.swift */; };
 		A211 /* DailyAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F211 /* DailyAnchor.swift */; };
+		A260 /* FeltStateLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F260 /* FeltStateLog.swift */; };
 		A213 /* AnchorBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F213 /* AnchorBaseline.swift */; };
 		A214 /* PotentialScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F214 /* PotentialScore.swift */; };
 		A215 /* StreakCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F215 /* StreakCompute.swift */; };
@@ -165,6 +167,18 @@
 		AT42 /* MetricsQualityFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT42 /* MetricsQualityFilterTests.swift */; };
 		ATCS /* ChartSegmenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FTCS /* ChartSegmenterTests.swift */; };
 		AT49 /* ConsistencyCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT49 /* ConsistencyCardTests.swift */; };
+		A50 /* LiveMetric.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50 /* LiveMetric.swift */; };
+		AT51 /* LiveMetricTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT51 /* LiveMetricTests.swift */; };
+		A51 /* LiveBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51 /* LiveBaseline.swift */; };
+		AT52 /* LiveBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT52 /* LiveBaselineTests.swift */; };
+		A54 /* LiveReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = F54 /* LiveReading.swift */; };
+		AT55 /* LiveReadingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT55 /* LiveReadingTests.swift */; };
+		A56 /* LiveStateClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F56 /* LiveStateClassifier.swift */; };
+		A57 /* LiveStateCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57 /* LiveStateCopy.swift */; };
+		AT57 /* LiveStateClassifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT57 /* LiveStateClassifierTests.swift */; };
+		AT58 /* LiveStateCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT58 /* LiveStateCopyTests.swift */; };
+		AT59 /* LiveStateStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT59 /* LiveStateStoreTests.swift */; };
+		AT60 /* MacroReadLineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT60 /* MacroReadLineTests.swift */; };
 		AT17 /* TrendShapeComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT17 /* TrendShapeComputeTests.swift */; };
 		AT18 /* DayPotentialInsightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT18 /* DayPotentialInsightTests.swift */; };
 		AT19 /* DayLoadSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT19 /* DayLoadSummaryTests.swift */; };
@@ -308,9 +322,11 @@
 		F206 /* ResonanceSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResonanceSessionView.swift; sourceTree = "<group>"; };
 		F207 /* BiofeedbackSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiofeedbackSessionView.swift; sourceTree = "<group>"; };
 		F208 /* ActivityUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityUploader.swift; sourceTree = "<group>"; };
+		F261 /* FeltStateLogUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeltStateLogUploader.swift; sourceTree = "<group>"; };
 		F209 /* MotionCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionCompute.swift; sourceTree = "<group>"; };
 		F210 /* AnchorDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetector.swift; sourceTree = "<group>"; };
 		F211 /* DailyAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyAnchor.swift; sourceTree = "<group>"; };
+		F260 /* FeltStateLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeltStateLog.swift; sourceTree = "<group>"; };
 		F213 /* AnchorBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaseline.swift; sourceTree = "<group>"; };
 		F214 /* PotentialScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScore.swift; sourceTree = "<group>"; };
 		F215 /* StreakCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakCompute.swift; sourceTree = "<group>"; };
@@ -383,6 +399,18 @@
 		FT37 /* NudgeNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeNotificationTests.swift; sourceTree = "<group>"; };
 		FTST /* WythinTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WythinTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FT38 /* UsageUploaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageUploaderTests.swift; sourceTree = "<group>"; };
+		F50 /* LiveMetric.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveMetric.swift; sourceTree = "<group>"; };
+		FT51 /* LiveMetricTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveMetricTests.swift; sourceTree = "<group>"; };
+		F51 /* LiveBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveBaseline.swift; sourceTree = "<group>"; };
+		FT52 /* LiveBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveBaselineTests.swift; sourceTree = "<group>"; };
+		F54 /* LiveReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReading.swift; sourceTree = "<group>"; };
+		FT55 /* LiveReadingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReadingTests.swift; sourceTree = "<group>"; };
+		F56 /* LiveStateClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateClassifier.swift; sourceTree = "<group>"; };
+		F57 /* LiveStateCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateCopy.swift; sourceTree = "<group>"; };
+		FT57 /* LiveStateClassifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateClassifierTests.swift; sourceTree = "<group>"; };
+		FT58 /* LiveStateCopyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateCopyTests.swift; sourceTree = "<group>"; };
+		FT59 /* LiveStateStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateStoreTests.swift; sourceTree = "<group>"; };
+		FT60 /* MacroReadLineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroReadLineTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -564,6 +592,11 @@
 				F253 /* TrackMetricSpec.swift */,
 				F254 /* TrackSeriesBuilder.swift */,
 				F255 /* ConsistencySummary.swift */,
+				F50 /* LiveMetric.swift */,
+				F51 /* LiveBaseline.swift */,
+				F54 /* LiveReading.swift */,
+				F56 /* LiveStateClassifier.swift */,
+				F57 /* LiveStateCopy.swift */,
 			);
 			path = Metrics;
 			sourceTree = "<group>";
@@ -572,6 +605,7 @@
 			isa = PBXGroup;
 			children = (
 				F211 /* DailyAnchor.swift */,
+				F260 /* FeltStateLog.swift */,
 				F114 /* HRVSession.swift */,
 				F115 /* HRVSample.swift */,
 				F116 /* ResonanceResult.swift */,
@@ -622,6 +656,7 @@
 				F112 /* APIClient.swift */,
 				F113 /* SessionUploader.swift */,
 				F208 /* ActivityUploader.swift */,
+				F261 /* FeltStateLogUploader.swift */,
 				F145 /* InsightGenerator.swift */,
 				FE6F0E9C8772030B86BA730E /* UsageUploader.swift */,
 			);
@@ -731,6 +766,13 @@
 				FT41 /* WelchPSDParsevalTests.swift */,
 				FT42 /* MetricsQualityFilterTests.swift */,
 				FTCS /* ChartSegmenterTests.swift */,
+				FT51 /* LiveMetricTests.swift */,
+				FT52 /* LiveBaselineTests.swift */,
+				FT55 /* LiveReadingTests.swift */,
+				FT57 /* LiveStateClassifierTests.swift */,
+				FT58 /* LiveStateCopyTests.swift */,
+				FT59 /* LiveStateStoreTests.swift */,
+				FT60 /* MacroReadLineTests.swift */,
 			);
 			path = WythinTests;
 			sourceTree = "<group>";
@@ -836,6 +878,7 @@
 				A214 /* PotentialScore.swift in Sources */,
 				A213 /* AnchorBaseline.swift in Sources */,
 				A211 /* DailyAnchor.swift in Sources */,
+				A260 /* FeltStateLog.swift in Sources */,
 				A210 /* AnchorDetector.swift in Sources */,
 				A101 /* WythinApp.swift in Sources */,
 				A102 /* AppEnvironment.swift in Sources */,
@@ -852,6 +895,7 @@
 				A112 /* APIClient.swift in Sources */,
 				A113 /* SessionUploader.swift in Sources */,
 				A208 /* ActivityUploader.swift in Sources */,
+				A261 /* FeltStateLogUploader.swift in Sources */,
 				A145 /* InsightGenerator.swift in Sources */,
 				A114 /* HRVSession.swift in Sources */,
 				A115 /* HRVSample.swift in Sources */,
@@ -949,6 +993,11 @@
 				519BA43B55690D5F8761EBBF /* UsageUploader.swift in Sources */,
 				F7233A74A7B0B97C62834AF5 /* PracticeImpactGauge.swift in Sources */,
 				A6E1AF270813ABED5CDABAE7 /* ExerciseScoreGauge.swift in Sources */,
+				A50 /* LiveMetric.swift in Sources */,
+				A51 /* LiveBaseline.swift in Sources */,
+				A54 /* LiveReading.swift in Sources */,
+				A56 /* LiveStateClassifier.swift in Sources */,
+				A57 /* LiveStateCopy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1011,6 +1060,13 @@
 				AT41 /* WelchPSDParsevalTests.swift in Sources */,
 				AT42 /* MetricsQualityFilterTests.swift in Sources */,
 				ATCS /* ChartSegmenterTests.swift in Sources */,
+				AT51 /* LiveMetricTests.swift in Sources */,
+				AT52 /* LiveBaselineTests.swift in Sources */,
+				AT55 /* LiveReadingTests.swift in Sources */,
+				AT57 /* LiveStateClassifierTests.swift in Sources */,
+				AT58 /* LiveStateCopyTests.swift in Sources */,
+				AT59 /* LiveStateStoreTests.swift in Sources */,
+				AT60 /* MacroReadLineTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

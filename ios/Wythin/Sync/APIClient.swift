@@ -311,6 +311,18 @@ struct APIClient {
         return try JSONDecoder().decode(UploadResponse.self, from: data)
     }
 
+    // MARK: Felt-state check-ins
+
+    func uploadFeltStateLog(_ payload: FeltStateUploadPayload, userID: String) async throws {
+        var req = request(path: "/felt-state-logs", method: "POST")
+        req.addValue(userID, forHTTPHeaderField: "X-User-ID")
+        req.httpBody = try JSONEncoder().encode(payload)
+        let (_, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+    }
+
     func fetchSessions(userID: String) async throws -> [ServerSession] {
         var req = request(path: "/sessions", method: "GET")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")

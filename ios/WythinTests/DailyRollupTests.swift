@@ -105,4 +105,98 @@ final class DailyRollupTests: XCTestCase {
         let data = try! JSONEncoder().encode(r)
         XCTAssertEqual(try! JSONDecoder().decode(DailyRollup.self, from: data), r)
     }
+
+    func testARollupWrittenBeforeSDExistedStillDecodes() throws {
+        let legacy = """
+        {"day":0,"sampleCount":1000,"wearSeconds":2000,"meanBPM":60}
+        """.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        let rollup = try decoder.decode(DailyRollup.self, from: legacy)
+        XCTAssertTrue(rollup.mean.isEmpty)
+        XCTAssertTrue(rollup.sd.isEmpty)
+        XCTAssertTrue(rollup.count.isEmpty)
+    }
+}
+
+extension DailyRollupTests {
+
+    // Brief's literal call passed `rrInvalidRate:` (not a parameter of this
+    // initializer) and omitted `sdnn:`, which — left nil — fails
+    // MetricsQualityFilter's `sdnn > 5.0` gate and would zero out every
+    // point. Dropped `rrInvalidRate:` (unused by the filter) and added
+    // `sdnn: v` so points clear the gate; `v` also satisfies the filter's
+    // rmssd/meanBPM checks (50/70/60, all within range). No assertion in
+    // these tests reads `sdnn`, so the tested mean/SD values are unaffected.
+    private func points(_ values: [Float], from start: Date) -> [MetricsHistoryPoint] {
+        values.enumerated().map { idx, v in
+            MetricsHistoryPoint(timestamp: start.addingTimeInterval(Double(idx) * 2),
+                                meanBPM: v, rmssd: v, sdnn: v, signalQuality: 1.0,
+                                ecgQualityTier: 2)
+        }
+    }
+
+    func testRollupRecordsWithinDaySD() {
+        let day = Calendar.current.startOfDay(for: Date())
+        // 200 points alternating 50/70 — mean 60, population-ish SD 10.
+        let values = (0..<200).map { $0.isMultiple(of: 2) ? Float(50) : Float(70) }
+        let rollup = DailyRollupCompute.rollup(day: day, points: points(values, from: day))
+
+        XCTAssertNotNil(rollup)
+        XCTAssertEqual(rollup?.mean[LiveMetric.hr.rawValue] ?? 0, 60, accuracy: 0.5)
+        XCTAssertEqual(rollup?.sd[LiveMetric.hr.rawValue] ?? 0, 10, accuracy: 0.5)
+    }
+
+    func testSDIsAbsentForAMetricWithNoSamples() {
+        let day = Calendar.current.startOfDay(for: Date())
+        let values = (0..<200).map { _ in Float(60) }
+        let rollup = DailyRollupCompute.rollup(day: day, points: points(values, from: day))
+        XCTAssertNil(rollup?.sd[LiveMetric.dfa1.rawValue])
+    }
+
+    func testFlatDayHasZeroSDNotNil() {
+        let day = Calendar.current.startOfDay(for: Date())
+        let values = (0..<200).map { _ in Float(60) }
+        let rollup = DailyRollupCompute.rollup(day: day, points: points(values, from: day))
+        XCTAssertEqual(rollup?.sd[LiveMetric.hr.rawValue], 0)
+    }
+
+    /// A day is genuinely flat only if it had samples to be flat ACROSS. One
+    /// value has no spread to report, and writing `sd = 0` for it claims the
+    /// strongest possible evidence — zero within-day variance — from the
+    /// weakest possible sample. Pooled into `LiveBaseline` at the day's full
+    /// weight it deflates the spread and inflates every later z for that
+    /// metric.
+    func testAMetricWithOneSampleAllDayRecordsNoSpreadAtAll() throws {
+        let pts = (0..<200).map { good($0, dc: $0 == 0 ? 6 : nil) }
+        let r = try XCTUnwrap(DailyRollupCompute.rollup(day: day, points: pts))
+        XCTAssertNil(r.sd[LiveMetric.dc.rawValue], "one sample is not a spread of zero")
+        XCTAssertNil(r.mean[LiveMetric.dc.rawValue], "nor a day's mean")
+        XCTAssertNil(r.count[LiveMetric.dc.rawValue])
+        // The typed field is the Track charts' contract and is unchanged: it
+        // is still the mean of whatever samples existed.
+        XCTAssertEqual(r.dc ?? 0, 6, accuracy: 0.001)
+        // Metrics that did have samples are untouched.
+        XCTAssertNotNil(r.sd[LiveMetric.hr.rawValue])
+        XCTAssertEqual(r.count[LiveMetric.hr.rawValue], 200)
+    }
+
+    /// Each metric's own sample count is recorded so the pooled spread can
+    /// weight by it rather than by the day's total tick count — see
+    /// `LiveBaselineTests.testPooledSpreadWeightsByTheMetricsOwnCount`.
+    func testCountIsPerMetricNotTheDaysTotal() throws {
+        let pts = (0..<200).map { good($0, dc: $0 < 50 ? 6 : nil) }
+        let r = try XCTUnwrap(DailyRollupCompute.rollup(day: day, points: pts))
+        XCTAssertEqual(r.sampleCount, 200)
+        XCTAssertEqual(r.count[LiveMetric.dc.rawValue], 50)
+        XCTAssertEqual(r.count[LiveMetric.hr.rawValue], 200)
+    }
+
+    func testCountSurvivesACodableRoundTrip() throws {
+        let pts = (0..<200).map { good($0) }
+        let r = try XCTUnwrap(DailyRollupCompute.rollup(day: day, points: pts))
+        let decoded = try JSONDecoder().decode(DailyRollup.self,
+                                               from: try JSONEncoder().encode(r))
+        XCTAssertEqual(decoded.count, r.count)
+        XCTAssertFalse(decoded.count.isEmpty)
+    }
 }

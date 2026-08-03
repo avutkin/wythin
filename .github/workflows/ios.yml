@@ -5,9 +5,12 @@ on:
     branches: [main]
     paths:
       - 'ios/**'
+      - '.github/workflows/ios.yml'
   pull_request:
     paths:
       - 'ios/**'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
 
 jobs:
   # ── Build & Test ────────────────────────────────────────────────────────────
@@ -18,15 +21,57 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode 16
-        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
+      # Select the newest Xcode present rather than pinning a version or taking
+      # the image default. Pinning Xcode 16 left the SDK with no usable
+      # simulator runtime; the image default (16.4) builds against an SDK that
+      # App Store Connect now rejects outright. Both jobs must agree, so this
+      # step is duplicated in the TestFlight job below.
+      - name: Select newest Xcode
+        run: |
+          XC=$(for app in /Applications/Xcode*.app; do
+                 v=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
+                       "$app/Contents/Info.plist" 2>/dev/null) || continue
+                 printf '%s\t%s\n' "$v" "$app"
+               done | sort -V | tail -1 | cut -f2)
+          echo "Using $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
+          xcrun simctl list runtimes
 
+      # Naming a device model pins us to whatever shipped with one Xcode (the
+      # old 'iPhone 16' pin is already gone from current Xcodes). Resolve the
+      # newest available iPhone on the image instead and address it by UDID.
+      - name: Pick a simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          runtimes = json.load(sys.stdin)["devices"]
+          best = None
+          for runtime, devices in runtimes.items():
+              if "iOS" not in runtime:
+                  continue
+              ver = tuple(int(p) for p in runtime.split(".iOS-")[-1].split("-") if p.isdigit())
+              for d in devices:
+                  if d["name"].startswith("iPhone"):
+                      key = (ver, d["name"])
+                      if best is None or key > best[0]:
+                          best = (key, d)
+          if best is None:
+              sys.exit("no available iPhone simulator")
+          print(best[1]["udid"])
+          ')
+          echo "Selected simulator: $(xcrun simctl list devices | grep "$UDID")"
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+
+      # `| xcpretty` masks xcodebuild's exit code, so a failing test suite used
+      # to report success and let the TestFlight job through. pipefail fixes it.
       - name: Build & run unit tests (simulator)
         run: |
+          set -o pipefail
           xcodebuild test \
             -project ios/Wythin.xcodeproj \
             -scheme Wythin \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -destination "id=$SIM_UDID" \
             -resultBundlePath TestResults.xcresult \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
@@ -46,36 +91,62 @@ jobs:
     runs-on: macos-15
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
+    # Signing is fully automatic: Xcode fetches (or creates) the distribution
+    # certificate and provisioning profile itself using the App Store Connect
+    # API key, so there is no .p12 or .mobileprovision to keep in secrets.
+    # Requires repo secrets: APPSTORE_ISSUER_ID, APPSTORE_KEY_ID,
+    # APPSTORE_PRIVATE_KEY (the raw .p8 contents), APPLE_TEAM_ID.
+    env:
+      ASC_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode 16
-        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
-
-      - name: Import signing certificate
-        env:
-          CERTIFICATE_BASE64: ${{ secrets.DISTRIBUTION_CERT_BASE64 }}
-          CERTIFICATE_PASSWORD: ${{ secrets.DISTRIBUTION_CERT_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+      # App Store Connect rejects anything built with an SDK older than iOS 26,
+      # and the image default is still Xcode 16.4. Must match the test job.
+      - name: Select newest Xcode
         run: |
-          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
-          CERT_PATH="$RUNNER_TEMP/dist.p12"
-          echo "$CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERT_PATH" -P "$CERTIFICATE_PASSWORD" \
-            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          XC=$(for app in /Applications/Xcode*.app; do
+                 v=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
+                       "$app/Contents/Info.plist" 2>/dev/null) || continue
+                 printf '%s\t%s\n' "$v" "$app"
+               done | sort -V | tail -1 | cut -f2)
+          echo "Using $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
 
-      - name: Download provisioning profile
+      # An unset secret expands to an empty string, which otherwise surfaces as
+      # a cryptic failure several steps later. Fail here, naming the secret.
+      - name: Check required secrets are present
         env:
-          PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+          ASC_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
         run: |
-          PROFILE_PATH="$HOME/Library/MobileDevice/Provisioning Profiles"
-          mkdir -p "$PROFILE_PATH"
-          echo "$PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH/Wythin_Distribution.mobileprovision"
+          missing=""
+          [ -n "$ASC_KEY_ID" ]      || missing="$missing APPSTORE_KEY_ID"
+          [ -n "$ASC_ISSUER_ID" ]   || missing="$missing APPSTORE_ISSUER_ID"
+          [ -n "$ASC_PRIVATE_KEY" ] || missing="$missing APPSTORE_PRIVATE_KEY"
+          [ -n "$TEAM_ID" ]         || missing="$missing APPLE_TEAM_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repo secrets:$missing — set them under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "All four App Store Connect secrets are present."
 
+      - name: Write App Store Connect API key
+        env:
+          ASC_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        run: |
+          KEY_DIR="$RUNNER_TEMP/private_keys"
+          mkdir -p "$KEY_DIR"
+          printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_DIR/AuthKey_$ASC_KEY_ID.p8"
+          chmod 600 "$KEY_DIR/AuthKey_$ASC_KEY_ID.p8"
+          echo "ASC_KEY_PATH=$KEY_DIR/AuthKey_$ASC_KEY_ID.p8" >> "$GITHUB_ENV"
+
+      # TestFlight rejects a build number it has already seen, and the project
+      # pins CURRENT_PROJECT_VERSION = 1. github.run_number is monotonic per
+      # workflow and already past the builds uploaded by hand from Xcode.
       - name: Archive
         run: |
           xcodebuild archive \
@@ -83,33 +154,43 @@ jobs:
             -scheme Wythin \
             -configuration Release \
             -archivePath "$RUNNER_TEMP/Wythin.xcarchive" \
-            -destination 'generic/platform=iOS'
+            -destination 'generic/platform=iOS' \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }}
 
-      - name: Export IPA
+      - name: Export and upload to TestFlight
         run: |
-          cat > /tmp/ExportOptions.plist << 'EOF'
+          cat > "$RUNNER_TEMP/ExportOptions.plist" << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
             <key>method</key>
-            <string>app-store</string>
+            <string>app-store-connect</string>
+            <key>destination</key>
+            <string>upload</string>
             <key>teamID</key>
-            <string>${{ secrets.APPLE_TEAM_ID }}</string>
-            <key>uploadBitcode</key>
-            <false/>
+            <string>$TEAM_ID</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>uploadSymbols</key>
+            <true/>
           </dict>
           </plist>
           EOF
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/Wythin.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
-            -exportOptionsPlist /tmp/ExportOptions.plist
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
-      - name: Upload to TestFlight
-        uses: apple-actions/upload-testflight-build@v1
-        with:
-          app-path: ${{ runner.temp }}/export/Wythin.ipa
-          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
-          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
-          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+      - name: Clean up API key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/private_keys/AuthKey_$ASC_KEY_ID.p8"

@@ -25,7 +25,81 @@ struct DailyRollup: Codable, Equatable, Identifiable {
     /// Wear time implied by `sampleCount`, in seconds.
     let wearSeconds: Double
 
+    /// Per-metric mean, keyed by `LiveMetric.rawValue`. Duplicates the typed
+    /// fields above deliberately: the typed ones are the Track charts' contract
+    /// and must not churn, while this is the keyed access the live baseline
+    /// needs. Both are written from the same pass.
+    let mean: [String: Double]
+
+    /// Per-metric **within-day** standard deviation, keyed the same way.
+    ///
+    /// This is the spread a ten-minute window actually varies by. The spread of
+    /// daily means is between-day variance and is much smaller — dividing by it
+    /// would inflate every z-score.
+    let sd: [String: Double]
+
+    /// How many samples of **that metric** are behind its `mean`/`sd`, keyed
+    /// the same way.
+    ///
+    /// Not the same as `sampleCount`, which counts the day's quality-passing
+    /// ticks. A metric can be absent from most of them — DC and RCMSE need
+    /// long enough clean stretches to compute at all — and pooling its
+    /// within-day variance at the day's full weight lets two values sit in the
+    /// baseline with the authority of a fourteen-hour day.
+    let count: [String: Int]
+
     var id: Date { day }
+
+    /// Declared explicitly because the custom `init(from:)` below suppresses
+    /// Swift's automatic memberwise-initializer synthesis for the whole
+    /// struct, not just `Decodable` conformance. `DailyRollupCompute.rollup`
+    /// and the tests both construct a `DailyRollup` directly by field, so
+    /// this keeps that call shape working.
+    init(day: Date, dc: Double?, rmssd: Double?, rsaMs: Double?, rcmse: Double?,
+         pip: Double?, dfa1: Double?, stressBalance: Double?, vti: Double?,
+         meanBPM: Double?, sampleCount: Int, wearSeconds: Double,
+         mean: [String: Double], sd: [String: Double], count: [String: Int] = [:]) {
+        self.day           = day
+        self.dc            = dc
+        self.rmssd         = rmssd
+        self.rsaMs         = rsaMs
+        self.rcmse         = rcmse
+        self.pip           = pip
+        self.dfa1          = dfa1
+        self.stressBalance = stressBalance
+        self.vti           = vti
+        self.meanBPM       = meanBPM
+        self.sampleCount   = sampleCount
+        self.wearSeconds   = wearSeconds
+        self.mean          = mean
+        self.sd            = sd
+        self.count         = count
+    }
+
+    /// Decoded field by field so a rollup written before `mean`/`sd` existed
+    /// still loads. `TrackCache.File` decodes `rollups` with `try`, and its
+    /// `load()` treats a throw as corruption and empties the entire cache —
+    /// `macroReads` with it. Invalidating stale rollups is
+    /// `rollupComputeVersion`'s job, deliberately narrow; a decode failure here
+    /// would be a blanket wipe instead.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        day           = try c.decode(Date.self, forKey: .day)
+        dc            = try c.decodeIfPresent(Double.self, forKey: .dc)
+        rmssd         = try c.decodeIfPresent(Double.self, forKey: .rmssd)
+        rsaMs         = try c.decodeIfPresent(Double.self, forKey: .rsaMs)
+        rcmse         = try c.decodeIfPresent(Double.self, forKey: .rcmse)
+        pip           = try c.decodeIfPresent(Double.self, forKey: .pip)
+        dfa1          = try c.decodeIfPresent(Double.self, forKey: .dfa1)
+        stressBalance = try c.decodeIfPresent(Double.self, forKey: .stressBalance)
+        vti           = try c.decodeIfPresent(Double.self, forKey: .vti)
+        meanBPM       = try c.decodeIfPresent(Double.self, forKey: .meanBPM)
+        sampleCount   = try c.decodeIfPresent(Int.self, forKey: .sampleCount) ?? 0
+        wearSeconds   = try c.decodeIfPresent(Double.self, forKey: .wearSeconds) ?? 0
+        mean          = try c.decodeIfPresent([String: Double].self, forKey: .mean) ?? [:]
+        sd            = try c.decodeIfPresent([String: Double].self, forKey: .sd) ?? [:]
+        count         = try c.decodeIfPresent([String: Int].self, forKey: .count) ?? [:]
+    }
 }
 
 enum DailyRollupCompute {
@@ -51,6 +125,28 @@ enum DailyRollupCompute {
             return vals.reduce(0, +) / Double(vals.count)
         }
 
+        var means:  [String: Double] = [:]
+        var sds:    [String: Double] = [:]
+        var counts: [String: Int]    = [:]
+        for metric in LiveMetric.allCases {
+            let vals = valid.compactMap { metric.value($0).map(Double.init) }
+            // Two samples minimum, and no `sd = 0` shortcut for one. A single
+            // value has no spread to report, and recording zero claims the
+            // strongest evidence there is — no within-day variance at all —
+            // from the weakest sample there is. `LiveBaseline` pools these, so
+            // one such day used to deflate the spread and inflate every
+            // subsequent z for that metric. The day contributes nothing to
+            // this metric's baseline instead, which is what one sample is
+            // worth. The typed fields above are unaffected: those are the
+            // Track charts' contract and still average whatever existed.
+            guard vals.count >= 2 else { continue }
+            let m = vals.reduce(0, +) / Double(vals.count)
+            let variance = vals.reduce(0.0) { $0 + ($1 - m) * ($1 - m) } / Double(vals.count - 1)
+            means[metric.rawValue]  = m
+            sds[metric.rawValue]    = variance.squareRoot()
+            counts[metric.rawValue] = vals.count
+        }
+
         return DailyRollup(
             day:           day,
             dc:            mean { $0.dc.map(Double.init) },
@@ -63,17 +159,23 @@ enum DailyRollupCompute {
             vti:           mean { $0.vti.map(Double.init) },
             meanBPM:       mean { $0.meanBPM.map(Double.init) },
             sampleCount:   valid.count,
-            wearSeconds:   Double(valid.count) * tickSeconds
+            wearSeconds:   Double(valid.count) * tickSeconds,
+            mean:          means,
+            sd:            sds,
+            count:         counts
         )
     }
 
     /// Stress Balance is the breathing-robust 0–100 arousal dial, not a raw
     /// LF/HF ratio — there is no stored field for it, so it is derived per
     /// tick exactly as `ActivityMetricsGrid.swift:58` does, then averaged.
+    ///
+    /// Delegates to `LiveMetric.stressBalance.value(_:)` rather than deriving
+    /// it a second time, so the typed field below and the `mean`/`sd`
+    /// dictionary entry under `"stress_balance"` cannot drift apart — the live
+    /// path reads the dictionary, and a rollup whose two halves disagreed
+    /// would be silently worse than either alone.
     static func stressBalance(_ pt: MetricsHistoryPoint) -> Double? {
-        AutonomicCompute.balance(rmssd: pt.rmssd, lf: pt.lfPower, hf: pt.hfPower,
-                                 breathBPM: pt.breathBPM, meanBPM: pt.meanBPM,
-                                 baselineRmssd: nil)
-            .map { Double($0.sns) * 100 }
+        LiveMetric.stressBalance.value(pt).map(Double.init)
     }
 }
