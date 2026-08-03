@@ -391,12 +391,25 @@ struct LiveStateWidget: View {
 
             currentStateSection
 
-            // RIGHT NOW (and the LLM's own bullets) is a sibling of the
-            // collapsible block above, not nested inside it — expanding or
-            // collapsing the Current State drop-down only changes the WHY
-            // list's own visibility and never this section's.
             if let text = store.text {
-                narrationSection(text)
+                let insight = LiveStateInsight(raw: text)
+
+                // WHAT THIS MEANS — the LLM's own bullets. A sibling of the
+                // collapsible block above, not nested inside it — expanding
+                // or collapsing the Current State drop-down only changes the
+                // WHY list's own visibility and never this section's.
+                whatThisMeansSection(insight)
+
+                // RIGHT NOW is a sibling of WHAT THIS MEANS too, not nested
+                // beneath its heading — the spec's layout is three
+                // independent sections in one card, and RIGHT NOW is
+                // "always visible, never inside the drop-down." It renders
+                // whenever the LLM produced a recommendation, regardless of
+                // whether its bullets parsed — a reply with a recommendation
+                // but no bullets must still show it.
+                if let recommendation = insight.recommendation {
+                    recommendationBlock(recommendation, accent: insight.state?.color ?? Theme.accent)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -521,8 +534,7 @@ struct LiveStateWidget: View {
 
     // MARK: - Narration (WHAT THIS MEANS + RIGHT NOW)
 
-    /// Everything the LLM writes: its own descriptive bullets, then the
-    /// RIGHT NOW recommendation. Both stay coloured by `insight.state` — the
+    /// The LLM's own descriptive bullets, coloured by `insight.state` — the
     /// LLM's own read — even though the collapsed row above prefers the
     /// local state's colour when one exists. The two halves refresh on
     /// different clocks (`state` every 15-20 s, `text` at most every 5
@@ -533,40 +545,34 @@ struct LiveStateWidget: View {
     /// of recolouring it), this distinction goes away on its own; until then
     /// each half is coloured by its own source.
     ///
-    /// A sibling of `currentStateSection`, not nested inside it — this is
-    /// what keeps RIGHT NOW from moving when the Current State drop-down
-    /// opens or closes.
+    /// A `body`-level sibling of `currentStateSection` AND of the RIGHT NOW
+    /// block (see `body`) — not a container the recommendation lives inside.
+    /// Renders nothing when there are no bullets, at least one always shows
+    /// when it renders anything at all.
     @ViewBuilder
-    private func narrationSection(_ text: String) -> some View {
-        let insight = LiveStateInsight(raw: text)
-        let accent  = insight.state?.color ?? Theme.accent
-        VStack(alignment: .leading, spacing: 14) {
-            if !insight.bullets.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("WHAT THIS MEANS")
-                        .font(.system(size: 12, weight: .bold, design: .monospaced))
-                        .foregroundStyle(Theme.dim)
-                    ForEach(Array(insight.bullets.enumerated()), id: \.offset) { _, bullet in
-                        HStack(alignment: .top, spacing: 8) {
-                            Circle()
-                                .fill(accent.opacity(0.7))
-                                .frame(width: 5, height: 5)
-                                .padding(.top, 6)
-                            Text(styledBullet(bullet))
-                                .font(.system(size: 14))
-                                .foregroundStyle(Theme.dim)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .lineSpacing(3)
-                        }
+    private func whatThisMeansSection(_ insight: LiveStateInsight) -> some View {
+        if !insight.bullets.isEmpty {
+            let accent = insight.state?.color ?? Theme.accent
+            VStack(alignment: .leading, spacing: 8) {
+                Text("WHAT THIS MEANS")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Theme.dim)
+                ForEach(Array(insight.bullets.enumerated()), id: \.offset) { _, bullet in
+                    HStack(alignment: .top, spacing: 8) {
+                        Circle()
+                            .fill(accent.opacity(0.7))
+                            .frame(width: 5, height: 5)
+                            .padding(.top, 6)
+                        Text(styledBullet(bullet))
+                            .font(.system(size: 14))
+                            .foregroundStyle(Theme.dim)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .lineSpacing(3)
                     }
                 }
             }
-
-            if let recommendation = insight.recommendation {
-                recommendationBlock(recommendation, accent: accent)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Renders `**bold**` markdown in a bullet and brightens the bold spans to
