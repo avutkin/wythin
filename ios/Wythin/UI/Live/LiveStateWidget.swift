@@ -36,7 +36,7 @@ enum LiveWhyBand {
     /// in the two cases where a number would overstate what the reading
     /// actually supports:
     ///
-    /// - `effective` is in the neutral band. Checked by asking `text(for:)`
+    /// - `level` is in the neutral band. Checked by asking `text(for:)`
     ///   itself rather than repeating its `-0.35..<0.35` cutoff here, so the
     ///   two can never disagree about where "right around your usual" starts.
     ///   A number here would claim a precision the reading does not have.
@@ -46,8 +46,14 @@ enum LiveWhyBand {
     /// A percentage that itself rounds to 0% is treated the same way —
     /// "0% above your usual" reads as a contradiction of the row it sits in,
     /// so it falls back too.
-    static func text(effective: Float, windowValue: Float, baselineCentre: Float) -> String {
-        let band = text(for: effective)
+    ///
+    /// Takes `level`, deliberately NOT `effective`: `windowValue` and
+    /// `baselineCentre` are both level-scale (trend plays no part in either),
+    /// so banding on `effective` here could disagree in sign with the
+    /// percentage this same call computes from them — see `LiveWhyRow.build`,
+    /// the one call site, for the full reasoning and the regression test.
+    static func text(level: Float, windowValue: Float, baselineCentre: Float) -> String {
+        let band = text(for: level)
         guard band != "right around your usual" else { return band }
         guard abs(baselineCentre) > degenerateCentreThreshold else { return band }
 
@@ -111,32 +117,43 @@ enum LiveStateHeadline {
 /// One WHY row's rendered values, decided in one place so the choice of
 /// *which quantity feeds which output* is a function call the view makes,
 /// not an inline expression it could be quietly edited back to the wrong
-/// shape. `bandText` and `barWidth` deliberately come from two different
-/// numbers on the same `StateContribution` — see `LiveStateStore.reading`'s
-/// doc for why `c.value` (weight × effective, ranking-only) is the wrong
-/// input for a z-calibrated band sentence.
+/// shape.
+///
+/// The row deliberately describes TWO different quantities, one per output:
+/// the bar's length (and the ranking that ordered the row) comes from
+/// `contribution.value` — weight × `effective`, i.e. trend-adjusted, the
+/// actual pull that earned the row its place in the list. The band text
+/// comes from the metric's own `level` — its current position, trend
+/// excluded. Those two can disagree in sign (a metric near its usual value
+/// but moving fast can rank as a strong driver via `effective` while sitting
+/// at `level` ≈ 0), and when they do, the text must follow `level`: the bar
+/// says how much this metric moved the state, the text says where the
+/// metric actually sits. A row can therefore rank high on trend while
+/// reading "right around your usual" — that is honest and informative, not
+/// a bug. Feeding `effective` to the band (the original wiring) instead
+/// prints a direction word that can contradict the row's own ranking sign —
+/// see `LiveWhyRowTests.testBandFollowsLevelEvenWhenEffectiveDisagreesInSign`.
 struct LiveWhyRow: Equatable {
     let displayName: String
     let bandText: String
     let barWidth: Double
     let isStrong: Bool
 
-    /// `reading` is looked up for `effective` (and the native-unit pair that
+    /// `reading` is looked up for `level` (and the native-unit pair that
     /// makes a percentage possible), never for ranking — ranking and bar
     /// length both come from `contribution.value`, which is already the
     /// classifier's own ranked-by-weighted-pull ordering.
     static func build(for contribution: StateContribution, reading: LiveReading) -> LiveWhyRow {
         let metricReading = reading.readings[contribution.metric]
-        let effective = metricReading?.effective ?? 0
         let bandText: String
         if let metricReading {
-            bandText = LiveWhyBand.text(effective: effective,
+            bandText = LiveWhyBand.text(level: metricReading.level,
                                         windowValue: metricReading.windowValue,
                                         baselineCentre: metricReading.baselineCentre)
         } else {
             // No matching reading (see the doc on the fallback test) — no
             // native-unit pair to compute a percentage from either.
-            bandText = LiveWhyBand.text(for: effective)
+            bandText = LiveWhyBand.text(for: 0)
         }
         return LiveWhyRow(
             displayName: contribution.metric.displayName.uppercased(),

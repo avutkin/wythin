@@ -74,7 +74,7 @@ struct MetricReading: Equatable {
     /// The window's own mean, in the metric's native units — not a z-score.
     /// Nothing in the classifier reads this; it exists so the WHY row can
     /// print an actual percentage ("38% below your usual") instead of only
-    /// the qualitative band. See `LiveWhyBand.text(effective:windowValue:baselineCentre:)`.
+    /// the qualitative band. See `LiveWhyBand.text(level:windowValue:baselineCentre:)`.
     let windowValue: Float
     /// The baseline's centre for this metric, in native units, carried
     /// alongside `windowValue` for the same reason — the percentage is

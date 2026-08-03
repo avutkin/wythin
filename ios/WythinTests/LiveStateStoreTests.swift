@@ -262,9 +262,9 @@ final class LiveWhyBandAndBarTests: XCTestCase {
     /// Pins the boundary itself, in isolation. This does NOT catch a
     /// regression where the wrong quantity is handed to `LiveWhyBand` at the
     /// call site — `LiveWhyBand.text(for:)` has no way to know whether its
-    /// caller passed `effective` or `c.value`, so that has to be caught where
+    /// caller passed `level` or `c.value`, so that has to be caught where
     /// the call site's *choice* is itself a tested unit: see
-    /// `LiveWhyRowTests.testBandUsesEffectiveNotTheWeightedContribution`
+    /// `LiveWhyRowTests.testBandUsesLevelNotTheWeightedContribution`
     /// below, which exercises `LiveWhyRow.build` — the one place that choice
     /// is made — with a fixture where the two quantities land in different
     /// bands.
@@ -317,7 +317,7 @@ final class LiveWhyBandAndBarTests: XCTestCase {
     }
 }
 
-/// `LiveWhyBand.text(effective:windowValue:baselineCentre:)` — the percentage
+/// `LiveWhyBand.text(level:windowValue:baselineCentre:)` — the percentage
 /// half of the WHY row: "38% below your usual" rather than only "well below
 /// your usual". Each case below is chosen so a regression to the OLD
 /// (band-only) behaviour, or to a naive percent-always formula, would flip
@@ -331,30 +331,30 @@ final class LiveWhyBandPercentTests: XCTestCase {
     /// see "well below your usual" instead and fail — it is not merely
     /// checking that a string is non-empty.
     func testFellThirtyEightPercentBelowUsual() {
-        let text = LiveWhyBand.text(effective: -1.6, windowValue: 62, baselineCentre: 100)
+        let text = LiveWhyBand.text(level: -1.6, windowValue: 62, baselineCentre: 100)
         XCTAssertEqual(text, "38% below your usual")
     }
 
     func testTwelvePercentAboveUsual() {
-        let text = LiveWhyBand.text(effective: 1.2, windowValue: 112, baselineCentre: 100)
+        let text = LiveWhyBand.text(level: 1.2, windowValue: 112, baselineCentre: 100)
         XCTAssertEqual(text, "12% above your usual")
     }
 
     /// No dash, no qualitative phrase alongside the number — the user's
     /// chosen shape is the number ALONE followed by the plain meaning.
     func testNoDashConstructionInThePercentSentence() {
-        let text = LiveWhyBand.text(effective: -1.6, windowValue: 62, baselineCentre: 100)
+        let text = LiveWhyBand.text(level: -1.6, windowValue: 62, baselineCentre: 100)
         XCTAssertFalse(text.contains("—"), "no dash clause — value then plain meaning only")
         XCTAssertFalse(text.contains("well"), "the qualitative band phrase must not also appear")
     }
 
     /// The neutral band never prints a number, even when the raw values would
-    /// yield a clean, computable percentage — a small `effective` means the
+    /// yield a clean, computable percentage — a small `level` means the
     /// reading isn't sure enough of a direction to put a figure on it. This
     /// is the RECOVERY row from the approved mockup: "right around your
     /// usual", not "4% above your usual".
     func testNeutralBandSuppressesTheNumberEvenWhenOneIsComputable() {
-        let text = LiveWhyBand.text(effective: 0.1, windowValue: 104, baselineCentre: 100)
+        let text = LiveWhyBand.text(level: 0.1, windowValue: 104, baselineCentre: 100)
         XCTAssertEqual(text, "right around your usual")
     }
 
@@ -363,17 +363,17 @@ final class LiveWhyBandPercentTests: XCTestCase {
     /// the other (the exact defect this indirection is meant to prevent)
     /// shows up here as a mismatch rather than passing silently.
     func testNeutralBoundaryMatchesTheQualitativeBandExactly() {
-        for effective: Float in [-0.35, -0.1, 0, 0.1, 0.34] {
-            XCTAssertEqual(LiveWhyBand.text(effective: effective, windowValue: 999, baselineCentre: 100),
-                           LiveWhyBand.text(for: effective),
-                           "effective \(effective) must be neutral in both, or in neither")
+        for level: Float in [-0.35, -0.1, 0, 0.1, 0.34] {
+            XCTAssertEqual(LiveWhyBand.text(level: level, windowValue: 999, baselineCentre: 100),
+                           LiveWhyBand.text(for: level),
+                           "level \(level) must be neutral in both, or in neither")
         }
     }
 
     /// A baseline centre of exactly zero cannot be divided by — this must
     /// fall back to the qualitative band, not crash or print `inf`/`nan`.
     func testDegenerateCentreOfExactlyZeroFallsBackToTheBand() {
-        let text = LiveWhyBand.text(effective: -1.6, windowValue: -5, baselineCentre: 0)
+        let text = LiveWhyBand.text(level: -1.6, windowValue: -5, baselineCentre: 0)
         XCTAssertEqual(text, "well below your usual")
         XCTAssertFalse(text.contains("%"), "no number can come out of a zero centre")
     }
@@ -381,7 +381,7 @@ final class LiveWhyBandPercentTests: XCTestCase {
     /// Not just literal zero — a centre close enough to zero still swings
     /// wildly for a tiny absolute change, so it must fall back too.
     func testNearZeroCentreAlsoFallsBackToTheBand() {
-        let text = LiveWhyBand.text(effective: -1.6, windowValue: -5, baselineCentre: 0.0001)
+        let text = LiveWhyBand.text(level: -1.6, windowValue: -5, baselineCentre: 0.0001)
         XCTAssertFalse(text.contains("%"), "a near-zero centre must not produce a wild percentage")
         XCTAssertEqual(text, LiveWhyBand.text(for: -1.6))
     }
@@ -391,7 +391,7 @@ final class LiveWhyBandPercentTests: XCTestCase {
     /// fall back to the qualitative phrase instead of printing a hollow number.
     func testAPercentageThatRoundsToZeroFallsBackToTheBand() {
         // (999.6 - 1000) / 1000 * 100 == -0.04%, which rounds to 0.
-        let text = LiveWhyBand.text(effective: -0.5, windowValue: 999.6, baselineCentre: 1000)
+        let text = LiveWhyBand.text(level: -0.5, windowValue: 999.6, baselineCentre: 1000)
         XCTAssertEqual(text, "below your usual")
         XCTAssertFalse(text.contains("%"))
     }
@@ -399,7 +399,7 @@ final class LiveWhyBandPercentTests: XCTestCase {
     /// Rounds to the nearest whole percent rather than truncating — 37.6%
     /// must read as 38%, not 37%.
     func testPercentageRoundsRatherThanTruncates() {
-        let text = LiveWhyBand.text(effective: -1.6, windowValue: 62.4, baselineCentre: 100)
+        let text = LiveWhyBand.text(level: -1.6, windowValue: 62.4, baselineCentre: 100)
         XCTAssertEqual(text, "38% below your usual")
     }
 }
@@ -449,9 +449,13 @@ final class LiveWhyRowTests: XCTestCase {
     /// `windowValue`/`baselineCentre` both 0 here deliberately: a degenerate
     /// centre falls back to the qualitative band (see `LiveWhyBand`'s doc),
     /// which is what every test in this class below is asserting against —
-    /// they are about *which quantity* (`effective` vs `contribution.value`)
+    /// they are about *which quantity* (`level` vs `contribution.value`)
     /// feeds the band, not about the percentage formatter. That formatter
-    /// gets its own fixtures in `LiveWhyBandPercentTests`.
+    /// gets its own fixtures in `LiveWhyBandPercentTests`. `level` and
+    /// `effective` are set to the same value here — this fixture is about
+    /// discriminating `level` from `contribution.value`, not from
+    /// `effective`; see `testBandFollowsLevelEvenWhenEffectiveDisagreesInSign`
+    /// below for the case where `level` and `effective` themselves diverge.
     private func reading(_ metric: LiveMetric, effective: Float) -> LiveReading {
         let r = MetricReading(metric: metric, level: effective, trend: 0,
                               meaningful: false, effective: effective,
@@ -460,20 +464,43 @@ final class LiveWhyRowTests: XCTestCase {
     }
 
     /// The exact scenario the task's own correction spelled out: a metric at
-    /// effective 2.0 (well above usual) sitting on an axis weighted 0.3, so
-    /// its ranked pull (`StateContribution.value`) is 0.3 × 2.0 = 0.6 — which
-    /// is itself only "above your usual" by the same band table. If
+    /// level 2.0 (well above usual) sitting on an axis weighted 0.3, so its
+    /// ranked pull (`StateContribution.value`) is 0.3 × 2.0 = 0.6 — which is
+    /// itself only "above your usual" by the same band table. If
     /// `LiveWhyRow.build` ever regressed to reading `contribution.value`
-    /// where `effective` belongs (i.e. reverted to the brief's original,
-    /// wrong wiring), this assertion would see "above" instead of "well
-    /// above" and fail.
-    func testBandUsesEffectiveNotTheWeightedContribution() {
+    /// where `level` belongs, this assertion would see "above" instead of
+    /// "well above" and fail.
+    func testBandUsesLevelNotTheWeightedContribution() {
         let contribution = StateContribution(metric: .dfa1, value: 0.3 * 2.0)
         let row = LiveWhyRow.build(for: contribution, reading: reading(.dfa1, effective: 2.0))
         XCTAssertEqual(row.bandText, "well above your usual",
-                       "must describe the metric's own effective reading, not its weighted pull")
+                       "must describe the metric's own current level, not its weighted pull")
         XCTAssertNotEqual(row.bandText, LiveWhyBand.text(for: contribution.value),
                           "banding the weighted pull directly is exactly the bug this guards against")
+    }
+
+    /// The audit's own worked example: inner noise sitting at level +0.05
+    /// (right around usual) with a falling trend of −1.5 SD/window. With
+    /// gain(0.05) ≈ 0.975, `effective` = 0.05 + 0.5·0.975·(−1.5) ≈ −0.68 —
+    /// "below your usual" — even though the metric's own current position is
+    /// neutral. Ranking (`contribution.value`, here negative — a downward
+    /// driver) is correctly derived from `effective`, but the row's TEXT must
+    /// describe `level`, or the row prints a direction ("above"/"below") that
+    /// contradicts the very quantity that put it in the WHY list. Before the
+    /// fix, `LiveWhyRow.build` fed `effective` to the band function, which
+    /// skipped the neutral short-circuit (since -0.68 isn't neutral) and
+    /// printed "2% above your usual" from the raw window/baseline values —
+    /// directionally backwards from a row ranked as a downward pull.
+    func testBandFollowsLevelEvenWhenEffectiveDisagreesInSign() {
+        let r = MetricReading(metric: .pip, level: 0.05, trend: -1.5, meaningful: true,
+                              effective: -0.68, windowValue: 20.4, baselineCentre: 20)
+        let reading = LiveReading(readings: [.pip: r], coverage: 1.0)
+        let contribution = StateContribution(metric: .pip, value: -0.4)   // ranked as a downward driver
+        let row = LiveWhyRow.build(for: contribution, reading: reading)
+        XCTAssertEqual(row.bandText, "right around your usual",
+                       "the text must describe where the metric actually sits (level), not the trend-adjusted effective")
+        XCTAssertFalse(row.bandText.contains("above"),
+                       "a row ranked as a downward driver must never print as moving upward")
     }
 
     /// Sanity check on the same fixture from the other side: swapping the
