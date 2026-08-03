@@ -7,7 +7,8 @@ final class LiveStateClassifierTests: XCTestCase {
         var out: [LiveMetric: MetricReading] = [:]
         for (metric, effective) in pairs {
             out[metric] = MetricReading(metric: metric, level: effective, trend: 0,
-                                        meaningful: false, effective: effective)
+                                        meaningful: false, effective: effective,
+                                        windowValue: 0, baselineCentre: 0)
         }
         return LiveReading(readings: out, coverage: 1.0)
     }

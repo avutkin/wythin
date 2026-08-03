@@ -71,6 +71,15 @@ struct MetricReading: Equatable {
     let meaningful: Bool
     /// Level adjusted by the gain-weighted trend. What the classifier scores.
     let effective: Float
+    /// The window's own mean, in the metric's native units — not a z-score.
+    /// Nothing in the classifier reads this; it exists so the WHY row can
+    /// print an actual percentage ("38% below your usual") instead of only
+    /// the qualitative band. See `LiveWhyBand.text(effective:windowValue:baselineCentre:)`.
+    let windowValue: Float
+    /// The baseline's centre for this metric, in native units, carried
+    /// alongside `windowValue` for the same reason — the percentage is
+    /// `(windowValue − baselineCentre) / baselineCentre`.
+    let baselineCentre: Float
 }
 
 /// A ten-minute window, reduced to per-metric readings against the baseline.
@@ -135,8 +144,9 @@ struct LiveReading {
             // estimator the baseline does not share, buys nothing and costs a
             // standing bias.
             let windowMean = values.reduce(0, +) / Float(values.count)
-            guard let level = baseline.z(windowMean, for: metric),
-                  let sd    = baseline.stat(for: metric)?.sdBlended(prior: LivePrior.prior(for: metric))
+            guard let stat  = baseline.stat(for: metric),
+                  let level = baseline.z(windowMean, for: metric),
+                  let sd    = stat.sdBlended(prior: LivePrior.prior(for: metric))
             else { continue }
 
             // Slope across the window, expressed in the person's own SD so it is
@@ -157,11 +167,13 @@ struct LiveReading {
             let trend      = meaningful ? rawTrend : 0
 
             readings[metric] = MetricReading(
-                metric:     metric,
-                level:      level,
-                trend:      trend,
-                meaningful: meaningful,
-                effective:  effective(level: level, trend: trend))
+                metric:         metric,
+                level:          level,
+                trend:          trend,
+                meaningful:     meaningful,
+                effective:      effective(level: level, trend: trend),
+                windowValue:    windowMean,
+                baselineCentre: stat.mean)
         }
         guard !readings.isEmpty else { return nil }
         return LiveReading(readings: readings, coverage: coverage)

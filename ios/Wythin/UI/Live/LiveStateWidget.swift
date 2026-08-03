@@ -21,6 +21,40 @@ enum LiveWhyBand {
         default:             return "well below your usual"
         }
     }
+
+    /// Below this absolute native-unit baseline centre, a percentage swings
+    /// wildly for a tiny absolute change — and divides by zero outright at
+    /// exactly zero — so it is never printed. Deliberately a generic safety
+    /// net rather than a per-metric figure: nothing in this codebase's
+    /// metrics is expected to sit this close to zero in practice, so the
+    /// exact value only matters for the degenerate case it exists to catch.
+    private static let degenerateCentreThreshold: Float = 1e-3
+
+    /// The user's chosen shape for a WHY row: the number leads, the plain
+    /// meaning follows, no dash — "38% below your usual", not "well below
+    /// your usual — 38%". Falls back to the qualitative band (`text(for:)`)
+    /// in the two cases where a number would overstate what the reading
+    /// actually supports:
+    ///
+    /// - `effective` is in the neutral band. Checked by asking `text(for:)`
+    ///   itself rather than repeating its `-0.35..<0.35` cutoff here, so the
+    ///   two can never disagree about where "right around your usual" starts.
+    ///   A number here would claim a precision the reading does not have.
+    /// - the baseline centre is at or near zero (`degenerateCentreThreshold`),
+    ///   where percent-of-a-near-zero quantity is not a meaningful figure.
+    ///
+    /// A percentage that itself rounds to 0% is treated the same way —
+    /// "0% above your usual" reads as a contradiction of the row it sits in,
+    /// so it falls back too.
+    static func text(effective: Float, windowValue: Float, baselineCentre: Float) -> String {
+        let band = text(for: effective)
+        guard band != "right around your usual" else { return band }
+        guard abs(baselineCentre) > degenerateCentreThreshold else { return band }
+
+        let percent = Int(((windowValue - baselineCentre) / baselineCentre * 100).rounded())
+        guard percent != 0 else { return band }
+        return percent > 0 ? "\(percent)% above your usual" : "\(-percent)% below your usual"
+    }
 }
 
 /// The WHY row's bar length: `value`'s magnitude on a FIXED scale, so the bar
@@ -87,14 +121,26 @@ struct LiveWhyRow: Equatable {
     let barWidth: Double
     let isStrong: Bool
 
-    /// `reading` is looked up for `effective`, never for ranking — ranking
-    /// and bar length both come from `contribution.value`, which is already
-    /// the classifier's own ranked-by-weighted-pull ordering.
+    /// `reading` is looked up for `effective` (and the native-unit pair that
+    /// makes a percentage possible), never for ranking — ranking and bar
+    /// length both come from `contribution.value`, which is already the
+    /// classifier's own ranked-by-weighted-pull ordering.
     static func build(for contribution: StateContribution, reading: LiveReading) -> LiveWhyRow {
-        let effective = reading.readings[contribution.metric]?.effective ?? 0
+        let metricReading = reading.readings[contribution.metric]
+        let effective = metricReading?.effective ?? 0
+        let bandText: String
+        if let metricReading {
+            bandText = LiveWhyBand.text(effective: effective,
+                                        windowValue: metricReading.windowValue,
+                                        baselineCentre: metricReading.baselineCentre)
+        } else {
+            // No matching reading (see the doc on the fallback test) — no
+            // native-unit pair to compute a percentage from either.
+            bandText = LiveWhyBand.text(for: effective)
+        }
         return LiveWhyRow(
             displayName: contribution.metric.displayName.uppercased(),
-            bandText: LiveWhyBand.text(for: effective),
+            bandText: bandText,
             barWidth: LiveWhyBar.width(value: contribution.value),
             isStrong: abs(contribution.value) > 0.6)
     }
@@ -237,24 +283,31 @@ final class LiveStateStore {
 }
 
 /// Small, always-visible widget showing the on-device state (name, feeling,
-/// ranked WHY) plus an OpenAI-generated, purely descriptive account of the
-/// nervous-system trend over the last 10 minutes.
+/// ranked WHY, behind its own drop-down) plus an OpenAI-generated, purely
+/// descriptive account of the nervous-system trend over the last 10 minutes.
 ///
-/// The device-side half — header and ranked WHY — needs no network and appears
-/// as soon as there is a baseline and a covered window (see
-/// `LiveStateStore.recomputeState`). It renders in BOTH paths: the WHY list is
-/// the baseline-referenced explanation and is not something the narration
-/// replaces. The narration half updates
-/// automatically at most once every 5 minutes while visible and
-/// BLE-connected, or immediately when the user pulls the Live tab to refresh
-/// (the first reading appears as soon as there's enough data). Never shows a
-/// loading state on refresh — the previous description stays until a new one
-/// replaces it.
+/// The device-side half — collapsed row and ranked WHY — needs no network and
+/// appears as soon as there is a baseline and a covered window (see
+/// `LiveStateStore.recomputeState`). The narration half updates automatically
+/// at most once every 5 minutes while visible and BLE-connected, or
+/// immediately when the user pulls the Live tab to refresh (the first reading
+/// appears as soon as there's enough data). Never shows a loading state on
+/// refresh — the previous description stays until a new one replaces it.
+///
+/// Layout follows the approved design
+/// (`docs/superpowers/specs/2026-08-02-current-state-accuracy-design.md` §5):
+/// a collapsible Current State block (collapsed row always visible; WHY the
+/// only thing behind the drop-down), then RIGHT NOW as its own always-visible
+/// section that does not move when the drop-down opens or closes.
 struct LiveStateWidget: View {
     @Environment(AppEnvironment.self) var env
     let store: LiveStateStore
     let potentialStore: DayPotentialStore
     @State private var refreshTask: Task<Void, Never>?
+    /// Mirrors `DayPotentialStrip`'s own `dayPotentialExpanded` — same
+    /// pattern, a sibling key, so the two cards' drop-downs persist
+    /// independently across relaunch.
+    @AppStorage("currentStateExpanded") private var expanded = false
 
     private var isConnected: Bool {
         if case .connected = env.ble.state { return true }
@@ -266,22 +319,15 @@ struct LiveStateWidget: View {
             // Capacity first — the day frames the moment.
             DayPotentialStrip(store: potentialStore)
             Divider().overlay(Theme.dim.opacity(0.2))
+
+            currentStateSection
+
+            // RIGHT NOW (and the LLM's own bullets) is a sibling of the
+            // collapsible block above, not nested inside it — expanding or
+            // collapsing the Current State drop-down only changes the WHY
+            // list's own visibility and never this section's.
             if let text = store.text {
-                structured(text)
-            } else if let state = store.state, let reading = store.reading {
-                // No narration yet (or the network is down) but the device
-                // already knows enough — never falls back to "Gathering
-                // data…" once a local state exists. Same two rows the
-                // narration path opens with; only the model's prose is
-                // missing.
-                VStack(alignment: .leading, spacing: 14) {
-                    header(for: state.key)
-                    whyList(state, reading: reading)
-                }
-            } else {
-                Text("Gathering data… pull down to refresh")
-                    .font(Theme.monoBody)
-                    .foregroundStyle(Theme.dim)
+                narrationSection(text)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -305,46 +351,125 @@ struct LiveStateWidget: View {
         }
     }
 
-    // MARK: - Rendering
+    // MARK: - Current State (collapsible)
 
-    /// Renders the parsed insight: a colored state-icon badge + personalized
-    /// title, the trend bullets, and a distinct, state-tinted "right now"
-    /// recommendation block.
+    /// The collapsed row (tag, name, feeling, chevron) always renders once
+    /// there is anything to show it for; the WHY list beneath it is the only
+    /// thing the drop-down reveals, and only when there's a local reading to
+    /// build it from.
+    @ViewBuilder
+    private var currentStateSection: some View {
+        if let state = store.state, let reading = store.reading {
+            VStack(alignment: .leading, spacing: 14) {
+                collapsedRow(for: state.key)
+                if expanded {
+                    whyList(state, reading: reading)
+                }
+            }
+        } else if let text = store.text {
+            // No local reading yet (very first session before enough data
+            // has accumulated) but narration already arrived: fall back to
+            // the insight's own header so the widget isn't blank. There is no
+            // local WHY to reveal without a reading, so the row still
+            // toggles `expanded` but nothing appears underneath it.
+            let insight = LiveStateInsight(raw: text)
+            collapsedRow(title: insight.title, feeling: nil,
+                        iconName: insight.state?.iconName ?? "waveform.path.ecg",
+                        accent: insight.state?.color ?? Theme.accent)
+        } else {
+            Text("Gathering data… pull down to refresh")
+                .font(Theme.monoBody)
+                .foregroundStyle(Theme.dim)
+        }
+    }
+
+    /// The on-device collapsed row for a settled state key: title and feeling
+    /// both from `LiveStateCopy`, icon/colour bridged from `LiveState` via
+    /// `LiveStateKey.display`.
+    @ViewBuilder
+    private func collapsedRow(for key: LiveStateKey) -> some View {
+        collapsedRow(title: LiveStateCopy.title(for: key),
+                    feeling: LiveStateCopy.feeling(for: key),
+                    iconName: key.display?.iconName ?? "waveform.path.ecg",
+                    accent: key.display?.color ?? Theme.accent,
+                    label: LiveStateHeadline.text(isWeak: store.state?.isWeak ?? false,
+                                                  provisional: store.baseline?.provisional ?? false,
+                                                  isStale: store.isStale))
+    }
+
+    /// Plain-value collapsed row, deliberately decoupled from
+    /// `LiveStateInsight` — the local-only path (no narration text yet) has
+    /// no server reply to parse one out of, and constructing
+    /// `LiveStateInsight(raw: "")` purely to satisfy a parameter type would
+    /// hand it a nil `state` and an empty `title`, which is what fed the
+    /// fallback icon/title below anyway. Simpler to just pass the values
+    /// every call site already has.
     ///
-    /// `accent` here stays keyed to `insight.state` — the LLM's own read —
-    /// even though the header a few lines down prefers the local state's
-    /// colour when one exists. The two halves refresh on different clocks
-    /// (`state` every 15-20 s, `text` at most every 5 minutes), so bullets
-    /// describing one state must not end up wearing a colour that belongs to
-    /// a state the device has since moved past — that would be exactly the
-    /// "visibly disagreeing halves" a half-migrated card produces. Once a
+    /// The whole row is the `Button`'s label — not just the chevron — same
+    /// tap-target shape as `DayPotentialStrip.strip`.
+    @ViewBuilder
+    private func collapsedRow(title: String, feeling: String?, iconName: String, accent: Color,
+                              label: String = "CURRENT STATE") -> some View {
+        Button {
+            withAnimation(.snappy) { expanded.toggle() }
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(accent.opacity(0.16))
+                        .frame(width: 44, height: 44)
+                    Image(systemName: iconName)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(accent)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(label)
+                        .font(Theme.monoLabel)
+                        .foregroundStyle(Theme.dim)
+                    Text(title)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(Theme.text)
+                    if let feeling {
+                        Text(feeling)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Theme.dim)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer()
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.dim)
+                    .padding(.top, 5)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Narration (WHAT THIS MEANS + RIGHT NOW)
+
+    /// Everything the LLM writes: its own descriptive bullets, then the
+    /// RIGHT NOW recommendation. Both stay coloured by `insight.state` — the
+    /// LLM's own read — even though the collapsed row above prefers the
+    /// local state's colour when one exists. The two halves refresh on
+    /// different clocks (`state` every 15-20 s, `text` at most every 5
+    /// minutes), so this half must not end up wearing a colour that belongs
+    /// to a state the device has since moved past — that would be exactly
+    /// the "visibly disagreeing halves" a half-migrated card produces. Once a
     /// later plan makes narration state-bound (dropping stale text instead
     /// of recolouring it), this distinction goes away on its own; until then
     /// each half is coloured by its own source.
     ///
-    /// The local ranked WHY renders here too, ABOVE the narration. It used to
-    /// appear only in the `text == nil` branch, i.e. for the 15-30 s before the
-    /// first LLM reply and never again that session — so a connected user never
-    /// saw the one explanation that is actually referenced to their own
-    /// baseline, which is the whole point of this engine. Order encodes
-    /// authority: the device's ranked drivers first, the model's prose second
-    /// and labelled as commentary on them.
+    /// A sibling of `currentStateSection`, not nested inside it — this is
+    /// what keeps RIGHT NOW from moving when the Current State drop-down
+    /// opens or closes.
     @ViewBuilder
-    private func structured(_ text: String) -> some View {
+    private func narrationSection(_ text: String) -> some View {
         let insight = LiveStateInsight(raw: text)
         let accent  = insight.state?.color ?? Theme.accent
         VStack(alignment: .leading, spacing: 14) {
-            if let key = store.stateKey {
-                header(for: key)
-            } else {
-                header(title: insight.title, feeling: nil,
-                      iconName: insight.state?.iconName ?? "waveform.path.ecg", accent: accent)
-            }
-
-            if let state = store.state, let reading = store.reading {
-                whyList(state, reading: reading)
-            }
-
             if !insight.bullets.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("WHAT THIS MEANS")
@@ -384,56 +509,6 @@ struct LiveStateWidget: View {
             attr[run.range].foregroundColor = Theme.text
         }
         return attr
-    }
-
-    /// The on-device header for a settled state key: title and feeling both
-    /// from `LiveStateCopy`, icon/colour bridged from `LiveState` via
-    /// `LiveStateKey.display`.
-    @ViewBuilder
-    private func header(for key: LiveStateKey) -> some View {
-        header(title: LiveStateCopy.title(for: key),
-              feeling: LiveStateCopy.feeling(for: key),
-              iconName: key.display?.iconName ?? "waveform.path.ecg",
-              accent: key.display?.color ?? Theme.accent,
-              label: LiveStateHeadline.text(isWeak: store.state?.isWeak ?? false,
-                                            provisional: store.baseline?.provisional ?? false,
-                                            isStale: store.isStale))
-    }
-
-    /// Plain-value header, deliberately decoupled from `LiveStateInsight` —
-    /// the local-only path (no narration text yet) has no server reply to
-    /// parse one out of, and constructing `LiveStateInsight(raw: "")` purely
-    /// to satisfy a parameter type would hand it a nil `state` and an empty
-    /// `title`, which is what fed the fallback icon/title below anyway.
-    /// Simpler to just pass the values every call site already has.
-    @ViewBuilder
-    private func header(title: String, feeling: String?, iconName: String, accent: Color,
-                        label: String = "CURRENT STATE") -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(accent.opacity(0.16))
-                    .frame(width: 44, height: 44)
-                Image(systemName: iconName)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(accent)
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(label)
-                    .font(Theme.monoLabel)
-                    .foregroundStyle(Theme.dim)
-                Text(title)
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Theme.text)
-                if let feeling {
-                    Text(feeling)
-                        .font(.system(size: 13))
-                        .foregroundStyle(Theme.dim)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Spacer()
-        }
     }
 
     @ViewBuilder

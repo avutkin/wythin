@@ -317,6 +317,93 @@ final class LiveWhyBandAndBarTests: XCTestCase {
     }
 }
 
+/// `LiveWhyBand.text(effective:windowValue:baselineCentre:)` — the percentage
+/// half of the WHY row: "38% below your usual" rather than only "well below
+/// your usual". Each case below is chosen so a regression to the OLD
+/// (band-only) behaviour, or to a naive percent-always formula, would flip
+/// the assertion rather than merely producing a differently-worded string
+/// that still happens to pass.
+final class LiveWhyBandPercentTests: XCTestCase {
+
+    /// The mockup's own example, reproduced: a window sitting 38% under its
+    /// baseline centre, comfortably outside the neutral band. If this ever
+    /// regressed to the qualitative-only `text(for:)`, the assertion would
+    /// see "well below your usual" instead and fail — it is not merely
+    /// checking that a string is non-empty.
+    func testFellThirtyEightPercentBelowUsual() {
+        let text = LiveWhyBand.text(effective: -1.6, windowValue: 62, baselineCentre: 100)
+        XCTAssertEqual(text, "38% below your usual")
+    }
+
+    func testTwelvePercentAboveUsual() {
+        let text = LiveWhyBand.text(effective: 1.2, windowValue: 112, baselineCentre: 100)
+        XCTAssertEqual(text, "12% above your usual")
+    }
+
+    /// No dash, no qualitative phrase alongside the number — the user's
+    /// chosen shape is the number ALONE followed by the plain meaning.
+    func testNoDashConstructionInThePercentSentence() {
+        let text = LiveWhyBand.text(effective: -1.6, windowValue: 62, baselineCentre: 100)
+        XCTAssertFalse(text.contains("—"), "no dash clause — value then plain meaning only")
+        XCTAssertFalse(text.contains("well"), "the qualitative band phrase must not also appear")
+    }
+
+    /// The neutral band never prints a number, even when the raw values would
+    /// yield a clean, computable percentage — a small `effective` means the
+    /// reading isn't sure enough of a direction to put a figure on it. This
+    /// is the RECOVERY row from the approved mockup: "right around your
+    /// usual", not "4% above your usual".
+    func testNeutralBandSuppressesTheNumberEvenWhenOneIsComputable() {
+        let text = LiveWhyBand.text(effective: 0.1, windowValue: 104, baselineCentre: 100)
+        XCTAssertEqual(text, "right around your usual")
+    }
+
+    /// Pins the exact neutral boundary this function shares with `text(for:)`
+    /// — asserted by calling both, so a change to one that isn't mirrored in
+    /// the other (the exact defect this indirection is meant to prevent)
+    /// shows up here as a mismatch rather than passing silently.
+    func testNeutralBoundaryMatchesTheQualitativeBandExactly() {
+        for effective: Float in [-0.35, -0.1, 0, 0.1, 0.34] {
+            XCTAssertEqual(LiveWhyBand.text(effective: effective, windowValue: 999, baselineCentre: 100),
+                           LiveWhyBand.text(for: effective),
+                           "effective \(effective) must be neutral in both, or in neither")
+        }
+    }
+
+    /// A baseline centre of exactly zero cannot be divided by — this must
+    /// fall back to the qualitative band, not crash or print `inf`/`nan`.
+    func testDegenerateCentreOfExactlyZeroFallsBackToTheBand() {
+        let text = LiveWhyBand.text(effective: -1.6, windowValue: -5, baselineCentre: 0)
+        XCTAssertEqual(text, "well below your usual")
+        XCTAssertFalse(text.contains("%"), "no number can come out of a zero centre")
+    }
+
+    /// Not just literal zero — a centre close enough to zero still swings
+    /// wildly for a tiny absolute change, so it must fall back too.
+    func testNearZeroCentreAlsoFallsBackToTheBand() {
+        let text = LiveWhyBand.text(effective: -1.6, windowValue: -5, baselineCentre: 0.0001)
+        XCTAssertFalse(text.contains("%"), "a near-zero centre must not produce a wild percentage")
+        XCTAssertEqual(text, LiveWhyBand.text(for: -1.6))
+    }
+
+    /// A percentage that itself rounds to 0% would read as a contradiction
+    /// next to a non-neutral effective ("0% below your usual") — this must
+    /// fall back to the qualitative phrase instead of printing a hollow number.
+    func testAPercentageThatRoundsToZeroFallsBackToTheBand() {
+        // (999.6 - 1000) / 1000 * 100 == -0.04%, which rounds to 0.
+        let text = LiveWhyBand.text(effective: -0.5, windowValue: 999.6, baselineCentre: 1000)
+        XCTAssertEqual(text, "below your usual")
+        XCTAssertFalse(text.contains("%"))
+    }
+
+    /// Rounds to the nearest whole percent rather than truncating — 37.6%
+    /// must read as 38%, not 37%.
+    func testPercentageRoundsRatherThanTruncates() {
+        let text = LiveWhyBand.text(effective: -1.6, windowValue: 62.4, baselineCentre: 100)
+        XCTAssertEqual(text, "38% below your usual")
+    }
+}
+
 /// The honesty suffixes on the card's own label. Pure, so the three flags can
 /// be driven directly instead of through a rendered view.
 final class LiveStateHeadlineTests: XCTestCase {
@@ -359,9 +446,16 @@ final class LiveStateHeadlineTests: XCTestCase {
 /// came from. This class exercises the decision itself.
 final class LiveWhyRowTests: XCTestCase {
 
+    /// `windowValue`/`baselineCentre` both 0 here deliberately: a degenerate
+    /// centre falls back to the qualitative band (see `LiveWhyBand`'s doc),
+    /// which is what every test in this class below is asserting against —
+    /// they are about *which quantity* (`effective` vs `contribution.value`)
+    /// feeds the band, not about the percentage formatter. That formatter
+    /// gets its own fixtures in `LiveWhyBandPercentTests`.
     private func reading(_ metric: LiveMetric, effective: Float) -> LiveReading {
         let r = MetricReading(metric: metric, level: effective, trend: 0,
-                              meaningful: false, effective: effective)
+                              meaningful: false, effective: effective,
+                              windowValue: 0, baselineCentre: 0)
         return LiveReading(readings: [metric: r], coverage: 1.0)
     }
 
@@ -419,5 +513,21 @@ final class LiveWhyRowTests: XCTestCase {
         let empty = LiveReading(readings: [:], coverage: 1.0)
         let row = LiveWhyRow.build(for: contribution, reading: empty)
         XCTAssertEqual(row.bandText, "right around your usual")
+    }
+
+    /// End-to-end wiring check with a REAL (non-degenerate) `windowValue`/
+    /// `baselineCentre` pair — every other test in this class uses the 0/0
+    /// fixture, which only ever exercises `LiveWhyBand`'s fallback path. This
+    /// is the one place that confirms `LiveWhyRow.build` actually forwards
+    /// `MetricReading`'s native-unit fields to the percentage formatter
+    /// rather than silently keeping the old fallback behaviour it happens to
+    /// share a return type with.
+    func testBuildProducesARealPercentageWhenTheReadingHasOne() {
+        let r = MetricReading(metric: .pip, level: -1.6, trend: 0, meaningful: false,
+                              effective: -1.6, windowValue: 62, baselineCentre: 100)
+        let reading = LiveReading(readings: [.pip: r], coverage: 1.0)
+        let contribution = StateContribution(metric: .pip, value: -0.4)
+        let row = LiveWhyRow.build(for: contribution, reading: reading)
+        XCTAssertEqual(row.bandText, "38% below your usual")
     }
 }

@@ -85,6 +85,23 @@ final class LiveReadingTests: XCTestCase {
         XCTAssertEqual(hr?.trend ?? 99, 0, accuracy: 0.001, "a gated trend is zeroed, not passed through")
     }
 
+    /// `MetricReading.windowValue`/`.baselineCentre` exist solely so the WHY
+    /// row can print a real percentage (`LiveWhyBand`'s
+    /// `text(effective:windowValue:baselineCentre:)`) — nothing in the
+    /// classifier reads them. Pinned here in native units (66 bpm, a baseline
+    /// centre of 60 bpm), not as z-scores, so a regression that wired either
+    /// field to `level`/`effective` instead of the raw mean/centre would fail
+    /// this rather than pass by coincidence.
+    func testMetricReadingCarriesTheWindowsNativeMeanAndTheBaselineCentre() {
+        let now = Date()
+        let pts = window((0..<300).map { _ in Float(66) }, spacingSec: 2, now: now)
+        let hr = LiveReading.build(window: pts, baseline: baseline(mean: 60, sd: 8), now: now)?.readings[.hr]
+        XCTAssertEqual(hr?.windowValue ?? -1, 66, accuracy: 0.01,
+                       "the window's own mean, in bpm — not a z-score")
+        XCTAssertEqual(hr?.baselineCentre ?? -1, 60, accuracy: 0.01,
+                       "the baseline's centre, in bpm — not 0 and not the SD")
+    }
+
     func testASmallSlopeIsGatedByTheSWC() {
         let now = Date()
         // Rises 0.5 bpm across the window — far under one SD of 8.
