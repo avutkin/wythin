@@ -653,15 +653,16 @@ final class LiveStateWidgetKeyTests: XCTestCase {
 /// `LiveCollapsedRowSpec.build` is the pure decision behind the collapsed
 /// row, unifying what were two separate code paths (a settled local state,
 /// and the narration-only fallback before enough data exists). Its
-/// `isExpandable` field is what `LiveStateWidget.currentStateSection` ANDs
-/// with `expanded` before ever calling `whyList` — these tests pin the half
-/// of that invariant reachable without a view host: that `isExpandable` is
-/// true only when there is a local `reading` to build a WHY list from, and
-/// false in every other case. They do NOT — cannot, without a SwiftUI view-
-/// hosting harness this project doesn't have (no ViewInspector or similar) —
-/// pin that the view still ANDs `spec.isExpandable` with `expanded` rather
-/// than dropping one of the two conditions; that half is a real gap, named
-/// rather than silently assumed covered. See the audit report.
+/// `isExpandable` field is what `LiveCollapsedRowSpec.revealsDropDown` ANDs
+/// with `expanded` before `LiveStateWidget.currentStateSection` ever calls
+/// `whyList` — these tests pin the half of that invariant reachable without
+/// a view host: that `isExpandable` is true only when there is a local
+/// `reading` to build a WHY list from, and false in every other case.
+/// `LiveCollapsedRowSpecRevealsDropDownTests` below pins the other half — the
+/// AND itself — which used to be inexpressible without a SwiftUI
+/// view-hosting harness this project doesn't have (no ViewInspector or
+/// similar); extracting it into `revealsDropDown` closes that gap. See the
+/// audit report (`ui-fix-report.md`, finding 8) for the history.
 final class LiveCollapsedRowSpecTests: XCTestCase {
 
     private func state(key: LiveStateKey = .calm_alert, isWeak: Bool = false) -> LiveStateResult {
@@ -721,6 +722,50 @@ final class LiveCollapsedRowSpecTests: XCTestCase {
         let spec = LiveCollapsedRowSpec.build(state: nil, reading: nil, text: "calm_alert | Settled",
                                               provisional: false, isStale: false)
         XCTAssertNil(spec?.feeling, "no local reading means no feeling phrase to build from")
+    }
+}
+
+/// `LiveCollapsedRowSpec.revealsDropDown` — the two-condition gate that used
+/// to be an inline `spec.isExpandable, expanded` expression written directly
+/// in `LiveStateWidget.currentStateSection`'s body. That inline form is
+/// exactly what the previous audit (`ui-fix-report.md`, finding 8) flagged as
+/// untestable without a SwiftUI view-hosting harness: it could pin
+/// `isExpandable`'s own truth table (above), but nothing could pin that the
+/// view kept ANDing it with `expanded` rather than silently weakening the
+/// gate to just one condition or the other — a class of regression this
+/// feature has now shipped twice (once as the "dead chevron", see
+/// `testAStateWithoutAMatchingReadingIsNotExpandable`'s doc; once as this
+/// exact gate). Naming the decision as its own function makes it directly
+/// callable from a test, closing the gap.
+final class LiveCollapsedRowSpecRevealsDropDownTests: XCTestCase {
+
+    func testHiddenWhenNotExpandableEvenIfOpen() {
+        XCTAssertFalse(LiveCollapsedRowSpec.revealsDropDown(isExpandable: false, expanded: true),
+                       "a row with nothing to reveal must never reveal anything")
+    }
+
+    func testHiddenWhenExpandableButCollapsed() {
+        XCTAssertFalse(LiveCollapsedRowSpec.revealsDropDown(isExpandable: true, expanded: false),
+                       "the user hasn't asked to see it yet")
+    }
+
+    func testRevealedOnlyWhenBothHold() {
+        XCTAssertTrue(LiveCollapsedRowSpec.revealsDropDown(isExpandable: true, expanded: true))
+    }
+
+    /// Sweeps all four combinations against the literal `&&` truth table —
+    /// chosen specifically so a regression that swaps the operator for `||`
+    /// (which would agree with the three tests above on three of the four
+    /// rows) still fails here on the one row where the two operators
+    /// disagree: `isExpandable: false, expanded: true`.
+    func testAllFourCombinationsMatchLogicalAnd() {
+        for isExpandable in [true, false] {
+            for expanded in [true, false] {
+                XCTAssertEqual(LiveCollapsedRowSpec.revealsDropDown(isExpandable: isExpandable, expanded: expanded),
+                               isExpandable && expanded,
+                               "isExpandable=\(isExpandable) expanded=\(expanded)")
+            }
+        }
     }
 }
 

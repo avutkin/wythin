@@ -233,6 +233,22 @@ struct LiveCollapsedRowSpec: Equatable {
     /// there is no local `reading` to build one from.
     let isExpandable: Bool
 
+    /// Whether the drop-down should currently reveal its contents — the
+    /// two-condition gate pulled out of the view body into a named, pure
+    /// function, rather than left as an inline `spec.isExpandable &&
+    /// expanded` the view alone evaluates. That inline form is exactly what
+    /// shipped broken twice already behind a fully green suite (see the doc
+    /// on `LiveCollapsedRowSpecTests` for the first instance): there was no
+    /// way, without a SwiftUI view-hosting harness, to pin that the view
+    /// kept ANDing both conditions rather than quietly dropping one. Naming
+    /// the decision here closes that gap — a future edit that weakens the
+    /// AND (e.g. to only `expanded`, or only `isExpandable`) now fails
+    /// `testAllFourCombinationsMatchLogicalAnd` directly instead of only a
+    /// screenshot review.
+    static func revealsDropDown(isExpandable: Bool, expanded: Bool) -> Bool {
+        isExpandable && expanded
+    }
+
     static func build(state: LiveStateResult?, reading: LiveReading?, text: String?,
                       provisional: Bool, isStale: Bool) -> LiveCollapsedRowSpec? {
         if let state, reading != nil {
@@ -679,11 +695,13 @@ struct LiveStateWidget: View {
             VStack(alignment: .leading, spacing: 14) {
                 collapsedRow(spec)
                 // WHY is the ONLY thing the drop-down reveals, and only when
-                // there's both a local reading to build it from AND the spec
-                // says this row is actually expandable — the insight-only
-                // fallback (`spec.isExpandable == false`) has no reading, so
-                // this can never be true for it regardless of `expanded`.
-                if spec.isExpandable, expanded, let state = store.state, let reading = store.reading {
+                // there's both a local reading to build it from AND
+                // `revealsDropDown` says this row is actually open — the
+                // insight-only fallback (`spec.isExpandable == false`) has no
+                // reading, so this can never be true for it regardless of
+                // `expanded`.
+                if LiveCollapsedRowSpec.revealsDropDown(isExpandable: spec.isExpandable, expanded: expanded),
+                   let state = store.state, let reading = store.reading {
                     whyList(state, reading: reading)
                 }
             }
