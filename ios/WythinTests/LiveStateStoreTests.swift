@@ -197,13 +197,15 @@ final class LiveWhyBandAndBarTests: XCTestCase {
         XCTAssertEqual(LiveWhyBand.text(for: -3.0), "well below your usual")
     }
 
-    /// The defect the second correction exists to prevent: a
-    /// `StateContribution.value` (weight × effective, always ≤ effective in
-    /// magnitude) must not be handed to these z-calibrated bands — a 2.0
-    /// effective at axis weight 0.3 is 0.6 weighted, which would misread as
-    /// merely "above" instead of "well above" if the wrong quantity were
-    /// passed. This test pins the band boundaries so that substitution would
-    /// visibly change behaviour if it were ever reintroduced.
+    /// Pins the boundary itself, in isolation. This does NOT catch a
+    /// regression where the wrong quantity is handed to `LiveWhyBand` at the
+    /// call site — `LiveWhyBand.text(for:)` has no way to know whether its
+    /// caller passed `effective` or `c.value`, so that has to be caught where
+    /// the call site's *choice* is itself a tested unit: see
+    /// `LiveWhyRowTests.testBandUsesEffectiveNotTheWeightedContribution`
+    /// below, which exercises `LiveWhyRow.build` — the one place that choice
+    /// is made — with a fixture where the two quantities land in different
+    /// bands.
     func testBoundaryIsExactlyAtOnePointZero() {
         XCTAssertEqual(LiveWhyBand.text(for: 0.999), "above your usual")
         XCTAssertEqual(LiveWhyBand.text(for: 1.001), "well above your usual")
@@ -239,5 +241,76 @@ final class LiveWhyBandAndBarTests: XCTestCase {
         let width = LiveWhyBar.width(value: 0, strongest: 0)
         XCTAssertTrue(width.isFinite)
         XCTAssertEqual(width, LiveWhyBar.minWidth, accuracy: 0.001)
+    }
+}
+
+/// `LiveWhyRow.build` is the one place that decides which of a
+/// `StateContribution`'s two related-but-different numbers feeds which
+/// output. Testing `LiveWhyBand`/`LiveWhyBar` alone (above) cannot catch a
+/// regression at that decision — both would still pass if the call site fed
+/// them the wrong quantity, since neither function can see where its input
+/// came from. This class exercises the decision itself.
+final class LiveWhyRowTests: XCTestCase {
+
+    private func reading(_ metric: LiveMetric, effective: Float) -> LiveReading {
+        let r = MetricReading(metric: metric, level: effective, trend: 0,
+                              meaningful: false, effective: effective)
+        return LiveReading(readings: [metric: r], coverage: 1.0)
+    }
+
+    /// The exact scenario the task's own correction spelled out: a metric at
+    /// effective 2.0 (well above usual) sitting on an axis weighted 0.3, so
+    /// its ranked pull (`StateContribution.value`) is 0.3 × 2.0 = 0.6 — which
+    /// is itself only "above your usual" by the same band table. If
+    /// `LiveWhyRow.build` ever regressed to reading `contribution.value`
+    /// where `effective` belongs (i.e. reverted to the brief's original,
+    /// wrong wiring), this assertion would see "above" instead of "well
+    /// above" and fail.
+    func testBandUsesEffectiveNotTheWeightedContribution() {
+        let contribution = StateContribution(metric: .dfa1, value: 0.3 * 2.0)
+        let row = LiveWhyRow.build(for: contribution, reading: reading(.dfa1, effective: 2.0),
+                                   strongest: 0.6)
+        XCTAssertEqual(row.bandText, "well above your usual",
+                       "must describe the metric's own effective reading, not its weighted pull")
+        XCTAssertNotEqual(row.bandText, LiveWhyBand.text(for: contribution.value),
+                          "banding the weighted pull directly is exactly the bug this guards against")
+    }
+
+    /// Sanity check on the same fixture from the other side: swapping the
+    /// inputs manually (as a regression would) really does land in a
+    /// different band, so the assertion above is not vacuously true.
+    func testTheTwoQuantitiesReallyDoLandInDifferentBandsForThisFixture() {
+        let contribution = StateContribution(metric: .dfa1, value: 0.3 * 2.0)
+        XCTAssertEqual(LiveWhyBand.text(for: contribution.value), "above your usual")
+        XCTAssertEqual(LiveWhyBand.text(for: Float(2.0)), "well above your usual")
+    }
+
+    /// Bar length and ranking still come from `contribution.value` — that
+    /// part of the wiring is correct and must stay that way.
+    func testBarWidthUsesTheWeightedContributionNotEffective() {
+        let contribution = StateContribution(metric: .dfa1, value: 0.3 * 2.0)
+        let row = LiveWhyRow.build(for: contribution, reading: reading(.dfa1, effective: 2.0),
+                                   strongest: 0.6)
+        XCTAssertEqual(row.barWidth, LiveWhyBar.maxWidth, accuracy: 0.001,
+                       "value == strongest, so this must be the full bar")
+    }
+
+    func testDisplayNameIsPlainLanguage() {
+        let contribution = StateContribution(metric: .dfa1, value: 1.0)
+        let row = LiveWhyRow.build(for: contribution, reading: reading(.dfa1, effective: 1.0),
+                                   strongest: 1.0)
+        XCTAssertEqual(row.displayName, "FOCUS", "never a raw metric name like DFA1")
+    }
+
+    /// A metric absent from `reading.readings` (should not happen in
+    /// practice — see `LiveStateClassifier.rankedPulls`, which only ever
+    /// builds a contribution from a reading that's already present — but the
+    /// two types don't enforce that at compile time) must not crash; it
+    /// reads as "right around your usual" rather than trapping.
+    func testAContributionWithNoMatchingReadingFallsBackSafely() {
+        let contribution = StateContribution(metric: .hr, value: 0.5)
+        let empty = LiveReading(readings: [:], coverage: 1.0)
+        let row = LiveWhyRow.build(for: contribution, reading: empty, strongest: 0.5)
+        XCTAssertEqual(row.bandText, "right around your usual")
     }
 }

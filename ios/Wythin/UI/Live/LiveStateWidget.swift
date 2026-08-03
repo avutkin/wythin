@@ -42,6 +42,33 @@ enum LiveWhyBar {
     }
 }
 
+/// One WHY row's rendered values, decided in one place so the choice of
+/// *which quantity feeds which output* is a function call the view makes,
+/// not an inline expression it could be quietly edited back to the wrong
+/// shape. `bandText` and `barWidth` deliberately come from two different
+/// numbers on the same `StateContribution` — see `LiveStateStore.reading`'s
+/// doc for why `c.value` (weight × effective, ranking-only) is the wrong
+/// input for a z-calibrated band sentence.
+struct LiveWhyRow: Equatable {
+    let displayName: String
+    let bandText: String
+    let barWidth: Double
+    let isStrong: Bool
+
+    /// `reading` is looked up for `effective`, never for ranking — ranking
+    /// and bar length both come from `contribution.value`, which is already
+    /// the classifier's own ranked-by-weighted-pull ordering.
+    static func build(for contribution: StateContribution, reading: LiveReading,
+                      strongest: Float) -> LiveWhyRow {
+        let effective = reading.readings[contribution.metric]?.effective ?? 0
+        return LiveWhyRow(
+            displayName: contribution.metric.displayName.uppercased(),
+            bandText: LiveWhyBand.text(for: effective),
+            barWidth: LiveWhyBar.width(value: contribution.value, strongest: strongest),
+            isStrong: abs(contribution.value) > 0.6)
+    }
+}
+
 /// Bridges a classifier result to the icon/colour table `LiveState` already
 /// owns. `LiveStateKey` (the classifier's nine keys) and `LiveState` (the
 /// narration parser's nine keys, `LiveStateInsight.swift`) are the same
@@ -216,10 +243,21 @@ struct LiveStateWidget: View {
     /// Renders the parsed insight: a colored state-icon badge + personalized
     /// title, the trend bullets, and a distinct, state-tinted "right now"
     /// recommendation block.
+    ///
+    /// `accent` here stays keyed to `insight.state` — the LLM's own read —
+    /// even though the header a few lines down prefers the local state's
+    /// colour when one exists. The two halves refresh on different clocks
+    /// (`state` every 15-20 s, `text` at most every 5 minutes), so bullets
+    /// describing one state must not end up wearing a colour that belongs to
+    /// a state the device has since moved past — that would be exactly the
+    /// "visibly disagreeing halves" a half-migrated card produces. Once a
+    /// later plan makes narration state-bound (dropping stale text instead
+    /// of recolouring it), this distinction goes away on its own; until then
+    /// each half is coloured by its own source.
     @ViewBuilder
     private func structured(_ text: String) -> some View {
         let insight = LiveStateInsight(raw: text)
-        let accent  = (store.stateKey?.display ?? insight.state)?.color ?? Theme.accent
+        let accent  = insight.state?.color ?? Theme.accent
         VStack(alignment: .leading, spacing: 14) {
             if let key = store.stateKey {
                 header(for: key)
@@ -338,12 +376,10 @@ struct LiveStateWidget: View {
             .strokeBorder(accent.opacity(0.25), lineWidth: 0.5))
     }
 
-    /// The ranked drivers, straight from the classifier. Bar length is the
-    /// metric's actual pull on the state (`LiveWhyBar`, keyed on
-    /// `StateContribution.value`); the band sentence underneath describes the
-    /// metric's own reading (`LiveWhyBand`, keyed on `reading`'s `effective`
-    /// for that metric) — see the doc on `LiveStateStore.reading` for why
-    /// those are two different numbers.
+    /// The ranked drivers, straight from the classifier. Each row's values
+    /// come from `LiveWhyRow.build` — the view only lays out what it's
+    /// handed, so which number feeds the bar and which feeds the band
+    /// sentence is decided in one tested place, not here.
     @ViewBuilder
     private func whyList(_ state: LiveStateResult, reading: LiveReading) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -352,17 +388,17 @@ struct LiveStateWidget: View {
                 .foregroundStyle(Theme.text)
             let strongest = state.contributions.first.map { abs($0.value) } ?? 1
             ForEach(state.contributions, id: \.metric) { c in
+                let row = LiveWhyRow.build(for: c, reading: reading, strongest: strongest)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 7) {
                         RoundedRectangle(cornerRadius: 2)
-                            .fill(abs(c.value) > 0.6 ? Theme.accent : Theme.breathe)
-                            .frame(width: CGFloat(LiveWhyBar.width(value: c.value, strongest: strongest)),
-                                   height: 3)
-                        Text(c.metric.displayName.uppercased())
+                            .fill(row.isStrong ? Theme.accent : Theme.breathe)
+                            .frame(width: CGFloat(row.barWidth), height: 3)
+                        Text(row.displayName)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(Theme.text)
                     }
-                    Text(LiveWhyBand.text(for: reading.readings[c.metric]?.effective ?? 0))
+                    Text(row.bandText)
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.dim)
                         .padding(.leading, 53)
