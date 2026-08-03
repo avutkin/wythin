@@ -8,17 +8,52 @@ struct TrackBar: Identifiable, Equatable {
     var id: Date { bucket.start }
 }
 
+/// One horizontal line drawn on a metric's chart: a value and the short
+/// legend text describing what it is.
+///
+/// A list rather than a single value/flag pair, because the chart is meant
+/// to grow a second line later: a cross-user peer-group average, once the
+/// server can supply one (it can't yet — that needs a cross-user aggregate
+/// that isn't deployed). Today `TrackSeries.referenceLines` holds at most
+/// one entry, but nothing about rendering or building it assumes that stays
+/// true, so adding the second line later is additive rather than a reshape.
+struct TrackReferenceLine: Identifiable, Equatable {
+    let value: Double
+    let label: String
+    var id: String { label }
+}
+
 /// Everything one metric card renders for one page.
 struct TrackSeries: Equatable {
     let bars:                [TrackBar]
     let average:             Double?
     /// Benefit-signed change vs the prior page — positive always means better.
     let deltaPct:            Double?
+
+    /// The person's own 90-day median, or a fixed physiological norm when
+    /// they don't have enough history yet (`referenceIsPersonal` says
+    /// which). This pair — plus `betterCount`/`presentCount` below, counted
+    /// against it — feeds only `MacroTrendPayload`, the macro-trend insight
+    /// sent to the server: a long-run "is this person's typical" comparison,
+    /// deliberately left alone here. `referenceLines` below is the
+    /// short-run, period-over-period comparison actually drawn on screen;
+    /// the two can legitimately disagree; if `reference`'s meaning ever
+    /// needs to change, that's a payload/prompt change on its own, not a
+    /// side effect of a chart rework.
     let reference:           Double
     let referenceIsPersonal: Bool
     let betterCount:         Int
     let presentCount:        Int
-    let summary:             String
+
+    /// The line(s) actually drawn on the chart — the previous period's
+    /// average, today. Empty when there is no prior period to compare
+    /// against at all (the first page a person ever opens), rather than
+    /// falling back to some other value that isn't what the line claims to be.
+    let referenceLines: [TrackReferenceLine]
+    /// "N of N days better than prior week." — the footer copy, phrased
+    /// against `referenceLines` (not `reference`; see its doc above for why
+    /// they can differ).
+    let summary: String
 }
 
 enum TrackSeriesBuilder {
@@ -144,22 +179,33 @@ enum TrackSeriesBuilder {
         let refBenefit  = spec.def.direction.benefit(reference)
         let betterCount = present.filter { spec.def.direction.benefit($0) > refBenefit }.count
 
+        // The chart's own reference line: the previous period's average,
+        // absent entirely (not defaulted to anything) when there wasn't one.
+        let referenceLines: [TrackReferenceLine] = priorAverage.map {
+            [TrackReferenceLine(value: $0, label: "prior \(range.period.priorNoun) avg")]
+        } ?? []
+        let chartBetterCount: Int? = priorAverage.map { prior in
+            let priorBenefit = spec.def.direction.benefit(prior)
+            return present.filter { spec.def.direction.benefit($0) > priorBenefit }.count
+        }
+
         return TrackSeries(
             bars: currentBars, average: average, deltaPct: delta,
             reference: reference, referenceIsPersonal: isPersonal,
             betterCount: betterCount, presentCount: present.count,
-            summary: summary(period: range.period, better: betterCount,
-                             total: present.count, isPersonal: isPersonal))
+            referenceLines: referenceLines,
+            summary: summary(period: range.period, better: chartBetterCount, total: present.count))
     }
 
-    /// "5 of 7 days better than your baseline." — phrased as *better* rather
+    /// "5 of 7 days better than prior week." — phrased as *better* rather
     /// than *above* because for Inner Noise and Stress Balance a lower value
-    /// is the good outcome.
-    private static func summary(period: TrackPeriod, better: Int,
-                                total: Int, isPersonal: Bool) -> String {
+    /// is the good outcome. `better` is nil — not zero — when there is no
+    /// prior period to compare against at all, which reads differently from
+    /// "0 of 7" (an actual, comparably worse period).
+    private static func summary(period: TrackPeriod, better: Int?, total: Int) -> String {
         guard total > 0 else { return "No data this period." }
+        guard let better else { return "No prior \(period.priorNoun) to compare yet." }
         let noun = total == 1 ? period.bucketNoun.singular : period.bucketNoun.plural
-        let ref  = isPersonal ? "your baseline" : "typical"
-        return "\(better) of \(total) \(noun) better than \(ref)."
+        return "\(better) of \(total) \(noun) better than prior \(period.priorNoun)."
     }
 }

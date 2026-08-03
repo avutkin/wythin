@@ -259,43 +259,112 @@ final class TrackSeriesBuilderTests: XCTestCase {
         XCTAssertEqual(s.deltaPct!, -100, accuracy: 0.001)
     }
 
+    // MARK: reference line — previous period's average
+
+    /// The line drawn on the chart is this period's *prior* page's average —
+    /// not the 90-day personal baseline (`series.reference`, which still
+    /// feeds only the server payload; see its doc in `TrackSeriesBuilder`).
+    func testReferenceLineIsThePriorPeriodAverage() {
+        let today = date(2026, 7, 28)
+        let rollups = week(0, today: today).days.map { rollup($0, dc: 11) }
+                    + week(1, today: today).days.map { rollup($0, dc: 8) }
+        let s = TrackSeriesBuilder.series(spec: spec("Vagal Tone"),
+                                          range: week(0, today: today),
+                                          priorRange: week(1, today: today),
+                                          rollups: rollups, asOf: today, calendar: cal)
+        XCTAssertEqual(s.referenceLines.count, 1)
+        XCTAssertEqual(s.referenceLines.first!.value, 8, accuracy: 0.001)
+        XCTAssertEqual(s.referenceLines.first!.label, "prior week avg")
+    }
+
+    /// The prior-period average must come from *only* the prior page's own
+    /// days. Blending in even one of the current period's days would move
+    /// this off 10 — the two periods' values (10 vs 1000) are deliberately
+    /// far apart so any such leak is impossible to miss.
+    func testReferenceLineExcludesTheCurrentPeriodsOwnDays() {
+        let today = date(2026, 7, 28)
+        let rollups = week(0, today: today).days.map { rollup($0, dc: 1000) }
+                    + week(1, today: today).days.map { rollup($0, dc: 10) }
+        let s = TrackSeriesBuilder.series(spec: spec("Vagal Tone"),
+                                          range: week(0, today: today),
+                                          priorRange: week(1, today: today),
+                                          rollups: rollups, asOf: today, calendar: cal)
+        XCTAssertEqual(s.referenceLines.first!.value, 10, accuracy: 0.001)
+    }
+
+    /// A partially-populated prior week still contributes a line — averaged
+    /// over just the days it actually has, the same rule `average` itself
+    /// follows for the current period.
+    func testReferenceLineAveragesOnlyThePriorPeriodsPresentDays() {
+        let today = date(2026, 7, 28)
+        let priorDays = week(1, today: today).days
+        var rollups = week(0, today: today).days.map { rollup($0, dc: 5) }
+        rollups += [rollup(priorDays[0], dc: 4), rollup(priorDays[1], dc: 8)]   // only 2 of 7
+        let s = TrackSeriesBuilder.series(spec: spec("Vagal Tone"),
+                                          range: week(0, today: today),
+                                          priorRange: week(1, today: today),
+                                          rollups: rollups, asOf: today, calendar: cal)
+        XCTAssertEqual(s.referenceLines.first!.value, 6, accuracy: 0.001)   // (4 + 8) / 2
+    }
+
+    /// No prior period at all (the first page a person ever opens) draws no
+    /// line, rather than falling back to some other value the legend
+    /// wouldn't actually describe correctly.
+    func testReferenceLineIsEmptyWhenThePriorPeriodHasNoData() {
+        let today = date(2026, 7, 28)
+        let rollups = week(0, today: today).days.map { rollup($0, dc: 8) }
+        let s = TrackSeriesBuilder.series(spec: spec("Vagal Tone"),
+                                          range: week(0, today: today),
+                                          priorRange: week(1, today: today),
+                                          rollups: rollups, asOf: today, calendar: cal)
+        XCTAssertTrue(s.referenceLines.isEmpty)
+    }
+
+    /// The legend label follows whichever period is on screen, not just week.
+    func testReferenceLineLabelMatchesThePeriod() {
+        let today = date(2026, 7, 28)
+        let m = TrackRangeBuilder.range(period: .month, offset: 0, today: today, calendar: cal)
+        let mPrior = TrackRangeBuilder.range(period: .month, offset: 1, today: today, calendar: cal)
+        let rollups = m.days.map { rollup($0, dc: 8) } + mPrior.days.map { rollup($0, dc: 8) }
+        let s = TrackSeriesBuilder.series(spec: spec("Vagal Tone"), range: m, priorRange: mPrior,
+                                          rollups: rollups, asOf: today, calendar: cal)
+        XCTAssertEqual(s.referenceLines.first!.label, "prior month avg")
+
+        let six = TrackRangeBuilder.range(period: .sixMonth, offset: 0, today: today, calendar: cal)
+        let sixPrior = TrackRangeBuilder.range(period: .sixMonth, offset: 1, today: today, calendar: cal)
+        let sixRollups = six.days.map { rollup($0, dc: 8) } + sixPrior.days.map { rollup($0, dc: 8) }
+        let sixSeries = TrackSeriesBuilder.series(spec: spec("Vagal Tone"), range: six, priorRange: sixPrior,
+                                                  rollups: sixRollups, asOf: today, calendar: cal)
+        XCTAssertEqual(sixSeries.referenceLines.first!.label, "prior 6 months avg")
+    }
+
     // MARK: summary
 
-    func testSummaryCountsInTheBenefitDirection() {
+    /// Counted in the benefit direction against the *reference line*
+    /// (prior week's average), not the 90-day baseline `betterCount` still
+    /// tracks for the server payload — this is Inner Noise, where lower is
+    /// better, so a fall from 60 to 50 reads as an improvement.
+    func testSummaryCountsBetterThanThePriorPeriod() {
         let today = date(2026, 7, 28)
-        let days  = week(0, today: today).days
-        // Baseline needs ≥14 days; give 20 at pip 60, then this week's 7 at 50.
-        var rollups = (8...27).map {
-            rollup(cal.date(byAdding: .day, value: -$0, to: today)!, pip: 60)
-        }
-        rollups += days.map { rollup($0, pip: 50) }   // lower = better
+        let rollups = week(0, today: today).days.map { rollup($0, pip: 50) }
+                    + week(1, today: today).days.map { rollup($0, pip: 60) }
         let s = TrackSeriesBuilder.series(spec: spec("Inner Noise"),
                                           range: week(0, today: today),
                                           priorRange: week(1, today: today),
                                           rollups: rollups, asOf: today, calendar: cal)
         XCTAssertEqual(s.presentCount, 7)
-        XCTAssertEqual(s.betterCount, 7)
-        XCTAssertEqual(s.summary, "7 of 7 days better than your baseline.")
-    }
-
-    func testSummarySaysTypicalWhenTheBaselineIsNotPersonal() {
-        let today = date(2026, 7, 28)
-        let rollups = week(0, today: today).days.prefix(3).map { rollup($0, dc: 100) }
-        let s = TrackSeriesBuilder.series(spec: spec("Vagal Tone"),
-                                          range: week(0, today: today),
-                                          priorRange: week(1, today: today),
-                                          rollups: Array(rollups), asOf: today, calendar: cal)
-        XCTAssertEqual(s.summary, "3 of 3 days better than typical.")
+        XCTAssertEqual(s.summary, "7 of 7 days better than prior week.")
     }
 
     func testSummaryIsSingularForOneDay() {
         let today = date(2026, 7, 28)
         let rollups = [rollup(date(2026, 7, 27), dc: 100)]
+                    + week(1, today: today).days.map { rollup($0, dc: 50) }
         let s = TrackSeriesBuilder.series(spec: spec("Vagal Tone"),
                                           range: week(0, today: today),
                                           priorRange: week(1, today: today),
                                           rollups: rollups, asOf: today, calendar: cal)
-        XCTAssertEqual(s.summary, "1 of 1 day better than typical.")
+        XCTAssertEqual(s.summary, "1 of 1 day better than prior week.")
     }
 
     func testSummaryForNoData() {
@@ -306,6 +375,19 @@ final class TrackSeriesBuilderTests: XCTestCase {
                                           rollups: [], asOf: today, calendar: cal)
         XCTAssertEqual(s.summary, "No data this period.")
         XCTAssertNil(s.average)
+    }
+
+    /// Distinct from "No data this period.": there *is* current-period data,
+    /// just nothing to compare it against yet. Conflating the two would tell
+    /// someone with a full week of real readings that nothing was recorded.
+    func testSummarySaysNoPriorPeriodWhenThereIsCurrentDataButNoPriorPeriod() {
+        let today = date(2026, 7, 28)
+        let rollups = week(0, today: today).days.map { rollup($0, dc: 8) }
+        let s = TrackSeriesBuilder.series(spec: spec("Vagal Tone"),
+                                          range: week(0, today: today),
+                                          priorRange: week(1, today: today),
+                                          rollups: rollups, asOf: today, calendar: cal)
+        XCTAssertEqual(s.summary, "No prior week to compare yet.")
     }
 
     // MARK: month bucketing — weekly bars

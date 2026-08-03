@@ -93,21 +93,27 @@ struct TrackMetricChartCard: View {
         }
     }
 
-    /// A small legend for the chart's dashed reference line — living in the
-    /// header rather than as an in-plot annotation. The line used to carry
-    /// its own label anchored at the plot's trailing edge; that required the
-    /// plot to reserve a margin for it, which is exactly the dead space at
-    /// the right of the bars the card exists to fix. Moving the label up
-    /// here instead lets the bars run the full width of the plot.
+    /// A small legend for the chart's dashed reference line(s) — living in
+    /// the header rather than as an in-plot annotation. The line used to
+    /// carry its own label anchored at the plot's trailing edge; that
+    /// required the plot to reserve a margin for it, which is exactly the
+    /// dead space at the right of the bars the card exists to fix. Moving
+    /// the label up here instead lets the bars run the full width of the
+    /// plot, and reads naturally as a list — ready for a second line
+    /// (a peer-group average) later without needing its own new home.
     @ViewBuilder
     private var referenceLegend: some View {
-        HStack(spacing: 4) {
-            Rectangle()
-                .fill(Theme.dim.opacity(0.6))
-                .frame(width: 9, height: 1)
-            Text(series.referenceIsPersonal ? "your 90d" : "typical")
-                .font(.system(size: 8, design: .monospaced))
-                .foregroundStyle(Theme.dim.opacity(0.8))
+        HStack(spacing: 8) {
+            ForEach(series.referenceLines) { line in
+                HStack(spacing: 4) {
+                    Rectangle()
+                        .fill(Theme.dim.opacity(0.6))
+                        .frame(width: 9, height: 1)
+                    Text(line.label)
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundStyle(Theme.dim.opacity(0.8))
+                }
+            }
         }
     }
 
@@ -116,10 +122,14 @@ struct TrackMetricChartCard: View {
     private var chart: some View {
         Chart {
             // Labelled by `referenceLegend` in the header, not here — see that
-            // property's doc for why the label moved off the plot.
-            RuleMark(y: .value("reference", series.reference))
-                .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
-                .foregroundStyle(Theme.dim.opacity(0.6))
+            // property's doc for why the label moved off the plot. A `ForEach`
+            // rather than one hardcoded RuleMark so a second line can be added
+            // to `series.referenceLines` later without touching this view.
+            ForEach(series.referenceLines) { line in
+                RuleMark(y: .value(line.label, line.value))
+                    .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
+                    .foregroundStyle(Theme.dim.opacity(0.6))
+            }
 
             ForEach(series.bars) { bar in
                 if let v = bar.value {
@@ -234,9 +244,12 @@ struct TrackMetricChartCard: View {
 
     private func barColor(_ bar: TrackBar, value: Double) -> Color {
         if selectedBucket == bar.bucket.start { return spec.color }
-        // Days that beat the reference stay bright; the rest recede so the
-        // line reads at a glance.
-        let better = spec.def.direction.benefit(value) > spec.def.direction.benefit(series.reference)
+        // Days that beat the reference line stay bright; the rest recede so
+        // the line reads at a glance. With no reference line at all (no prior
+        // period to compare against yet) there's nothing to fade against, so
+        // every bar reads at full strength rather than all being dimmed.
+        guard let ref = series.referenceLines.first?.value else { return spec.color.opacity(0.9) }
+        let better = spec.def.direction.benefit(value) > spec.def.direction.benefit(ref)
         return spec.color.opacity(better ? 0.9 : 0.45)
     }
 
@@ -248,7 +261,8 @@ struct TrackMetricChartCard: View {
     private var barAnchor: Double { yDomain.lowerBound }
 
     private var yDomain: ClosedRange<Double> {
-        let values = series.bars.compactMap(\.value) + [series.reference]
+        let refValues = series.referenceLines.map(\.value)
+        let values = series.bars.compactMap(\.value) + refValues
         let hi = values.max() ?? 1
         let lo = values.min() ?? 0
 
@@ -258,7 +272,11 @@ struct TrackMetricChartCard: View {
         }
         // Index metrics hover in a narrow band; anchoring on the observed
         // spread keeps the differences visible instead of flattening them.
-        let spread = max(hi - lo, abs(series.reference) * 0.1)
+        // Falls back to the page's own average (rather than a reference
+        // line) when there is no prior period to compare against yet, so the
+        // domain still has something sensible to be proportional to.
+        let anchor = refValues.first ?? series.average ?? 0
+        let spread = max(hi - lo, abs(anchor) * 0.1)
         return (lo - spread * 0.3)...(hi + spread * 0.6)
     }
 
