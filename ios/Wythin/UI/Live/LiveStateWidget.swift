@@ -297,154 +297,6 @@ enum LiveEmptyStateCopy {
     }
 }
 
-// MARK: - Felt-state check-in
-//
-// A second, independent drop-down below RIGHT NOW (accuracy design §5/§6):
-// "How do you feel right now?", collapsing to four continuous drag scales
-// and a save button. It drives nothing yet — it exists only to accumulate
-// the ground truth a later calibration pass needs (`FeltStateLog`) — so every
-// decision below is pure and pinned the same way `LiveWhyBand`/`LiveWhyRow`/
-// `LiveStateHeadline`/`LiveCollapsedRowSpec` already are in this file.
-
-/// The four felt-state scales, in the fixed order the design specifies:
-/// focus and stress load on the classifier's Tension axis, energy on Energy.
-/// Mood is the deliberate control — nothing in the physiology is expected to
-/// predict it, so a later correlation there would be evidence of overfitting
-/// rather than of insight.
-enum FeltStateScaleKey: String, CaseIterable {
-    case focus, energy, stress, mood
-
-    var label: String {
-        switch self {
-        case .focus:  return "FOCUS"
-        case .energy: return "ENERGY"
-        case .stress: return "STRESS"
-        case .mood:   return "MOOD"
-        }
-    }
-
-    /// Anchor words at each end. Nothing else is ever shown alongside the
-    /// control — no number — so where the knob sits is the entire answer.
-    var leftAnchor: String {
-        switch self {
-        case .focus:  return "scattered"
-        case .energy: return "drained"
-        case .stress: return "calm"
-        case .mood:   return "low"
-        }
-    }
-
-    var rightAnchor: String {
-        switch self {
-        case .focus:  return "razor sharp"
-        case .energy: return "buzzing"
-        case .stress: return "overwhelmed"
-        case .mood:   return "great"
-        }
-    }
-}
-
-/// The in-progress check-in: one optional 0–100 value per scale. `nil` IS the
-/// touched flag the design calls for — a scale the user has never dragged has
-/// no value here at all, rather than a value that happens to equal whatever
-/// default the view might otherwise pick. `makeLog` carries that straight
-/// through to `FeltStateLog` (see that type's own doc), so "untouched"
-/// survives all the way to the saved row as `nil`, never as 50.
-struct FeltStateDraft: Equatable {
-    var focus:  Double?
-    var energy: Double?
-    var stress: Double?
-    var mood:   Double?
-
-    static let empty = FeltStateDraft()
-
-    subscript(key: FeltStateScaleKey) -> Double? {
-        get {
-            switch key {
-            case .focus:  return focus
-            case .energy: return energy
-            case .stress: return stress
-            case .mood:   return mood
-            }
-        }
-        set {
-            switch key {
-            case .focus:  focus = newValue
-            case .energy: energy = newValue
-            case .stress: stress = newValue
-            case .mood:   mood = newValue
-            }
-        }
-    }
-
-    /// A fully-untouched draft has nothing worth persisting — the save
-    /// button is a no-op against it rather than writing an all-blank row.
-    var hasAnyAnswer: Bool {
-        focus != nil || energy != nil || stress != nil || mood != nil
-    }
-
-    /// Builds the row to persist. Kept as one pure function rather than an
-    /// inline `FeltStateLog(...)` call at the save button's call site, so the
-    /// untouched-stays-nil mapping is a single tested place that can't be
-    /// quietly edited back into writing a default.
-    func makeLog(stateKey: LiveStateKey?, now: Date = .now) -> FeltStateLog {
-        FeltStateLog(timestamp: now, focus: focus, energy: energy, stress: stress,
-                    mood: mood, stateKey: stateKey?.rawValue)
-    }
-}
-
-/// A scale's rendered knob position and fill, decided in one pure place so
-/// "untouched is not the middle" — grey, centred knob, no fill — is a fact
-/// about `nil` the view reads off, not a branch it has to remember to take
-/// every time it draws a row.
-struct FeltStateKnobSpec: Equatable {
-    /// 0...1 fraction along the track where the knob's centre sits.
-    let knobFraction: Double
-    /// 0...1 fraction of the track that should render as filled. Zero for an
-    /// untouched scale: filling any of the track for a value that was never
-    /// answered would read as a real reading rather than as no reading.
-    let fillFraction: Double
-    let isTouched: Bool
-
-    static func build(value: Double?) -> FeltStateKnobSpec {
-        guard let value else {
-            return FeltStateKnobSpec(knobFraction: 0.5, fillFraction: 0, isTouched: false)
-        }
-        let fraction = min(max(value / 100, 0), 1)
-        return FeltStateKnobSpec(knobFraction: fraction, fillFraction: fraction, isTouched: true)
-    }
-}
-
-/// Converts a drag gesture's raw position on the track into a stored 0–100
-/// value. Pure and separate from the gesture handler itself so the clamping
-/// at both ends — the one place a thumb dragged past either edge of the
-/// track could otherwise write an out-of-range value — is tested without a
-/// view host.
-enum FeltStateDragMapping {
-    static func value(x: Double, trackWidth: Double) -> Double {
-        guard trackWidth > 0 else { return 0 }
-        let fraction = min(max(x / trackWidth, 0), 1)
-        return fraction * 100
-    }
-}
-
-/// Fixed copy for the check-in's closed and confirmation rows — pulled out so
-/// the words are one tested unit rather than literals repeated at each of
-/// this section's call sites.
-enum FeltStateCheckInCopy {
-    static let question             = "How do you feel right now?"
-    /// One short clause, not two joined by a dash — the row is a quiet
-    /// invitation beneath Current State, not a second headline, and it must
-    /// fit on one line at the default dynamic-type size on a standard phone
-    /// width. Previously "A few seconds — helps your numbers mean
-    /// something", which wrapped to two lines and put the whole section at
-    /// three, outweighing the state row above it.
-    static let helper               = "Helps your numbers mean something"
-    static let skipHint             = "Skip any you like"
-    static let confirmationTitle    = "Saved"
-    static let confirmationSubtitle = "Checked in just now · tap to change"
-}
-
 /// Shared holder for the live-state insight so the widget's timed loop and the
 /// Live tab's pull-to-refresh drive the same fetch and gating.
 @MainActor
@@ -589,9 +441,8 @@ final class LiveStateStore {
 /// a collapsible Current State block (collapsed row always visible; WHY and
 /// WHAT THIS MEANS are the only things behind the drop-down), then RIGHT NOW
 /// as its own always-visible section that does not move when the drop-down
-/// opens or closes. Collapsed, the card reads Current State → RIGHT NOW →
-/// How do you feel; expanding only inserts WHY/WHAT THIS MEANS between the
-/// first two.
+/// opens or closes. Collapsed, the card reads Current State → RIGHT NOW;
+/// expanding only inserts WHY/WHAT THIS MEANS between them.
 struct LiveStateWidget: View {
     @Environment(AppEnvironment.self) var env
     let store: LiveStateStore
@@ -605,20 +456,6 @@ struct LiveStateWidget: View {
     /// independently across relaunch.
     static let expansionStorageKey = "currentStateExpanded"
     @AppStorage(LiveStateWidget.expansionStorageKey) private var expanded = false
-
-    /// Sibling of `expansionStorageKey` for the check-in's own drop-down — a
-    /// distinct literal so the two independent sections (accuracy design §5)
-    /// truly persist independently: toggling one must never be able to
-    /// toggle the other, on this launch or the next. See
-    /// `LiveStateWidgetKeyTests` for both keys pinned distinct.
-    static let checkInStorageKey = "checkInExpanded"
-    @AppStorage(LiveStateWidget.checkInStorageKey) private var checkInExpanded = false
-    @State private var checkInDraft = FeltStateDraft.empty
-    /// Set only for the lifetime of this view instance — a relaunch reopens
-    /// the section as the plain question again rather than persisting the
-    /// confirmation forever, which the design does not ask for.
-    @State private var lastCheckIn: FeltStateLog?
-    @Environment(\.modelContext) private var modelContext
 
     private var isConnected: Bool {
         if case .connected = env.ble.state { return true }
@@ -639,9 +476,9 @@ struct LiveStateWidget: View {
             // WHY and WHAT THIS MEANS both live behind the Current State
             // drop-down now — collapsing that row hides both explanations.
             // RIGHT NOW stays outside: the intended collapsed card is
-            // Current State row → RIGHT NOW → How do you feel, and
-            // expanding only inserts WHY/WHAT THIS MEANS between the first
-            // two, never touches RIGHT NOW's own visibility.
+            // Current State row → RIGHT NOW, and expanding only inserts
+            // WHY/WHAT THIS MEANS between them, never touches RIGHT NOW's
+            // own visibility.
             currentStateSection(insight: insight)
 
             // RIGHT NOW renders whenever the LLM produced a recommendation,
@@ -650,13 +487,6 @@ struct LiveStateWidget: View {
             if let insight, let recommendation = insight.recommendation {
                 recommendationBlock(recommendation, accent: insight.state?.color ?? Theme.accent)
             }
-
-            // A sibling of every section above, not nested inside any of
-            // them — it renders regardless of whether a local state or
-            // narration exists yet, since the question "how do you feel"
-            // owes nothing to either.
-            Divider().overlay(Theme.dim.opacity(0.2))
-            checkInSection
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardStyle()
@@ -931,148 +761,6 @@ struct LiveStateWidget: View {
         }
     }
 
-    // MARK: - Felt-state check-in
-
-    /// Three phases: the closed question, the open form, and — after saving
-    /// — a confirmation that itself replaces the other two until tapped.
-    @ViewBuilder
-    private var checkInSection: some View {
-        if let saved = lastCheckIn {
-            checkInConfirmationRow(saved)
-        } else {
-            VStack(alignment: .leading, spacing: 14) {
-                checkInCollapsedRow
-                if checkInExpanded {
-                    checkInForm
-                }
-            }
-        }
-    }
-
-    /// Same tap affordance as `collapsedRow` above and `DayPotentialStrip
-    /// .strip` — tinted fill, rounded clip, stroked border, whole row
-    /// tappable — so this reads as a control the same way theirs do.
-    ///
-    /// Deliberately quiet: the question sits at a fraction of the state
-    /// row's 20pt title, and the helper line is capped to one line rather
-    /// than left to wrap — a check-in invitation should never visually
-    /// outweigh the state it's asking about.
-    private var checkInCollapsedRow: some View {
-        Button {
-            withAnimation(.snappy) { checkInExpanded.toggle() }
-        } label: {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(FeltStateCheckInCopy.question)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.text)
-                        .lineLimit(1)
-                    Text(FeltStateCheckInCopy.helper)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.dim)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: checkInExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Theme.accent)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(Theme.accent.opacity(0.10))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(Theme.accent.opacity(0.22), lineWidth: 0.5))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// The four scales, each a continuous drag control (see
-    /// `FeltStateScaleRow`), then one full-width save button. "Skip any you
-    /// like" sits under the button, not beside it, so it reads as
-    /// permission rather than as a label on the control itself.
-    private var checkInForm: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            ForEach(FeltStateScaleKey.allCases, id: \.self) { key in
-                FeltStateScaleRow(key: key, value: Binding(
-                    get: { checkInDraft[key] },
-                    set: { checkInDraft[key] = $0 }))
-            }
-            VStack(spacing: 6) {
-                Button(action: saveCheckIn) {
-                    Text("SAVE")
-                        .font(Theme.monoBody)
-                        .foregroundStyle(Theme.bg)
-                        .padding(.vertical, 14)
-                        .frame(maxWidth: .infinity)
-                        .background(Theme.accent)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-                .buttonStyle(.plain)
-                .disabled(!checkInDraft.hasAnyAnswer)
-                .opacity(checkInDraft.hasAnyAnswer ? 1 : 0.5)
-                Text(FeltStateCheckInCopy.skipHint)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Theme.dim)
-            }
-        }
-    }
-
-    /// A green tick and a fixed confirmation line, tappable to reopen the
-    /// form for a fresh answer — "nothing to dismiss" per the design; this
-    /// row IS the only control left on screen once saved.
-    private func checkInConfirmationRow(_ saved: FeltStateLog) -> some View {
-        Button {
-            withAnimation(.snappy) {
-                lastCheckIn = nil
-                checkInExpanded = true
-            }
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(Theme.accent)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(FeltStateCheckInCopy.confirmationTitle)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Theme.text)
-                    Text(FeltStateCheckInCopy.confirmationSubtitle)
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(Theme.dim)
-                }
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(Theme.accent.opacity(0.10))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(Theme.accent.opacity(0.22), lineWidth: 0.5))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// Writes a `FeltStateLog` via `FeltStateDraft.makeLog`, stamping it with
-    /// whatever state key is on screen right now — the field that turns this
-    /// row into a labelled example rather than a mood-diary entry (see
-    /// `FeltStateLog`'s own doc). A no-op against a fully-untouched draft:
-    /// there is nothing worth a blank row for.
-    private func saveCheckIn() {
-        guard checkInDraft.hasAnyAnswer else { return }
-        let log = checkInDraft.makeLog(stateKey: store.stateKey)
-        modelContext.insert(log)
-        try? modelContext.save()
-        checkInDraft = .empty
-        withAnimation(.snappy) {
-            checkInExpanded = false
-            lastCheckIn = log
-        }
-    }
-
     // MARK: - Refresh loop
 
     private func startLoop() {
@@ -1098,69 +786,5 @@ struct LiveStateWidget: View {
     private func stopLoop() {
         refreshTask?.cancel()
         refreshTask = nil
-    }
-}
-
-/// One scale's drag control: a knob on a track, anchor words at each end, no
-/// number ever shown — where the knob sits is the entire answer. Sized for a
-/// thumb (28pt knob on a 30pt row) since this is a phone control used
-/// one-handed. The geometry itself — where the knob and fill sit for a given
-/// value, and what value a given drag position maps to — is decided by
-/// `FeltStateKnobSpec`/`FeltStateDragMapping`, both pure and tested without a
-/// view host; this struct only draws what they return.
-struct FeltStateScaleRow: View {
-    let key: FeltStateScaleKey
-    @Binding var value: Double?
-
-    private let knobSize: CGFloat = 28
-    private let rowHeight: CGFloat = 30
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(key.label)
-                .font(Theme.monoLabel)
-                .foregroundStyle(Theme.dim)
-            GeometryReader { geo in
-                let trackWidth = max(0, geo.size.width - knobSize)
-                let spec = FeltStateKnobSpec.build(value: value)
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Theme.dim.opacity(0.18))
-                        .frame(height: 6)
-                        .padding(.horizontal, knobSize / 2)
-                    if spec.isTouched {
-                        Capsule()
-                            .fill(Theme.accent.opacity(0.6))
-                            .frame(width: CGFloat(spec.fillFraction) * trackWidth, height: 6)
-                            .padding(.leading, knobSize / 2)
-                    }
-                    Circle()
-                        .fill(spec.isTouched ? Theme.accent : Theme.dim.opacity(0.5))
-                        .frame(width: knobSize, height: knobSize)
-                        .overlay(Circle().strokeBorder(Theme.bg.opacity(0.3), lineWidth: 0.5))
-                        .offset(x: CGFloat(spec.knobFraction) * trackWidth)
-                }
-                .frame(height: rowHeight)
-                .contentShape(Rectangle())
-                .gesture(
-                    // minimumDistance 0 so a plain tap on the track also
-                    // places the knob, not only a drag — the whole track is
-                    // the target, not just the 28pt circle.
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { g in
-                            value = FeltStateDragMapping.value(x: g.location.x - knobSize / 2,
-                                                               trackWidth: trackWidth)
-                        }
-                )
-            }
-            .frame(height: rowHeight)
-            HStack {
-                Text(key.leftAnchor)
-                Spacer()
-                Text(key.rightAnchor)
-            }
-            .font(.system(size: 11))
-            .foregroundStyle(Theme.dim)
-        }
     }
 }

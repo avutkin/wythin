@@ -15,9 +15,10 @@ import SwiftData
 /// Each of the four scales is optional, and `nil` means something different
 /// from any in-range number: the user never touched that scale. A default
 /// (e.g. 50) in its place would fill the training set with confident
-/// non-answers, which is worse than the row simply being blank — see
-/// `FeltStateDraft` in `LiveStateWidget.swift`, the only place that builds
-/// one of these.
+/// non-answers, which is worse than the row simply being blank. The check-in
+/// UI that used to build these has since been removed; the model and its
+/// schema entry stay, since dropping a `@Model` from a live SwiftData schema
+/// risks migration problems on installs that already have rows.
 ///
 /// Values are stored 0–100 but are ordinal, not interval: nobody reliably
 /// drags to 63 rather than 68 on a thumb-sized control. A later calibration
