@@ -723,3 +723,183 @@ final class LiveCollapsedRowSpecTests: XCTestCase {
         XCTAssertNil(spec?.feeling, "no local reading means no feeling phrase to build from")
     }
 }
+
+/// `FeltStateDraft` — the in-progress check-in. `nil` IS the touched flag the
+/// design calls for; these tests exist because a regression here (e.g.
+/// initialising a scale to 50 "so the knob starts somewhere") would be
+/// invisible in the UI on first glance but would poison every saved row.
+final class FeltStateDraftTests: XCTestCase {
+
+    func testAFreshDraftHasNoAnswersAtAll() {
+        let draft = FeltStateDraft.empty
+        XCTAssertNil(draft.focus)
+        XCTAssertNil(draft.energy)
+        XCTAssertNil(draft.stress)
+        XCTAssertNil(draft.mood)
+        XCTAssertFalse(draft.hasAnyAnswer)
+    }
+
+    /// The exact regression this guards against: a scale that was never
+    /// dragged must persist as `nil`, not as 50 (or any other in-range
+    /// value) — see `FeltStateLog`'s own doc for why a default here is worse
+    /// than no data.
+    func testAnUntouchedScalePersistsAsNilNeverAsTheMidpoint() {
+        var draft = FeltStateDraft.empty
+        draft.focus = 80   // touch one scale only
+        let log = draft.makeLog(stateKey: .calm_alert)
+        XCTAssertEqual(log.focus, 80)
+        XCTAssertNil(log.energy, "never touched — must not become 50")
+        XCTAssertNil(log.stress, "never touched — must not become 50")
+        XCTAssertNil(log.mood,   "never touched — must not become 50")
+    }
+
+    /// A partially-filled check-in saves the answered scales and leaves the
+    /// rest nil — "Skip any you like" only means something if this is true.
+    func testAPartiallyFilledCheckInSavesAnsweredScalesAndLeavesRestNil() {
+        var draft = FeltStateDraft.empty
+        draft.energy = 65
+        draft.mood   = 40
+        let log = draft.makeLog(stateKey: .stressed_activated)
+        XCTAssertEqual(log.energy, 65)
+        XCTAssertEqual(log.mood,   40)
+        XCTAssertNil(log.focus)
+        XCTAssertNil(log.stress)
+        XCTAssertTrue(draft.hasAnyAnswer)
+    }
+
+    /// The field that turns a row into a labelled example rather than a mood
+    /// diary entry (accuracy design §6) — captured on the row regardless of
+    /// which scales were answered.
+    func testTheDisplayedStateKeyIsCapturedOnTheSavedRow() {
+        let draft = FeltStateDraft.empty
+        let log = draft.makeLog(stateKey: .renewed_thriving)
+        XCTAssertEqual(log.stateKey, "renewed_thriving")
+    }
+
+    /// A check-in can be saved before the classifier has ever produced a
+    /// reading (the first few days) — the row is still kept, just without a
+    /// key to calibrate against later.
+    func testANilStateKeyIsStoredAsNilNotAPlaceholderString() {
+        let draft = FeltStateDraft.empty
+        let log = draft.makeLog(stateKey: nil)
+        XCTAssertNil(log.stateKey)
+    }
+
+    func testSubscriptReadsAndWritesTheMatchingScale() {
+        var draft = FeltStateDraft.empty
+        draft[.stress] = 72
+        XCTAssertEqual(draft[.stress], 72)
+        XCTAssertEqual(draft.stress, 72)
+        XCTAssertNil(draft[.focus], "writing one scale must not touch the others")
+    }
+}
+
+/// `FeltStateKnobSpec` — "untouched is not the middle." A scale that was
+/// never dragged must render with a centred grey knob and NO fill; these
+/// tests would fail if a regression rendered `nil` as though it were the
+/// value 50 (which would also happen to centre the knob, but WOULD draw a
+/// half-filled track — the fill assertion is what actually distinguishes the
+/// two cases).
+final class FeltStateKnobSpecTests: XCTestCase {
+
+    func testUntouchedRendersCenteredWithNoFillAndIsNotTouched() {
+        let spec = FeltStateKnobSpec.build(value: nil)
+        XCTAssertEqual(spec.knobFraction, 0.5, accuracy: 0.001)
+        XCTAssertEqual(spec.fillFraction, 0, accuracy: 0.001,
+                       "no fill — a filled half-track would look identical to a real answer of 50")
+        XCTAssertFalse(spec.isTouched)
+    }
+
+    func testAnActualMidpointAnswerIsDistinctFromUntouched() {
+        let spec = FeltStateKnobSpec.build(value: 50)
+        XCTAssertEqual(spec.knobFraction, 0.5, accuracy: 0.001,
+                       "coincidentally the same position as untouched...")
+        XCTAssertEqual(spec.fillFraction, 0.5, accuracy: 0.001,
+                       "...but WITH a fill, and touched — the two must not be confusable in the model")
+        XCTAssertTrue(spec.isTouched)
+    }
+
+    func testExtremeValuesMapToTheirEnds() {
+        XCTAssertEqual(FeltStateKnobSpec.build(value: 0).knobFraction, 0, accuracy: 0.001)
+        XCTAssertEqual(FeltStateKnobSpec.build(value: 100).knobFraction, 1, accuracy: 0.001)
+    }
+
+    func testOutOfRangeValuesClampRatherThanOverflow() {
+        XCTAssertEqual(FeltStateKnobSpec.build(value: -20).knobFraction, 0, accuracy: 0.001)
+        XCTAssertEqual(FeltStateKnobSpec.build(value: 140).knobFraction, 1, accuracy: 0.001)
+    }
+}
+
+/// `FeltStateDragMapping` — the drag gesture's raw position to a stored
+/// 0–100 value. Pure so the clamping at both track edges is tested without a
+/// SwiftUI view host.
+final class FeltStateDragMappingTests: XCTestCase {
+
+    func testMidTrackMapsToFifty() {
+        XCTAssertEqual(FeltStateDragMapping.value(x: 50, trackWidth: 100), 50, accuracy: 0.001)
+    }
+
+    func testLeftEdgeMapsToZero() {
+        XCTAssertEqual(FeltStateDragMapping.value(x: 0, trackWidth: 100), 0, accuracy: 0.001)
+    }
+
+    func testRightEdgeMapsToOneHundred() {
+        XCTAssertEqual(FeltStateDragMapping.value(x: 100, trackWidth: 100), 100, accuracy: 0.001)
+    }
+
+    func testADragPastTheLeftEdgeClampsToZeroRatherThanGoingNegative() {
+        XCTAssertEqual(FeltStateDragMapping.value(x: -40, trackWidth: 100), 0, accuracy: 0.001)
+    }
+
+    func testADragPastTheRightEdgeClampsToOneHundredRatherThanOverflowing() {
+        XCTAssertEqual(FeltStateDragMapping.value(x: 260, trackWidth: 100), 100, accuracy: 0.001)
+    }
+
+    func testAZeroWidthTrackReturnsZeroRatherThanDividingByZero() {
+        XCTAssertEqual(FeltStateDragMapping.value(x: 50, trackWidth: 0), 0, accuracy: 0.001)
+    }
+}
+
+/// The two check-in scales' fixed order and copy. `FeltStateScaleKey`'s
+/// `CaseIterable` order is what the form renders in, so this pins it against
+/// an accidental reorder in a future edit.
+final class FeltStateScaleKeyTests: XCTestCase {
+    func testScalesRenderInTheSpecifiedOrder() {
+        XCTAssertEqual(FeltStateScaleKey.allCases, [.focus, .energy, .stress, .mood])
+    }
+
+    func testEveryScaleHasBothAnchorWordsAndNeitherIsEmpty() {
+        for key in FeltStateScaleKey.allCases {
+            XCTAssertFalse(key.leftAnchor.isEmpty, "\(key)")
+            XCTAssertFalse(key.rightAnchor.isEmpty, "\(key)")
+            XCTAssertNotEqual(key.leftAnchor, key.rightAnchor, "\(key)")
+        }
+    }
+
+    /// No numbers displayed anywhere is the design's explicit rule — the
+    /// anchor words themselves must never smuggle a digit in.
+    func testAnchorWordsContainNoDigits() {
+        let digits = CharacterSet.decimalDigits
+        for key in FeltStateScaleKey.allCases {
+            XCTAssertNil(key.leftAnchor.rangeOfCharacter(from: digits), "\(key)")
+            XCTAssertNil(key.rightAnchor.rangeOfCharacter(from: digits), "\(key)")
+        }
+    }
+}
+
+/// The check-in's own persisted drop-down key, and its independence from the
+/// state drop-down's key — the two sections are specified as independent
+/// (accuracy design §5), and `@AppStorage` enforces that only if the two
+/// literal strings actually differ. A regression that reused
+/// `expansionStorageKey` for both would compile fine and pass every other
+/// test in this file, since nothing else reads either literal directly.
+final class FeltStateCheckInStorageKeyTests: XCTestCase {
+    func testCheckInStorageKeyIsPinned() {
+        XCTAssertEqual(LiveStateWidget.checkInStorageKey, "checkInExpanded")
+    }
+
+    func testTheTwoDropDownsUseDistinctStorageKeys() {
+        XCTAssertNotEqual(LiveStateWidget.checkInStorageKey, LiveStateWidget.expansionStorageKey,
+                          "one drop-down toggling must never be able to toggle the other")
+    }
+}

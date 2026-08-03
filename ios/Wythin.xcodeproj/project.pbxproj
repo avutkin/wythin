@@ -112,9 +112,11 @@
 		A206 /* ResonanceSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F206 /* ResonanceSessionView.swift */; };
 		A207 /* BiofeedbackSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F207 /* BiofeedbackSessionView.swift */; };
 		A208 /* ActivityUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F208 /* ActivityUploader.swift */; };
+		A261 /* FeltStateLogUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F261 /* FeltStateLogUploader.swift */; };
 		A209 /* MotionCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F209 /* MotionCompute.swift */; };
 		A210 /* AnchorDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F210 /* AnchorDetector.swift */; };
 		A211 /* DailyAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F211 /* DailyAnchor.swift */; };
+		A260 /* FeltStateLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F260 /* FeltStateLog.swift */; };
 		A213 /* AnchorBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F213 /* AnchorBaseline.swift */; };
 		A214 /* PotentialScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F214 /* PotentialScore.swift */; };
 		A215 /* StreakCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F215 /* StreakCompute.swift */; };
@@ -317,9 +319,11 @@
 		F206 /* ResonanceSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResonanceSessionView.swift; sourceTree = "<group>"; };
 		F207 /* BiofeedbackSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiofeedbackSessionView.swift; sourceTree = "<group>"; };
 		F208 /* ActivityUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityUploader.swift; sourceTree = "<group>"; };
+		F261 /* FeltStateLogUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeltStateLogUploader.swift; sourceTree = "<group>"; };
 		F209 /* MotionCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionCompute.swift; sourceTree = "<group>"; };
 		F210 /* AnchorDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetector.swift; sourceTree = "<group>"; };
 		F211 /* DailyAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyAnchor.swift; sourceTree = "<group>"; };
+		F260 /* FeltStateLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeltStateLog.swift; sourceTree = "<group>"; };
 		F213 /* AnchorBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaseline.swift; sourceTree = "<group>"; };
 		F214 /* PotentialScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScore.swift; sourceTree = "<group>"; };
 		F215 /* StreakCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakCompute.swift; sourceTree = "<group>"; };
@@ -597,6 +601,7 @@
 			isa = PBXGroup;
 			children = (
 				F211 /* DailyAnchor.swift */,
+				F260 /* FeltStateLog.swift */,
 				F114 /* HRVSession.swift */,
 				F115 /* HRVSample.swift */,
 				F116 /* ResonanceResult.swift */,
@@ -646,6 +651,7 @@
 				F112 /* APIClient.swift */,
 				F113 /* SessionUploader.swift */,
 				F208 /* ActivityUploader.swift */,
+				F261 /* FeltStateLogUploader.swift */,
 				F145 /* InsightGenerator.swift */,
 				FE6F0E9C8772030B86BA730E /* UsageUploader.swift */,
 			);
@@ -866,6 +872,7 @@
 				A214 /* PotentialScore.swift in Sources */,
 				A213 /* AnchorBaseline.swift in Sources */,
 				A211 /* DailyAnchor.swift in Sources */,
+				A260 /* FeltStateLog.swift in Sources */,
 				A210 /* AnchorDetector.swift in Sources */,
 				A101 /* WythinApp.swift in Sources */,
 				A102 /* AppEnvironment.swift in Sources */,
@@ -882,6 +889,7 @@
 				A112 /* APIClient.swift in Sources */,
 				A113 /* SessionUploader.swift in Sources */,
 				A208 /* ActivityUploader.swift in Sources */,
+				A261 /* FeltStateLogUploader.swift in Sources */,
 				A145 /* InsightGenerator.swift in Sources */,
 				A114 /* HRVSession.swift in Sources */,
 				A115 /* HRVSample.swift in Sources */,

@@ -391,6 +391,8 @@ final class AppEnvironment {
             await activityUploader.flushPending(context: context)
             let usageUploader = UsageUploader(client: sync.client, userID: userID)
             await usageUploader.flushPending(context: context)
+            let feltStateUploader = FeltStateLogUploader(client: sync.client, userID: userID)
+            await feltStateUploader.flushPending(context: context)
         }
     }
 
