@@ -62,6 +62,8 @@ enum LiveThresholds {
 struct MetricReading: Equatable {
     let metric: LiveMetric
     /// Where the window sits against the person's usual, in their own SD.
+    /// The window is reduced by its MEAN — the same estimator the baseline
+    /// centre and the trend use. See `LiveReading.build`.
     let level: Float
     /// Slope across the window in personal SD per window. Zero when gated.
     let trend: Float
@@ -110,10 +112,25 @@ struct LiveReading {
         var readings: [LiveMetric: MetricReading] = [:]
         for metric in LiveMetric.allCases {
             let values = valid.compactMap { metric.value($0) }
-            guard values.count >= 2,
-                  let median = AnchorDetector.median(values),
-                  let level  = baseline.z(median, for: metric),
-                  let sd     = baseline.stat(for: metric)?.sdBlended(prior: LivePrior.prior(for: metric))
+            guard values.count >= 2 else { continue }
+
+            // The window's level is its MEAN, deliberately, not its median.
+            // All three location estimators in this pipeline have to agree or
+            // the z is biased by the difference between them: the baseline
+            // centre is a mean of daily means (`LiveBaseline.build`) and the
+            // trend below is a difference of half-window means. Scoring a
+            // median against a mean centre subtracts the within-day skew
+            // itself — and RMSSD, stress balance and PIP are all right-skewed
+            // within a day, so a perfectly typical window would score a
+            // persistent negative z on the metrics carrying most of the Energy
+            // and Recovery axes. Robustness to outliers is already handled
+            // upstream by `MetricsQualityFilter`, which is where an implausible
+            // tick is supposed to be removed; doing it again here, with an
+            // estimator the baseline does not share, buys nothing and costs a
+            // standing bias.
+            let windowMean = values.reduce(0, +) / Float(values.count)
+            guard let level = baseline.z(windowMean, for: metric),
+                  let sd    = baseline.stat(for: metric)?.sdBlended(prior: LivePrior.prior(for: metric))
             else { continue }
 
             // Slope across the window, expressed in the person's own SD so it is
