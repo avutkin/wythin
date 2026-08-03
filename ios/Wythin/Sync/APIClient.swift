@@ -423,10 +423,21 @@ final class MetricSyncService {
     private let container: ModelContainer
     @AppStorage("cloudSyncEnabled") private var enabled = true
     @AppStorage("metricsLastSyncedAt") private var lastSyncedISO = ""
+    /// The profile the server last *accepted*, as canonical JSON. Persisted, so
+    /// a rejected upload is retried on the next sync rather than waiting for a
+    /// relaunch, and an edited profile re-uploads on its own.
+    @AppStorage("profileLastSynced") private var syncedProfile = ""
     private let iso = ISO8601DateFormatter()
     private let batch = 2000
     private var isSyncing = false
-    private var profileSynced = false
+
+    /// Sorted keys so the same answers always encode to the same bytes — the
+    /// comparison above is only meaningful if the encoding is stable.
+    private static let profileEncoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.outputFormatting = .sortedKeys
+        return e
+    }()
 
     init(client: APIClient, userID: String, container: ModelContainer) {
         self.client = client; self.userID = userID; self.container = container
@@ -438,15 +449,21 @@ final class MetricSyncService {
         isSyncing = true
         defer { isSyncing = false }
 
-        // Once per launch: push the onboarding profile so the server's "who I am"
-        // is complete. Gated by the cloud-sync toggle above (it carries PII).
-        if !profileSynced {
-            let p = ClientProfileStore().load()
-            let profile = ProfilePayload(
-                phone: p.phone, email: p.email, age_range: p.ageRange, gender: p.gender,
-                goals: p.goals, practices: p.practices, devices: p.devices)
-            if (try? await client.uploadProfile(profile, userID: userID)) != nil {
-                profileSynced = true
+        // Push the onboarding profile whenever what we hold differs from what the
+        // server last accepted — every sync, not once per launch. Marking it
+        // synced only after a real success means a rejected upload retries on
+        // the next tick (~120 s) instead of needing the app relaunched, which is
+        // how five days of profiles were lost to a 404 nobody noticed.
+        // Gated by the cloud-sync toggle above (it carries PII).
+        let p = ClientProfileStore().load()
+        let profile = ProfilePayload(
+            phone: p.phone, email: p.email, age_range: p.ageRange, gender: p.gender,
+            goals: p.goals, practices: p.practices, devices: p.devices)
+        if let encoded = try? Self.profileEncoder.encode(profile) {
+            let canonical = String(decoding: encoded, as: UTF8.self)
+            if canonical != syncedProfile,
+               (try? await client.uploadProfile(profile, userID: userID)) != nil {
+                syncedProfile = canonical
             }
         }
 
