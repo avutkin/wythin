@@ -21,6 +21,19 @@ enum TrackPeriod: String, CaseIterable, Identifiable {
     var bucketNoun: (singular: String, plural: String) {
         self == .sixMonth ? ("month", "months") : ("day", "days")
     }
+
+    /// "vs prior week" / "vs prior month" / "vs prior 6 months" — the noun
+    /// half of that phrase. Shared by the delta chip, the chart's
+    /// reference-line legend, and the footer summary so the three
+    /// descriptions of the same period-over-period comparison can't drift
+    /// apart from one another.
+    var priorNoun: String {
+        switch self {
+        case .week:     return "week"
+        case .month:    return "month"
+        case .sixMonth: return "6 months"
+        }
+    }
 }
 
 /// One x-axis slot: a single day (W, M) or a calendar month (6M).
@@ -70,8 +83,12 @@ enum TrackRangeBuilder {
         let end      = cal.date(byAdding: .weekOfYear, value: 1, to: start)!
 
         let buckets = dayBuckets(from: start, to: end, calendar: cal) { d in
-            // Narrow weekday: "M", "T", …
-            String(fmt("EEEEE", cal).string(from: d).uppercased().prefix(1))
+            // Narrow weekday plus the date, e.g. "S 8-30" — a bare "S" alone
+            // could mean Saturday or Sunday, and it gives no way to tell one
+            // Tuesday's bar from another week's without also reading the
+            // page-level range label above the chart.
+            let initial = String(fmt("EEEEE", cal).string(from: d).uppercased().prefix(1))
+            return "\(initial) \(shortDateLabel(d, calendar: cal))"
         }
         let last = cal.date(byAdding: .day, value: -1, to: end)!
         return TrackRange(period: .week, offset: offset, start: start, end: end,
@@ -106,8 +123,14 @@ enum TrackRangeBuilder {
         var m = start
         while m < end {
             let next = cal.date(byAdding: .month, value: 1, to: m)!
+            // "Aug", not "AUG" — every other label on this axis (weekday
+            // initials, day-of-month digits, "M d" dates) is either a bare
+            // number or a single capital letter, so an all-caps three-letter
+            // abbreviation reads visually heavier than its neighbours for no
+            // reason. The page-level range label above the chart (e.g. "FEB
+            // – JUL 2026") is unrelated and keeps its own uppercasing.
             buckets.append(TrackBucket(start: m, end: next,
-                                       label: fmt("MMM", cal).string(from: m).uppercased()))
+                                       label: fmt("MMM", cal).string(from: m)))
             m = next
         }
         let last = cal.date(byAdding: .month, value: -1, to: end)!
@@ -146,6 +169,18 @@ enum TrackRangeBuilder {
             d = next
         }
         return out
+    }
+
+    /// Month-day, hyphen-joined, never zero-padded: "8-30", "1-5". Built
+    /// from calendar components rather than a `DateFormatter` pattern like
+    /// "M-d" — whether a single-count numeric pattern letter zero-pads is a
+    /// locale/format-provider detail, not a Swift guarantee, and this axis
+    /// label is exactly the kind of small, easy-to-miss regression a
+    /// pinned test should catch outright rather than one relying on that
+    /// behaviour holding across OS versions.
+    static func shortDateLabel(_ d: Date, calendar cal: Calendar) -> String {
+        let c = cal.dateComponents([.month, .day], from: d)
+        return "\(c.month!)-\(c.day!)"
     }
 
     private static func fmt(_ format: String, _ cal: Calendar) -> DateFormatter {

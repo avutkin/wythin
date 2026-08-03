@@ -8,16 +8,6 @@ struct TrackBar: Identifiable, Equatable {
     var id: Date { bucket.start }
 }
 
-/// A short horizontal rule spanning several bars, drawn over the month view so
-/// ~30 daily bars stay readable without a number on every one.
-struct TrackOverlaySegment: Identifiable, Equatable {
-    let start: Date
-    let end:   Date
-    let value: Double
-
-    var id: Date { start }
-}
-
 /// Everything one metric card renders for one page.
 struct TrackSeries: Equatable {
     let bars:                [TrackBar]
@@ -26,7 +16,6 @@ struct TrackSeries: Equatable {
     let deltaPct:            Double?
     let reference:           Double
     let referenceIsPersonal: Bool
-    let overlay:             [TrackOverlaySegment]
     let betterCount:         Int
     let presentCount:        Int
     let summary:             String
@@ -44,9 +33,13 @@ enum TrackSeriesBuilder {
 
     // MARK: Bars
 
-    static func bars(spec: TrackMetricSpec, range: TrackRange,
-                     rollups: [DailyRollup]) -> [TrackBar] {
-        range.buckets.map { bucket in
+    /// `calendar` only matters for the month page, which regroups its daily
+    /// buckets into calendar weeks below — every other period's buckets
+    /// already come straight out of `range.buckets` at the granularity the
+    /// chart wants, so it's unused there.
+    static func bars(spec: TrackMetricSpec, range: TrackRange, rollups: [DailyRollup],
+                     calendar cal: Calendar = .current) -> [TrackBar] {
+        let daily = range.buckets.map { bucket -> TrackBar in
             let values = rollups
                 .filter { $0.day >= bucket.start && $0.day < bucket.end }
                 .compactMap { spec.rollup($0) }
@@ -59,6 +52,48 @@ enum TrackSeriesBuilder {
             // wear day cannot outweigh a 6-hour one.
             return TrackBar(bucket: bucket,
                             value: values.reduce(0, +) / Double(values.count))
+        }
+        // The month page charts weekly bars, not daily ones — see
+        // `weekBars` for how the month's first and last, usually-partial
+        // calendar weeks are handled.
+        guard range.period == .month else { return daily }
+        return weekBars(dailyBars: daily, calendar: cal)
+    }
+
+    /// Groups a month's daily bars into calendar weeks (Monday-first, or
+    /// whatever the injected calendar's `firstWeekday` says) and collapses
+    /// each into one bar: the unweighted mean of that week's present days,
+    /// nil when none of them are.
+    ///
+    /// A month's first and last calendar week essentially never align with
+    /// the 1st or the last day of the month — e.g. a month starting on a
+    /// Thursday puts that week's Monday–Wednesday in the *previous* month.
+    /// Rather than stretch the edge bucket out to a full 7 days (which would
+    /// double-count those days against the neighbouring month's own page) or
+    /// drop them, each edge bucket is sized to only the days this month
+    /// actually contributed — 1–6 days instead of 7 — and averaged over just
+    /// those. Every day in the month still lands in exactly one bucket, and
+    /// every bucket is a real calendar week (the one a person would actually
+    /// call "last week"), rather than an arbitrary 7-day slice counted from
+    /// the 1st that drifts out of alignment with the real week as the month
+    /// goes on.
+    static func weekBars(dailyBars: [TrackBar],
+                        calendar cal: Calendar = .current) -> [TrackBar] {
+        var groups: [Date: [TrackBar]] = [:]
+        for bar in dailyBars {
+            let weekStart = cal.dateInterval(of: .weekOfYear, for: bar.bucket.start)?.start
+                ?? bar.bucket.start
+            groups[weekStart, default: []].append(bar)
+        }
+        return groups.keys.sorted().map { weekStart in
+            let group  = groups[weekStart]!.sorted { $0.bucket.start < $1.bucket.start }
+            let start  = group.first!.bucket.start
+            let end    = group.last!.bucket.end
+            let values = group.compactMap(\.value)
+            let value: Double? = values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
+            let bucket = TrackBucket(start: start, end: end,
+                                     label: TrackRangeBuilder.shortDateLabel(start, calendar: cal))
+            return TrackBar(bucket: bucket, value: value)
         }
     }
 
@@ -83,28 +118,6 @@ enum TrackSeriesBuilder {
         return (median, true)
     }
 
-    // MARK: Weekly overlay
-
-    /// Groups daily bars by calendar week and returns the mean of each week's
-    /// present values.
-    static func weeklyOverlay(bars: [TrackBar],
-                              calendar cal: Calendar = .current) -> [TrackOverlaySegment] {
-        var groups: [Date: [TrackBar]] = [:]
-        for bar in bars {
-            let weekStart = cal.dateInterval(of: .weekOfYear, for: bar.bucket.start)?.start
-                ?? bar.bucket.start
-            groups[weekStart, default: []].append(bar)
-        }
-        return groups.keys.sorted().compactMap { weekStart in
-            let group  = groups[weekStart]!.sorted { $0.bucket.start < $1.bucket.start }
-            let values = group.compactMap(\.value)
-            guard !values.isEmpty else { return nil }
-            return TrackOverlaySegment(start: group.first!.bucket.start,
-                                       end:   group.last!.bucket.end,
-                                       value: values.reduce(0, +) / Double(values.count))
-        }
-    }
-
     // MARK: Series
 
     static func series(spec: TrackMetricSpec, range: TrackRange, priorRange: TrackRange,
@@ -113,11 +126,11 @@ enum TrackSeriesBuilder {
         // Named `currentBars` rather than `bars` so this local doesn't shadow
         // the static `bars(spec:range:rollups:)` function before the prior
         // range's bars are computed below.
-        let currentBars = bars(spec: spec, range: range, rollups: rollups)
+        let currentBars = bars(spec: spec, range: range, rollups: rollups, calendar: cal)
         let present = currentBars.compactMap(\.value)
         let average = present.isEmpty ? nil : present.reduce(0, +) / Double(present.count)
 
-        let priorBars    = bars(spec: spec, range: priorRange, rollups: rollups)
+        let priorBars    = bars(spec: spec, range: priorRange, rollups: rollups, calendar: cal)
         let priorPresent = priorBars.compactMap(\.value)
         let priorAverage = priorPresent.isEmpty
             ? nil : priorPresent.reduce(0, +) / Double(priorPresent.count)
@@ -131,12 +144,10 @@ enum TrackSeriesBuilder {
         let refBenefit  = spec.def.direction.benefit(reference)
         let betterCount = present.filter { spec.def.direction.benefit($0) > refBenefit }.count
 
-        let overlay = range.period == .month ? weeklyOverlay(bars: currentBars, calendar: cal) : []
-
         return TrackSeries(
             bars: currentBars, average: average, deltaPct: delta,
             reference: reference, referenceIsPersonal: isPersonal,
-            overlay: overlay, betterCount: betterCount, presentCount: present.count,
+            betterCount: betterCount, presentCount: present.count,
             summary: summary(period: range.period, better: betterCount,
                              total: present.count, isPersonal: isPersonal))
     }

@@ -140,11 +140,9 @@ struct TrackMetricChartCard: View {
                     .cornerRadius(2)
                     .foregroundStyle(barColor(bar, value: v))
                     .annotation(position: .top, spacing: 2) {
-                        if labelledBuckets.contains(bar.bucket.start) {
-                            Text(spec.def.format(v))
-                                .font(.system(size: 8, design: .monospaced))
-                                .foregroundStyle(Theme.dim)
-                        }
+                        Text(spec.def.format(v))
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundStyle(Theme.dim)
                     }
                 } else {
                     // Invisible anchor at this bucket's x-position. When every
@@ -165,32 +163,19 @@ struct TrackMetricChartCard: View {
                         .opacity(0)
                 }
             }
-
-            // Month view only: weekly averages as short rules, so ~30 bars stay
-            // legible without a number on every one.
-            ForEach(series.overlay) { seg in
-                RuleMark(
-                    xStart: .value("start", seg.start),
-                    xEnd:   .value("end", seg.end),
-                    y:      .value("weekly", seg.value)
-                )
-                .lineStyle(StrokeStyle(lineWidth: 2))
-                .foregroundStyle(spec.color)
-                .annotation(position: .top, spacing: 1) {
-                    Text(spec.def.format(seg.value))
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
-                        .foregroundStyle(spec.color)
-                }
-            }
         }
         .frame(height: 132)
         .chartYScale(domain: yDomain)
         .chartYAxis(.hidden)
         .chartXAxis {
+            // Every period's bars get an axis label: W and 6M always did
+            // (≤7 bars), and now M does too, since its bars are calendar
+            // weeks (≤6 of them, same as 6M) rather than ~30 days. That
+            // used to need a "label only the extremes" thinning pass to
+            // stay legible — moot now that there's nothing to thin.
             AxisMarks(values: series.bars.map(\.bucket.start)) { value in
                 if let d = value.as(Date.self),
-                   let bar = series.bars.first(where: { $0.bucket.start == d }),
-                   showAxisLabel(bar) {
+                   let bar = series.bars.first(where: { $0.bucket.start == d }) {
                     AxisValueLabel {
                         Text(bar.value == nil ? "·" : bar.bucket.label)
                             .font(.system(size: 9, design: .monospaced))
@@ -235,7 +220,17 @@ struct TrackMetricChartCard: View {
         }
     }
 
-    private var xUnit: Calendar.Component { period == .sixMonth ? .month : .day }
+    /// One bar per bucket: a day for W, a calendar week for M, a calendar
+    /// month for 6M. Must match whatever granularity `TrackSeriesBuilder.bars`
+    /// actually produced for this period, or Charts spaces/widths the bars
+    /// against the wrong unit and they no longer line up with their bucket.
+    private var xUnit: Calendar.Component {
+        switch period {
+        case .week:     return .day
+        case .month:    return .weekOfYear
+        case .sixMonth: return .month
+        }
+    }
 
     private func barColor(_ bar: TrackBar, value: Double) -> Color {
         if selectedBucket == bar.bucket.start { return spec.color }
@@ -243,32 +238,6 @@ struct TrackMetricChartCard: View {
         // line reads at a glance.
         let better = spec.def.direction.benefit(value) > spec.def.direction.benefit(series.reference)
         return spec.color.opacity(better ? 0.9 : 0.45)
-    }
-
-    /// W and 6M label every bar. M would need ~30 numbers across ~350pt, so it
-    /// labels only the extremes and the most recent, and leans on the weekly
-    /// overlay for the rest.
-    private var labelledBuckets: Set<Date> {
-        let present = series.bars.filter { $0.value != nil }
-        guard period == .month else { return Set(present.map(\.bucket.start)) }
-        var keep = Set<Date>()
-        if let lo = present.min(by: { $0.value! < $1.value! }) { keep.insert(lo.bucket.start) }
-        if let hi = present.max(by: { $0.value! < $1.value! }) { keep.insert(hi.bucket.start) }
-        if let last = present.last { keep.insert(last.bucket.start) }
-        return keep
-    }
-
-    private func showAxisLabel(_ bar: TrackBar) -> Bool {
-        guard period == .month else { return true }
-        // Every fifth day, so a 31-day axis stays readable.
-        if Calendar.current.component(.day, from: bar.bucket.start) % 5 == 1 { return true }
-        // `labelledBuckets` always annotates the most recent bar with a
-        // value — without a matching axis label under it, that number has
-        // no date and the chart can't answer "what did I do most recently."
-        // Uses the most recent *present* bar (not series.bars.last) so a
-        // future, still-empty day at the end of the current month page
-        // doesn't win the slot instead of today.
-        return bar.bucket.start == series.bars.filter({ $0.value != nil }).last?.bucket.start
     }
 
     /// Where bars are anchored, vertically. Always the visible domain's
@@ -304,17 +273,6 @@ struct TrackMetricChartCard: View {
                 .font(.system(size: 10))
                 .foregroundStyle(Theme.dim)
                 .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
-
-private extension TrackPeriod {
-    /// "vs prior week" / "vs prior month" / "vs prior 6 months"
-    var priorNoun: String {
-        switch self {
-        case .week:     return "week"
-        case .month:    return "month"
-        case .sixMonth: return "6 months"
         }
     }
 }

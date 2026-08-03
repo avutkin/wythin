@@ -306,90 +306,90 @@ final class TrackSeriesBuilderTests: XCTestCase {
                                           rollups: [], asOf: today, calendar: cal)
         XCTAssertEqual(s.summary, "No data this period.")
         XCTAssertNil(s.average)
-        XCTAssertTrue(s.overlay.isEmpty)
     }
 
-    // MARK: weekly overlay
+    // MARK: month bucketing — weekly bars
 
-    func testMonthSeriesHasWeeklyOverlaySegments() {
+    /// The month page's bars are calendar weeks, not days: July 2026 (a
+    /// 31-day month starting on a Wednesday, with `cal.firstWeekday == 2`)
+    /// spans exactly 5 Monday-first calendar weeks, so `bars()` for `.month`
+    /// must return 5 bars, not 31 daily ones. `dailyBars` fixture proves this
+    /// isn't just because the input happens to have 5 groups — every day in
+    /// July has a rollup, so any bug that fell back to `range.buckets`
+    /// directly would produce 31 here instead.
+    func testMonthPeriodProducesWeeklyBars() {
         let today = date(2026, 7, 28)
         let r = TrackRangeBuilder.range(period: .month, offset: 0, today: today, calendar: cal)
         let rollups = r.days.map { rollup($0, dc: 8) }
-        let s = TrackSeriesBuilder.series(spec: spec("Vagal Tone"), range: r,
-                                          priorRange: TrackRangeBuilder.range(period: .month, offset: 1,
-                                                                              today: today, calendar: cal),
-                                          rollups: rollups, asOf: today, calendar: cal)
-        // July 2026 spans 5 partial ISO weeks.
-        XCTAssertEqual(s.overlay.count, 5)
-        XCTAssertEqual(s.overlay.first!.value, 8, accuracy: 0.001)
+        let bars = TrackSeriesBuilder.bars(spec: spec("Vagal Tone"), range: r,
+                                          rollups: rollups, calendar: cal)
+        XCTAssertEqual(bars.count, 5)
+        XCTAssertEqual(bars.first!.value!, 8, accuracy: 0.001)
     }
 
-    /// The weekly overlay is a month-view device only. Both non-month periods
-    /// are built here: with only the week case covered, a gate written
-    /// `!= .week` instead of `== .month` would pass while shipping ~26 stray
-    /// weekly rules across the 6M chart.
-    func testWeekAndSixMonthSeriesHaveNoOverlay() {
+    /// The weekly grouping must actually run through `weekBars` — not just
+    /// happen to produce 5 buckets — so every bucket's span is checked
+    /// end-to-end: every day of July lands in exactly one bucket, buckets are
+    /// contiguous, and (bar count aside) this is the same evenly-spaced
+    /// partition `weekBars`'s own unit tests pin directly below.
+    func testMonthWeeklyBarsAreContiguousAndCoverTheWholeMonth() {
         let today = date(2026, 7, 28)
-        let rollups = week(0, today: today).days.map { rollup($0, dc: 8) }
-        let w = TrackSeriesBuilder.series(spec: spec("Vagal Tone"), range: week(0, today: today),
-                                          priorRange: week(1, today: today),
-                                          rollups: rollups, asOf: today, calendar: cal)
-        XCTAssertTrue(w.overlay.isEmpty)
-
-        let six      = TrackRangeBuilder.range(period: .sixMonth, offset: 0,
-                                               today: today, calendar: cal)
-        let sixPrior = TrackRangeBuilder.range(period: .sixMonth, offset: 1,
-                                               today: today, calendar: cal)
-        let sixRollups = six.days.map { rollup($0, dc: 8) }
-        let s = TrackSeriesBuilder.series(spec: spec("Vagal Tone"), range: six,
-                                          priorRange: sixPrior,
-                                          rollups: sixRollups, asOf: today, calendar: cal)
-        // Data is genuinely present, so an empty overlay is the gate at work
-        // rather than there being nothing to group.
-        XCTAssertEqual(s.bars.count, 6)
-        XCTAssertNotNil(s.bars.first!.value)
-        XCTAssertTrue(s.overlay.isEmpty)
+        let r = TrackRangeBuilder.range(period: .month, offset: 0, today: today, calendar: cal)
+        let rollups = r.days.map { rollup($0, dc: 8) }
+        let bars = TrackSeriesBuilder.bars(spec: spec("Vagal Tone"), range: r,
+                                          rollups: rollups, calendar: cal)
+        XCTAssertEqual(bars.first!.bucket.start, r.start)
+        XCTAssertEqual(bars.last!.bucket.end, r.end)
+        for (a, b) in zip(bars, bars.dropFirst()) {
+            XCTAssertEqual(a.bucket.end, b.bucket.start)
+        }
     }
 
-    /// A week with some days present and some absent still produces a
-    /// segment, averaging only the present days — and the segment's
-    /// `start`/`end` still span the whole calendar week's bars (including
-    /// the nil ones), because they come from the group's own bucket
-    /// boundaries, not from which days happen to have values.
-    func testWeeklyOverlaySegmentAveragesOnlyPresentDaysInAPartialWeek() {
+    /// Only the two *edge* weeks may be partial — every week fully inside the
+    /// month must be a full 7 days. A bug that clipped every bucket to some
+    /// fixed size (rather than only where the month boundary actually cuts
+    /// across a calendar week) would fail this on the interior weeks.
+    func testOnlyTheMonthsEdgeWeeksArePartial() {
+        let today = date(2026, 7, 28)
+        let r = TrackRangeBuilder.range(period: .month, offset: 0, today: today, calendar: cal)
+        let rollups = r.days.map { rollup($0, dc: 8) }
+        let bars = TrackSeriesBuilder.bars(spec: spec("Vagal Tone"), range: r,
+                                          rollups: rollups, calendar: cal)
+        let spans = bars.map { cal.dateComponents([.day], from: $0.bucket.start, to: $0.bucket.end).day! }
+        for span in spans.dropFirst().dropLast() {
+            XCTAssertEqual(span, 7, "an interior week must be a full 7 days")
+        }
+        XCTAssertLessThan(spans.first!, 7, "July 2026 starts mid-week (Wednesday), so the first bucket is partial")
+        XCTAssertLessThan(spans.last!, 7, "July 2026 ends mid-week (Friday), so the last bucket is partial")
+    }
+
+    /// A week bar averages only the days that actually have a rollup,
+    /// ignoring the nil ones rather than treating them as zero.
+    func testWeekBarAveragesOnlyPresentDaysInAPartialWeek() {
         let today = date(2026, 7, 28)
         let r = TrackRangeBuilder.range(period: .month, offset: 0, today: today, calendar: cal)
         // July 2026's second calendar week is Jul 6 (Mon) – Jul 12 (Sun).
-        // Only Jul 7 (dc=6) and Jul 9 (dc=14) get a rollup; Jul 6, 8, 10, 11,
-        // 12 have none at all, so their bars are nil. Every other week in the
-        // month is fully populated at dc=8.
+        // Only Jul 7 (dc=6) and Jul 9 (dc=14) get a rollup; the rest of that
+        // week has none. Every other week in the month is fully populated.
         let sparseWeekStart = date(2026, 7, 6)
         let sparseWeekEnd   = date(2026, 7, 12)
         let rollups = r.days.compactMap { day -> DailyRollup? in
-            guard (sparseWeekStart...sparseWeekEnd).contains(day) else {
-                return rollup(day, dc: 8)
-            }
+            guard (sparseWeekStart...sparseWeekEnd).contains(day) else { return rollup(day, dc: 8) }
             if day == date(2026, 7, 7) { return rollup(day, dc: 6) }
             if day == date(2026, 7, 9) { return rollup(day, dc: 14) }
             return nil
         }
-        let s = TrackSeriesBuilder.series(
-            spec: spec("Vagal Tone"), range: r,
-            priorRange: TrackRangeBuilder.range(period: .month, offset: 1,
-                                                today: today, calendar: cal),
-            rollups: rollups, asOf: today, calendar: cal)
-
-        let sparse = try! XCTUnwrap(s.overlay.first { $0.start == sparseWeekStart })
-        XCTAssertEqual(sparse.value, 10, accuracy: 0.001)   // (6 + 14) / 2, ignoring the 5 nil days
-        XCTAssertEqual(sparse.start, sparseWeekStart)
-        XCTAssertEqual(sparse.end, cal.date(byAdding: .day, value: 1, to: sparseWeekEnd))
+        let bars = TrackSeriesBuilder.bars(spec: spec("Vagal Tone"), range: r,
+                                          rollups: rollups, calendar: cal)
+        let sparse = try! XCTUnwrap(bars.first { $0.bucket.start == sparseWeekStart })
+        XCTAssertEqual(sparse.value!, 10, accuracy: 0.001)   // (6 + 14) / 2, ignoring the 5 nil days
+        XCTAssertEqual(sparse.bucket.end, cal.date(byAdding: .day, value: 1, to: sparseWeekEnd))
     }
 
-    /// A calendar week with no data in it at all must not draw a phantom
-    /// average rule — the `guard !values.isEmpty else { return nil }` in
-    /// `weeklyOverlay` exists exactly for this — while the weeks on either
-    /// side of it still get theirs.
-    func testWeeklyOverlayProducesNoSegmentForAWeekWithNoDataAtAll() {
+    /// A calendar week with no data in it at all still produces a bar — nil,
+    /// exactly like a missing day in the week/6M views — rather than
+    /// vanishing and shifting every later week's x-position.
+    func testWeekBarIsNilForAWeekWithNoDataAtAll() {
         let today = date(2026, 7, 28)
         let r = TrackRangeBuilder.range(period: .month, offset: 0, today: today, calendar: cal)
         // July 2026's third calendar week, Jul 13 (Mon) – Jul 19 (Sun), has
@@ -398,17 +398,50 @@ final class TrackSeriesBuilderTests: XCTestCase {
         let rollups = r.days.compactMap { day -> DailyRollup? in
             emptyWeek.contains(day) ? nil : rollup(day, dc: 8)
         }
-        let s = TrackSeriesBuilder.series(
-            spec: spec("Vagal Tone"), range: r,
-            priorRange: TrackRangeBuilder.range(period: .month, offset: 1,
-                                                today: today, calendar: cal),
-            rollups: rollups, asOf: today, calendar: cal)
+        let bars = TrackSeriesBuilder.bars(spec: spec("Vagal Tone"), range: r,
+                                          rollups: rollups, calendar: cal)
+        XCTAssertEqual(bars.count, 5, "the empty week is still its own bucket, not dropped")
+        let empty = try! XCTUnwrap(bars.first { $0.bucket.start == date(2026, 7, 13) })
+        XCTAssertNil(empty.value)
+        XCTAssertNotNil(bars.first { $0.bucket.start == date(2026, 7, 6) }?.value)    // week before
+        XCTAssertNotNil(bars.first { $0.bucket.start == date(2026, 7, 20) }?.value)   // week after
+    }
 
-        // 5 calendar weeks span July 2026 (see testMonthSeriesHasWeeklyOverlaySegments);
-        // the empty one is dropped, leaving 4.
-        XCTAssertEqual(s.overlay.count, 4)
-        XCTAssertFalse(s.overlay.contains { $0.start == date(2026, 7, 13) })
-        XCTAssertTrue(s.overlay.contains { $0.start == date(2026, 7, 6) })    // week before
-        XCTAssertTrue(s.overlay.contains { $0.start == date(2026, 7, 20) })   // week after
+    /// Week/6M bars are untouched by the month-only regrouping in `bars()` —
+    /// a gate written wrong (e.g. `!= .week` instead of `== .month`) would
+    /// pass a same-count check by accident but still corrupt these periods'
+    /// bucket boundaries.
+    func testWeekAndSixMonthBarsAreUnaffectedByMonthRegrouping() {
+        let today = date(2026, 7, 28)
+        let w = week(0, today: today)
+        let wRollups = w.days.map { rollup($0, dc: 8) }
+        let wBars = TrackSeriesBuilder.bars(spec: spec("Vagal Tone"), range: w,
+                                           rollups: wRollups, calendar: cal)
+        XCTAssertEqual(wBars.map(\.bucket.start), w.buckets.map(\.start))
+
+        let six = TrackRangeBuilder.range(period: .sixMonth, offset: 0, today: today, calendar: cal)
+        let sixRollups = six.days.map { rollup($0, dc: 8) }
+        let sixBars = TrackSeriesBuilder.bars(spec: spec("Vagal Tone"), range: six,
+                                             rollups: sixRollups, calendar: cal)
+        XCTAssertEqual(sixBars.map(\.bucket.start), six.buckets.map(\.start))
+    }
+
+    /// Enumerates a full year of month pages against every weekday the 1st
+    /// could fall on (by varying `today`'s month across 2026) and checks the
+    /// bucket count never exceeds 6 — the number the chart's axis already
+    /// handles without any label-thinning (same as the 6M view). This is
+    /// what backs the removal of `TrackMetricChartCard`'s old
+    /// extremes-only-label logic for the month view: if some month produced,
+    /// say, 8 weekly bars, that removal would have been unsafe.
+    func testMonthNeverProducesMoreThanSixWeeklyBuckets() {
+        for month in 1...12 {
+            let today = date(2026, month, 15)
+            let r = TrackRangeBuilder.range(period: .month, offset: 0, today: today, calendar: cal)
+            let rollups = r.days.map { rollup($0, dc: 8) }
+            let bars = TrackSeriesBuilder.bars(spec: spec("Vagal Tone"), range: r,
+                                              rollups: rollups, calendar: cal)
+            XCTAssertLessThanOrEqual(bars.count, 6, "month \(month) produced \(bars.count) weekly buckets")
+            XCTAssertGreaterThanOrEqual(bars.count, 4, "month \(month) produced \(bars.count) weekly buckets")
+        }
     }
 }

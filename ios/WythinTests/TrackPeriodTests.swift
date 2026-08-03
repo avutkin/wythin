@@ -75,7 +75,9 @@ final class TrackPeriodTests: XCTestCase {
         XCTAssertEqual(r.buckets.count, 6)
         XCTAssertEqual(r.buckets.first!.start, cal.startOfDay(for: date(2026, 2, 1)))
         XCTAssertEqual(r.buckets.last!.start, cal.startOfDay(for: date(2026, 7, 1)))
-        XCTAssertEqual(r.buckets.last!.label, "JUL")
+        // "Jul", not "JUL" — see the label-building comment in
+        // `TrackRangeBuilder.sixMonth`.
+        XCTAssertEqual(r.buckets.last!.label, "Jul")
     }
 
     func testSixMonthOffsetDoesNotOverlap() {
@@ -121,11 +123,35 @@ final class TrackPeriodTests: XCTestCase {
     }
 
     func testDayBucketLabels() {
+        // Week buckets carry the weekday initial *and* the date — a bare "S"
+        // can't tell Saturday from Sunday, or one Tuesday from a Tuesday in
+        // an adjacent week.
         let w = TrackRangeBuilder.range(period: .week, offset: 0, today: date(2026, 7, 28), calendar: cal)
-        XCTAssertEqual(w.buckets.map(\.label), ["M", "T", "W", "T", "F", "S", "S"])
+        XCTAssertEqual(w.buckets.map(\.label),
+                       ["M 7-27", "T 7-28", "W 7-29", "T 7-30", "F 7-31", "S 8-1", "S 8-2"])
 
         let m = TrackRangeBuilder.range(period: .month, offset: 0, today: date(2026, 7, 28), calendar: cal)
         XCTAssertEqual(m.buckets.first!.label, "1")
         XCTAssertEqual(m.buckets.last!.label, "31")
+    }
+
+    // MARK: shortDateLabel
+
+    func testShortDateLabelHasNoLeadingZeros() {
+        XCTAssertEqual(TrackRangeBuilder.shortDateLabel(date(2026, 8, 30), calendar: cal), "8-30")
+        // Single-digit month AND single-digit day, the case a naive
+        // DateFormatter pattern is most likely to get wrong in one locale
+        // or another.
+        XCTAssertEqual(TrackRangeBuilder.shortDateLabel(date(2026, 1, 5), calendar: cal), "1-5")
+        XCTAssertEqual(TrackRangeBuilder.shortDateLabel(date(2026, 11, 3), calendar: cal), "11-3")
+        XCTAssertEqual(TrackRangeBuilder.shortDateLabel(date(2026, 12, 25), calendar: cal), "12-25")
+    }
+
+    // MARK: priorNoun
+
+    func testPriorNounMatchesEachPeriod() {
+        XCTAssertEqual(TrackPeriod.week.priorNoun, "week")
+        XCTAssertEqual(TrackPeriod.month.priorNoun, "month")
+        XCTAssertEqual(TrackPeriod.sixMonth.priorNoun, "6 months")
     }
 }
