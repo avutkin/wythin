@@ -123,8 +123,9 @@ extension PayloadBuilderTests {
 
         let series = TrackSeries(
             bars: [], average: 52, deltaPct: 9, reference: 57,
-            referenceIsPersonal: true, overlay: [],
+            referenceIsPersonal: true,
             betterCount: 6, presentCount: 7,
+            referenceLines: [],
             summary: "6 of 7 days better than your baseline.")
 
         let payload = MacroTrendPayload(period: .week, rangeLabel: range.label,
@@ -155,8 +156,9 @@ extension PayloadBuilderTests {
         let spec = TrackMetrics.all.first { $0.def.label == "Inner Noise" }!
         let series = TrackSeries(
             bars: [], average: 52, deltaPct: 9, reference: 55,
-            referenceIsPersonal: false, overlay: [],
+            referenceIsPersonal: false,
             betterCount: 3, presentCount: 6,
+            referenceLines: [],
             summary: "3 of 6 days better than typical.")
 
         let payload = MacroTrendPayload(period: .week, rangeLabel: "X",
@@ -170,8 +172,9 @@ extension PayloadBuilderTests {
 
     func testMacroTrendPayloadSkipsMetricsWithNoAverage() throws {
         let empty = TrackSeries(bars: [], average: nil, deltaPct: nil, reference: 8,
-                                referenceIsPersonal: false, overlay: [],
+                                referenceIsPersonal: false,
                                 betterCount: 0, presentCount: 0,
+                                referenceLines: [],
                                 summary: "No data this period.")
         let payload = MacroTrendPayload(
             period: .week, rangeLabel: "X",
@@ -183,8 +186,8 @@ extension PayloadBuilderTests {
         func direction(_ label: String) -> String? {
             let spec = TrackMetrics.all.first { $0.def.label == label }!
             let s = TrackSeries(bars: [], average: 1, deltaPct: nil, reference: 1,
-                                referenceIsPersonal: false, overlay: [],
-                                betterCount: 0, presentCount: 1, summary: "")
+                                referenceIsPersonal: false,
+                                betterCount: 0, presentCount: 1, referenceLines: [], summary: "")
             return MacroTrendPayload(period: .week, rangeLabel: "X",
                                      series: [(spec, s)]).trends[spec.trendKey]?.direction
         }
