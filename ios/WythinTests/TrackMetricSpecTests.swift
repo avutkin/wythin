@@ -7,7 +7,7 @@ final class TrackMetricSpecTests: XCTestCase {
         day: Date(timeIntervalSince1970: 1_750_000_000),
         dc: 8, rmssd: 40, rsaMs: 30, rcmse: 1.4, pip: 55, dfa1: 1.0,
         stressBalance: 45, vti: 3.7, meanBPM: 60,
-        sampleCount: 200, wearSeconds: 400)
+        sampleCount: 200, wearSeconds: 400, mean: [:], sd: [:])
 
     func testHasExactlySevenMetricsInOrder() {
         XCTAssertEqual(TrackMetrics.all.map(\.def.label), [

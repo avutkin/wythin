@@ -25,7 +25,7 @@ final class TrackSeriesBuilderTests: XCTestCase {
                         wearSeconds: Double = 400) -> DailyRollup {
         DailyRollup(day: day, dc: dc, rmssd: nil, rsaMs: nil, rcmse: nil,
                     pip: pip, dfa1: dfa1, stressBalance: nil, vti: nil, meanBPM: nil,
-                    sampleCount: 200, wearSeconds: wearSeconds)
+                    sampleCount: 200, wearSeconds: wearSeconds, mean: [:], sd: [:])
     }
 
     private func week(_ offset: Int, today: Date) -> TrackRange {

@@ -181,7 +181,10 @@ final class TrackCache {
     /// 2 — `MetricsQualityFilter` gained the RMSSD/mean-BPM plausibility
     ///     check, rejecting dropped/duplicated-beat artifacts (e.g. RMSSD
     ///     150 ms at HR 165 bpm) that all three prior checks let through.
-    static let rollupComputeVersion = 2
+    /// 3 — `DailyRollupCompute.rollup` gained per-metric `mean`/`sd`
+    ///     dictionaries keyed by `LiveMetric.rawValue`, so no rollup can
+    ///     exist with means but no within-day SDs.
+    static let rollupComputeVersion = 3
 
     nonisolated static var defaultURL: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory,

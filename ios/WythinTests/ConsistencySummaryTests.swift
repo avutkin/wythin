@@ -22,7 +22,7 @@ final class ConsistencySummaryTests: XCTestCase {
     private func rollup(_ d: Date, wearSeconds: Double) -> DailyRollup {
         DailyRollup(day: d, dc: 8, rmssd: nil, rsaMs: nil, rcmse: nil, pip: nil,
                     dfa1: nil, stressBalance: nil, vti: nil, meanBPM: nil,
-                    sampleCount: 200, wearSeconds: wearSeconds)
+                    sampleCount: 200, wearSeconds: wearSeconds, mean: [:], sd: [:])
     }
 
     private var week: TrackRange {

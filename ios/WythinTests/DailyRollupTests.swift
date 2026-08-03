@@ -105,4 +105,57 @@ final class DailyRollupTests: XCTestCase {
         let data = try! JSONEncoder().encode(r)
         XCTAssertEqual(try! JSONDecoder().decode(DailyRollup.self, from: data), r)
     }
+
+    func testARollupWrittenBeforeSDExistedStillDecodes() throws {
+        let legacy = """
+        {"day":0,"sampleCount":1000,"wearSeconds":2000,"meanBPM":60}
+        """.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        let rollup = try decoder.decode(DailyRollup.self, from: legacy)
+        XCTAssertTrue(rollup.mean.isEmpty)
+        XCTAssertTrue(rollup.sd.isEmpty)
+    }
+}
+
+extension DailyRollupTests {
+
+    // Brief's literal call passed `rrInvalidRate:` (not a parameter of this
+    // initializer) and omitted `sdnn:`, which — left nil — fails
+    // MetricsQualityFilter's `sdnn > 5.0` gate and would zero out every
+    // point. Dropped `rrInvalidRate:` (unused by the filter) and added
+    // `sdnn: v` so points clear the gate; `v` also satisfies the filter's
+    // rmssd/meanBPM checks (50/70/60, all within range). No assertion in
+    // these tests reads `sdnn`, so the tested mean/SD values are unaffected.
+    private func points(_ values: [Float], from start: Date) -> [MetricsHistoryPoint] {
+        values.enumerated().map { idx, v in
+            MetricsHistoryPoint(timestamp: start.addingTimeInterval(Double(idx) * 2),
+                                meanBPM: v, rmssd: v, sdnn: v, signalQuality: 1.0,
+                                ecgQualityTier: 2)
+        }
+    }
+
+    func testRollupRecordsWithinDaySD() {
+        let day = Calendar.current.startOfDay(for: Date())
+        // 200 points alternating 50/70 — mean 60, population-ish SD 10.
+        let values = (0..<200).map { $0.isMultiple(of: 2) ? Float(50) : Float(70) }
+        let rollup = DailyRollupCompute.rollup(day: day, points: points(values, from: day))
+
+        XCTAssertNotNil(rollup)
+        XCTAssertEqual(rollup?.mean[LiveMetric.hr.rawValue] ?? 0, 60, accuracy: 0.5)
+        XCTAssertEqual(rollup?.sd[LiveMetric.hr.rawValue] ?? 0, 10, accuracy: 0.5)
+    }
+
+    func testSDIsAbsentForAMetricWithNoSamples() {
+        let day = Calendar.current.startOfDay(for: Date())
+        let values = (0..<200).map { _ in Float(60) }
+        let rollup = DailyRollupCompute.rollup(day: day, points: points(values, from: day))
+        XCTAssertNil(rollup?.sd[LiveMetric.dfa1.rawValue])
+    }
+
+    func testFlatDayHasZeroSDNotNil() {
+        let day = Calendar.current.startOfDay(for: Date())
+        let values = (0..<200).map { _ in Float(60) }
+        let rollup = DailyRollupCompute.rollup(day: day, points: points(values, from: day))
+        XCTAssertEqual(rollup?.sd[LiveMetric.hr.rawValue], 0)
+    }
 }
