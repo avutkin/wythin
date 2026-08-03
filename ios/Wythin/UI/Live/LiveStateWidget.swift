@@ -456,6 +456,15 @@ struct LiveStateWidget: View {
     /// build a WHY list from) the row renders WITHOUT a `Button` or a chevron
     /// at all: a control that toggles but can never reveal anything is worse
     /// than no control, so it doesn't get one.
+    ///
+    /// Shares its affordance vocabulary with `DayPotentialStrip.strip` — a
+    /// tinted fill, a rounded clip and a stroked border, both keyed off the
+    /// row's own accent — so a tappable row reads as tappable everywhere on
+    /// this card, not only on the strip above it. The chevron sits right
+    /// after the text instead of stranded at the far trailing edge (a large
+    /// `Spacer` before it, not after, is what caused that): a small
+    /// `Spacer(minLength: 0)` after the chevron still lets the tinted
+    /// background stretch to the card's full width.
     @ViewBuilder
     private func collapsedRow(_ spec: LiveCollapsedRowSpec) -> some View {
         let content = HStack(alignment: .top, spacing: 12) {
@@ -482,11 +491,11 @@ struct LiveStateWidget: View {
                 }
             }
             if spec.isExpandable {
-                Spacer()
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.dim)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(spec.accent)
                     .padding(.top, 5)
+                Spacer(minLength: 0)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -495,7 +504,14 @@ struct LiveStateWidget: View {
             Button {
                 withAnimation(.snappy) { expanded.toggle() }
             } label: {
-                content.contentShape(Rectangle())
+                content
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(spec.accent.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(spec.accent.opacity(0.22), lineWidth: 0.5))
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         } else {
