@@ -225,6 +225,23 @@ struct LiveCollapsedRowSpec: Equatable {
     }
 }
 
+/// What to say when there is neither a local reading nor narration text yet
+/// — i.e. `LiveCollapsedRowSpec.build` returned nil. "Gathering data… pull
+/// down to refresh" was shown for every such case, including the one where
+/// pulling down cannot possibly help: the strap is off right now, so there is
+/// no fresh window for a refresh to find regardless of how it's triggered.
+/// This says which of the two real reasons applies instead.
+enum LiveEmptyStateCopy {
+    static func text(hasBaseline: Bool, isConnected: Bool) -> String {
+        guard hasBaseline else {
+            return "Building your baseline — check back in a few days."
+        }
+        return isConnected
+            ? "Reading your first window…"
+            : "No recent reading — connect your strap to see your current state."
+    }
+}
+
 /// Shared holder for the live-state insight so the widget's timed loop and the
 /// Live tab's pull-to-refresh drive the same fetch and gating.
 @MainActor
@@ -345,7 +362,8 @@ final class LiveStateStore {
     /// strap disconnects, which stops the poll loop outright — no recompute
     /// will ever run to notice on its own.
     ///
-    /// A no-op when there is no state yet: "Gathering data…" is not stale.
+    /// A no-op when there is no state yet: an empty card (see
+    /// `LiveEmptyStateCopy`) is not stale.
     func markStale() {
         if state != nil { isStale = true }
     }
@@ -415,6 +433,13 @@ struct LiveStateWidget: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardStyle()
         .onAppear {
+            // The local half (name, feeling, WHY) reads only stored rollups
+            // and tick history already in memory — it owes nothing to BLE
+            // being connected right now. `startLoop` below is what needs a
+            // live connection (it also drives the network narration poll);
+            // this recompute must not wait for it, or the card falsely
+            // depends on the strap being on at the moment it first appears.
+            store.recomputeState(env: env)
             if isConnected { startLoop() }
         }
         .onDisappear {
@@ -457,7 +482,7 @@ struct LiveStateWidget: View {
                 }
             }
         } else {
-            Text("Gathering data… pull down to refresh")
+            Text(LiveEmptyStateCopy.text(hasBaseline: store.baseline != nil, isConnected: isConnected))
                 .font(Theme.monoBody)
                 .foregroundStyle(Theme.dim)
         }

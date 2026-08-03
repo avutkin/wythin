@@ -438,6 +438,41 @@ final class LiveStateHeadlineTests: XCTestCase {
     }
 }
 
+/// `LiveEmptyStateCopy` — the card's fully-empty state (no local reading, no
+/// narration yet). The old fixed "Gathering data… pull down to refresh" was
+/// false whenever the strap was off: pulling down could not produce a fresh
+/// window regardless of how it was triggered. Each case below is chosen so a
+/// regression back to a single fixed string, or to a string that doesn't
+/// distinguish "no baseline yet" from "no reading right now", would flip the
+/// assertion.
+final class LiveEmptyStateCopyTests: XCTestCase {
+
+    func testNoBaselineYetNamesTheBaselineRegardlessOfConnection() {
+        XCTAssertEqual(LiveEmptyStateCopy.text(hasBaseline: false, isConnected: true),
+                       "Building your baseline — check back in a few days.")
+        XCTAssertEqual(LiveEmptyStateCopy.text(hasBaseline: false, isConnected: false),
+                       "Building your baseline — check back in a few days.",
+                       "no baseline is the same story whether or not the strap is on")
+    }
+
+    func testBaselineExistsAndConnectedIsWaitingOnTheFirstWindow() {
+        let text = LiveEmptyStateCopy.text(hasBaseline: true, isConnected: true)
+        XCTAssertEqual(text, "Reading your first window…")
+        XCTAssertFalse(text.contains("pull down"),
+                       "must not tell the user to do something that isn't the actual blocker")
+    }
+
+    /// The scenario the fix exists for: baseline is fine, but there's no
+    /// current reading because the strap is off — pulling down cannot help,
+    /// so the text must say the true blocker (connect the strap) instead.
+    func testBaselineExistsButDisconnectedNamesTheStrapAsTheBlocker() {
+        let text = LiveEmptyStateCopy.text(hasBaseline: true, isConnected: false)
+        XCTAssertEqual(text, "No recent reading — connect your strap to see your current state.")
+        XCTAssertFalse(text.contains("pull down"),
+                       "pulling down does nothing when the strap itself is off")
+    }
+}
+
 /// `LiveWhyRow.build` is the one place that decides which of a
 /// `StateContribution`'s two related-but-different numbers feeds which
 /// output. Testing `LiveWhyBand`/`LiveWhyBar` alone (above) cannot catch a
