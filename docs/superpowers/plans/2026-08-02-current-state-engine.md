@@ -12,7 +12,7 @@
 
 - Spec: `docs/superpowers/specs/2026-08-02-current-state-accuracy-design.md`. Read it before starting.
 - Test command: `xcodebuild test -project /Users/alexutkin/Code/Wythin/ios/Wythin.xcodeproj -scheme Wythin -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO`
-- **Baseline suite state: 638 tests, exactly 1 failure** — `BLETests.testECGFrameParsing` (parses −244, expects −500). That failure is pre-existing on `main`. Anything else is yours.
+- **Baseline suite state: 647 tests, exactly 1 failure** — `BLETests.testECGFrameParsing` (parses −244, expects −500). That failure is pre-existing on `main`. Anything else is yours.
 - **After any change to `project.pbxproj`, check for duplicate object ids** before trusting the suite: `grep -oE '^\t\t[AF]T[0-9]+ ' ios/Wythin.xcodeproj/project.pbxproj | sort | uniq -d` must print nothing. New test files take the next free `ATnn`/`FTnn` above the current maximum (currently 49). A duplicate id silently drops a file from the target and the suite still reports green.
 - Every window rule is tested at **both 2 s and 30 s sample spacing**. A threshold expressed in one cadence that breaks at the other is the exact bug that stopped morning anchors forming.
 - New tuning constants live in one `enum` with a header comment marking them uncalibrated, following `AnchorThresholds` and `BaselinePrior`.
@@ -360,7 +360,7 @@ Expected: PASS.
 - [ ] **Step 5: Run the whole suite**
 
 Run the full test command from Global Constraints.
-Expected: 638 tests, 1 failure (`BLETests.testECGFrameParsing`). `DailyRollup`
+Expected: 647 tests, 1 failure (`BLETests.testECGFrameParsing`). `DailyRollup`
 is `Codable` and gained non-optional fields — if any Track test fails to decode
 a fixture, add the two keys to that fixture rather than making the fields
 optional.
@@ -1567,7 +1567,7 @@ Then run on device with the strap connected and confirm:
 
 - [ ] **Step 7: Run the whole suite**
 
-Expected: 638 + the new tests, 1 failure (`BLETests.testECGFrameParsing`).
+Expected: 647 + the new tests, 1 failure (`BLETests.testECGFrameParsing`).
 
 - [ ] **Step 8: Commit**
 
@@ -1626,7 +1626,7 @@ with:
 
 - [ ] **Step 4: Build and run the suite**
 
-Expected: builds clean; 638 + new tests, 1 failure (`BLETests`). If a test
+Expected: builds clean; 647 + new tests, 1 failure (`BLETests`). If a test
 constructs `CurrentStateCard(tick:state:)`, update it to the one-argument form.
 
 - [ ] **Step 5: Commit**
