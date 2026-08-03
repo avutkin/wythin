@@ -74,10 +74,25 @@ enum LiveStateClassifier {
     }
 
     /// A metric's weight is whichever single axis dictionary contains it — the
-    /// three axes don't share metrics, so this is unambiguous. A metric in none
-    /// of them (there currently are none among `LiveMetric`'s cases, but the
-    /// enum is not exhaustively covered by contract) pulls on no axis and is
-    /// excluded rather than silently treated as weight 1.
+    /// three axes don't share metrics, so this is unambiguous.
+    ///
+    /// **Five of `LiveMetric`'s thirteen cases are in no axis at all**: `sdnn`,
+    /// `coherence`, `breathBPM`, `cbi` and `dfa1`. They are still rolled up,
+    /// baselined and read into `LiveReading`, but they contribute nothing to
+    /// any axis and — because `rankedPulls` drops anything with no weight —
+    /// they can never appear in the WHY list either. So the on-device
+    /// explanation structurally cannot cite focus (`dfa1`), rhythm, breathing,
+    /// overall variability or body load.
+    ///
+    /// That is the spec's own axes table, which names only the eight scored
+    /// metrics, and it is deliberate for this change rather than an oversight:
+    /// adding an input means choosing a weight for it, and every weight here is
+    /// already UNCALIBRATED. It is worth revisiting once check-in data exists —
+    /// an explanation that cannot mention focus is a thin answer to a
+    /// complaint that the widget reads generic.
+    ///
+    /// Returning nil (rather than a default of 1) is what keeps them out: an
+    /// unweighted metric must pull on nothing, not on everything equally.
     private static func weight(for metric: LiveMetric) -> Float? {
         energyWeights[metric] ?? tensionWeights[metric] ?? recoveryWeights[metric]
     }

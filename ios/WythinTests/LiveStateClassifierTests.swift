@@ -174,6 +174,41 @@ final class LiveStateClassifierTests: XCTestCase {
         }
     }
 
+    // MARK: Metrics that are in no axis
+
+    /// The five `LiveMetric` cases no axis contains. Pinned as a test rather
+    /// than only as a comment, because the comment here previously claimed
+    /// there were none — and the exclusion logic itself was never exercised.
+    private static let unscored: [LiveMetric] = [.sdnn, .coherence, .breathBPM, .cbi, .dfa1]
+
+    func testMetricsInNoAxisMoveNoAxis() {
+        for metric in Self.unscored {
+            let a = LiveStateClassifier.axes(reading([metric: 3.0]))
+            XCTAssertEqual(a.energy,   0, accuracy: 0.0001, "\(metric) moved energy")
+            XCTAssertEqual(a.tension,  0, accuracy: 0.0001, "\(metric) moved tension")
+            XCTAssertEqual(a.recovery, 0, accuracy: 0.0001, "\(metric) moved recovery")
+        }
+    }
+
+    /// They are excluded from the WHY ranking too — dropped, not defaulted to
+    /// weight 1, which would let an unweighted metric outrank a scored one.
+    func testMetricsInNoAxisNeverAppearInTheWhyList() {
+        for metric in Self.unscored {
+            let r = LiveStateClassifier.classify(reading([metric: 3.0, .pip: 0.5]))
+            XCTAssertFalse(r.contributions.contains { $0.metric == metric },
+                           "\(metric) pulls on no axis, so it cannot explain the state")
+        }
+    }
+
+    func testExactlyEightOfThirteenMetricsAreScored() {
+        let untouched = LiveAxes(energy: 0, tension: 0, recovery: 0)
+        let scored = LiveMetric.allCases.filter {
+            LiveStateClassifier.axes(reading([$0: 1.0])) != untouched
+        }
+        XCTAssertEqual(Set(LiveMetric.allCases).subtracting(scored), Set(Self.unscored))
+        XCTAssertEqual(scored.count, 8)
+    }
+
     func testStateKeysMatchTheServerContract() {
         XCTAssertEqual(LiveStateKey.engaged_performing.rawValue, "engaged_performing")
         XCTAssertEqual(LiveStateKey.shutdown_burnout.rawValue, "shutdown_burnout")
