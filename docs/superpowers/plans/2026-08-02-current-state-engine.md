@@ -246,6 +246,15 @@ Expected: FAIL — "value of type 'DailyRollup' has no member 'sd'"
 
 - [ ] **Step 3: Write minimal implementation**
 
+**Decode tolerantly, or the whole cache is wiped.** `TrackCache.File.init(from:)`
+decodes `rollups` with `try` (not `try?`), and `load()` treats a throw as
+corruption and empties the *entire* cache — `macroReads` included. Adding
+non-optional fields to a `Codable` struct makes every previously-written rollup
+fail to decode, which would trip exactly that path. `DailyRollup` therefore needs
+an explicit decoder that tolerates their absence. The `computeVersion` bump then
+discards the stale rollups on purpose, which is the narrow lever the cache's
+header comment says it should stay.
+
 In `DailyRollup.swift`, add two stored properties to the struct, after
 `wearSeconds`:
 
@@ -281,6 +290,57 @@ Then in `DailyRollupCompute.rollup`, before the `return`:
 ```
 
 and pass `mean: means, sd: sds` into the `DailyRollup(...)` initialiser.
+
+Then add the tolerant decoder to `DailyRollup`, so a rollup written before these
+fields existed still decodes instead of throwing the whole cache away:
+
+```swift
+    /// Decoded field by field so a rollup written before `mean`/`sd` existed
+    /// still loads. `TrackCache.File` decodes `rollups` with `try`, and its
+    /// `load()` treats a throw as corruption and empties the entire cache —
+    /// `macroReads` with it. Invalidating stale rollups is
+    /// `rollupComputeVersion`'s job, deliberately narrow; a decode failure here
+    /// would be a blanket wipe instead.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        day           = try c.decode(Date.self, forKey: .day)
+        dc            = try c.decodeIfPresent(Double.self, forKey: .dc)
+        rmssd         = try c.decodeIfPresent(Double.self, forKey: .rmssd)
+        rsaMs         = try c.decodeIfPresent(Double.self, forKey: .rsaMs)
+        rcmse         = try c.decodeIfPresent(Double.self, forKey: .rcmse)
+        pip           = try c.decodeIfPresent(Double.self, forKey: .pip)
+        dfa1          = try c.decodeIfPresent(Double.self, forKey: .dfa1)
+        stressBalance = try c.decodeIfPresent(Double.self, forKey: .stressBalance)
+        vti           = try c.decodeIfPresent(Double.self, forKey: .vti)
+        meanBPM       = try c.decodeIfPresent(Double.self, forKey: .meanBPM)
+        sampleCount   = try c.decodeIfPresent(Int.self, forKey: .sampleCount) ?? 0
+        wearSeconds   = try c.decodeIfPresent(Double.self, forKey: .wearSeconds) ?? 0
+        mean          = try c.decodeIfPresent([String: Double].self, forKey: .mean) ?? [:]
+        sd            = try c.decodeIfPresent([String: Double].self, forKey: .sd) ?? [:]
+    }
+```
+
+Adding an explicit `init(from:)` suppresses the memberwise initialiser synthesis
+for `Decodable` only — the memberwise `init` the compute path and the tests use
+still exists, because `DailyRollup` is a struct with no other initialisers
+declared. If the compiler disagrees, declare the memberwise `init` explicitly.
+
+Add a test for it:
+
+```swift
+    func testARollupWrittenBeforeSDExistedStillDecodes() throws {
+        let legacy = """
+        {"day":0,"sampleCount":1000,"wearSeconds":2000,"meanBPM":60}
+        """.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        let rollup = try decoder.decode(DailyRollup.self, from: legacy)
+        XCTAssertTrue(rollup.mean.isEmpty)
+        XCTAssertTrue(rollup.sd.isEmpty)
+    }
+```
+
+If `Date` does not decode from a bare `0` under the default strategy, match
+whatever `TrackCache` configures on its `JSONDecoder` and use that here.
 
 Finally, in `TrackCache.swift:184`:
 
