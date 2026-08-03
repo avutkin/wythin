@@ -166,6 +166,8 @@
 		AT49 /* ConsistencyCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT49 /* ConsistencyCardTests.swift */; };
 		A50 /* LiveMetric.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50 /* LiveMetric.swift */; };
 		AT51 /* LiveMetricTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT51 /* LiveMetricTests.swift */; };
+		A51 /* LiveBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51 /* LiveBaseline.swift */; };
+		AT52 /* LiveBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT52 /* LiveBaselineTests.swift */; };
 		AT17 /* TrendShapeComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT17 /* TrendShapeComputeTests.swift */; };
 		AT18 /* DayPotentialInsightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT18 /* DayPotentialInsightTests.swift */; };
 		AT19 /* DayLoadSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT19 /* DayLoadSummaryTests.swift */; };
@@ -385,6 +387,8 @@
 		FT38 /* UsageUploaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageUploaderTests.swift; sourceTree = "<group>"; };
 		F50 /* LiveMetric.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveMetric.swift; sourceTree = "<group>"; };
 		FT51 /* LiveMetricTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveMetricTests.swift; sourceTree = "<group>"; };
+		F51 /* LiveBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveBaseline.swift; sourceTree = "<group>"; };
+		FT52 /* LiveBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveBaselineTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -567,6 +571,7 @@
 				F254 /* TrackSeriesBuilder.swift */,
 				F255 /* ConsistencySummary.swift */,
 				F50 /* LiveMetric.swift */,
+				F51 /* LiveBaseline.swift */,
 			);
 			path = Metrics;
 			sourceTree = "<group>";
@@ -734,6 +739,7 @@
 				FT42 /* MetricsQualityFilterTests.swift */,
 				FTCS /* ChartSegmenterTests.swift */,
 				FT51 /* LiveMetricTests.swift */,
+				FT52 /* LiveBaselineTests.swift */,
 			);
 			path = WythinTests;
 			sourceTree = "<group>";
@@ -952,6 +958,7 @@
 				F7233A74A7B0B97C62834AF5 /* PracticeImpactGauge.swift in Sources */,
 				A6E1AF270813ABED5CDABAE7 /* ExerciseScoreGauge.swift in Sources */,
 				A50 /* LiveMetric.swift in Sources */,
+				A51 /* LiveBaseline.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1015,6 +1022,7 @@
 				AT42 /* MetricsQualityFilterTests.swift in Sources */,
 				ATCS /* ChartSegmenterTests.swift in Sources */,
 				AT51 /* LiveMetricTests.swift in Sources */,
+				AT52 /* LiveBaselineTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
