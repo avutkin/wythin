@@ -19,7 +19,7 @@ enum LivePrior {
         case .rmssd:     return 14     // ms
         case .rsa:       return 25     // ms
         case .sdnn:      return 30     // ms
-        case .lfHF:      return 6      // ratio
+        case .stressBalance: return 10 // SNS share, percentage points (0–100)
         case .coherence: return 0.18   // 0-1
         case .breathBPM: return 3      // breaths/min
         case .cbi:       return 0.15   // 0-1

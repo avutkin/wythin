@@ -43,14 +43,18 @@ struct LiveStateResult: Equatable {
 /// are present, so a missing metric weakens the axis's confidence rather than
 /// silently dragging it toward zero.
 ///
-/// NOTE: `lfHF` (stress balance) is itself derived from RMSSD, which is also an
-/// energy input, so the two axes are not independent. The z-scoring is sound —
-/// each is compared against the person's own distribution of that same quantity
-/// — but the weights below are set knowing one measurement is counted twice.
+/// NOTE: `stressBalance` is `1 − vagalIndex(rmssd)` scaled to 0–100 (see
+/// `AutonomicCompute.balance`, which reaches its LF/HF fallback only when RMSSD
+/// is absent), and RMSSD is also an Energy input — so the Tension and Energy
+/// axes are not independent, and the same measurement is counted twice with
+/// opposite sign. The z-scoring is sound: each is compared against the person's
+/// own distribution of that same derived quantity, so the absolute map inside
+/// `vagalIndex` cancels out. What the weights below have to account for is the
+/// double-counting, which the spec names explicitly.
 enum LiveStateClassifier {
 
     private static let energyWeights:   [LiveMetric: Float] = [.hr: 0.3, .rmssd: 0.4, .rcmse: 0.3]
-    private static let tensionWeights:  [LiveMetric: Float] = [.pip: 0.55, .lfHF: 0.45]
+    private static let tensionWeights:  [LiveMetric: Float] = [.pip: 0.55, .stressBalance: 0.45]
     private static let recoveryWeights: [LiveMetric: Float] = [.rsa: 0.3, .dc: 0.35, .vti: 0.35]
 
     private static func axis(_ weights: [LiveMetric: Float], _ r: LiveReading) -> Float {

@@ -184,7 +184,19 @@ final class TrackCache {
     /// 3 — `DailyRollupCompute.rollup` gained per-metric `mean`/`sd`
     ///     dictionaries keyed by `LiveMetric.rawValue`, so no rollup can
     ///     exist with means but no within-day SDs.
-    static let rollupComputeVersion = 3
+    /// 4 — the Tension axis's second input changed *meaning* without changing
+    ///     shape: `LiveMetric.lfHF` ("lf_hf", the raw LF/HF ratio) became
+    ///     `LiveMetric.stressBalance` ("stress_balance", the breathing-robust
+    ///     SNS share 0–100). A version 3 rollup holds raw ratios under
+    ///     "lf_hf"; leaving the version alone would not have been enough on
+    ///     its own — the key changed too, so the old entry would simply be
+    ///     missed — but the bump is what guarantees the pooled spread and
+    ///     centre are recomputed from stored samples rather than silently
+    ///     built from however many days happen to carry the new key. Also in
+    ///     this version: a metric with a single sample on a day no longer
+    ///     writes `sd = 0` (it writes nothing), and `count` records each
+    ///     metric's own sample count so the pooled spread can weight by it.
+    static let rollupComputeVersion = 4
 
     nonisolated static var defaultURL: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory,

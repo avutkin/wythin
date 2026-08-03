@@ -21,8 +21,8 @@ final class LiveStateClassifierTests: XCTestCase {
     }
 
     func testTensionAxisRisesWithInnerNoiseAndStressBalance() {
-        let calm  = LiveStateClassifier.axes(reading([.pip: -1, .lfHF: -1]))
-        let tense = LiveStateClassifier.axes(reading([.pip: 1, .lfHF: 1]))
+        let calm  = LiveStateClassifier.axes(reading([.pip: -1, .stressBalance: -1]))
+        let tense = LiveStateClassifier.axes(reading([.pip: 1, .stressBalance: 1]))
         XCTAssertLessThan(calm.tension, tense.tension)
     }
 
@@ -37,7 +37,7 @@ final class LiveStateClassifierTests: XCTestCase {
 
     func testEverythingNearUsualIsStableNeutral() {
         let r = LiveStateClassifier.classify(reading([.hr: 0, .rmssd: 0, .rcmse: 0,
-                                                      .pip: 0, .lfHF: 0,
+                                                      .pip: 0, .stressBalance: 0,
                                                       .rsa: 0, .dc: 0, .vti: 0]))
         XCTAssertEqual(r.key, .stable_neutral)
         XCTAssertTrue(r.isWeak, "nothing moved — this is a weak call and must say so")
@@ -45,7 +45,7 @@ final class LiveStateClassifierTests: XCTestCase {
 
     func testHighEnergyLowTensionGoodRecoveryIsEngagedPerforming() {
         let r = LiveStateClassifier.classify(reading([.hr: 0.8, .rmssd: 1.0, .rcmse: 0.9,
-                                                      .pip: -1.0, .lfHF: -0.8,
+                                                      .pip: -1.0, .stressBalance: -0.8,
                                                       .rsa: 0.8, .dc: 0.9, .vti: 1.0]))
         XCTAssertTrue([.engaged_performing, .calm_alert, .renewed_thriving].contains(r.key),
                       "got \(r.key)")
@@ -54,21 +54,21 @@ final class LiveStateClassifierTests: XCTestCase {
 
     func testHighTensionHighEnergyLowRecoveryIsStressedActivated() {
         let r = LiveStateClassifier.classify(reading([.hr: 1.2, .rmssd: -0.8, .rcmse: 0.5,
-                                                      .pip: 1.5, .lfHF: 1.6,
+                                                      .pip: 1.5, .stressBalance: 1.6,
                                                       .rsa: -1.0, .dc: -1.1, .vti: -1.0]))
         XCTAssertEqual(r.key, .stressed_activated)
     }
 
     func testHighTensionLowEnergyLowRecoveryIsOverloadedExhausted() {
         let r = LiveStateClassifier.classify(reading([.hr: -1.0, .rmssd: -1.4, .rcmse: -1.2,
-                                                      .pip: 1.6, .lfHF: 1.4,
+                                                      .pip: 1.6, .stressBalance: 1.4,
                                                       .rsa: -1.3, .dc: -1.4, .vti: -1.3]))
         XCTAssertTrue([.overloaded_exhausted, .shutdown_burnout].contains(r.key), "got \(r.key)")
     }
 
     func testLowEnergyLowTensionImprovingRecoveryIsRecoveringResetting() {
         let r = LiveStateClassifier.classify(reading([.hr: -1.1, .rmssd: 0.4, .rcmse: -0.9,
-                                                      .pip: -0.9, .lfHF: -1.0,
+                                                      .pip: -0.9, .stressBalance: -1.0,
                                                       .rsa: 0.7, .dc: 0.8, .vti: 0.6]))
         XCTAssertTrue([.recovering_resetting, .calm_alert].contains(r.key), "got \(r.key)")
     }

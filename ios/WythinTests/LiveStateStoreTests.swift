@@ -32,37 +32,48 @@ final class LiveStateStoreTests: XCTestCase {
     /// (SDs matching `LivePrior`) so the prior-blend in `BaselineStat.z`
     /// barely moves the z-score at n = 30 — the same assumption
     /// `LiveReadingTests` relies on.
+    ///
+    /// `stressBalance` is not a field on the window's points: it is derived
+    /// per tick from RMSSD (`LiveMetric.stressBalance.value`), so its centre
+    /// here is the dial's value at the baseline RMSSD of 40 — `1 − 40/(40+40)`
+    /// = 0.5 → 50 — and the window moves it only by moving RMSSD.
     private func baselineRollups(days: Int = 30) -> [DailyRollup] {
-        let means: [LiveMetric: Double] = [.hr: 60, .rmssd: 40, .rcmse: 0.6, .pip: 20, .lfHF: 3]
-        let sds:   [LiveMetric: Double] = [.hr: 8, .rmssd: 14, .rcmse: 0.35, .pip: 8, .lfHF: 6]
+        let means: [LiveMetric: Double] = [.hr: 60, .rmssd: 40, .rcmse: 0.6, .pip: 20,
+                                           .stressBalance: 50]
+        let sds:   [LiveMetric: Double] = [.hr: 8, .rmssd: 14, .rcmse: 0.35, .pip: 8,
+                                           .stressBalance: 10]
         return (1...days).map { rollup(daysAgo: $0, means: means, sds: sds) }
     }
 
     /// A flat (zero-trend) window at the given per-metric values. Flat so
     /// `effective == level` exactly — trend is gated to zero by the SWC gate.
     private func window(hr: Double = 60, rmssd: Double = 40, rcmse: Double = 0.6,
-                        pip: Double = 20, lfHF: Double = 3,
+                        pip: Double = 20,
                         count: Int = 300, spacingSec: Double = 2, now: Date) -> [MetricsHistoryPoint] {
         (0..<count).map { i in
             let age = Double(count - 1 - i) * spacingSec
             return MetricsHistoryPoint(timestamp: now.addingTimeInterval(-age),
                                        meanBPM: Float(hr), rmssd: Float(rmssd), sdnn: 50,
-                                       lfHF: Float(lfHF), rcmse: Float(rcmse), pip: Float(pip),
+                                       breathBPM: 14, rcmse: Float(rcmse), pip: Float(pip),
                                        signalQuality: 1.0, ecgQualityTier: 2)
         }
     }
 
-    /// hr/rmssd/rcmse/pip/lfHF at baseline mean everywhere: every axis reads
-    /// as untouched, so this always classifies `.stable_neutral` and weak.
+    /// hr/rmssd/rcmse/pip at baseline mean everywhere — and therefore stress
+    /// balance at its baseline too, since it is derived from RMSSD. Every axis
+    /// reads as untouched, so this always classifies `.stable_neutral` and weak.
     private func stableWindow(now: Date) -> [MetricsHistoryPoint] { window(now: now) }
 
-    /// z ≈ [hr: 1.2, rmssd: -0.8, rcmse: 0.5, pip: 1.5, lfHF: 1.6] — the same
-    /// vector `LiveStateClassifierTests` uses for `stressed_activated`
-    /// (tense, not low-energy), reproduced here in raw units against
-    /// `baselineRollups()`'s mean/SD instead of pre-built z's.
+    /// z ≈ [hr: 1.2, rmssd: -0.8, rcmse: 0.5, pip: 1.5] — the same vector
+    /// `LiveStateClassifierTests` uses for `stressed_activated` (tense, not
+    /// low-energy), reproduced here in raw units against `baselineRollups()`'s
+    /// mean/SD instead of pre-built z's. RMSSD 28.8 puts the derived stress
+    /// dial at 1 − 28.8/68.8 = 0.5814 → 58.1, i.e. z ≈ +0.81 against the
+    /// 50 ± 10 baseline, so the Tension axis reads ≈ 0.55·1.5 + 0.45·0.81 =
+    /// 1.19 — comfortably `tense`.
     private func stressedWindow(now: Date) -> [MetricsHistoryPoint] {
         window(hr: 60 + 1.2 * 8, rmssd: 40 + (-0.8) * 14, rcmse: 0.6 + 0.5 * 0.35,
-              pip: 20 + 1.5 * 8, lfHF: 3 + 1.6 * 6, now: now)
+              pip: 20 + 1.5 * 8, now: now)
     }
 
     // MARK: Not enough data yet

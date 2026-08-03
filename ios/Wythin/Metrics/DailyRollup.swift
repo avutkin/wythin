@@ -146,10 +146,13 @@ enum DailyRollupCompute {
     /// Stress Balance is the breathing-robust 0–100 arousal dial, not a raw
     /// LF/HF ratio — there is no stored field for it, so it is derived per
     /// tick exactly as `ActivityMetricsGrid.swift:58` does, then averaged.
+    ///
+    /// Delegates to `LiveMetric.stressBalance.value(_:)` rather than deriving
+    /// it a second time, so the typed field below and the `mean`/`sd`
+    /// dictionary entry under `"stress_balance"` cannot drift apart — the live
+    /// path reads the dictionary, and a rollup whose two halves disagreed
+    /// would be silently worse than either alone.
     static func stressBalance(_ pt: MetricsHistoryPoint) -> Double? {
-        AutonomicCompute.balance(rmssd: pt.rmssd, lf: pt.lfPower, hf: pt.hfPower,
-                                 breathBPM: pt.breathBPM, meanBPM: pt.meanBPM,
-                                 baselineRmssd: nil)
-            .map { Double($0.sns) * 100 }
+        LiveMetric.stressBalance.value(pt).map(Double.init)
     }
 }
