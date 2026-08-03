@@ -173,6 +173,58 @@ private extension LiveStateKey {
     var display: LiveState? { LiveState(rawValue: rawValue) }
 }
 
+/// Everything the collapsed row needs to render, decided in one pure place so
+/// the view only draws what this returns. Unifies what used to be two
+/// separate `collapsedRow` overloads (one for a settled local state, one for
+/// the narration-only fallback) behind one decision: which of the three cases
+/// — a local reading, a narration-only fallback, or nothing at all — applies,
+/// and, critically, whether there's anything a drop-down could reveal.
+///
+/// `isExpandable` is what fixes the "dead chevron": the narration-only
+/// fallback has no local `reading` to build a WHY list from, so it must never
+/// present a control that toggles but reveals nothing. See
+/// `LiveCollapsedRowSpecTests` for the pinned invariant.
+struct LiveCollapsedRowSpec: Equatable {
+    let title: String
+    let feeling: String?
+    let iconName: String
+    let accent: Color
+    let label: String
+    /// Whether tapping the row can reveal a WHY list. False exactly when
+    /// there is no local `reading` to build one from.
+    let isExpandable: Bool
+
+    static func build(state: LiveStateResult?, reading: LiveReading?, text: String?,
+                      provisional: Bool, isStale: Bool) -> LiveCollapsedRowSpec? {
+        if let state, reading != nil {
+            return LiveCollapsedRowSpec(
+                title:   LiveStateCopy.title(for: state.key),
+                feeling: LiveStateCopy.feeling(for: state.key),
+                iconName: state.key.display?.iconName ?? "waveform.path.ecg",
+                accent:   state.key.display?.color ?? Theme.accent,
+                label:   LiveStateHeadline.text(isWeak: state.isWeak, provisional: provisional, isStale: isStale),
+                isExpandable: true)
+        }
+        if let text {
+            // No local reading yet (very first session before enough data
+            // has accumulated) but narration already arrived: fall back to
+            // the insight's own header so the widget isn't blank. There is no
+            // local WHY to reveal without a reading — `isExpandable: false`
+            // is what keeps this row from presenting a chevron that can never
+            // do anything.
+            let insight = LiveStateInsight(raw: text)
+            return LiveCollapsedRowSpec(
+                title:   insight.title,
+                feeling: nil,
+                iconName: insight.state?.iconName ?? "waveform.path.ecg",
+                accent:   insight.state?.color ?? Theme.accent,
+                label:   "CURRENT STATE",
+                isExpandable: false)
+        }
+        return nil
+    }
+}
+
 /// Shared holder for the live-state insight so the widget's timed loop and the
 /// Live tab's pull-to-refresh drive the same fetch and gating.
 @MainActor
@@ -376,23 +428,21 @@ struct LiveStateWidget: View {
     /// build it from.
     @ViewBuilder
     private var currentStateSection: some View {
-        if let state = store.state, let reading = store.reading {
+        if let spec = LiveCollapsedRowSpec.build(state: store.state, reading: store.reading,
+                                                 text: store.text,
+                                                 provisional: store.baseline?.provisional ?? false,
+                                                 isStale: store.isStale) {
             VStack(alignment: .leading, spacing: 14) {
-                collapsedRow(for: state.key)
-                if expanded {
+                collapsedRow(spec)
+                // WHY is the ONLY thing the drop-down reveals, and only when
+                // there's both a local reading to build it from AND the spec
+                // says this row is actually expandable — the insight-only
+                // fallback (`spec.isExpandable == false`) has no reading, so
+                // this can never be true for it regardless of `expanded`.
+                if spec.isExpandable, expanded, let state = store.state, let reading = store.reading {
                     whyList(state, reading: reading)
                 }
             }
-        } else if let text = store.text {
-            // No local reading yet (very first session before enough data
-            // has accumulated) but narration already arrived: fall back to
-            // the insight's own header so the widget isn't blank. There is no
-            // local WHY to reveal without a reading, so the row still
-            // toggles `expanded` but nothing appears underneath it.
-            let insight = LiveStateInsight(raw: text)
-            collapsedRow(title: insight.title, feeling: nil,
-                        iconName: insight.state?.iconName ?? "waveform.path.ecg",
-                        accent: insight.state?.color ?? Theme.accent)
         } else {
             Text("Gathering data… pull down to refresh")
                 .font(Theme.monoBody)
@@ -400,69 +450,57 @@ struct LiveStateWidget: View {
         }
     }
 
-    /// The on-device collapsed row for a settled state key: title and feeling
-    /// both from `LiveStateCopy`, icon/colour bridged from `LiveState` via
-    /// `LiveStateKey.display`.
-    @ViewBuilder
-    private func collapsedRow(for key: LiveStateKey) -> some View {
-        collapsedRow(title: LiveStateCopy.title(for: key),
-                    feeling: LiveStateCopy.feeling(for: key),
-                    iconName: key.display?.iconName ?? "waveform.path.ecg",
-                    accent: key.display?.color ?? Theme.accent,
-                    label: LiveStateHeadline.text(isWeak: store.state?.isWeak ?? false,
-                                                  provisional: store.baseline?.provisional ?? false,
-                                                  isStale: store.isStale))
-    }
-
-    /// Plain-value collapsed row, deliberately decoupled from
-    /// `LiveStateInsight` — the local-only path (no narration text yet) has
-    /// no server reply to parse one out of, and constructing
-    /// `LiveStateInsight(raw: "")` purely to satisfy a parameter type would
-    /// hand it a nil `state` and an empty `title`, which is what fed the
-    /// fallback icon/title below anyway. Simpler to just pass the values
-    /// every call site already has.
-    ///
     /// The whole row is the `Button`'s label — not just the chevron — same
-    /// tap-target shape as `DayPotentialStrip.strip`.
+    /// tap-target shape as `DayPotentialStrip.strip`. When `spec.isExpandable`
+    /// is false (the insight-only fallback, which has no local `reading` to
+    /// build a WHY list from) the row renders WITHOUT a `Button` or a chevron
+    /// at all: a control that toggles but can never reveal anything is worse
+    /// than no control, so it doesn't get one.
     @ViewBuilder
-    private func collapsedRow(title: String, feeling: String?, iconName: String, accent: Color,
-                              label: String = "CURRENT STATE") -> some View {
-        Button {
-            withAnimation(.snappy) { expanded.toggle() }
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(accent.opacity(0.16))
-                        .frame(width: 44, height: 44)
-                    Image(systemName: iconName)
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(accent)
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(label)
-                        .font(Theme.monoLabel)
+    private func collapsedRow(_ spec: LiveCollapsedRowSpec) -> some View {
+        let content = HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(spec.accent.opacity(0.16))
+                    .frame(width: 44, height: 44)
+                Image(systemName: spec.iconName)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(spec.accent)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(spec.label)
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+                Text(spec.title)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Theme.text)
+                if let feeling = spec.feeling {
+                    Text(feeling)
+                        .font(.system(size: 13))
                         .foregroundStyle(Theme.dim)
-                    Text(title)
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(Theme.text)
-                    if let feeling {
-                        Text(feeling)
-                            .font(.system(size: 13))
-                            .foregroundStyle(Theme.dim)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+            if spec.isExpandable {
                 Spacer()
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Theme.dim)
                     .padding(.top, 5)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+        if spec.isExpandable {
+            Button {
+                withAnimation(.snappy) { expanded.toggle() }
+            } label: {
+                content.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            content
+        }
     }
 
     // MARK: - Narration (WHAT THIS MEANS + RIGHT NOW)
