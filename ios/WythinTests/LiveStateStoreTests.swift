@@ -147,6 +147,57 @@ final class LiveStateStoreTests: XCTestCase {
         XCTAssertEqual(store.stateKey, .stressed_activated)
     }
 
+    // MARK: Staleness — the spec's "hold the last state; mark it stale"
+
+    func testNothingIsStaleBeforeThereIsAStateToHold() {
+        let store = LiveStateStore()
+        store.recomputeState(rollups: [], window: [])
+        XCTAssertFalse(store.isStale, "there is nothing on screen to be stale")
+    }
+
+    func testAFreshReadingIsNotStale() {
+        let store = LiveStateStore()
+        let now = Date()
+        store.recomputeState(rollups: baselineRollups(), window: stableWindow(now: now), now: now)
+        XCTAssertFalse(store.isStale)
+    }
+
+    /// The window stops covering (the strap dropped out, the app went quiet),
+    /// so the widget keeps showing the last state it knew — which is right,
+    /// but it must not keep presenting it as current.
+    func testAHeldStateIsMarkedStale() {
+        let store = LiveStateStore()
+        let now = Date()
+        store.recomputeState(rollups: baselineRollups(), window: stableWindow(now: now), now: now)
+        let held = store.stateKey
+
+        store.recomputeState(rollups: baselineRollups(),
+                             window: window(count: 3, spacingSec: 30, now: now), now: now)
+        XCTAssertEqual(store.stateKey, held, "the state is held, not blanked")
+        XCTAssertTrue(store.isStale, "…but it is no longer current, and must say so")
+    }
+
+    /// BLE disconnect stops the poll loop entirely, so no recompute will ever
+    /// run to notice — the view has to say so directly.
+    func testDisconnectingMarksTheHeldStateStale() {
+        let store = LiveStateStore()
+        let now = Date()
+        store.recomputeState(rollups: baselineRollups(), window: stableWindow(now: now), now: now)
+        store.markStale()
+        XCTAssertTrue(store.isStale)
+    }
+
+    func testStalenessClearsOnceAFreshReadingArrives() {
+        let store = LiveStateStore()
+        let now = Date()
+        store.recomputeState(rollups: baselineRollups(), window: stableWindow(now: now), now: now)
+        store.markStale()
+        XCTAssertTrue(store.isStale)
+
+        store.recomputeState(rollups: baselineRollups(), window: stableWindow(now: now), now: now)
+        XCTAssertFalse(store.isStale)
+    }
+
     // MARK: Hysteresis, driven through the store
 
     func testASingleNoisyPollDoesNotFlipAnAlreadySettledState() {
@@ -224,34 +275,79 @@ final class LiveWhyBandAndBarTests: XCTestCase {
 
     // MARK: LiveWhyBar
 
-    func testStrongestContributionFillsTheFullBar() {
-        XCTAssertEqual(LiveWhyBar.width(value: 2.0, strongest: 2.0), LiveWhyBar.maxWidth, accuracy: 0.001)
+    func testAFullSDOfPullFillsTheBar() {
+        XCTAssertEqual(LiveWhyBar.width(value: LiveWhyBar.fullScale),
+                       LiveWhyBar.maxWidth, accuracy: 0.001)
     }
 
-    func testAWeakerContributionScalesProportionally() {
-        let width = LiveWhyBar.width(value: 1.0, strongest: 2.0)
-        XCTAssertEqual(width, LiveWhyBar.maxWidth / 2, accuracy: 0.001)
+    func testHalfAsMuchPullIsHalfTheDrawableLength() {
+        let midpoint = LiveWhyBar.minWidth + (LiveWhyBar.maxWidth - LiveWhyBar.minWidth) / 2
+        XCTAssertEqual(LiveWhyBar.width(value: LiveWhyBar.fullScale / 2), midpoint, accuracy: 0.001)
     }
 
     func testZeroContributionFloorsAtTheMinimumWidth() {
-        XCTAssertEqual(LiveWhyBar.width(value: 0, strongest: 2.0), LiveWhyBar.minWidth, accuracy: 0.001)
+        XCTAssertEqual(LiveWhyBar.width(value: 0), LiveWhyBar.minWidth, accuracy: 0.001)
     }
 
     func testSignIsIgnoredForBarLength() {
-        XCTAssertEqual(LiveWhyBar.width(value: -2.0, strongest: 2.0),
-                       LiveWhyBar.width(value: 2.0, strongest: 2.0), accuracy: 0.001)
+        XCTAssertEqual(LiveWhyBar.width(value: -0.7), LiveWhyBar.width(value: 0.7), accuracy: 0.001)
     }
 
-    /// `strongest` is documented as always being the largest magnitude among
-    /// the set `value` is drawn from (the classifier's contributions are
-    /// pre-sorted, so the first one's magnitude always qualifies) — a
-    /// contribution list of all-zero values is the one real case where
-    /// `strongest` is degenerate, and `value` is necessarily degenerate
-    /// (zero) right along with it. This must not divide by zero.
-    func testADegenerateStrongestValueStillProducesAFiniteWidth() {
-        let width = LiveWhyBar.width(value: 0, strongest: 0)
-        XCTAssertTrue(width.isFinite)
-        XCTAssertEqual(width, LiveWhyBar.minWidth, accuracy: 0.001)
+    func testAnExtremePullIsClampedRatherThanOverflowing() {
+        XCTAssertEqual(LiveWhyBar.width(value: 20), LiveWhyBar.maxWidth, accuracy: 0.001)
+    }
+
+    /// The spec's weak-call design: "the impact bars are all short. This is
+    /// honest and visible." Normalising by the top contribution's own
+    /// magnitude made the leading bar full-width ALWAYS — including on a
+    /// maximally flat window, where the single fallback contribution rendered
+    /// as one confident full-width bar. The bar has to encode absolute
+    /// magnitude, not only rank.
+    func testAFlatWindowsOnlyContributionDrawsAShortBar() {
+        let flat = LiveWhyBar.width(value: 0.02)
+        XCTAssertLessThan(flat, LiveWhyBar.minWidth + 3, "nothing moved — the bar must say so")
+        XCTAssertNotEqual(flat, LiveWhyBar.maxWidth, accuracy: 0.001)
+    }
+
+    /// Two readings where one metric leads by the same ratio but at completely
+    /// different absolute strengths must NOT draw the same pair of bars.
+    func testRankIsNotEnoughTheAbsoluteSizeShows() {
+        XCTAssertGreaterThan(LiveWhyBar.width(value: 1.0), LiveWhyBar.width(value: 0.1) + 20,
+                             "a strong pull and a faint one cannot render alike")
+    }
+}
+
+/// The honesty suffixes on the card's own label. Pure, so the three flags can
+/// be driven directly instead of through a rendered view.
+final class LiveStateHeadlineTests: XCTestCase {
+
+    func testAConfidentCurrentReadingHasNoSuffix() {
+        XCTAssertEqual(LiveStateHeadline.text(isWeak: false, provisional: false, isStale: false),
+                       "CURRENT STATE")
+    }
+
+    func testAWeakCallSaysSo() {
+        XCTAssertEqual(LiveStateHeadline.text(isWeak: true, provisional: false, isStale: false),
+                       "CURRENT STATE · WEAK SIGNAL")
+    }
+
+    /// Mirrors `DayPotentialStore.State.headline`'s existing "· EARLY DAYS",
+    /// so the same words mean the same thing on both cards.
+    func testAProvisionalBaselineSaysTheRangeIsStillForming() {
+        XCTAssertEqual(LiveStateHeadline.text(isWeak: false, provisional: true, isStale: false),
+                       "CURRENT STATE · EARLY DAYS")
+    }
+
+    func testAHeldStateSaysItIsNotUpdating() {
+        XCTAssertEqual(LiveStateHeadline.text(isWeak: false, provisional: false, isStale: true),
+                       "CURRENT STATE · NOT UPDATING")
+    }
+
+    /// Staleness leads: a held reading may have been a strong call when it was
+    /// taken, and how old it is matters more than how firm it was.
+    func testAllThreeStackWithStalenessFirst() {
+        XCTAssertEqual(LiveStateHeadline.text(isWeak: true, provisional: true, isStale: true),
+                       "CURRENT STATE · NOT UPDATING · WEAK SIGNAL · EARLY DAYS")
     }
 }
 
@@ -279,8 +375,7 @@ final class LiveWhyRowTests: XCTestCase {
     /// above" and fail.
     func testBandUsesEffectiveNotTheWeightedContribution() {
         let contribution = StateContribution(metric: .dfa1, value: 0.3 * 2.0)
-        let row = LiveWhyRow.build(for: contribution, reading: reading(.dfa1, effective: 2.0),
-                                   strongest: 0.6)
+        let row = LiveWhyRow.build(for: contribution, reading: reading(.dfa1, effective: 2.0))
         XCTAssertEqual(row.bandText, "well above your usual",
                        "must describe the metric's own effective reading, not its weighted pull")
         XCTAssertNotEqual(row.bandText, LiveWhyBand.text(for: contribution.value),
@@ -297,19 +392,20 @@ final class LiveWhyRowTests: XCTestCase {
     }
 
     /// Bar length and ranking still come from `contribution.value` — that
-    /// part of the wiring is correct and must stay that way.
+    /// part of the wiring is correct and must stay that way. The same fixture
+    /// now discriminates on width too: the pull (0.6) and the metric's own
+    /// effective reading (2.0) draw visibly different bars.
     func testBarWidthUsesTheWeightedContributionNotEffective() {
         let contribution = StateContribution(metric: .dfa1, value: 0.3 * 2.0)
-        let row = LiveWhyRow.build(for: contribution, reading: reading(.dfa1, effective: 2.0),
-                                   strongest: 0.6)
-        XCTAssertEqual(row.barWidth, LiveWhyBar.maxWidth, accuracy: 0.001,
-                       "value == strongest, so this must be the full bar")
+        let row = LiveWhyRow.build(for: contribution, reading: reading(.dfa1, effective: 2.0))
+        XCTAssertEqual(row.barWidth, LiveWhyBar.width(value: 0.6), accuracy: 0.001)
+        XCTAssertNotEqual(row.barWidth, LiveWhyBar.width(value: 2.0), accuracy: 0.001,
+                          "banding is the metric's own reading; the bar is its pull on the state")
     }
 
     func testDisplayNameIsPlainLanguage() {
         let contribution = StateContribution(metric: .dfa1, value: 1.0)
-        let row = LiveWhyRow.build(for: contribution, reading: reading(.dfa1, effective: 1.0),
-                                   strongest: 1.0)
+        let row = LiveWhyRow.build(for: contribution, reading: reading(.dfa1, effective: 1.0))
         XCTAssertEqual(row.displayName, "FOCUS", "never a raw metric name like DFA1")
     }
 
@@ -321,7 +417,7 @@ final class LiveWhyRowTests: XCTestCase {
     func testAContributionWithNoMatchingReadingFallsBackSafely() {
         let contribution = StateContribution(metric: .hr, value: 0.5)
         let empty = LiveReading(readings: [:], coverage: 1.0)
-        let row = LiveWhyRow.build(for: contribution, reading: empty, strongest: 0.5)
+        let row = LiveWhyRow.build(for: contribution, reading: empty)
         XCTAssertEqual(row.bandText, "right around your usual")
     }
 }

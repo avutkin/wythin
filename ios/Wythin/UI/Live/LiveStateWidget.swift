@@ -23,9 +23,16 @@ enum LiveWhyBand {
     }
 }
 
-/// The WHY row's bar length: `value`'s magnitude as a fraction of the
-/// strongest contribution in the (already ranked) list, so the ordering is
-/// visible at a glance and not just readable from top-to-bottom position.
+/// The WHY row's bar length: `value`'s magnitude on a FIXED scale, so the bar
+/// says how much the metric actually pulled, not merely where it ranks.
+///
+/// It used to normalise by the strongest contribution in the list, which made
+/// the leading bar full-width unconditionally — including on a maximally flat
+/// window, where the one fallback contribution rendered as a single confident
+/// full-width bar. The spec's weak-call design says the opposite: "the impact
+/// bars are all short. This is honest and visible, where the current version
+/// hides a weak call behind equally confident prose." Rank is already legible
+/// from top-to-bottom order; the bar's job is magnitude.
 ///
 /// Returns plain `Double` rather than `CGFloat` so this stays testable
 /// without importing SwiftUI/CoreGraphics; the view converts at the call
@@ -35,10 +42,35 @@ enum LiveWhyBar {
     /// visible sliver rather than a line too thin to see.
     static let minWidth: Double = 6
     static let maxWidth: Double = 46
+    /// The pull that fills the bar: one axis-weighted personal SD. Anything
+    /// beyond clamps rather than overflowing the row. UNCALIBRATED, chosen
+    /// against `LiveThresholds.contributionFloor` (0.25) so a bullet that
+    /// barely qualifies draws about a quarter of the length.
+    static let fullScale: Float = 1.0
 
-    static func width(value: Float, strongest: Float) -> Double {
-        let fraction = Double(abs(value)) / Double(max(strongest, 0.01))
-        return max(minWidth, fraction * maxWidth)
+    static func width(value: Float) -> Double {
+        let fraction = min(Double(abs(value)) / Double(fullScale), 1)
+        return minWidth + fraction * (maxWidth - minWidth)
+    }
+}
+
+/// The card's own label, with whatever the reading is honestly unsure about
+/// appended to it. Same shape as `DayPotentialStore.State.headline`, which
+/// already appends "· EARLY DAYS" for a provisional score — reused here so
+/// the words mean the same thing on both cards.
+///
+/// Every one of these three flags was computed and read by no view before
+/// this: `LiveStateResult.isWeak`, `LiveBaseline.provisional`, and the held-
+/// state case the spec's error table requires be marked stale.
+enum LiveStateHeadline {
+    static func text(isWeak: Bool, provisional: Bool, isStale: Bool) -> String {
+        var parts = ["CURRENT STATE"]
+        // Staleness leads: a held reading may well have been a strong call
+        // when it was taken, so how old it is matters more than how firm.
+        if isStale     { parts.append("NOT UPDATING") }
+        if isWeak      { parts.append("WEAK SIGNAL") }
+        if provisional { parts.append("EARLY DAYS") }
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -58,13 +90,12 @@ struct LiveWhyRow: Equatable {
     /// `reading` is looked up for `effective`, never for ranking — ranking
     /// and bar length both come from `contribution.value`, which is already
     /// the classifier's own ranked-by-weighted-pull ordering.
-    static func build(for contribution: StateContribution, reading: LiveReading,
-                      strongest: Float) -> LiveWhyRow {
+    static func build(for contribution: StateContribution, reading: LiveReading) -> LiveWhyRow {
         let effective = reading.readings[contribution.metric]?.effective ?? 0
         return LiveWhyRow(
             displayName: contribution.metric.displayName.uppercased(),
             bandText: LiveWhyBand.text(for: effective),
-            barWidth: LiveWhyBar.width(value: contribution.value, strongest: strongest),
+            barWidth: LiveWhyBar.width(value: contribution.value),
             isStrong: abs(contribution.value) > 0.6)
     }
 }
@@ -100,6 +131,18 @@ final class LiveStateStore {
     /// here for its band text, since `StateContribution.value` (weight ×
     /// effective) is the wrong quantity for that. See `LiveWhyBand`.
     private(set) var reading: LiveReading?
+
+    /// The displayed state is being HELD rather than refreshed — the window
+    /// stopped clearing `LiveThresholds.minCoverage`, or the strap
+    /// disconnected and the poll loop stopped entirely. The spec's error
+    /// table: "Too few points in window — hold the last state; mark it stale
+    /// rather than blanking." Holding was already implemented; marking was
+    /// not, so a state could sit on screen indefinitely presenting itself as
+    /// current.
+    ///
+    /// False until there is something to hold: nothing on screen cannot be
+    /// stale.
+    private(set) var isStale = false
 
     private let hysteresis = LiveStateHysteresis()
 
@@ -163,17 +206,33 @@ final class LiveStateStore {
     /// the documented cold-start/offline fallback, not an error — the widget
     /// simply keeps showing the last thing it knew, the same way `text` does.
     func recomputeState(rollups: [DailyRollup], window: [MetricsHistoryPoint], now: Date = .now) {
-        guard let baseline = LiveBaseline.build(rollups: rollups, now: now) else { return }
+        guard let baseline = LiveBaseline.build(rollups: rollups, now: now) else {
+            markStale()
+            return
+        }
         self.baseline = baseline
 
-        guard let reading = LiveReading.build(window: window, baseline: baseline, now: now) else { return }
+        guard let reading = LiveReading.build(window: window, baseline: baseline, now: now) else {
+            markStale()
+            return
+        }
         self.reading = reading
+        isStale = false
 
         let classified = LiveStateClassifier.classify(reading)
         let settled = hysteresis.settle(classified.key)
         state = settled == classified.key ? classified
             : LiveStateResult(key: settled, axes: classified.axes,
                               contributions: classified.contributions, isWeak: classified.isWeak)
+    }
+
+    /// Whatever is on screen is no longer being refreshed. Called when the
+    /// strap disconnects, which stops the poll loop outright — no recompute
+    /// will ever run to notice on its own.
+    ///
+    /// A no-op when there is no state yet: "Gathering data…" is not stale.
+    func markStale() {
+        if state != nil { isStale = true }
     }
 }
 
@@ -233,7 +292,11 @@ struct LiveStateWidget: View {
             if case .connected = newValue {
                 startLoop()
             } else {
+                // Stopping the loop means nothing will recompute, so whatever
+                // is on screen stops being current the moment the strap goes.
+                // Nothing else would ever notice.
                 stopLoop()
+                store.markStale()
             }
         }
     }
@@ -312,7 +375,10 @@ struct LiveStateWidget: View {
         header(title: LiveStateCopy.title(for: key),
               feeling: LiveStateCopy.feeling(for: key),
               iconName: key.display?.iconName ?? "waveform.path.ecg",
-              accent: key.display?.color ?? Theme.accent)
+              accent: key.display?.color ?? Theme.accent,
+              label: LiveStateHeadline.text(isWeak: store.state?.isWeak ?? false,
+                                            provisional: store.baseline?.provisional ?? false,
+                                            isStale: store.isStale))
     }
 
     /// Plain-value header, deliberately decoupled from `LiveStateInsight` —
@@ -322,7 +388,8 @@ struct LiveStateWidget: View {
     /// `title`, which is what fed the fallback icon/title below anyway.
     /// Simpler to just pass the values every call site already has.
     @ViewBuilder
-    private func header(title: String, feeling: String?, iconName: String, accent: Color) -> some View {
+    private func header(title: String, feeling: String?, iconName: String, accent: Color,
+                        label: String = "CURRENT STATE") -> some View {
         HStack(alignment: .top, spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
@@ -333,7 +400,7 @@ struct LiveStateWidget: View {
                     .foregroundStyle(accent)
             }
             VStack(alignment: .leading, spacing: 3) {
-                Text("CURRENT STATE")
+                Text(label)
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Text(title)
@@ -386,9 +453,8 @@ struct LiveStateWidget: View {
             Text("WHY")
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundStyle(Theme.text)
-            let strongest = state.contributions.first.map { abs($0.value) } ?? 1
             ForEach(state.contributions, id: \.metric) { c in
-                let row = LiveWhyRow.build(for: c, reading: reading, strongest: strongest)
+                let row = LiveWhyRow.build(for: c, reading: reading)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 7) {
                         RoundedRectangle(cornerRadius: 2)
