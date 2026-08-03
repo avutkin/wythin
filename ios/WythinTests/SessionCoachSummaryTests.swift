@@ -24,8 +24,10 @@ final class SessionCoachSummaryTests: XCTestCase {
     // MARK: - Strengths
 
     func testStrongRecoveryIsNamedAsAStrength() {
+        // No percentage: recovery is a time now, and quoting a level here was
+        // what let a still-falling session read as partly recovered.
         let c = build(recovery: s(82))
-        XCTAssertTrue(c.strengths.contains { $0.contains("82%") })
+        XCTAssertTrue(c.strengths.contains { $0.lowercased().contains("came back quickly") })
     }
 
     func testThresholdTimeCountsAsRealTraining() {
@@ -52,7 +54,7 @@ final class SessionCoachSummaryTests: XCTestCase {
 
     func testSlowRecoveryEarnsAConcreteAction() {
         let c = build(recovery: s(22))
-        let line = c.improvements.first { $0.contains("22%") }
+        let line = c.improvements.first { $0.lowercased().contains("slow to come back") }
         XCTAssertNotNil(line)
         XCTAssertTrue(line!.contains("breathing"), "a criticism must carry an action")
     }

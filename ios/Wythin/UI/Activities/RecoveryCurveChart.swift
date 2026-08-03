@@ -65,6 +65,15 @@ struct RecoveryCurveChart: View {
                     RectangleMark(xStart: .value("s", 0), xEnd: .value("e", sessionMinutes))
                         .foregroundStyle(Theme.warn.opacity(0.07))
 
+                    RuleMark(y: .value("Halfway", pre * RecoveryTiming.targetFraction))
+                        .foregroundStyle(Theme.accent.opacity(0.45))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                        .annotation(position: .bottom, alignment: .leading) {
+                            Text("halfway back")
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundStyle(Theme.accent.opacity(0.8))
+                        }
+
                     RuleMark(y: .value("Resting", pre))
                         .foregroundStyle(Theme.dim)
                         .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
