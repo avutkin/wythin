@@ -133,12 +133,22 @@ async def usage_stats(
                 WHERE ($2::timestamptz IS NULL OR ts >= $2)
                 GROUP BY user_id
             ),
-            -- Last sign of life, from every signal a user can produce. Usage
-            -- events alone would report "never" for someone who only logs
-            -- activities or streams metrics, while their streak column showed
-            -- them active — and would hide them from the range filter below.
+            -- "Last seen" means the newest PolarH10 data: a strap recording or
+            -- a strap-derived metric sample. Opening the app or typing in a
+            -- manual activity is not the sensor seeing you.
             seen AS (
                 SELECT user_id, MAX(ts) AS last_seen FROM (
+                    SELECT user_id, ts FROM usage_events WHERE event_type = 'ecg_recording'
+                    UNION ALL
+                    SELECT user_id, ts FROM metric_samples
+                ) x
+                GROUP BY user_id
+            ),
+            -- Any sign of life, strap or not. Drives the range filter, so a
+            -- user who opened the app but never strapped up still shows up
+            -- (with an empty last_seen) rather than vanishing.
+            signal AS (
+                SELECT user_id, MAX(ts) AS last_signal FROM (
                     SELECT user_id, ts                             FROM usage_events
                     UNION ALL
                     SELECT user_id, COALESCE(ended_at, started_at) FROM activities
@@ -193,6 +203,7 @@ async def usage_stats(
               u.id, u.device_id, u.display_name,
               u.created_at                       AS first_seen,
               sn.last_seen                       AS last_seen,
+              sg.last_signal                     AS last_signal,
               COALESCE(ir.session_count, 0)      AS session_count,
               COALESCE(ir.total_minutes, 0)      AS total_minutes,
               m.avg_coherence                    AS avg_coherence,
@@ -210,13 +221,15 @@ async def usage_stats(
             LEFT JOIN profiles pr   ON pr.user_id = u.id
             LEFT JOIN in_range ir   ON ir.user_id = u.id
             LEFT JOIN seen sn       ON sn.user_id = u.id
+            LEFT JOIN signal sg     ON sg.user_id = u.id
             LEFT JOIN metrics m     ON m.user_id  = u.id
             LEFT JOIN consistency c ON c.user_id  = u.id
             LEFT JOIN usage_agg ua  ON ua.user_id = u.id
-            -- Only users active within the range. "All time" ($2 IS NULL) keeps
-            -- the full roster, including accounts that never did anything.
-            WHERE $2::timestamptz IS NULL OR sn.last_seen >= $2
-            ORDER BY last_seen DESC NULLS LAST
+            -- Only users active within the range — judged on any signal, not
+            -- just strap data, so app-only users stay visible. "All time"
+            -- ($2 IS NULL) keeps the full roster, including dormant accounts.
+            WHERE $2::timestamptz IS NULL OR sg.last_signal >= $2
+            ORDER BY COALESCE(sn.last_seen, sg.last_signal) DESC NULLS LAST
             """,
             _SESSION_MIN_MS, since, off, today_local,
         )
@@ -255,6 +268,7 @@ async def usage_stats(
                 "display_name":  r["display_name"],
                 "first_seen":    r["first_seen"].isoformat() if r["first_seen"] else None,
                 "last_seen":     r["last_seen"].isoformat() if r["last_seen"] else None,
+                "last_signal":   r["last_signal"].isoformat() if r["last_signal"] else None,
                 "session_count": r["session_count"],
                 "total_minutes": round(_f(r["total_minutes"]), 1),
                 "avg_coherence": round(_f(r["avg_coherence"]), 3) if r["avg_coherence"] is not None else None,
@@ -298,7 +312,13 @@ async def user_detail(user_id: str):
             SELECT
               u.id, u.device_id, u.display_name,
               u.created_at AS first_seen,
-              (SELECT MAX(ts) FROM usage_events e WHERE e.user_id = u.id) AS last_seen,
+              -- Newest PolarH10 data, same definition as the user table.
+              (SELECT MAX(ts) FROM (
+                   SELECT ts FROM usage_events e
+                     WHERE e.user_id = u.id AND e.event_type = 'ecg_recording'
+                   UNION ALL
+                   SELECT ts FROM metric_samples m WHERE m.user_id = u.id
+               ) s) AS last_seen,
               (SELECT COUNT(*) FROM usage_events e
                  WHERE e.user_id = u.id AND e.event_type = 'ecg_recording'
                    AND e.duration_ms >= $2)                                AS session_count,

@@ -330,6 +330,52 @@ async def test_stats_carries_onboarding_goals_and_practices():
 
 
 @pytest.mark.asyncio
+async def test_last_seen_is_strap_data_only():
+    """"Last seen" means the newest PolarH10 data — a strap recording or a
+    metric sample. Opening the app is not being seen: an app-only user still
+    appears in the table (they gave a sign of life) but their last_seen is
+    empty, with the app signal reported separately. Requires a database."""
+    from datetime import datetime, timezone, timedelta
+    import uuid
+
+    now = datetime.now(timezone.utc)
+    sfx = uuid.uuid4().hex[:8]
+    app_only, strap, metrics = f"test-app-{sfx}", f"test-strap2-{sfx}", f"test-ms-{sfx}"
+    async with _client() as client:
+        # Opened the app; never wore the strap.
+        r = await client.post("/v1/usage", headers={"X-User-ID": app_only}, json={"events": [
+            {"client_event_id": str(uuid.uuid4()), "event_type": "foreground",
+             "ts": (now - timedelta(minutes=3)).isoformat(), "duration_ms": 300_000},
+        ]})
+        assert r.status_code == 200, r.text
+        # Wore the strap.
+        r = await client.post("/v1/usage", headers={"X-User-ID": strap}, json={"events": [
+            {"client_event_id": str(uuid.uuid4()), "event_type": "ecg_recording",
+             "ts": (now - timedelta(minutes=6)).isoformat(), "duration_ms": 600_000},
+        ]})
+        assert r.status_code == 200, r.text
+        # Streamed strap-derived metrics, nothing else.
+        r = await client.post("/v1/metrics", headers={"X-User-ID": metrics}, json={"samples": [
+            {"ts": (now - timedelta(minutes=9)).isoformat(), "mean_bpm": 61.0, "rmssd": 40.0},
+        ]})
+        assert r.status_code in (200, 201), r.text
+
+        data = (await client.get("/admin/stats", params={"range": "24h"})).json()
+
+    rows = {u["device_id"]: u for u in data["users"]}
+
+    # The app-only user is still listed — they were active — but the strap
+    # never saw them, so last_seen is empty while the app signal is recorded.
+    assert app_only in rows, "an app-only user is still active in range"
+    assert rows[app_only]["last_seen"] is None
+    assert rows[app_only]["last_signal"] is not None
+
+    # Both strap sources set last_seen.
+    assert rows[strap]["last_seen"] is not None
+    assert rows[metrics]["last_seen"] is not None
+
+
+@pytest.mark.asyncio
 async def test_user_table_lists_only_users_active_in_range():
     """The user table follows the range picker: a user shows up only if they
     gave some sign of life inside it — an app open, a strap session or a logged
@@ -377,10 +423,12 @@ async def test_user_table_lists_only_users_active_in_range():
     assert {recent_dev, stale_dev} <= devices(wide)
     assert {recent_dev, stale_dev} <= devices(every)
 
-    # An activity is a sign of life on its own, and it sets last seen.
+    # An activity is a sign of life, so it keeps the user in the table — but a
+    # logged activity is not PolarH10 data, so it does not set last_seen.
     assert act_dev in devices(day), "a logged activity counts as activity"
-    seen = next(u for u in day["users"] if u["device_id"] == act_dev)["last_seen"]
-    assert seen is not None, "activity-only users must not read 'never'"
+    row = next(u for u in day["users"] if u["device_id"] == act_dev)
+    assert row["last_signal"] is not None, "the activity is the signal that keeps them listed"
+    assert row["last_seen"] is None, "an activity is not strap data"
 
     # The table is a subset of the roster, and total_users stays the all-time
     # denominator rather than shrinking with the range.
