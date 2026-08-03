@@ -240,9 +240,11 @@ final class LiveStateStore {
 /// ranked WHY) plus an OpenAI-generated, purely descriptive account of the
 /// nervous-system trend over the last 10 minutes.
 ///
-/// The device-side half — header and, absent narration, the WHY list — needs
-/// no network and appears as soon as there is a baseline and a covered
-/// window: see `LiveStateStore.recomputeState`. The narration half updates
+/// The device-side half — header and ranked WHY — needs no network and appears
+/// as soon as there is a baseline and a covered window (see
+/// `LiveStateStore.recomputeState`). It renders in BOTH paths: the WHY list is
+/// the baseline-referenced explanation and is not something the narration
+/// replaces. The narration half updates
 /// automatically at most once every 5 minutes while visible and
 /// BLE-connected, or immediately when the user pulls the Live tab to refresh
 /// (the first reading appears as soon as there's enough data). Never shows a
@@ -269,7 +271,9 @@ struct LiveStateWidget: View {
             } else if let state = store.state, let reading = store.reading {
                 // No narration yet (or the network is down) but the device
                 // already knows enough — never falls back to "Gathering
-                // data…" once a local state exists.
+                // data…" once a local state exists. Same two rows the
+                // narration path opens with; only the model's prose is
+                // missing.
                 VStack(alignment: .leading, spacing: 14) {
                     header(for: state.key)
                     whyList(state, reading: reading)
@@ -317,6 +321,14 @@ struct LiveStateWidget: View {
     /// later plan makes narration state-bound (dropping stale text instead
     /// of recolouring it), this distinction goes away on its own; until then
     /// each half is coloured by its own source.
+    ///
+    /// The local ranked WHY renders here too, ABOVE the narration. It used to
+    /// appear only in the `text == nil` branch, i.e. for the 15-30 s before the
+    /// first LLM reply and never again that session — so a connected user never
+    /// saw the one explanation that is actually referenced to their own
+    /// baseline, which is the whole point of this engine. Order encodes
+    /// authority: the device's ranked drivers first, the model's prose second
+    /// and labelled as commentary on them.
     @ViewBuilder
     private func structured(_ text: String) -> some View {
         let insight = LiveStateInsight(raw: text)
@@ -329,8 +341,15 @@ struct LiveStateWidget: View {
                       iconName: insight.state?.iconName ?? "waveform.path.ecg", accent: accent)
             }
 
+            if let state = store.state, let reading = store.reading {
+                whyList(state, reading: reading)
+            }
+
             if !insight.bullets.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
+                    Text("WHAT THIS MEANS")
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Theme.dim)
                     ForEach(Array(insight.bullets.enumerated()), id: \.offset) { _, bullet in
                         HStack(alignment: .top, spacing: 8) {
                             Circle()
