@@ -306,11 +306,11 @@
         if (!u.last_seen) {
           return `<span class="never" title="${u.last_signal ? "app signal " + ago(u.last_signal) + " — but no strap data ever" : "no data at all"}">no strap data</span>`;
         }
+        // Always date + time. "21:54" alone is ambiguous the moment a row is
+        // not from today, and the whole point of this column is when.
         const t = new Date(u.last_seen);
-        const sameDay = t.toDateString() === new Date().toDateString();
-        const label = sameDay
-          ? t.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
-          : t.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+        const label = t.toLocaleString(undefined,
+          { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
         return `<span title="${esc(t.toLocaleString())} — ${ago(u.last_seen)}${u.last_signal && u.last_signal > u.last_seen ? "; app signal " + ago(u.last_signal) : ""}">${label}</span>`;
       } },
     { k: "current_streak", label: "Streak", cell: (u) => u.current_streak ? `${u.current_streak}d${u.practiced_today ? " •" : ""}` : "—" },
