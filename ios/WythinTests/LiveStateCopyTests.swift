@@ -46,4 +46,20 @@ final class LiveStateCopyTests: XCTestCase {
             XCTAssertLessThan(feeling.count, 60, "\(key): too long for the collapsed line")
         }
     }
+
+    /// The user has asked twice for no dash construction in this card — a
+    /// comma or a second clause instead. Checks every rotation of every
+    /// title, not just the one `on: Date()` happens to pick today.
+    func testNoTitleOrFeelingContainsAnEmDashOrEnDash() {
+        let dashes = CharacterSet(charactersIn: "\u{2014}\u{2013}")
+        for key in LiveStateKey.allCases {
+            for offset in 0..<14 {
+                let day = Calendar.current.date(byAdding: .day, value: offset, to: Date())!
+                let title = LiveStateCopy.title(for: key, on: day)
+                XCTAssertNil(title.rangeOfCharacter(from: dashes), "\(key) day+\(offset): \"\(title)\"")
+            }
+            let feeling = LiveStateCopy.feeling(for: key)
+            XCTAssertNil(feeling.rangeOfCharacter(from: dashes), "\(key): \"\(feeling)\"")
+        }
+    }
 }
