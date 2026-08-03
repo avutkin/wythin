@@ -102,6 +102,7 @@
 		A160 /* ClientProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = F160 /* ClientProfile.swift */; };
 		A161 /* OnboardingFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F161 /* OnboardingFlow.swift */; };
 		A162 /* OnboardingScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F162 /* OnboardingScreens.swift */; };
+		A260 /* OnboardingCollectionScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = F260 /* OnboardingCollectionScreens.swift */; };
 		A199 /* LiveStateInsight.swift in Sources */ = {isa = PBXBuildFile; fileRef = F199 /* LiveStateInsight.swift */; };
 		A200 /* Practice.swift in Sources */ = {isa = PBXBuildFile; fileRef = F200 /* Practice.swift */; };
 		A201 /* PracticeCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F201 /* PracticeCatalog.swift */; };
@@ -296,6 +297,7 @@
 		F160 /* ClientProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientProfile.swift; sourceTree = "<group>"; };
 		F161 /* OnboardingFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingFlow.swift; sourceTree = "<group>"; };
 		F162 /* OnboardingScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingScreens.swift; sourceTree = "<group>"; };
+		F260 /* OnboardingCollectionScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingCollectionScreens.swift; sourceTree = "<group>"; };
 		F199 /* LiveStateInsight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateInsight.swift; sourceTree = "<group>"; };
 		F200 /* Practice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Practice.swift; sourceTree = "<group>"; };
 		F201 /* PracticeCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeCatalog.swift; sourceTree = "<group>"; };
@@ -590,6 +592,7 @@
 			children = (
 				F161 /* OnboardingFlow.swift */,
 				F162 /* OnboardingScreens.swift */,
+				F260 /* OnboardingCollectionScreens.swift */,
 			);
 			path = Onboarding;
 			sourceTree = "<group>";
@@ -895,6 +898,7 @@
 				A160 /* ClientProfile.swift in Sources */,
 				A161 /* OnboardingFlow.swift in Sources */,
 				A162 /* OnboardingScreens.swift in Sources */,
+				A260 /* OnboardingCollectionScreens.swift in Sources */,
 				A139 /* CurrentStateCard.swift in Sources */,
 				A140 /* RecommendedActionCard.swift in Sources */,
 				A147 /* LiveStateWidget.swift in Sources */,

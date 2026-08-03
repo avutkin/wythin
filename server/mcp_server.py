@@ -264,16 +264,31 @@ async def get_metric_stats(ctx: Context, metric: str, since: str, until: str) ->
 async def _profile(user_id: str) -> dict:
     async with get_pool().acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT phone, email, age_range, gender, goals, practices, devices, updated_at "
+            "SELECT first_name, last_name, phone, email, age_range, gender, "
+            "       height_cm, weight_kg, goals, practices, devices, "
+            "       state_focus, state_anxiety, state_energy, "
+            "       state_sleep_quality, state_stress, updated_at "
             "FROM profiles WHERE user_id = $1", user_id)
     if row is None:
         return {}
     return {
+        "first_name": row["first_name"], "last_name": row["last_name"],
         "phone": row["phone"], "email": row["email"],
         "age_range": row["age_range"], "gender": row["gender"],
+        "height_cm": row["height_cm"], "weight_kg": row["weight_kg"],
         "goals": list(row["goals"] or []),
         "practices": list(row["practices"] or []),
         "devices": list(row["devices"] or []),
+        # How they said they felt at signup, 0-10; null where the slider was
+        # left alone. Useful to an assistant as the "before" the measurements
+        # are being compared against.
+        "current_state": {
+            "focus": row["state_focus"],
+            "anxiety": row["state_anxiety"],
+            "energy": row["state_energy"],
+            "sleep_quality": row["state_sleep_quality"],
+            "stress": row["state_stress"],
+        },
         "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
     }
 

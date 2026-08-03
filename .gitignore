@@ -20,3 +20,6 @@ ios/Wythin.xcodeproj/project.xcworkspace/xcuserdata/
 
 # Hetzner deploy secrets
 server/deploy/.env
+
+# Brainstorming mockups (scratch)
+.superpowers/

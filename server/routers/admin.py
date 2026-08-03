@@ -360,7 +360,11 @@ async def user_detail(user_id: str):
         # Everything they answered at onboarding, contact details included.
         profile = await conn.fetchrow(
             """
-            SELECT phone, email, age_range, gender, goals, practices, devices, updated_at
+            SELECT first_name, last_name, phone, email, age_range, gender,
+                   height_cm, weight_kg, goals, practices, devices,
+                   state_focus, state_anxiety, state_energy,
+                   state_sleep_quality, state_stress,
+                   consent_share_team, consent_ai_insights, updated_at
             FROM profiles WHERE user_id = $1::uuid
             """,
             user_id,
@@ -399,13 +403,31 @@ async def user_detail(user_id: str):
         ],
         "activities": [_activity_row(r) for r in activities],
         "profile": None if profile is None else {
+            "first_name": profile["first_name"],
+            "last_name":  profile["last_name"],
             "phone":      profile["phone"],
             "email":      profile["email"],
             "age_range":  profile["age_range"],
             "gender":     profile["gender"],
+            "height_cm":  profile["height_cm"],
+            "weight_kg":  profile["weight_kg"],
             "goals":      list(profile["goals"] or []),
             "practices":  list(profile["practices"] or []),
             "devices":    list(profile["devices"] or []),
+            # Self-reported baseline from onboarding, 0-10, null where skipped.
+            # Kept as a nested object so a coach reading this can tell the
+            # subjective answers from the measured ones at a glance.
+            "current_state": {
+                "focus":         profile["state_focus"],
+                "anxiety":       profile["state_anxiety"],
+                "energy":        profile["state_energy"],
+                "sleep_quality": profile["state_sleep_quality"],
+                "stress":        profile["state_stress"],
+            },
+            "consent": {
+                "share_team":  profile["consent_share_team"],
+                "ai_insights": profile["consent_ai_insights"],
+            },
             "updated_at": profile["updated_at"].isoformat() if profile["updated_at"] else None,
         },
     }

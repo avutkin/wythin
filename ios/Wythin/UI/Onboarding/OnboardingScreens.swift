@@ -365,6 +365,8 @@ struct OnboardingAboutYouScreen: View {
     let progress: Double
     @Binding var ageRange: String?
     @Binding var gender:   String?
+    @Binding var heightCm: Int?
+    @Binding var weightKg: Int?
     let onBack:     () -> Void
     let onContinue: () -> Void
     var onSkip:     (() -> Void)? = nil
@@ -372,12 +374,17 @@ struct OnboardingAboutYouScreen: View {
     private let ages    = ["18–24", "25–34", "35–44", "45–54", "55+"]
     private let genders = ["Female", "Male", "Non-binary", "Prefer not to say"]
 
+    /// Age and gender are required; height and weight are not. They feed
+    /// normalisation later rather than anything on screen today, so blocking
+    /// Continue on them would cost more than they are currently worth.
+    private var canContinue: Bool { ageRange != nil && gender != nil }
+
     var body: some View {
         OnboardingScaffold(
             progress: progress,
             question: "A bit about you",
             subtitle: "This tailors your guidance.",
-            canContinue: ageRange != nil && gender != nil,
+            canContinue: canContinue,
             continueTitle: "Continue",
             onBack: onBack,
             onContinue: onContinue,
@@ -386,6 +393,13 @@ struct OnboardingAboutYouScreen: View {
             VStack(alignment: .leading, spacing: 18) {
                 pickerGroup(title: "AGE", options: ages, selection: $ageRange)
                 pickerGroup(title: "GENDER", options: genders, selection: $gender)
+
+                HStack(spacing: 10) {
+                    OnboardingNumberField(title: "HEIGHT", unit: "cm",
+                                          range: OnboardingValidation.heightRangeCm, value: $heightCm)
+                    OnboardingNumberField(title: "WEIGHT", unit: "kg",
+                                          range: OnboardingValidation.weightRangeKg, value: $weightKg)
+                }
             }
             .padding(.top, 4)
         }
@@ -398,6 +412,54 @@ struct OnboardingAboutYouScreen: View {
                 .foregroundStyle(Theme.dim)
             FlowChips(options: options, selection: selection)
         }
+    }
+}
+
+/// Numeric entry with a unit suffix, used for height and weight.
+///
+/// Binds to `Int?` so an empty field stays nil rather than becoming 0 — a
+/// weight of zero would otherwise sync to the server as a real answer.
+/// Out-of-range input is kept in the field but not committed, so the user sees
+/// what they typed and the profile never holds an implausible value.
+struct OnboardingNumberField: View {
+    let title: String
+    let unit:  String
+    let range: ClosedRange<Int>
+    @Binding var value: Int?
+
+    @State private var text = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(Theme.monoLabel)
+                .foregroundStyle(Theme.dim)
+
+            HStack(spacing: 6) {
+                TextField("", text: $text, prompt: Text("—").foregroundColor(Theme.dim))
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Theme.text)
+                    .keyboardType(.numberPad)
+                    .onChange(of: text) { _, new in commit(new) }
+                Text(unit)
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 52)
+            .background(Theme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.border, lineWidth: 0.5))
+        }
+        .onAppear { if let value { text = String(value) } }
+    }
+
+    private func commit(_ new: String) {
+        guard let n = Int(new.filter(\.isNumber)), range.contains(n) else {
+            value = nil
+            return
+        }
+        value = n
     }
 }
 
@@ -532,50 +594,181 @@ struct ChestStrapDiagram: View {
 
 struct OnboardingConnectScreen: View {
     let progress:    Double
+    let state:       BLEState
+    let batteryLevel: Int?
+    /// Live display buffers, straight off `AppEnvironment.waveform`. The point
+    /// of showing them here is that the user sees their own heartbeat seconds
+    /// after pairing — the strap stops being a setup step and starts being the
+    /// thing the app is about.
+    let ecg:         [Float]
+    let acc:         [Float]
+    /// Data-sharing consents, shown only once a strap is streaming — there is
+    /// nothing to consent to before that. See `OnboardingConsentRow` for why
+    /// the copy names Claude rather than saying "our AI partner".
+    @Binding var shareWithTeam: Bool
+    @Binding var aiInsights:    Bool
+    let onShowDataDetail: () -> Void
     let onOpenBLE:   () -> Void
     let onBack:      () -> Void
-    let onFinish:    () -> Void
+    let onContinue:  () -> Void
+
+    /// Once the strap is paired the screen stops selling and starts confirming.
+    private var connectedName: String? {
+        switch state {
+        case .connected(let name), .standby(let name): return name
+        default: return nil
+        }
+    }
+
+    private var isBusy: Bool {
+        switch state {
+        case .scanning, .connecting: return true
+        default: return false
+        }
+    }
 
     var body: some View {
         OnboardingScaffold(
             progress: progress,
-            question: "Connect your Polar H10",
-            subtitle: "Your chest strap streams the heart data that powers every insight.",
+            question: connectedName == nil ? "Connect your Polar H10" : "You're connected.",
+            subtitle: connectedName == nil
+                ? "Your chest strap streams the heart data behind every reading."
+                : "That's the hard part done.",
             canContinue: true,
-            continueTitle: "Finish",
+            continueTitle: "Continue",
             onBack: onBack,
-            onContinue: onFinish
+            onContinue: onContinue
         ) {
             VStack(spacing: 14) {
-                ChestStrapDiagram()
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
+                if let name = connectedName {
+                    connectedCard(name: name)
+                } else {
+                    ChestStrapDiagram()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
 
-                Text("Wear the strap around your chest, just below the chest muscles, snug against the skin.")
-                    .font(Theme.monoBody)
-                    .foregroundStyle(Theme.dim)
-                    .multilineTextAlignment(.center)
+                    Text("Wear the strap around your chest, just below the chest muscles, snug against the skin.")
+                        .font(Theme.monoBody)
+                        .foregroundStyle(Theme.dim)
+                        .multilineTextAlignment(.center)
 
-                Button(action: onOpenBLE) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "plus.circle.fill")
-                        Text("Connect device")
+                    Button(action: onOpenBLE) {
+                        HStack(spacing: 8) {
+                            if isBusy {
+                                ProgressView().tint(Theme.text)
+                            } else {
+                                Image(systemName: "plus.circle.fill")
+                            }
+                            Text(isBusy ? "Searching…" : "Connect device")
+                        }
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Theme.text)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(LinearGradient.onboardingPrimary)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Theme.text)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(LinearGradient.onboardingPrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
 
-                Text("You can also do this later from the Live tab.")
-                    .font(Theme.monoLabel)
-                    .foregroundStyle(Theme.dim)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 4)
+                    Text("You can also do this later from the Live tab.")
+                        .font(Theme.monoLabel)
+                        .foregroundStyle(Theme.dim)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 4)
+                }
             }
             .padding(.top, 4)
+            .animation(.easeInOut(duration: 0.25), value: connectedName)
+        }
+    }
+
+    @ViewBuilder
+    private func connectedCard(name: String) -> some View {
+        VStack(spacing: 14) {
+            HStack(spacing: 13) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(Theme.accent)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(name)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Theme.text)
+                    Text(batteryLevel.map { "CONNECTED · \($0)% BATTERY" } ?? "CONNECTED")
+                        .font(Theme.monoLabel)
+                        .foregroundStyle(Theme.dim)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.accent.opacity(0.35), lineWidth: 1))
+
+            liveStrip(title: "LIVE ECG", detail: "130 Hz", tint: Theme.accent) {
+                ECGWaveformView(buffer: ecg)
+            }
+
+            liveStrip(title: "BREATHING", detail: "200 Hz · ACC Z", tint: Theme.breathe) {
+                ACCWaveformView(buffer: acc)
+            }
+
+            Text("That's your own heartbeat, live.")
+                .font(Theme.monoBody)
+                .foregroundStyle(Theme.dim)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 2)
+
+            consentBlock
+        }
+        .padding(.top, 8)
+    }
+
+    private var consentBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("MAKE IT YOURS")
+                .font(Theme.monoLabel)
+                .foregroundStyle(Theme.dim)
+                .padding(.top, 6)
+
+            OnboardingConsentRow(
+                icon: "person.2",
+                title: "Share with the Wythin team",
+                isOn: $shareWithTeam)
+
+            OnboardingConsentRow(
+                icon: "sparkles",
+                title: "Share securely with \(AIProvider.name)",
+                isOn: $aiInsights)
+
+            Button(action: onShowDataDetail) {
+                HStack(spacing: 4) {
+                    Text("What's shared?")
+                    Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold))
+                }
+                .font(Theme.monoLabel)
+                .foregroundStyle(Theme.breathe)
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    /// Waveform with its own caption row, so each strip says what it is and at
+    /// what rate — the numbers are the evidence that this is a real stream.
+    private func liveStrip<Content: View>(
+        title: String, detail: String, tint: Color, @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text(title)
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(tint)
+                Spacer()
+                Text(detail)
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+            }
+            content()
         }
     }
 }

@@ -83,13 +83,29 @@ class MetricsUpload(BaseModel):
 
 
 class ProfileUpload(BaseModel):
-    phone:     Optional[str] = None
-    email:     Optional[str] = None
-    age_range: Optional[str] = None
-    gender:    Optional[str] = None
-    goals:     list[str] = []
-    practices: list[str] = []
-    devices:   list[str] = []
+    first_name: Optional[str] = None
+    last_name:  Optional[str] = None
+    phone:      Optional[str] = None
+    email:      Optional[str] = None
+    age_range:  Optional[str] = None
+    gender:     Optional[str] = None
+    height_cm:  Optional[int] = None
+    weight_kg:  Optional[int] = None
+    goals:      list[str] = []
+    practices:  list[str] = []
+    devices:    list[str] = []
+    # Self-reported onboarding baseline, 0-10 each; None where skipped. Every
+    # field is optional so an older client that omits them still validates.
+    state_focus:         Optional[int] = None
+    state_anxiety:       Optional[int] = None
+    state_energy:        Optional[int] = None
+    state_sleep_quality: Optional[int] = None
+    state_stress:        Optional[int] = None
+    # Data-sharing consent. Defaults are False, not None: an older client that
+    # omits these has not consented to anything, and absence must never be read
+    # as agreement.
+    consent_share_team:  bool = False
+    consent_ai_insights: bool = False
 
 
 class UsageEvent(BaseModel):

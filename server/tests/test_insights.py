@@ -9,7 +9,7 @@ from httpx import AsyncClient, ASGITransport
 from openai import OpenAIError
 
 from server.main import app
-from server.routers.insights import get_openai_client
+from server.routers.insights import get_openai_client, require_ai_consent
 
 
 class _FakeMessage:
@@ -69,6 +69,7 @@ _LIVE_STATE_PAYLOAD = {
 
 @pytest.mark.asyncio
 async def test_generate_insight_success():
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
         content="  Solid session — your RSA improved nicely.  "
     )
@@ -77,6 +78,7 @@ async def test_generate_insight_success():
             r = await client.post("/insights", json=_PAYLOAD)
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
 
     assert r.status_code == 200
     assert r.json()["text"] == "Solid session — your RSA improved nicely."
@@ -84,24 +86,28 @@ async def test_generate_insight_success():
 
 @pytest.mark.asyncio
 async def test_generate_insight_openai_error_returns_502():
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(raise_error=True)
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.post("/insights", json=_PAYLOAD)
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
 
     assert r.status_code == 502
 
 
 @pytest.mark.asyncio
 async def test_generate_insight_empty_response_returns_502():
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="")
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.post("/insights", json=_PAYLOAD)
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
 
     assert r.status_code == 502
 
@@ -114,6 +120,7 @@ def test_get_openai_client_requires_api_key(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_generate_live_state_insight_success():
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
         content="  Your heart rate has been gradually settling over the last 10 minutes.  "
     )
@@ -122,6 +129,7 @@ async def test_generate_live_state_insight_success():
             r = await client.post("/insights", json=_LIVE_STATE_PAYLOAD)
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
 
     assert r.status_code == 200
     assert r.json()["text"] == "Your heart rate has been gradually settling over the last 10 minutes."
@@ -129,23 +137,27 @@ async def test_generate_live_state_insight_success():
 
 @pytest.mark.asyncio
 async def test_generate_live_state_insight_missing_metrics_returns_422():
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient()
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.post("/insights", json={"mode": "live_state", "window_minutes": 10})
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
     assert r.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_generate_activity_insight_missing_activity_type_returns_422():
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient()
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.post("/insights", json={"mode": "activity"})
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
     assert r.status_code == 422
 
 
@@ -173,6 +185,7 @@ _DAY_POTENTIAL_PAYLOAD = {
 
 @pytest.mark.asyncio
 async def test_day_potential_success():
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
         content="Good Reserves\n• a\n• b\n→ c"
     )
@@ -181,6 +194,7 @@ async def test_day_potential_success():
             r = await client.post("/insights", json=_DAY_POTENTIAL_PAYLOAD)
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
 
     assert r.status_code == 200
     assert r.json()["text"].startswith("Good Reserves")
@@ -189,12 +203,14 @@ async def test_day_potential_success():
 @pytest.mark.asyncio
 async def test_day_potential_requires_score_when_baseline_sufficient():
     payload = {k: v for k, v in _DAY_POTENTIAL_PAYLOAD.items() if k != "score"}
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.post("/insights", json=payload)
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
 
     assert r.status_code == 422
 
@@ -206,6 +222,7 @@ async def test_day_potential_allows_recent_when_baseline_insufficient():
     payload["baseline_sufficient"] = False
     payload["baseline_anchors"] = 3
     payload["recent"] = [58, 61, 64]
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
         content="Learning\n• a\n• b\n→ c"
     )
@@ -214,6 +231,7 @@ async def test_day_potential_allows_recent_when_baseline_insufficient():
             r = await client.post("/insights", json=payload)
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
 
     assert r.status_code == 200
 
@@ -221,12 +239,14 @@ async def test_day_potential_allows_recent_when_baseline_insufficient():
 @pytest.mark.asyncio
 async def test_day_potential_rejects_missing_anchor():
     payload = {k: v for k, v in _DAY_POTENTIAL_PAYLOAD.items() if k != "anchor_hour"}
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.post("/insights", json=payload)
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
 
     assert r.status_code == 422
 
@@ -239,12 +259,14 @@ async def test_day_potential_provisional_requires_a_score():
     payload["baseline_sufficient"] = False
     payload["provisional"] = True
     payload["baseline_anchors"] = 3
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             r = await client.post("/insights", json=payload)
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
 
     assert r.status_code == 422
 
@@ -257,6 +279,7 @@ async def test_day_potential_provisional_with_a_score_succeeds():
     payload["baseline_anchors"] = 3
     payload["baseline_target"] = 7
     payload["recent"] = [58, 61, 64]
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
         content="Early Days\n• a\n• b\n→ c"
     )
@@ -265,6 +288,7 @@ async def test_day_potential_provisional_with_a_score_succeeds():
             r = await client.post("/insights", json=payload)
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
 
     assert r.status_code == 200
 
@@ -278,6 +302,7 @@ async def test_day_potential_first_morning_needs_neither_score_nor_recent():
     payload["baseline_sufficient"] = False
     payload["provisional"] = False
     payload["baseline_anchors"] = 1
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
         content="First One\n• a\n• b\n→ c"
     )
@@ -286,6 +311,7 @@ async def test_day_potential_first_morning_needs_neither_score_nor_recent():
             r = await client.post("/insights", json=payload)
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
 
     assert r.status_code == 200
 
@@ -380,6 +406,7 @@ _MACRO_TREND_PAYLOAD = {
 
 @pytest.mark.asyncio
 async def test_macro_trend_success():
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
         content="Your recovery markers held steady this week.\n→ Keep the evening breathing."
     )
@@ -388,6 +415,7 @@ async def test_macro_trend_success():
             r = await client.post("/insights", json=_MACRO_TREND_PAYLOAD)
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
 
     assert r.status_code == 200
     assert "→" in r.json()["text"]
@@ -395,6 +423,7 @@ async def test_macro_trend_success():
 
 @pytest.mark.asyncio
 async def test_macro_trend_requires_trends():
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -404,12 +433,14 @@ async def test_macro_trend_requires_trends():
             )
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
 
     assert r.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_macro_trend_rejects_empty_trends():
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -420,6 +451,7 @@ async def test_macro_trend_rejects_empty_trends():
             )
     finally:
         app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
 
     assert r.status_code == 422
 
@@ -610,3 +642,132 @@ def test_macro_trend_names_do_not_leak_into_live_state():
 
     assert "RMSSD" in _METRIC_NAMES["rmssd"]
     assert "entropy" in _METRIC_NAMES["rcmse"]
+
+
+# ── Consent gate ──────────────────────────────────────────────────────────
+#
+# These exercise `require_ai_consent` for real against the database, rather than
+# overriding it — the point of the gate is that it reads a stored answer, so a
+# test that stubs the read tests nothing.
+
+from contextlib import asynccontextmanager  # noqa: E402
+
+
+@asynccontextmanager
+async def _db_client():
+    from server.db import init_pool, close_pool, create_schema
+    await init_pool()
+    await create_schema()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            yield c
+    finally:
+        await close_pool()
+
+
+_CONSENT_PROFILE = {
+    "phone": "+15550000000",
+    "email": "consent@example.com",
+    "goals": ["Reduce anxiety"],
+    "practices": ["Breathwork"],
+    "devices": ["Polar H10"],
+}
+
+
+@pytest.mark.asyncio
+async def test_insights_refused_without_user_header():
+    """No identity means no checkable consent, which must resolve to refusal."""
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="should not be reached")
+    try:
+        async with _db_client() as c:
+            r = await c.post("/insights", json=_PAYLOAD)
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_insights_refused_for_unknown_device():
+    """A device with no profile row has not answered the question."""
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="should not be reached")
+    try:
+        async with _db_client() as c:
+            r = await c.post("/insights", json=_PAYLOAD,
+                             headers={"X-User-ID": "never-onboarded-device"})
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_insights_refused_when_consent_is_false():
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="should not be reached")
+    try:
+        async with _db_client() as c:
+            await c.post("/v1/profile",
+                         json={**_CONSENT_PROFILE, "consent_ai_insights": False},
+                         headers={"X-User-ID": "gate-declined"})
+            r = await c.post("/insights", json=_PAYLOAD,
+                             headers={"X-User-ID": "gate-declined"})
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_insights_allowed_when_consent_is_true():
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="Nice work.")
+    try:
+        async with _db_client() as c:
+            await c.post("/v1/profile",
+                         json={**_CONSENT_PROFILE, "consent_ai_insights": True},
+                         headers={"X-User-ID": "gate-allowed"})
+            r = await c.post("/insights", json=_PAYLOAD,
+                             headers={"X-User-ID": "gate-allowed"})
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 200
+    assert r.json()["text"] == "Nice work."
+
+
+@pytest.mark.asyncio
+async def test_withdrawing_consent_takes_effect_immediately():
+    """Turning the switch off must stop the next call, not the next release."""
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="Nice work.")
+    try:
+        async with _db_client() as c:
+            await c.post("/v1/profile",
+                         json={**_CONSENT_PROFILE, "consent_ai_insights": True},
+                         headers={"X-User-ID": "gate-withdrawn"})
+            first = await c.post("/insights", json=_PAYLOAD,
+                                 headers={"X-User-ID": "gate-withdrawn"})
+            await c.post("/v1/profile",
+                         json={**_CONSENT_PROFILE, "consent_ai_insights": False},
+                         headers={"X-User-ID": "gate-withdrawn"})
+            second = await c.post("/insights", json=_PAYLOAD,
+                                  headers={"X-User-ID": "gate-withdrawn"})
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert first.status_code == 200
+    assert second.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_profile_omitting_consent_is_treated_as_no():
+    """An older client that doesn't send the field has not consented."""
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="should not be reached")
+    try:
+        async with _db_client() as c:
+            await c.post("/v1/profile", json=_CONSENT_PROFILE,
+                         headers={"X-User-ID": "gate-legacy-client"})
+            r = await c.post("/insights", json=_PAYLOAD,
+                             headers={"X-User-ID": "gate-legacy-client"})
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+
+    assert r.status_code == 403

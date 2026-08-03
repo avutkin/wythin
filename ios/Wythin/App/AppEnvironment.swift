@@ -105,11 +105,10 @@ final class AppEnvironment {
 
     /// Static so it can be read during `init`, before `self` is fully formed
     /// (the `userID` computed property can't be called that early).
+    /// Delegates to `DeviceIdentity` so this and the insight calls, which read
+    /// the id directly, can never mint or read different ones.
     fileprivate static func currentUserID() -> String {
-        if let id = UserDefaults.standard.string(forKey: "userID") { return id }
-        let id = UUID().uuidString
-        UserDefaults.standard.set(id, forKey: "userID")
-        return id
+        DeviceIdentity.current
     }
 
     // MARK: Private
