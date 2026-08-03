@@ -637,3 +637,89 @@ final class LiveWhyRowTests: XCTestCase {
         XCTAssertEqual(row.bandText, "38% below your usual")
     }
 }
+
+/// The card's own persisted drop-down key. A rename here — the key literal
+/// itself, not just the `expanded` property — would silently reset every
+/// user's WHY-expanded/collapsed preference on their next launch, with
+/// nothing in the other 780+ tests able to notice: `@AppStorage` reads
+/// through whatever string it's given, so a renamed key is functionally
+/// identical to the old one from every test's point of view except this one.
+final class LiveStateWidgetKeyTests: XCTestCase {
+    func testExpansionStorageKeyIsPinned() {
+        XCTAssertEqual(LiveStateWidget.expansionStorageKey, "currentStateExpanded")
+    }
+}
+
+/// `LiveCollapsedRowSpec.build` is the pure decision behind the collapsed
+/// row, unifying what were two separate code paths (a settled local state,
+/// and the narration-only fallback before enough data exists). Its
+/// `isExpandable` field is what `LiveStateWidget.currentStateSection` ANDs
+/// with `expanded` before ever calling `whyList` — these tests pin the half
+/// of that invariant reachable without a view host: that `isExpandable` is
+/// true only when there is a local `reading` to build a WHY list from, and
+/// false in every other case. They do NOT — cannot, without a SwiftUI view-
+/// hosting harness this project doesn't have (no ViewInspector or similar) —
+/// pin that the view still ANDs `spec.isExpandable` with `expanded` rather
+/// than dropping one of the two conditions; that half is a real gap, named
+/// rather than silently assumed covered. See the audit report.
+final class LiveCollapsedRowSpecTests: XCTestCase {
+
+    private func state(key: LiveStateKey = .calm_alert, isWeak: Bool = false) -> LiveStateResult {
+        LiveStateResult(key: key, axes: LiveAxes(energy: 0, tension: 0, recovery: 0),
+                        contributions: [], isWeak: isWeak)
+    }
+
+    private let readingFixture = LiveReading(readings: [:], coverage: 1.0)
+
+    func testNilStateNilTextReturnsNil() {
+        let spec = LiveCollapsedRowSpec.build(state: nil, reading: nil, text: nil,
+                                              provisional: false, isStale: false)
+        XCTAssertNil(spec, "nothing to show yet — the view falls back to LiveEmptyStateCopy")
+    }
+
+    /// A state without a matching reading (shouldn't happen via
+    /// `LiveStateStore.recomputeState`, which always sets both together —
+    /// but the two are independent optionals at the type level, so the
+    /// decision must handle it correctly rather than by accident) falls
+    /// through to the narration-only fallback, exactly like a nil state
+    /// would — and that fallback is never expandable.
+    func testAStateWithoutAMatchingReadingIsNotExpandable() {
+        let text = "calm_alert | Settled"
+        let spec = LiveCollapsedRowSpec.build(state: state(), reading: nil, text: text,
+                                              provisional: false, isStale: false)
+        XCTAssertEqual(spec?.isExpandable, false)
+        XCTAssertEqual(spec?.title, "Settled",
+                       "falls through to the narration fallback's own title, not the local state's")
+    }
+
+    func testAStateWithAMatchingReadingIsExpandable() {
+        let spec = LiveCollapsedRowSpec.build(state: state(), reading: readingFixture, text: nil,
+                                              provisional: false, isStale: false)
+        XCTAssertEqual(spec?.isExpandable, true)
+    }
+
+    /// The dead-chevron scenario itself: narration has arrived but there is
+    /// still no local reading (very first session). This must never be
+    /// expandable — there is nothing a drop-down could reveal.
+    func testNarrationOnlyFallbackIsNeverExpandable() {
+        let spec = LiveCollapsedRowSpec.build(state: nil, reading: nil, text: "calm_alert | Settled",
+                                              provisional: false, isStale: false)
+        XCTAssertNotNil(spec)
+        XCTAssertEqual(spec?.isExpandable, false)
+    }
+
+    func testLocalStateRowUsesLiveStateCopyAndHeadline() {
+        let spec = LiveCollapsedRowSpec.build(state: state(key: .calm_alert), reading: readingFixture,
+                                              text: nil, provisional: false, isStale: false)
+        XCTAssertEqual(spec?.title,   LiveStateCopy.title(for: .calm_alert))
+        XCTAssertEqual(spec?.feeling, LiveStateCopy.feeling(for: .calm_alert))
+        XCTAssertEqual(spec?.label,
+                       LiveStateHeadline.text(isWeak: false, provisional: false, isStale: false))
+    }
+
+    func testNarrationOnlyFallbackHasNoFeelingLine() {
+        let spec = LiveCollapsedRowSpec.build(state: nil, reading: nil, text: "calm_alert | Settled",
+                                              provisional: false, isStale: false)
+        XCTAssertNil(spec?.feeling, "no local reading means no feeling phrase to build from")
+    }
+}

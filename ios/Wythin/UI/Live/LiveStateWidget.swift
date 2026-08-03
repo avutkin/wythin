@@ -429,10 +429,14 @@ struct LiveStateWidget: View {
     let store: LiveStateStore
     let potentialStore: DayPotentialStore
     @State private var refreshTask: Task<Void, Never>?
+    /// Named rather than an inline literal so `LiveStateWidgetKeyTests` can
+    /// pin it: a silent rename here would reset every user's expanded/
+    /// collapsed preference on next launch, with no test failure to say so.
     /// Mirrors `DayPotentialStrip`'s own `dayPotentialExpanded` — same
     /// pattern, a sibling key, so the two cards' drop-downs persist
     /// independently across relaunch.
-    @AppStorage("currentStateExpanded") private var expanded = false
+    static let expansionStorageKey = "currentStateExpanded"
+    @AppStorage(LiveStateWidget.expansionStorageKey) private var expanded = false
 
     private var isConnected: Bool {
         if case .connected = env.ble.state { return true }
