@@ -209,6 +209,14 @@
   const fmt = (n, d = 0) => (n == null ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }));
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { year: "2-digit", month: "short", day: "numeric" }) : "—";
   const fmtTime = (iso) => iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+  // Date big, clock time beside it — KPI cards get the exact moment without the
+  // 26px value line growing long enough to wrap.
+  const fmtStamp = (iso, blank = "—") => {
+    if (!iso) return blank;
+    const d = new Date(iso);
+    return `${d.toLocaleDateString(undefined, { year: "2-digit", month: "short", day: "numeric" })}`
+         + ` <small>${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</small>`;
+  };
   const ago = (iso) => {
     if (!iso) return "never";
     const d = (Date.now() - new Date(iso)) / 86400000;
@@ -290,7 +298,8 @@
     { k: "display_name", label: "User", cell: (u) => `<span class="name">${esc(u.display_name) || "—"}</span><br><span class="device">${esc((u.device_id||"").slice(0,12)) || u.id.slice(0,8)}</span>` },
     // Onboarding answers live in the per-user drill-down, not here — the table
     // is for behaviour over time, and the answers are a profile, not a metric.
-    { k: "first_seen", label: "First seen", cell: (u) => fmtDate(u.first_seen) },
+    { k: "first_seen", label: "First seen", cell: (u) =>
+        u.first_seen ? `<span title="${esc(new Date(u.first_seen).toLocaleString())}">${fmtDate(u.first_seen)}</span>` : "—" },
     // Last seen = newest PolarH10 data. Show the moment itself, not "today" —
     // the relative age and the last non-strap signal ride along in the tooltip.
     { k: "last_seen", label: "Last strap", cell: (u) => {
@@ -344,7 +353,9 @@
     $("#crumb").innerHTML = `<a data-nav="/">Overview</a> › <strong>${who}</strong>`;
     const cards = [
       ["Sessions", fmt(u.session_count)], ["Practice minutes", fmt(u.total_minutes)],
-      ["First seen", fmtDate(u.first_seen)], ["Last seen", ago(u.last_seen)],
+      ["First seen", fmtStamp(u.first_seen)],
+      // Same definition as the table: the newest PolarH10 data.
+      ["Last strap", fmtStamp(u.last_seen, "no strap data")],
       ["Avg coherence", u.avg_coherence == null ? "—" : fmt(u.avg_coherence, 2)],
       ["Avg RSA", u.avg_rsa == null ? "—" : fmt(u.avg_rsa, 1) + " <small>ms</small>"],
     ];
