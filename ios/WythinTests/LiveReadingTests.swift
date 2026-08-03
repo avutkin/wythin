@@ -127,4 +127,15 @@ final class LiveReadingTests: XCTestCase {
         let pts = window((0..<3).map { _ in Float(60) }, spacingSec: 30, now: now)
         XCTAssertNil(LiveReading.build(window: pts, baseline: baseline(mean: 60, sd: 8), now: now))
     }
+
+    func testRefusesAWindowWithDataOnlyAtTheTwoEdges() {
+        let now = Date()
+        // Two points 600 s apart — one near the window's start, one at "now".
+        // A BLE dropout that rejects everything in between looks exactly like
+        // this: clean data at both edges, silence in the middle. The gap
+        // between them must not be read as one big, perfectly-spaced tick.
+        let pts = window([Float(60), Float(60)], spacingSec: 600, now: now)
+        XCTAssertNil(LiveReading.build(window: pts, baseline: baseline(mean: 60, sd: 8), now: now),
+                    "a single 10-minute gap between two edge samples is silence, not coverage")
+    }
 }

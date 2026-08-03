@@ -18,6 +18,24 @@ enum LiveThresholds {
     /// data was recorded. Expressed as coverage rather than a count so it holds
     /// at 2 s and at 30 s alike.
     static let minCoverage: Float = 0.6
+    /// Ceiling on how much wall-clock time a single gap between consecutive
+    /// samples can contribute to coverage.
+    ///
+    /// Coverage sums the gaps between consecutive valid samples: that is
+    /// correct when the gaps *are* the cadence, but a single BLE dropout —
+    /// `MetricsQualityFilter` rejecting everything in the middle of the
+    /// window while the two edges stay clean — produces one enormous "gap"
+    /// that is actually silence, not data. Left uncapped, two samples sitting
+    /// at the two edges of a ten-minute window would sum to the full window
+    /// and read as fully covered, which is the anchor-cadence bug's mirror
+    /// image: this time the gate says "covered" when the strap was off for
+    /// most of it.
+    ///
+    /// 60 s is comfortably above both real cadences this app produces — the
+    /// 2 s foreground tick and the 30 s background tick — so neither is ever
+    /// capped, while it sits well below the 600 s window, so a dropout is
+    /// still charged for the silence it actually was.
+    static let maxCredibleGapSec: Double = 60
     static let windowMinutes = 10
 }
 
@@ -56,14 +74,18 @@ struct LiveReading {
                       now: Date = .now) -> LiveReading? {
 
         let valid = MetricsQualityFilter.filter(window).sorted { $0.timestamp < $1.timestamp }
-        guard valid.count >= 2, let first = valid.first, let last = valid.last else { return nil }
+        guard valid.count >= 2 else { return nil }
 
         // Coverage, inferred from the data's own spacing rather than assumed.
+        // Each gap is capped at `maxCredibleGapSec` before it's summed, so a
+        // long silence (dropout) is charged for the silence it was instead of
+        // masquerading as one big, perfectly-spaced tick.
         let windowSec = Double(windowMinutes) * 60
         let spans     = zip(valid, valid.dropFirst()).map { $1.timestamp.timeIntervalSince($0.timestamp) }
         let cadence   = spans.sorted()[spans.count / 2]
-        let span      = last.timestamp.timeIntervalSince(first.timestamp) + cadence
-        let coverage  = Float(min(span / windowSec, 1))
+        let covered   = spans.reduce(0) { $0 + min($1, LiveThresholds.maxCredibleGapSec) }
+                      + min(cadence, LiveThresholds.maxCredibleGapSec)
+        let coverage  = Float(min(covered / windowSec, 1))
         guard coverage >= LiveThresholds.minCoverage else { return nil }
 
         var readings: [LiveMetric: MetricReading] = [:]
@@ -78,6 +100,10 @@ struct LiveReading {
             // Slope across the window, expressed in the person's own SD so it is
             // comparable between metrics. 8% of one metric and 8% of another are
             // unrelated magnitudes; 0.4 SD means the same thing everywhere.
+            // Split by index over this metric's own present samples, not by
+            // wall clock — assumes a metric that computes at all is roughly
+            // evenly present across the window, which every current caller
+            // satisfies.
             let half  = values.count / 2
             let early = values.prefix(half)
             let late  = values.suffix(values.count - half)
