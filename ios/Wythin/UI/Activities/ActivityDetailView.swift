@@ -122,16 +122,39 @@ struct ActivityDetailView: View {
                         // Overall practice impact — same value the row badge
                         // shows: the mean before→during benefit-signed delta,
                         // literally the average of the rows below.
-                        if let delta = entry.impactDeltaPct {
-                            VStack(spacing: 14) {
-                                Text("OVERALL PRACTICE IMPACT")
+                        let uplifts = metrics.map { $0.stats.avgUpliftPct }
+                        let counts  = RestorativeScore.improvedCount(uplifts: uplifts)
+
+                        if let score = RestorativeScore.score(uplifts: uplifts) {
+                            VStack(spacing: 12) {
+                                Text("PRACTICE SCORE")
                                     .font(Theme.monoLabel)
                                     .foregroundStyle(Theme.dim)
-                                PracticeImpactMeter(delta: delta,
-                                                    caption: ActivityImpact.caption(for: delta))
+                                // The same dial exercise uses. A signed meter
+                                // centred on zero made a session that merely
+                                // held steady look mid-range; it is the bottom.
+                                ExerciseScoreGauge(score: score,
+                                                   caption: RestorativeScore.caption(score),
+                                                   crowned: score >= ExerciseOverallScore.crownThreshold)
+                                Text("Built from how far the nine metrics improved — \(counts.improved) of \(counts.measured) moved the right way.")
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(Theme.dim)
+                                    .multilineTextAlignment(.center)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                             .cardStyle()
                         }
+
+                        // Summary and reflection sits above the detail, so the
+                        // read comes before the evidence rather than after it.
+                        RestorativeSummaryCard(
+                            entry: entry,
+                            uplifts: uplifts,
+                            labels: metrics.map { $0.def.label },
+                            vsAverage: metrics.map { m in
+                                m.def.benefitDelta(current: m.stats.duringMean,
+                                                   base: twoMonthAvg[m.def.id])
+                            })
 
                         // Per-metric progressive disclosure — tap a row to open
                         // its before/during/after chart and why-it-matters note.
@@ -148,12 +171,7 @@ struct ActivityDetailView: View {
 
                         // Combined COACH card: the AI coach's read on top, then the
                         // one factual trend line below as supporting evidence.
-                        let trend = ActivityImpact.trendLine(metrics.map { m in
-                            MetricMovement(name: m.def.label,
-                                           uplift: m.stats.avgUpliftPct,
-                                           vs2mo: m.def.benefitDelta(current: m.stats.duringMean,
-                                                                     base: twoMonthAvg[m.def.id]))
-                        })
+                        let trend: String? = nil   // now carried by the summary card
                         if entry.insightText != nil || trend != nil {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("COACH")
