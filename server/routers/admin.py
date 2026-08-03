@@ -59,7 +59,10 @@ _DASHBOARD_HTML = (
 
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page() -> HTMLResponse:
-    return HTMLResponse(_DASHBOARD_HTML)
+    # The page carries its own JS, so without this browsers heuristically cache
+    # it and keep running a previous deploy's dashboard against the new API —
+    # which looks exactly like the deploy not having happened.
+    return HTMLResponse(_DASHBOARD_HTML, headers={"Cache-Control": "no-store, must-revalidate"})
 
 
 @router.get("/stats")

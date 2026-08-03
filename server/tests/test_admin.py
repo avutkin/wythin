@@ -39,6 +39,9 @@ async def test_dashboard_shell_open_but_stats_gated(monkeypatch):
         assert shell.status_code == 200
         assert "text/html" in shell.headers["content-type"]
         assert "User Activity" in shell.text
+        # The page ships its own JS; a cached copy would run an old dashboard
+        # against the current API and look like a failed deploy.
+        assert "no-store" in shell.headers.get("cache-control", "")
 
         for path in ("/admin/stats",
                      "/admin/users/00000000-0000-0000-0000-000000000000",
