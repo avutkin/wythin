@@ -71,13 +71,22 @@ struct LiveBaseline {
 
             let centre = days.compactMap { $0.mean[key] }.reduce(0, +) / Double(days.count)
 
-            // Pooled within-day variance, weighted by sample count.
-            // A three-minute day must not count as much as a fourteen-hour one.
+            // Pooled within-day variance, weighted by how many samples of THIS
+            // metric each day actually had — not by the day's total tick count.
+            // A three-minute day must not count as much as a fourteen-hour one,
+            // and equally a metric that computed twice inside a fourteen-hour
+            // day must not carry that day's weight: DC and RCMSE need long
+            // clean stretches and are routinely absent from most ticks.
+            //
+            // `?? d.sampleCount` covers rollups written before `count` existed.
+            // `TrackCache.rollupComputeVersion` 4 discards every such rollup, so
+            // it is unreachable from disk; it only keeps hand-built fixtures
+            // that predate the field behaving as they did.
             var weightSum = 0.0
             var varSum    = 0.0
             for d in days {
                 guard let sd = d.sd[key] else { continue }
-                let w = Double(max(d.sampleCount, 1))
+                let w = Double(max(d.count[key] ?? d.sampleCount, 1))
                 varSum    += w * sd * sd
                 weightSum += w
             }

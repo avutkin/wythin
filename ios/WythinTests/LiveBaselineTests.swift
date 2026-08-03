@@ -94,6 +94,27 @@ final class LiveBaselineTests: XCTestCase {
         XCTAssertGreaterThan(sd, 8, "the long day must dominate")
     }
 
+    /// The day's total tick count is the wrong weight: a metric that computed
+    /// twice all day sat in the pool at the full weight of a 40,000-tick day.
+    /// Pooling must weight each day by how many samples of THAT metric it
+    /// actually had.
+    ///
+    ///   by the day's total (wrong): sqrt((40000·9² + 1000·3²) / 41000) ≈ 8.902
+    ///   by the metric's own (right): sqrt((2·9²    + 1000·3²) / 1002)  ≈ 3.024
+    func testPooledSpreadWeightsByTheMetricsOwnCount() {
+        let key = LiveMetric.rcmse.rawValue
+        let sparse = DailyRollup(day: Date(), dc: nil, rmssd: nil, rsaMs: nil, rcmse: nil,
+                                 pip: nil, dfa1: nil, stressBalance: nil, vti: nil,
+                                 meanBPM: nil, sampleCount: 40_000, wearSeconds: 80_000,
+                                 mean: [key: 1.4], sd: [key: 9], count: [key: 2])
+        let dense = DailyRollup(day: Date().addingTimeInterval(-86_400), dc: nil, rmssd: nil,
+                                rsaMs: nil, rcmse: nil, pip: nil, dfa1: nil, stressBalance: nil,
+                                vti: nil, meanBPM: nil, sampleCount: 1_000, wearSeconds: 2_000,
+                                mean: [key: 1.4], sd: [key: 3], count: [key: 1_000])
+        let sd = LiveBaseline.build(rollups: [sparse, dense])?.stat(for: .rcmse)?.sd ?? 0
+        XCTAssertEqual(sd, 3.0239, accuracy: 0.001)
+    }
+
     func testProvisionalUntilFirmDays() {
         let few = (1...3).map { rollup(daysAgo: $0, hrMean: 60, hrSD: 8) }
         XCTAssertTrue(LiveBaseline.build(rollups: few)?.provisional ?? false)
