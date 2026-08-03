@@ -330,6 +330,45 @@ async def test_stats_carries_onboarding_goals_and_practices():
 
 
 @pytest.mark.asyncio
+async def test_user_detail_carries_full_onboarding_answers():
+    """Clicking a user shows everything they answered at onboarding — contact
+    details and every multi-select. Users who never onboarded return a null
+    profile rather than a half-empty object. Requires a database."""
+    import uuid
+
+    sfx = uuid.uuid4().hex[:8]
+    onboarded, bare = f"test-onb-{sfx}", f"test-bare-{sfx}"
+    answers = {
+        "phone": "+1 555 0100", "email": "someone@example.com",
+        "age_range": "35-44", "gender": "Female",
+        "goals": ["Improve sleep", "Sharpen focus"],
+        "practices": ["Breathwork", "Yoga"],
+        "devices": ["Oura Ring", "Just this app"],
+    }
+    async with _client() as client:
+        r = await client.post("/v1/profile", headers={"X-User-ID": onboarded}, json=answers)
+        assert r.status_code == 200, r.text
+        r = await client.post("/v1/usage", headers={"X-User-ID": bare}, json={"events": [
+            {"client_event_id": str(uuid.uuid4()), "event_type": "foreground",
+             "ts": "2026-01-01T10:00:00Z", "duration_ms": 60_000},
+        ]})
+        assert r.status_code == 200, r.text
+
+        stats = (await client.get("/admin/stats", params={"range": "all"})).json()
+        ids = {u["device_id"]: u["id"] for u in stats["users"]}
+        detail = (await client.get(f"/admin/users/{ids[onboarded]}")).json()
+        empty = (await client.get(f"/admin/users/{ids[bare]}")).json()
+
+    p = detail["profile"]
+    assert p is not None, "expected the onboarding answers"
+    for field, expected in answers.items():
+        assert p[field] == expected, field
+    assert p["updated_at"], "expected when they answered"
+
+    assert empty["profile"] is None, "a user who never onboarded has no profile"
+
+
+@pytest.mark.asyncio
 async def test_last_seen_is_strap_data_only():
     """"Last seen" means the newest PolarH10 data — a strap recording or a
     metric sample. Opening the app is not being seen: an app-only user still

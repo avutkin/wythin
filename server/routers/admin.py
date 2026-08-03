@@ -354,6 +354,14 @@ async def user_detail(user_id: str):
             """,
             user_id,
         )
+        # Everything they answered at onboarding, contact details included.
+        profile = await conn.fetchrow(
+            """
+            SELECT phone, email, age_range, gender, goals, practices, devices, updated_at
+            FROM profiles WHERE user_id = $1::uuid
+            """,
+            user_id,
+        )
 
     def _f(v):
         return float(v) if v is not None else None
@@ -387,6 +395,16 @@ async def user_detail(user_id: str):
             for r in sessions
         ],
         "activities": [_activity_row(r) for r in activities],
+        "profile": None if profile is None else {
+            "phone":      profile["phone"],
+            "email":      profile["email"],
+            "age_range":  profile["age_range"],
+            "gender":     profile["gender"],
+            "goals":      list(profile["goals"] or []),
+            "practices":  list(profile["practices"] or []),
+            "devices":    list(profile["devices"] or []),
+            "updated_at": profile["updated_at"].isoformat() if profile["updated_at"] else None,
+        },
     }
 
 

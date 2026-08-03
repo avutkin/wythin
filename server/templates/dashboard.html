@@ -86,8 +86,11 @@
   th .arrow { opacity: .5; font-size: 9px; }
   td .device { font-family: var(--mono); font-size: 12px; color: var(--dim); }
   td .never { color: var(--dim); font-size: 12px; }
-  td .chips { display: inline-block; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
-  td .chips .more { color: var(--dim); font-family: var(--mono); font-size: 11px; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px 20px; }
+  .facts .k { font-family: var(--mono); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); margin-bottom: 5px; }
+  .facts .v { font-size: 14px; color: var(--text); word-break: break-word; }
+  .facts .tag { display: inline-block; background: var(--bg); border: 1px solid var(--border); border-radius: 999px;
+                padding: 3px 10px; margin: 0 6px 6px 0; font-size: 13px; }
   td .name { font-weight: 550; }
   tr.clickable { cursor: pointer; }
   tr.clickable:hover td { background: var(--surface); }
@@ -143,6 +146,10 @@
     <!-- User detail -->
     <section id="view-user" style="display:none">
       <div class="kpis" id="user-kpis"></div>
+      <div class="panel">
+        <h2>Onboarding <span class="sub" id="onboarding-when"></span></h2>
+        <div id="onboarding"></div>
+      </div>
       <div class="panel">
         <h2>Live metrics
           <span class="sub">—
@@ -275,19 +282,14 @@
     stamp();
   }
 
-  // Onboarding answers are user-typed text — escape them, and keep the cell
-  // narrow by showing the first two with a +N overflow (full list on hover).
+  // Device ids, display names and onboarding answers are all user-supplied and
+  // land in innerHTML — escape every one of them.
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const chips = (arr) => {
-    if (!arr || !arr.length) return "—";
-    const head = arr.slice(0, 2).map(esc).join(", ");
-    return `<span class="chips" title="${esc(arr.join(", "))}">${head}${arr.length > 2 ? ` <span class="more">+${arr.length - 2}</span>` : ""}</span>`;
-  };
 
   const UCOLS = [
     { k: "display_name", label: "User", cell: (u) => `<span class="name">${esc(u.display_name) || "—"}</span><br><span class="device">${esc((u.device_id||"").slice(0,12)) || u.id.slice(0,8)}</span>` },
-    { k: "goals", label: "Objectives", cell: (u) => chips(u.goals) },
-    { k: "practices", label: "Practices", cell: (u) => chips(u.practices) },
+    // Onboarding answers live in the per-user drill-down, not here — the table
+    // is for behaviour over time, and the answers are a profile, not a metric.
     { k: "first_seen", label: "First seen", cell: (u) => fmtDate(u.first_seen) },
     // Last seen = newest PolarH10 data. Show the moment itself, not "today" —
     // the relative age and the last non-strap signal ride along in the tooltip.
@@ -347,6 +349,7 @@
       ["Avg RSA", u.avg_rsa == null ? "—" : fmt(u.avg_rsa, 1) + " <small>ms</small>"],
     ];
     $("#user-kpis").innerHTML = cards.map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+    drawOnboarding(d.profile);
     $("#user-window").onchange = () => loadUserMetrics(id).catch(() => {});
     loadUserMetrics(id).catch(() => {});
     loadUserUsage(id).catch(() => {});
@@ -416,6 +419,30 @@
     const host = $("#user-charts");
     if (!s.length) { host.innerHTML = `<div class="empty">no live metrics in this window</div>`; return; }
     renderMinis(host, LIVE_SIGNALS, s, d.window);
+  }
+
+  // Everything the person answered at onboarding. All of it is user-typed or
+  // user-picked, so every value goes through esc().
+  function drawOnboarding(p) {
+    const when = $("#onboarding-when"), host = $("#onboarding");
+    if (!p) {
+      when.textContent = "";
+      host.innerHTML = `<div class="empty">no onboarding answers — this user has not completed onboarding, or their app has not synced the profile yet</div>`;
+      return;
+    }
+    when.textContent = p.updated_at ? `— answered ${fmtDate(p.updated_at)}` : "";
+    const one = (label, v) => `<div class="fact"><div class="k">${label}</div><div class="v">${v ? esc(v) : "—"}</div></div>`;
+    const many = (label, arr) => `<div class="fact"><div class="k">${label}</div><div class="v">${
+      arr && arr.length ? arr.map(a => `<span class="tag">${esc(a)}</span>`).join("") : "—"}</div></div>`;
+    host.innerHTML = `<div class="facts">
+      ${one("Email", p.email)}
+      ${one("Phone", p.phone)}
+      ${one("Age range", p.age_range)}
+      ${one("Gender", p.gender)}
+      ${many("Objectives", p.goals)}
+      ${many("Practices", p.practices)}
+      ${many("Devices", p.devices)}
+    </div>`;
   }
 
   async function loadUserUsage(id) {
