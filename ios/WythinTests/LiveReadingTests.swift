@@ -182,6 +182,25 @@ final class LiveReadingTests: XCTestCase {
                         "coverage, not raw count, must decide")
     }
 
+    /// `coverage` is the quantity the gate is expressed in, and the gate is
+    /// what makes `LiveStateStore` mark a held state stale. Its VALUE was
+    /// asserted nowhere — only its consequence (nil vs non-nil) — so a change
+    /// that halved it would still pass everything as long as the result stayed
+    /// on the same side of `minCoverage`.
+    func testCoverageIsReportedAsTheFractionOfTheWindowCarryingSamples() {
+        let now = Date()
+        let full = window((0..<300).map { _ in Float(60) }, spacingSec: 2, now: now)
+        XCTAssertEqual(LiveReading.build(window: full, baseline: baseline(mean: 60, sd: 8),
+                                         now: now)?.coverage ?? 0,
+                       1.0, accuracy: 0.01, "600 s of 2 s ticks fills a 10-minute window")
+
+        // 14 points at 30 s: 13 gaps + one cadence = 420 s of 600 s = 0.70.
+        let partial = window((0..<14).map { _ in Float(60) }, spacingSec: 30, now: now)
+        XCTAssertEqual(LiveReading.build(window: partial, baseline: baseline(mean: 60, sd: 8),
+                                         now: now)?.coverage ?? 0,
+                       0.70, accuracy: 0.01)
+    }
+
     func testRefusesAWindowThatIsMostlyEmpty() {
         let now = Date()
         // Three points at 30 s covers 90 s of a 10-minute window.

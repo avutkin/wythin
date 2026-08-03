@@ -77,6 +77,12 @@ struct MetricReading: Equatable {
 struct LiveReading {
     let readings: [LiveMetric: MetricReading]
     /// Fraction of the window that carried samples.
+    ///
+    /// Always ≥ `LiveThresholds.minCoverage` — `build` returns nil below it,
+    /// and that nil is what makes `LiveStateStore` hold the last state and mark
+    /// it stale. Deliberately NOT given a second, softer UI threshold of its
+    /// own: a window that is 70% covered at the observed cadence is a real
+    /// reading, and labelling it "not updating" would be false.
     let coverage: Float
 
     /// Trend counts for less the higher the level already is, and for more the
