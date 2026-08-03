@@ -418,6 +418,43 @@ async def test_last_seen_is_strap_data_only():
 
 
 @pytest.mark.asyncio
+async def test_last_seen_ignores_valueless_metric_samples():
+    """A metric sample with no values is not the sensor seeing anyone, so it
+    must not drag last_seen past the last real reading — the mismatch that made
+    a phone which stopped recording at 21:54 look live at 08:29 the next
+    morning. Requires a database."""
+    from datetime import datetime, timezone, timedelta
+    import uuid
+
+    now = datetime.now(timezone.utc)
+    device = f"test-hollow-{uuid.uuid4().hex[:8]}"
+    async with _client() as client:
+        # A real reading two hours ago, then a valueless row one minute ago.
+        r = await client.post("/v1/metrics", headers={"X-User-ID": device}, json={"samples": [
+            {"ts": (now - timedelta(hours=2)).isoformat(), "mean_bpm": 62.0, "rmssd": 41.0},
+        ]})
+        assert r.status_code in (200, 201), r.text
+        # Written directly: the ingest guard now refuses to store these, but
+        # production already holds ~8k of them and the dashboard must be honest
+        # about the ones already there.
+        from server.db import get_pool
+        async with get_pool().acquire() as conn:
+            await conn.execute(
+                "INSERT INTO metric_samples (user_id, ts) "
+                "SELECT id, $2 FROM users WHERE device_id = $1 "
+                "ON CONFLICT DO NOTHING",
+                device, now - timedelta(minutes=1),
+            )
+
+        data = (await client.get("/admin/stats", params={"range": "24h"})).json()
+
+    row = next(u for u in data["users"] if u["device_id"] == device)
+    seen = datetime.fromisoformat(row["last_seen"])
+    assert (now - seen) > timedelta(minutes=30), \
+        f"last_seen {seen} tracked the valueless row instead of the real reading"
+
+
+@pytest.mark.asyncio
 async def test_user_table_lists_only_users_active_in_range():
     """The user table follows the range picker: a user shows up only if they
     gave some sign of life inside it — an app open, a strap session or a logged

@@ -9,9 +9,10 @@ with anyone.
 from __future__ import annotations
 
 import os
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from openai import AsyncOpenAI, OpenAIError
 
+from ..db import has_ai_insights_consent
 from ..models import InsightRequest, InsightResponse, MetricTrend
 
 router = APIRouter(tags=["insights"])
@@ -465,9 +466,35 @@ def _format_macro_trend(req: InsightRequest) -> str:
     return "\n".join(lines)
 
 
+async def require_ai_consent(
+    x_user_id: str | None = Header(None, alias="X-User-ID"),
+) -> str:
+    """Refuse the request unless this device has opted in to AI guidance.
+
+    This endpoint is the only place user metrics leave our infrastructure for a
+    third-party model, so it is the only place the consent has to hold.
+
+    A missing header is refused rather than waved through: a client that doesn't
+    identify itself can't have its consent checked, and "couldn't check" has to
+    resolve to no. That does mean an app build predating the header gets a 403
+    and shows no insight — the correct failure for a consent control, and why
+    this is a deliberate breaking change rather than an oversight.
+
+    It's a dependency, not an inline check, so it can be overridden in tests the
+    same way the OpenAI client is.
+    """
+    if not x_user_id or not await has_ai_insights_consent(x_user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="AI insights require consent; enable it in Settings.",
+        )
+    return x_user_id
+
+
 @router.post("/insights", response_model=InsightResponse)
 async def generate_insight(
     req: InsightRequest,
+    _user_id: str = Depends(require_ai_consent),
     client: AsyncOpenAI = Depends(get_openai_client),
 ):
     if req.mode == "day_potential":

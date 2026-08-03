@@ -118,13 +118,26 @@ CREATE INDEX IF NOT EXISTS metric_samples_user_ts ON metric_samples(user_id, ts)
 -- Full onboarding profile, incl. contact info, for the admin dashboard.
 CREATE TABLE IF NOT EXISTS profiles (
     user_id    UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    first_name TEXT,
+    last_name  TEXT,
     phone      TEXT,
     email      TEXT,
     age_range  TEXT,
     gender     TEXT,
+    height_cm  INT,
+    weight_kg  INT,
     goals      TEXT[],
     practices  TEXT[],
     devices    TEXT[],
+    -- Self-reported onboarding baseline, 0-10 each, NULL where skipped.
+    state_focus         INT,
+    state_anxiety       INT,
+    state_energy        INT,
+    state_sleep_quality INT,
+    state_stress        INT,
+    -- Data-sharing consent; absence of an answer is never agreement.
+    consent_share_team  BOOLEAN NOT NULL DEFAULT FALSE,
+    consent_ai_insights BOOLEAN NOT NULL DEFAULT FALSE,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -160,12 +173,47 @@ CREATE INDEX IF NOT EXISTS usage_events_user_ts ON usage_events(user_id, ts);
 -- added to a CREATE TABLE body above only reach a database that does not yet
 -- exist; existing deployments need them stated here as well.
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS impact_delta_pct REAL;
+
+-- Onboarding v2: name, body metrics and the self-reported baseline.
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS first_name          TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_name           TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS height_cm           INT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS weight_kg           INT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS state_focus         INT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS state_anxiety       INT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS state_energy        INT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS state_sleep_quality INT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS state_stress        INT;
+
+-- Data-sharing consent. NOT NULL DEFAULT FALSE so an existing row that predates
+-- the question is treated as "has not consented" rather than NULL, which a
+-- careless `WHERE consent_ai_insights IS NOT FALSE` would let through.
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS consent_share_team  BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS consent_ai_insights BOOLEAN NOT NULL DEFAULT FALSE;
 """
 
 
 async def create_schema() -> None:
     async with get_pool().acquire() as conn:
         await conn.execute(SCHEMA_SQL)
+
+
+async def has_ai_insights_consent(device_id: str) -> bool:
+    """True only if this device's profile carries an explicit AI-sharing consent.
+
+    Deliberately never creates a user: asking whether someone consented must not
+    be the act that brings them into existence. A device with no profile row has
+    not answered the question, and an unanswered question is not a yes — so both
+    "no such user" and "no profile" return False.
+    """
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT p.consent_ai_insights "
+            "FROM profiles p JOIN users u ON u.id = p.user_id "
+            "WHERE u.device_id = $1",
+            device_id,
+        )
+    return bool(row and row["consent_ai_insights"])
 
 
 async def get_or_create_user(device_id: str) -> str:

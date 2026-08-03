@@ -143,7 +143,13 @@ async def usage_stats(
                 SELECT user_id, MAX(ts) AS last_seen FROM (
                     SELECT user_id, ts FROM usage_events WHERE event_type = 'ecg_recording'
                     UNION ALL
+                    -- Only samples that actually measured something. A row of
+                    -- nulls is a timestamp, not a reading, and letting it count
+                    -- put "last strap" hours past the last real measurement.
                     SELECT user_id, ts FROM metric_samples
+                     WHERE num_nonnulls(mean_bpm, rmssd, sdnn, pnn50, lf_hf, rsa_ms,
+                                        coherence, cbi, breath_bpm, dfa1, rcmse,
+                                        pip, dc, vti) > 0
                 ) x
                 GROUP BY user_id
             ),
@@ -321,6 +327,9 @@ async def user_detail(user_id: str):
                      WHERE e.user_id = u.id AND e.event_type = 'ecg_recording'
                    UNION ALL
                    SELECT ts FROM metric_samples m WHERE m.user_id = u.id
+                     AND num_nonnulls(m.mean_bpm, m.rmssd, m.sdnn, m.pnn50, m.lf_hf,
+                                      m.rsa_ms, m.coherence, m.cbi, m.breath_bpm,
+                                      m.dfa1, m.rcmse, m.pip, m.dc, m.vti) > 0
                ) s) AS last_seen,
               (SELECT COUNT(*) FROM usage_events e
                  WHERE e.user_id = u.id AND e.event_type = 'ecg_recording'
@@ -360,7 +369,11 @@ async def user_detail(user_id: str):
         # Everything they answered at onboarding, contact details included.
         profile = await conn.fetchrow(
             """
-            SELECT phone, email, age_range, gender, goals, practices, devices, updated_at
+            SELECT first_name, last_name, phone, email, age_range, gender,
+                   height_cm, weight_kg, goals, practices, devices,
+                   state_focus, state_anxiety, state_energy,
+                   state_sleep_quality, state_stress,
+                   consent_share_team, consent_ai_insights, updated_at
             FROM profiles WHERE user_id = $1::uuid
             """,
             user_id,
@@ -399,13 +412,31 @@ async def user_detail(user_id: str):
         ],
         "activities": [_activity_row(r) for r in activities],
         "profile": None if profile is None else {
+            "first_name": profile["first_name"],
+            "last_name":  profile["last_name"],
             "phone":      profile["phone"],
             "email":      profile["email"],
             "age_range":  profile["age_range"],
             "gender":     profile["gender"],
+            "height_cm":  profile["height_cm"],
+            "weight_kg":  profile["weight_kg"],
             "goals":      list(profile["goals"] or []),
             "practices":  list(profile["practices"] or []),
             "devices":    list(profile["devices"] or []),
+            # Self-reported baseline from onboarding, 0-10, null where skipped.
+            # Kept as a nested object so a coach reading this can tell the
+            # subjective answers from the measured ones at a glance.
+            "current_state": {
+                "focus":         profile["state_focus"],
+                "anxiety":       profile["state_anxiety"],
+                "energy":        profile["state_energy"],
+                "sleep_quality": profile["state_sleep_quality"],
+                "stress":        profile["state_stress"],
+            },
+            "consent": {
+                "share_team":  profile["consent_share_team"],
+                "ai_insights": profile["consent_ai_insights"],
+            },
             "updated_at": profile["updated_at"].isoformat() if profile["updated_at"] else None,
         },
     }

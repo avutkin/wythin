@@ -4,7 +4,12 @@ import SwiftUI
 //
 // First-launch, reels-style onboarding. Drives an ordered sequence of full-screen
 // steps, persisting answers to the ClientProfileStore as it goes, and calls
-// `onComplete` when the user finishes (connect or skip).
+// `onComplete` when the user finishes.
+//
+// This pass is data collection only. The insight/research reels that sit between
+// the questions in the design are deliberately not built yet — the step machine
+// below is ordered so they drop in between existing cases without renumbering
+// anything, since `progress` is derived from the case list rather than hardcoded.
 
 struct OnboardingFlow: View {
     @Environment(AppEnvironment.self) private var env
@@ -14,14 +19,49 @@ struct OnboardingFlow: View {
     @State private var profile = ClientProfileStore().load()
     @State private var step: Step = .welcome
     @State private var showBLE = false
+    @State private var showDataDetail = false
+
+    // Consent lives outside the profile: these switches must be readable by the
+    // sync layer and by Settings without loading the profile, and
+    // `cloudSyncEnabled` already exists and is honoured by SyncCoordinator.
+    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
+    @AppStorage("didShowCloudSyncNotice") private var didShowCloudSyncNotice = false
+
+    // Data-sharing consents, surfaced on the connect step once data is flowing.
+    //
+    // Both default ON as specified. Flagging the trade-off in one place rather
+    // than arguing with it: GDPR treats health data as special category and
+    // requires opt-in that is unambiguous, and a switch already on is the
+    // textbook example of consent that is not. Flipping either default is the
+    // single word `false` below — no other code changes.
+    @AppStorage(OnboardingConsent.shareWithTeamKey)
+    private var shareWithTeam = OnboardingConsent.shareWithTeamDefault
+    @AppStorage(OnboardingConsent.aiInsightsKey)
+    private var aiInsightsEnabled = OnboardingConsent.aiInsightsDefault
+
+    /// Nudges route through AppEnvironment rather than @AppStorage so this
+    /// screen and Settings read the same value, and so switching it on here
+    /// triggers the same authorization request Settings does. It stays **off by
+    /// default** on purpose — see the note on `AppEnvironment.nudgesEnabled`:
+    /// the thresholds are still first guesses, so being interrupted has to be
+    /// chosen rather than something that starts happening.
+    private var nudgesBinding: Binding<Bool> {
+        Binding(get: { env.nudgesEnabled },
+                set: { on in
+                    env.nudgesEnabled = on
+                    if on {
+                        Task { _ = await env.notifications.requestAuthorization() }
+                    }
+                })
+    }
 
     enum Step: Int, CaseIterable {
-        case welcome, phone, email, goals, practices, devices, aboutYou, connect
+        case welcome, goals, practices, devices, currentState, aboutYou, connect, contact, permissions
 
         /// Interactive steps after welcome, for the progress bar.
-        static var progressTotal: Double { Double(Step.allCases.count - 1) } // 7
+        static var progressTotal: Double { Double(Step.allCases.count - 1) }
         var progress: Double {
-            guard rawValue >= Step.phone.rawValue else { return 0 }
+            guard rawValue >= Step.goals.rawValue else { return 0 }
             return Double(rawValue) / Step.progressTotal
         }
     }
@@ -67,43 +107,16 @@ struct OnboardingFlow: View {
         .sheet(isPresented: $showBLE) {
             BLEConnectionSheet(ble: env.ble)
         }
+        .sheet(isPresented: $showDataDetail) {
+            DataSharingDetailSheet(onDone: { showDataDetail = false })
+        }
     }
 
     @ViewBuilder
     private var content: some View {
         switch step {
         case .welcome:
-            OnboardingWelcomeScreen(onStart: { go(.phone) })
-
-        case .phone:
-            OnboardingFieldScreen(
-                progress: step.progress,
-                question: "What's your phone number?",
-                subtitle: "So your coach can reach you.",
-                placeholder: "(555) 123-4567",
-                keyboard: .phonePad,
-                contentType: .telephoneNumber,
-                text: $profile.phone,
-                isValid: OnboardingValidation.isValidPhone(profile.phone),
-                onBack: { go(.welcome) },
-                onContinue: { persist(); go(.email) },
-                onSkip: { skip(to: .email) { profile.phone = "" } }
-            )
-
-        case .email:
-            OnboardingFieldScreen(
-                progress: step.progress,
-                question: "And your email?",
-                subtitle: "For your results and updates.",
-                placeholder: "you@example.com",
-                keyboard: .emailAddress,
-                contentType: .emailAddress,
-                text: $profile.email,
-                isValid: OnboardingValidation.isValidEmail(profile.email),
-                onBack: { go(.phone) },
-                onContinue: { persist(); go(.goals) },
-                onSkip: { skip(to: .goals) { profile.email = "" } }
-            )
+            OnboardingWelcomeScreen(onStart: { go(.goals) })
 
         case .goals:
             OnboardingMultiSelectScreen(
@@ -112,7 +125,7 @@ struct OnboardingFlow: View {
                 subtitle: "Pick all that apply.",
                 options: goalOptions,
                 selection: $profile.goals,
-                onBack: { go(.email) },
+                onBack: { go(.welcome) },
                 onContinue: { persist(); go(.practices) },
                 onSkip: { skip(to: .practices) }
             )
@@ -137,8 +150,17 @@ struct OnboardingFlow: View {
                 options: deviceOptions,
                 selection: $profile.devices,
                 onBack: { go(.practices) },
+                onContinue: { persist(); go(.currentState) },
+                onSkip: { skip(to: .currentState) }
+            )
+
+        case .currentState:
+            OnboardingCurrentStateScreen(
+                progress: step.progress,
+                state: $profile.state,
+                onBack: { go(.devices) },
                 onContinue: { persist(); go(.aboutYou) },
-                onSkip: { skip(to: .aboutYou) }
+                onSkip: { skip(to: .aboutYou) { profile.state = CurrentState() } }
             )
 
         case .aboutYou:
@@ -146,7 +168,9 @@ struct OnboardingFlow: View {
                 progress: step.progress,
                 ageRange: $profile.ageRange,
                 gender: $profile.gender,
-                onBack: { go(.devices) },
+                heightCm: $profile.heightCm,
+                weightKg: $profile.weightKg,
+                onBack: { go(.currentState) },
                 onContinue: { persist(); go(.connect) },
                 onSkip: { skip(to: .connect) }
             )
@@ -154,9 +178,44 @@ struct OnboardingFlow: View {
         case .connect:
             OnboardingConnectScreen(
                 progress: step.progress,
+                state: env.ble.state,
+                batteryLevel: env.ble.batteryLevel,
+                ecg: env.waveform.ecg,
+                acc: env.waveform.acc,
+                shareWithTeam: $shareWithTeam,
+                aiInsights: $aiInsightsEnabled,
+                onShowDataDetail: { showDataDetail = true },
                 onOpenBLE: { showBLE = true },
                 onBack: { go(.aboutYou) },
-                onFinish: { persist(); onComplete() }
+                onContinue: { go(.contact) }
+            )
+
+        case .contact:
+            OnboardingContactScreen(
+                progress: step.progress,
+                firstName: $profile.firstName,
+                lastName: $profile.lastName,
+                phone: $profile.phone,
+                email: $profile.email,
+                onBack: { go(.connect) },
+                onContinue: { persist(); go(.permissions) },
+                // Half-typed contact details are worse than none, since skip
+                // bypasses validation and the result would sync as if real.
+                onSkip: {
+                    skip(to: .permissions) {
+                        profile.firstName = ""; profile.lastName = ""
+                        profile.phone = "";     profile.email = ""
+                    }
+                }
+            )
+
+        case .permissions:
+            OnboardingPermissionsScreen(
+                progress: step.progress,
+                cloudSync: $cloudSyncEnabled,
+                notifications: nudgesBinding,
+                onBack: { go(.contact) },
+                onFinish: { finish() }
             )
         }
     }
@@ -167,10 +226,9 @@ struct OnboardingFlow: View {
         withAnimation { step = next }
     }
 
-    /// Advance without answering. `clear` runs first for the contact steps: a
-    /// half-typed phone number is worse to keep than no phone number at all,
-    /// since the skip path bypasses validation. The multi-selects and age/gender
-    /// need no clearing — empty and nil already mean "not answered".
+    /// Advance without answering. `clear` runs first for steps where a partial
+    /// answer is worse than none, because the skip path bypasses validation.
+    /// The multi-selects need no clearing — empty already means "not answered".
     private func skip(to next: Step, clearing clear: (() -> Void)? = nil) {
         clear?()
         persist()
@@ -179,5 +237,14 @@ struct OnboardingFlow: View {
 
     private func persist() {
         store.save(profile)
+    }
+
+    /// The permissions screen is now the explicit, informed choice the separate
+    /// post-onboarding sheet used to provide, so mark that notice as shown and
+    /// let it stay suppressed.
+    private func finish() {
+        persist()
+        didShowCloudSyncNotice = true
+        onComplete()
     }
 }

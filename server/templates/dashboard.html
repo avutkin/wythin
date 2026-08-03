@@ -306,11 +306,11 @@
         if (!u.last_seen) {
           return `<span class="never" title="${u.last_signal ? "app signal " + ago(u.last_signal) + " — but no strap data ever" : "no data at all"}">no strap data</span>`;
         }
+        // Always date + time. "21:54" alone is ambiguous the moment a row is
+        // not from today, and the whole point of this column is when.
         const t = new Date(u.last_seen);
-        const sameDay = t.toDateString() === new Date().toDateString();
-        const label = sameDay
-          ? t.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
-          : t.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+        const label = t.toLocaleString(undefined,
+          { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
         return `<span title="${esc(t.toLocaleString())} — ${ago(u.last_seen)}${u.last_signal && u.last_signal > u.last_seen ? "; app signal " + ago(u.last_signal) : ""}">${label}</span>`;
       } },
     { k: "current_streak", label: "Streak", cell: (u) => u.current_streak ? `${u.current_streak}d${u.practiced_today ? " •" : ""}` : "—" },
@@ -574,9 +574,10 @@
     const key = document.createElement("span"); key.className = "key"; key.style.background = sig.color;
     who.append(key, document.createTextNode(sig.label));
     const when = document.createElement("div"); when.className = "when";
-    when.textContent = new Date(p.t).toLocaleString(undefined, span <= 36 * 3600e3
-      ? { hour: "2-digit", minute: "2-digit" }
-      : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    // Always dated: a 24h window straddles midnight, so a bare clock time
+    // cannot be placed on a calendar.
+    when.textContent = new Date(p.t).toLocaleString(undefined,
+      { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     tip.append(val, who, when);
     tip.classList.add("on");
     const r = tip.getBoundingClientRect();
@@ -662,14 +663,22 @@
       el += `<path class="line" stroke="${sig.color}" d="${d}"/>`;
     }
 
-    // Time axis: a baseline plus start / middle / end stamps.
-    const fmtT = (t) => new Date(t).toLocaleString(undefined, span <= 36 * 3600e3
-      ? { hour: "2-digit", minute: "2-digit" }
-      : { month: "numeric", day: "numeric" });
+    // Time axis: a baseline plus start / middle / end stamps. The two edges
+    // carry the date so the window can be placed on a calendar; the middle
+    // stays bare so three dated stamps don't collide in a 300px card.
+    const hourly = span <= 36 * 3600e3;
+    const fmtT = (t, dated) => {
+      const d = new Date(t);
+      if (!hourly) return d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
+      const clock = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+      return dated ? `${d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" })} ${clock}` : clock;
+    };
     el += `<line class="axis" x1="${pad.l}" y1="${base}" x2="${W - pad.r}" y2="${base}"/>`;
-    [[x0, pad.l, "start"], [x0 + span / 2, pad.l + (W - pad.l - pad.r) / 2, "middle"], [x1, W - pad.r, "end"]]
-      .forEach(([t, x, anchor]) => {
-        el += `<text class="tick" x="${x.toFixed(1)}" y="${H - 6}" text-anchor="${anchor}">${fmtT(t)}</text>`;
+    [[x0, pad.l, "start", true],
+     [x0 + span / 2, pad.l + (W - pad.l - pad.r) / 2, "middle", false],
+     [x1, W - pad.r, "end", true]]
+      .forEach(([t, x, anchor, dated]) => {
+        el += `<text class="tick" x="${x.toFixed(1)}" y="${H - 6}" text-anchor="${anchor}">${fmtT(t, dated)}</text>`;
       });
 
     el += `<g class="cursor" style="display:none">
