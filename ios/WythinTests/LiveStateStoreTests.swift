@@ -331,6 +331,36 @@ final class LiveWhyBandAndBarTests: XCTestCase {
     }
 }
 
+/// `LiveWhyBarTone` — which colour family a WHY bar should read as. Before
+/// this, a strong bar always drew `Theme.accent` regardless of sign, so a
+/// metric dragging the state DOWN rendered in the app's positive-state green.
+final class LiveWhyBarToneTests: XCTestCase {
+
+    func testAStrongPositivePullIsPositive() {
+        XCTAssertEqual(LiveWhyBarTone.of(value: 0.8, isStrong: true), .positive)
+    }
+
+    /// The exact bug: a strong NEGATIVE pull must never come back `.positive`
+    /// (which the view maps to the app's positive-state green).
+    func testAStrongNegativePullIsNegativeNotPositive() {
+        XCTAssertEqual(LiveWhyBarTone.of(value: -0.8, isStrong: true), .negative)
+        XCTAssertNotEqual(LiveWhyBarTone.of(value: -0.8, isStrong: true), .positive)
+    }
+
+    func testAWeakPullIsWeakRegardlessOfSign() {
+        XCTAssertEqual(LiveWhyBarTone.of(value: 0.8, isStrong: false), .weak)
+        XCTAssertEqual(LiveWhyBarTone.of(value: -0.8, isStrong: false), .weak)
+    }
+
+    /// Exactly zero counts as positive (the `>= 0` boundary) — an arbitrary
+    /// but harmless choice since a strong pull of exactly zero can't happen in
+    /// practice (`isStrong` requires `abs(value) > 0.6`); pinned so the
+    /// boundary can't silently flip.
+    func testZeroIsPositiveByConvention() {
+        XCTAssertEqual(LiveWhyBarTone.of(value: 0, isStrong: true), .positive)
+    }
+}
+
 /// `LiveWhyBand.text(level:windowValue:baselineCentre:)` — the percentage
 /// half of the WHY row: "38% below your usual" rather than only "well below
 /// your usual". Each case below is chosen so a regression to the OLD

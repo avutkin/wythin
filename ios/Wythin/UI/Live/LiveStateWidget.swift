@@ -147,6 +147,10 @@ struct LiveWhyRow: Equatable {
     let bandText: String
     let barWidth: Double
     let isStrong: Bool
+    /// Which way a strong bar should read. Kept separate from a raw `Color`
+    /// so this stays testable without importing SwiftUI — same shape as
+    /// `LiveWhyBar.width`'s plain `Double`; the view converts at the call site.
+    let tone: LiveWhyBarTone
 
     /// `reading` is looked up for `level` (and the native-unit pair that
     /// makes a percentage possible), never for ranking — ranking and bar
@@ -164,11 +168,36 @@ struct LiveWhyRow: Equatable {
             // native-unit pair to compute a percentage from either.
             bandText = LiveWhyBand.text(for: 0)
         }
+        let isStrong = abs(contribution.value) > 0.6
         return LiveWhyRow(
             displayName: contribution.metric.displayName.uppercased(),
             bandText: bandText,
             barWidth: LiveWhyBar.width(value: contribution.value),
-            isStrong: abs(contribution.value) > 0.6)
+            isStrong: isStrong,
+            tone: LiveWhyBarTone.of(value: contribution.value, isStrong: isStrong))
+    }
+}
+
+/// Which way a WHY row's bar should read. `contribution.value`'s magnitude
+/// (`isStrong`, see `LiveWhyRow.build`) fills the bar's length regardless of
+/// sign — a downward driver and an upward driver of the same magnitude drew
+/// identical bars, and a strong one always got `Theme.accent`, the same green
+/// the app uses for its positive states (`engaged_performing`, `calm_alert`,
+/// DayPotential's "good"/"full" band). A metric dragging the state DOWN
+/// therefore rendered in the app's positive colour. The bar's colour now
+/// carries the sign; its length still carries only magnitude.
+enum LiveWhyBarTone: Equatable {
+    /// Below the "strong" cut — nothing to call out either way.
+    case weak
+    /// A strong driver pushing the state UP.
+    case positive
+    /// A strong driver pushing the state DOWN — must never render in the
+    /// app's positive-state green.
+    case negative
+
+    static func of(value: Float, isStrong: Bool) -> LiveWhyBarTone {
+        guard isStrong else { return .weak }
+        return value >= 0 ? .positive : .negative
     }
 }
 
@@ -668,7 +697,7 @@ struct LiveStateWidget: View {
                         // same x on every row, in line with the explanation
                         // below (`textIndent` is this same column width).
                         RoundedRectangle(cornerRadius: 2)
-                            .fill(row.isStrong ? Theme.accent : Theme.breathe)
+                            .fill(barColor(for: row.tone))
                             .frame(width: CGFloat(row.barWidth), height: 3)
                             .frame(width: CGFloat(LiveWhyBar.maxWidth), alignment: .leading)
                         Text(row.displayName)
@@ -681,6 +710,17 @@ struct LiveStateWidget: View {
                         .padding(.leading, CGFloat(LiveWhyBar.textIndent))
                 }
             }
+        }
+    }
+
+    /// Maps `LiveWhyRow`'s pure `LiveWhyBarTone` to an actual colour — the
+    /// one place a WHY bar's colour is chosen, so a downward driver can never
+    /// end up on `Theme.accent` (the app's positive-state green) again.
+    private func barColor(for tone: LiveWhyBarTone) -> Color {
+        switch tone {
+        case .weak:     return Theme.breathe
+        case .positive: return Theme.accent
+        case .negative: return Theme.warn
         }
     }
 
