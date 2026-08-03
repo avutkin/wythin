@@ -143,7 +143,13 @@ async def usage_stats(
                 SELECT user_id, MAX(ts) AS last_seen FROM (
                     SELECT user_id, ts FROM usage_events WHERE event_type = 'ecg_recording'
                     UNION ALL
+                    -- Only samples that actually measured something. A row of
+                    -- nulls is a timestamp, not a reading, and letting it count
+                    -- put "last strap" hours past the last real measurement.
                     SELECT user_id, ts FROM metric_samples
+                     WHERE num_nonnulls(mean_bpm, rmssd, sdnn, pnn50, lf_hf, rsa_ms,
+                                        coherence, cbi, breath_bpm, dfa1, rcmse,
+                                        pip, dc, vti) > 0
                 ) x
                 GROUP BY user_id
             ),
@@ -321,6 +327,9 @@ async def user_detail(user_id: str):
                      WHERE e.user_id = u.id AND e.event_type = 'ecg_recording'
                    UNION ALL
                    SELECT ts FROM metric_samples m WHERE m.user_id = u.id
+                     AND num_nonnulls(m.mean_bpm, m.rmssd, m.sdnn, m.pnn50, m.lf_hf,
+                                      m.rsa_ms, m.coherence, m.cbi, m.breath_bpm,
+                                      m.dfa1, m.rcmse, m.pip, m.dc, m.vti) > 0
                ) s) AS last_seen,
               (SELECT COUNT(*) FROM usage_events e
                  WHERE e.user_id = u.id AND e.event_type = 'ecg_recording'

@@ -24,12 +24,18 @@ async def upload_metrics(body: MetricsUpload, x_user_id: str = Header(..., alias
     if len(body.samples) > _MAX_BATCH:
         raise HTTPException(status_code=413, detail=f"max {_MAX_BATCH} samples per request")
     user_id = await get_or_create_user(x_user_id)
-    rows = [
-        tuple([user_id, _dt(s.ts)] + [getattr(s, c) for c in _COLS])
-        for s in body.samples
-    ]
+    # A sample with every metric null measures nothing — it is a timestamp
+    # pretending to be a reading. Stored, they inflate row counts and drag
+    # "last seen" forward past the last real measurement, which is how a phone
+    # that stopped recording last night still looked live this morning.
+    rows = []
+    for s in body.samples:
+        values = [getattr(s, c) for c in _COLS]
+        if any(v is not None for v in values):
+            rows.append(tuple([user_id, _dt(s.ts)] + values))
+    skipped = len(body.samples) - len(rows)
     if not rows:
-        return {"stored": 0}
+        return {"stored": 0, "skipped": skipped}
     placeholders = ", ".join(f"${i}" for i in range(1, len(_COLS) + 3))
     sql = (
         f"INSERT INTO metric_samples (user_id, ts, {', '.join(_COLS)}) "
@@ -37,4 +43,4 @@ async def upload_metrics(body: MetricsUpload, x_user_id: str = Header(..., alias
     )
     async with get_pool().acquire() as conn:
         await conn.executemany(sql, rows)
-    return {"stored": len(rows)}
+    return {"stored": len(rows), "skipped": skipped}

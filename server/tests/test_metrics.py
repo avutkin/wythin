@@ -36,3 +36,40 @@ async def test_delete_my_data_scoped_to_token_user():
         r = await c.delete("/v1/me/data", headers={"Authorization": f"Bearer {tok}"})
         assert r.status_code == 200
         assert r.json()["metric_samples"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_valueless_samples_are_not_stored():
+    """A sample with every metric null measures nothing — it is a timestamp
+    pretending to be a reading, and 7.6% of production rows were exactly that.
+    Drop them at ingest and report how many were skipped."""
+    import uuid
+    device = f"ms-empty-{uuid.uuid4().hex[:8]}"
+    async with _client() as c:
+        r = await c.post("/v1/metrics", headers={"X-User-ID": device}, json={"samples": [
+            _sample("2026-07-27T11:00:00Z", 30),                      # real
+            {"ts": "2026-07-27T11:00:02Z"},                           # every metric null
+            {"ts": "2026-07-27T11:00:04Z", "mean_bpm": None, "rmssd": None},
+            _sample("2026-07-27T11:00:06Z", 31),                      # real
+        ]})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["stored"] == 2, body
+        assert body["skipped"] == 2, body
+
+        # The series carries readings, and every bucket in it has real values
+        # rather than a row of nulls. (Buckets are 4h wide at 30d, so the two
+        # readings six seconds apart share one bucket — count is not the point.)
+        stats = await c.get("/admin/stats", params={"range": "all"})
+        uid = next(u["id"] for u in stats.json()["users"] if u["device_id"] == device)
+        series = await c.get(f"/admin/users/{uid}/metrics", params={"window": "30d"})
+    buckets = series.json()["samples"]
+    assert buckets, "expected the real readings"
+    assert all(b["mean_bpm"] is not None for b in buckets)
+
+    # A sample carrying a single real value is still a reading and is kept.
+    async with _client() as c:
+        r = await c.post("/v1/metrics", headers={"X-User-ID": device}, json={"samples": [
+            {"ts": "2026-07-27T11:00:08Z", "coherence": 0.5},
+        ]})
+    assert r.json()["stored"] == 1
