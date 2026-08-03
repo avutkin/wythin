@@ -3,9 +3,25 @@ import SwiftUI
 struct CurrentStateCard: View {
     let tick:  MetricsTick?
 
+    /// The user's own centre for RMSSD, from `LiveStateStore.baseline`.
+    ///
+    /// Passing nil here — as this card did — puts PNS on `AutonomicCompute`'s
+    /// absolute saturating curve, where RMSSD 40 ms maps to 0.50 for everybody.
+    /// For a user whose resting RMSSD sits near 30 that bar reads
+    /// sympathetic-dominant almost always, by construction: spec failure #5,
+    /// and the same population-prior problem the state above this card was
+    /// rebuilt to remove. With a personal centre, their own usual maps to 0.50
+    /// and the bar means "against you" like everything else on the screen.
+    ///
+    /// Still optional: on a first run there are no rollups yet, and the
+    /// absolute curve is the honest fallback until there are.
+    let baselineRmssd: Float?
+
     private var autonomic: AutonomicIndices? {
         guard let t = tick else { return nil }
-        return AutonomicCompute.compute(tick: t, baseline: nil)
+        return AutonomicCompute.balance(rmssd: t.rmssd, lf: t.lfPower, hf: t.hfPower,
+                                        breathBPM: t.breathBPM, meanBPM: t.meanBPM,
+                                        baselineRmssd: baselineRmssd)
     }
 
     var body: some View {

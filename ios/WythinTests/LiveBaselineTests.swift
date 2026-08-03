@@ -136,6 +136,38 @@ final class LiveBaselineTests: XCTestCase {
         XCTAssertNil(b?.z(1.0, for: .dfa1))
     }
 
+    /// Spec failure #5, and what `CurrentStateCard` now consumes. On the
+    /// absolute curve RMSSD 40 maps to PNS 0.50 for everybody, so a user whose
+    /// usual sits near 20 reads sympathetic-dominant by construction — the same
+    /// population-prior problem the state above that card was rebuilt to
+    /// remove. Fed their own centre, their usual is the middle of the bar.
+    func testAPersonalRmssdCentreRecentresTheAutonomicBalance() {
+        let key = LiveMetric.rmssd.rawValue
+        let days = (1...30).map { d -> DailyRollup in
+            let day = Calendar.current.date(byAdding: .day, value: -d,
+                                            to: Calendar.current.startOfDay(for: Date()))!
+            return DailyRollup(day: day, dc: nil, rmssd: 20, rsaMs: nil, rcmse: nil, pip: nil,
+                               dfa1: nil, stressBalance: nil, vti: nil, meanBPM: nil,
+                               sampleCount: 5_000, wearSeconds: 10_000,
+                               mean: [key: 20], sd: [key: 6], count: [key: 5_000])
+        }
+        let centre = LiveBaseline.build(rollups: days)?.stat(for: .rmssd)?.mean
+        XCTAssertEqual(centre ?? 0, 20, accuracy: 0.01)
+
+        let personal = AutonomicCompute.balance(rmssd: 20, lf: nil, hf: nil,
+                                                breathBPM: 14, meanBPM: 60,
+                                                baselineRmssd: centre)
+        XCTAssertEqual(personal?.pns ?? 0, 0.5, accuracy: 0.001, "their usual is the middle")
+        XCTAssertNotEqual(personal?.state, .sympathetic)
+
+        let population = AutonomicCompute.balance(rmssd: 20, lf: nil, hf: nil,
+                                                  breathBPM: 14, meanBPM: 60,
+                                                  baselineRmssd: nil)
+        XCTAssertEqual(population?.pns ?? 0, 20.0 / 60.0, accuracy: 0.001)
+        XCTAssertEqual(population?.state, .sympathetic,
+                       "the fixture must actually exhibit the defect being fixed")
+    }
+
     func testOnlyRollupsInsideTheWindowCount() {
         let old = rollup(daysAgo: AnchorBaseline.windowDays + 5, hrMean: 200, hrSD: 8)
         let recent = rollup(daysAgo: 1, hrMean: 60, hrSD: 8)
