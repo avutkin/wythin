@@ -168,8 +168,7 @@ private struct DayScrollView: View {
                 if isToday {
                     LiveStateWidget(store: liveStore, potentialStore: potentialStore)
                         .padding(.horizontal)
-                    let state = PolyvagalState.infer(from: env.latestTick)
-                    CurrentStateCard(tick: env.latestTick, state: state)
+                    CurrentStateCard(tick: env.latestTick)
                         .padding(.horizontal)
                 }
 

@@ -2,7 +2,6 @@ import SwiftUI
 
 struct CurrentStateCard: View {
     let tick:  MetricsTick?
-    let state: PolyvagalState
 
     private var autonomic: AutonomicIndices? {
         guard let t = tick else { return nil }
@@ -23,19 +22,6 @@ struct CurrentStateCard: View {
         .animation(.easeInOut(duration: 0.4), value: autonomic?.state)
     }
 
-    // MARK: - Causes
-
-    private func causeSection(_ causes: [PolyvagalCause]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Why is this happening?")
-                .font(.system(size: 15))
-                .foregroundStyle(Theme.text)
-
-            ForEach(causes) { cause in
-                CauseRow(cause: cause)
-            }
-        }
-    }
 }
 
 // MARK: - State copy
@@ -248,39 +234,3 @@ private struct Pole: View {
     }
 }
 
-// MARK: - Cause Row
-
-private struct CauseRow: View {
-    let cause: PolyvagalCause
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Theme.surface)
-                    .frame(width: 38, height: 38)
-                Image(systemName: cause.icon)
-                    .font(.system(size: 15))
-                    .foregroundStyle(Theme.text)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(cause.title)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Theme.text)
-                    Spacer()
-                    Text(cause.time)
-                        .font(Theme.monoLabel)
-                        .foregroundStyle(Theme.dim)
-                }
-                Text(cause.description)
-                    .font(Theme.monoLabel)
-                    .foregroundStyle(Theme.dim)
-            }
-        }
-        .padding(12)
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-}
