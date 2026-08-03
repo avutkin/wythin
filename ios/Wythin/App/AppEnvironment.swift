@@ -318,6 +318,18 @@ final class AppEnvironment {
     /// on the moment the Live tab appears, not computed when it does.
     let dayPotential = DayPotentialStore()
 
+    /// Read-only mirror of the on-disk rollup cache, for `LiveStateStore` to
+    /// build the user's baseline from. The Track tab owns its own separate
+    /// `TrackCache()` instance (`TrackView.cache`) and is the only thing that
+    /// ever fetches raw samples and writes new rollups; this instance never
+    /// calls `refresh`/`setMacroRead`, only `load()` + the pure `rollups(in:)`
+    /// read, so the two can never race on a write. Whatever Track has written
+    /// — this session or a previous one — is on disk and reachable from here;
+    /// if Track has never been opened there is nothing to load, and
+    /// `LiveBaseline.build` returning nil for an empty rollup list is the
+    /// documented cold-start fallback, not an error.
+    let trackCache = TrackCache()
+
     /// Main-actor context for stores that own their own persistence
     /// (e.g. `DayPotentialStore` reading and writing `DailyAnchor`).
     var modelContext: ModelContext { modelContainer.mainContext }
@@ -348,6 +360,7 @@ final class AppEnvironment {
 
         bindBLE()
         loadHistory()
+        trackCache.load()
         startUsageTracking()
         prewarmDashboards()
         // Register the notification categories up front: without them a nudge
