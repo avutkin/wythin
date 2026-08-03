@@ -21,11 +21,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Don't pin an Xcode version: the image's default Xcode is the one whose
-      # SDK matches the simulator runtimes actually installed on it. Pinning
-      # Xcode 16 left the SDK with no usable runtime and testing never ran.
-      - name: Show toolchain
+      # Select the newest Xcode present rather than pinning a version or taking
+      # the image default. Pinning Xcode 16 left the SDK with no usable
+      # simulator runtime; the image default (16.4) builds against an SDK that
+      # App Store Connect now rejects outright. Both jobs must agree, so this
+      # step is duplicated in the TestFlight job below.
+      - name: Select newest Xcode
         run: |
+          XC=$(for app in /Applications/Xcode*.app; do
+                 v=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
+                       "$app/Contents/Info.plist" 2>/dev/null) || continue
+                 printf '%s\t%s\n' "$v" "$app"
+               done | sort -V | tail -1 | cut -f2)
+          echo "Using $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
           xcodebuild -version
           xcrun simctl list runtimes
 
@@ -94,6 +103,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # App Store Connect rejects anything built with an SDK older than iOS 26,
+      # and the image default is still Xcode 16.4. Must match the test job.
+      - name: Select newest Xcode
+        run: |
+          XC=$(for app in /Applications/Xcode*.app; do
+                 v=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
+                       "$app/Contents/Info.plist" 2>/dev/null) || continue
+                 printf '%s\t%s\n' "$v" "$app"
+               done | sort -V | tail -1 | cut -f2)
+          echo "Using $XC"
+          sudo xcode-select -s "$XC/Contents/Developer"
+          xcodebuild -version
 
       # An unset secret expands to an empty string, which otherwise surfaces as
       # a cryptic failure several steps later. Fail here, naming the secret.
