@@ -69,22 +69,45 @@ enum LiveStateClassifier {
                  recovery: axis(recoveryWeights, r))
     }
 
+    /// A metric's weight is whichever single axis dictionary contains it — the
+    /// three axes don't share metrics, so this is unambiguous. A metric in none
+    /// of them (there currently are none among `LiveMetric`'s cases, but the
+    /// enum is not exhaustively covered by contract) pulls on no axis and is
+    /// excluded rather than silently treated as weight 1.
+    private static func weight(for metric: LiveMetric) -> Float? {
+        energyWeights[metric] ?? tensionWeights[metric] ?? recoveryWeights[metric]
+    }
+
+    /// Every metric's actual pull on the state — weight × effective, not the
+    /// raw z-score — ranked strongest first. A raw z-score is how far the
+    /// reading sits from usual; it says nothing about how much that reading
+    /// moved the axis that decided the state, which is what "why" needs to
+    /// rank honestly. Ties (equal weighted pull) break on the metric's own
+    /// name rather than dictionary iteration order, which is seeded per
+    /// process — otherwise the same reading could explain itself differently
+    /// between launches, the same flicker this whole feature exists to stop.
+    private static func rankedPulls(_ r: LiveReading) -> [StateContribution] {
+        r.readings.values
+            .compactMap { reading -> StateContribution? in
+                guard let w = weight(for: reading.metric) else { return nil }
+                return StateContribution(metric: reading.metric, value: w * reading.effective)
+            }
+            .sorted {
+                let (la, lb) = (abs($0.value), abs($1.value))
+                return la != lb ? la > lb : $0.metric.rawValue < $1.metric.rawValue
+            }
+    }
+
     static func classify(_ r: LiveReading) -> LiveStateResult {
         let a = axes(r)
+        let pulls = rankedPulls(r)
 
-        var contributions = r.readings.values
-            .map { StateContribution(metric: $0.metric, value: $0.effective) }
-            .filter { abs($0.value) >= LiveThresholds.contributionFloor }
-            .sorted { abs($0.value) > abs($1.value) }
+        var contributions = pulls.filter { abs($0.value) >= LiveThresholds.contributionFloor }
 
         // A flat window still explains itself — otherwise WHY would be empty
         // exactly when the user most wants to know why nothing is happening.
         if contributions.isEmpty {
-            contributions = r.readings.values
-                .map { StateContribution(metric: $0.metric, value: $0.effective) }
-                .sorted { abs($0.value) > abs($1.value) }
-                .prefix(1)
-                .map { $0 }
+            contributions = Array(pulls.prefix(1))
         }
 
         let magnitude = max(abs(a.energy), abs(a.tension), abs(a.recovery))

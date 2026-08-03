@@ -111,6 +111,26 @@ final class LiveStateClassifierTests: XCTestCase {
                                     "a flat window still explains itself")
     }
 
+    func testContributionsRankByWeightedPullNotRawZScore() {
+        // rcmse's raw z (1.0) is larger than pip's (0.8), but rcmse's axis
+        // weight (0.3) is much smaller than pip's (0.55): weighted, pip pulled
+        // its axis more (0.55*0.8 = 0.44) than rcmse pulled its own (0.3*1.0 =
+        // 0.30). The explanation must lead with what actually moved the state.
+        let r = LiveStateClassifier.classify(reading([.rcmse: 1.0, .pip: 0.8]))
+        XCTAssertEqual(r.contributions.first?.metric, .pip,
+                      "weighted pull, not raw z-score, must decide the order")
+    }
+
+    func testTiedContributionsBreakByMetricNameForDeterminism() {
+        // hr and rcmse share the same energy weight (0.3); equal effective
+        // values give them equal weighted pull. The tie must not depend on
+        // Dictionary's per-process hash seeding, or the same reading would
+        // explain itself differently between launches.
+        let r = LiveStateClassifier.classify(reading([.hr: 1.0, .rcmse: 1.0]))
+        XCTAssertEqual(r.contributions.first?.metric, .hr,
+                      "tie must break deterministically, not by iteration order")
+    }
+
     // MARK: Hysteresis
 
     func testHysteresisHoldsThroughASingleNoisyEvaluation() {

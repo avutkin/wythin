@@ -41,7 +41,17 @@ enum LiveThresholds {
     /// Consecutive evaluations a new state must win before it is displayed.
     /// UNCALIBRATED first guess.
     static let hysteresisCount = 3
-    /// A contribution below this is not worth a bullet. UNCALIBRATED first guess.
+    /// A contribution's *weighted* pull (its axis weight × its z-score) below
+    /// this is not worth a bullet. Deliberately left at the same UNCALIBRATED
+    /// first guess as before weighting was applied: weighting makes every
+    /// value strictly smaller in magnitude than the raw z it comes from, which
+    /// makes this floor filter more aggressively than it used to — but that is
+    /// the point, not a defect. "Worth a bullet" was always meant to be about
+    /// how much a metric actually moved the state, and a metric with a small
+    /// axis weight moving its axis only a little genuinely deserves to be
+    /// filtered out even when its own raw reading was large. Retuning the
+    /// number itself is future calibration work, not something this change
+    /// should invent a value for.
     static let contributionFloor: Float = 0.25
     /// When no axis exceeds this, nothing really moved and the call is weak.
     /// UNCALIBRATED first guess.
