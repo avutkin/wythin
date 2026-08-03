@@ -356,7 +356,14 @@ struct APIClient {
         var req = request(path: "/v1/profile", method: "POST")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
-        _ = try await session.data(for: req)
+        // Check the status: URLSession does not throw on 4xx/5xx, so without
+        // this a rejected upload looks like success and MetricsSyncer marks the
+        // profile synced for the launch — which is how every profile uploaded
+        // before /v1/profile was deployed got silently dropped.
+        let (_, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
     }
 
     // MARK: Insights
