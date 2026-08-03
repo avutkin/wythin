@@ -87,6 +87,15 @@ enum LiveWhyBar {
     /// against `LiveThresholds.contributionFloor` (0.25) so a bullet that
     /// barely qualifies draws about a quarter of the length.
     static let fullScale: Float = 1.0
+    /// The gap between the bar and the metric name in the WHY row's HStack.
+    static let rowSpacing: Double = 7
+    /// Where the metric name — and the explanation line beneath it — start:
+    /// a fixed-width `maxWidth` column for the bar plus the HStack's own
+    /// `rowSpacing`, so every row's name lines up at the same x regardless of
+    /// that row's own (variable) bar length. The view pins the bar's
+    /// CONTAINER at `maxWidth` and left-aligns the actual bar inside it,
+    /// rather than sizing the HStack to the bar's drawn width.
+    static let textIndent: Double = maxWidth + rowSpacing
 
     static func width(value: Float) -> Double {
         let fraction = min(Double(abs(value)) / Double(fullScale), 1)
@@ -652,10 +661,16 @@ struct LiveStateWidget: View {
             ForEach(state.contributions, id: \.metric) { c in
                 let row = LiveWhyRow.build(for: c, reading: reading)
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 7) {
+                    HStack(spacing: CGFloat(LiveWhyBar.rowSpacing)) {
+                        // Fixed-width column so every row's bar occupies the
+                        // same horizontal space regardless of its own drawn
+                        // length — the name after it therefore starts at the
+                        // same x on every row, in line with the explanation
+                        // below (`textIndent` is this same column width).
                         RoundedRectangle(cornerRadius: 2)
                             .fill(row.isStrong ? Theme.accent : Theme.breathe)
                             .frame(width: CGFloat(row.barWidth), height: 3)
+                            .frame(width: CGFloat(LiveWhyBar.maxWidth), alignment: .leading)
                         Text(row.displayName)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(Theme.text)
@@ -663,7 +678,7 @@ struct LiveStateWidget: View {
                     Text(row.bandText)
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.dim)
-                        .padding(.leading, 53)
+                        .padding(.leading, CGFloat(LiveWhyBar.textIndent))
                 }
             }
         }

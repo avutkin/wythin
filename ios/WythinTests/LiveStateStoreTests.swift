@@ -315,6 +315,20 @@ final class LiveWhyBandAndBarTests: XCTestCase {
         XCTAssertGreaterThan(LiveWhyBar.width(value: 1.0), LiveWhyBar.width(value: 0.1) + 20,
                              "a strong pull and a faint one cannot render alike")
     }
+
+    /// Pins the relationship the view relies on to keep every row's name — and
+    /// the explanation line beneath it — starting at the same x: the text
+    /// indent is the bar's fixed column width plus the HStack's own spacing
+    /// between the bar and the name. If the view ever went back to sizing the
+    /// bar's own HStack to `row.barWidth` directly (the ragged-left-edge bug),
+    /// this constant alone wouldn't catch it — but a drift between this value
+    /// and whatever the view hardcodes for the explanation's leading padding
+    /// would no longer be silent, because both now read from here.
+    func testTextIndentIsTheBarColumnPlusItsOwnSpacing() {
+        XCTAssertEqual(LiveWhyBar.textIndent, LiveWhyBar.maxWidth + LiveWhyBar.rowSpacing, accuracy: 0.001)
+        XCTAssertEqual(LiveWhyBar.textIndent, 53, accuracy: 0.001,
+                       "pins the actual on-screen indent, not just the formula")
+    }
 }
 
 /// `LiveWhyBand.text(level:windowValue:baselineCentre:)` — the percentage
