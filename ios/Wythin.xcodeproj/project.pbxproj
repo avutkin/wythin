@@ -171,7 +171,9 @@
 		A54 /* LiveReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = F54 /* LiveReading.swift */; };
 		AT55 /* LiveReadingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT55 /* LiveReadingTests.swift */; };
 		A56 /* LiveStateClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F56 /* LiveStateClassifier.swift */; };
+		A57 /* LiveStateCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F57 /* LiveStateCopy.swift */; };
 		AT57 /* LiveStateClassifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT57 /* LiveStateClassifierTests.swift */; };
+		AT58 /* LiveStateCopyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT58 /* LiveStateCopyTests.swift */; };
 		AT17 /* TrendShapeComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT17 /* TrendShapeComputeTests.swift */; };
 		AT18 /* DayPotentialInsightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT18 /* DayPotentialInsightTests.swift */; };
 		AT19 /* DayLoadSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT19 /* DayLoadSummaryTests.swift */; };
@@ -396,7 +398,9 @@
 		F54 /* LiveReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReading.swift; sourceTree = "<group>"; };
 		FT55 /* LiveReadingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReadingTests.swift; sourceTree = "<group>"; };
 		F56 /* LiveStateClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateClassifier.swift; sourceTree = "<group>"; };
+		F57 /* LiveStateCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateCopy.swift; sourceTree = "<group>"; };
 		FT57 /* LiveStateClassifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateClassifierTests.swift; sourceTree = "<group>"; };
+		FT58 /* LiveStateCopyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateCopyTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -582,6 +586,7 @@
 				F51 /* LiveBaseline.swift */,
 				F54 /* LiveReading.swift */,
 				F56 /* LiveStateClassifier.swift */,
+				F57 /* LiveStateCopy.swift */,
 			);
 			path = Metrics;
 			sourceTree = "<group>";
@@ -752,6 +757,7 @@
 				FT52 /* LiveBaselineTests.swift */,
 				FT55 /* LiveReadingTests.swift */,
 				FT57 /* LiveStateClassifierTests.swift */,
+				FT58 /* LiveStateCopyTests.swift */,
 			);
 			path = WythinTests;
 			sourceTree = "<group>";
@@ -973,6 +979,7 @@
 				A51 /* LiveBaseline.swift in Sources */,
 				A54 /* LiveReading.swift in Sources */,
 				A56 /* LiveStateClassifier.swift in Sources */,
+				A57 /* LiveStateCopy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1039,6 +1046,7 @@
 				AT52 /* LiveBaselineTests.swift in Sources */,
 				AT55 /* LiveReadingTests.swift in Sources */,
 				AT57 /* LiveStateClassifierTests.swift in Sources */,
+				AT58 /* LiveStateCopyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
