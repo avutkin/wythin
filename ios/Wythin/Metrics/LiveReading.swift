@@ -37,6 +37,15 @@ enum LiveThresholds {
     /// still charged for the silence it actually was.
     static let maxCredibleGapSec: Double = 60
     static let windowMinutes = 10
+
+    /// Consecutive evaluations a new state must win before it is displayed.
+    /// UNCALIBRATED first guess.
+    static let hysteresisCount = 3
+    /// A contribution below this is not worth a bullet. UNCALIBRATED first guess.
+    static let contributionFloor: Float = 0.25
+    /// When no axis exceeds this, nothing really moved and the call is weak.
+    /// UNCALIBRATED first guess.
+    static let weakCallCeiling: Float = 0.35
 }
 
 /// One metric's read over the window.
