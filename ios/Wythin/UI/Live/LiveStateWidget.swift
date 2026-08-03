@@ -580,9 +580,12 @@ final class LiveStateStore {
 ///
 /// Layout follows the approved design
 /// (`docs/superpowers/specs/2026-08-02-current-state-accuracy-design.md` §5):
-/// a collapsible Current State block (collapsed row always visible; WHY the
-/// only thing behind the drop-down), then RIGHT NOW as its own always-visible
-/// section that does not move when the drop-down opens or closes.
+/// a collapsible Current State block (collapsed row always visible; WHY and
+/// WHAT THIS MEANS are the only things behind the drop-down), then RIGHT NOW
+/// as its own always-visible section that does not move when the drop-down
+/// opens or closes. Collapsed, the card reads Current State → RIGHT NOW →
+/// How do you feel; expanding only inserts WHY/WHAT THIS MEANS between the
+/// first two.
 struct LiveStateWidget: View {
     @Environment(AppEnvironment.self) var env
     let store: LiveStateStore
@@ -622,27 +625,24 @@ struct LiveStateWidget: View {
             DayPotentialStrip(store: potentialStore)
             Divider().overlay(Theme.dim.opacity(0.2))
 
-            currentStateSection
+            // Parsed once and threaded to both call sites below so WHAT THIS
+            // MEANS (inside the drop-down) and RIGHT NOW (always visible)
+            // never disagree about what the LLM actually said.
+            let insight = store.text.map { LiveStateInsight(raw: $0) }
 
-            if let text = store.text {
-                let insight = LiveStateInsight(raw: text)
+            // WHY and WHAT THIS MEANS both live behind the Current State
+            // drop-down now — collapsing that row hides both explanations.
+            // RIGHT NOW stays outside: the intended collapsed card is
+            // Current State row → RIGHT NOW → How do you feel, and
+            // expanding only inserts WHY/WHAT THIS MEANS between the first
+            // two, never touches RIGHT NOW's own visibility.
+            currentStateSection(insight: insight)
 
-                // WHAT THIS MEANS — the LLM's own bullets. A sibling of the
-                // collapsible block above, not nested inside it — expanding
-                // or collapsing the Current State drop-down only changes the
-                // WHY list's own visibility and never this section's.
-                whatThisMeansSection(insight)
-
-                // RIGHT NOW is a sibling of WHAT THIS MEANS too, not nested
-                // beneath its heading — the spec's layout is three
-                // independent sections in one card, and RIGHT NOW is
-                // "always visible, never inside the drop-down." It renders
-                // whenever the LLM produced a recommendation, regardless of
-                // whether its bullets parsed — a reply with a recommendation
-                // but no bullets must still show it.
-                if let recommendation = insight.recommendation {
-                    recommendationBlock(recommendation, accent: insight.state?.color ?? Theme.accent)
-                }
+            // RIGHT NOW renders whenever the LLM produced a recommendation,
+            // regardless of whether its bullets parsed — a reply with a
+            // recommendation but no bullets must still show it.
+            if let insight, let recommendation = insight.recommendation {
+                recommendationBlock(recommendation, accent: insight.state?.color ?? Theme.accent)
             }
 
             // A sibling of every section above, not nested inside any of
@@ -683,26 +683,34 @@ struct LiveStateWidget: View {
     // MARK: - Current State (collapsible)
 
     /// The collapsed row (tag, name, feeling, chevron) always renders once
-    /// there is anything to show it for; the WHY list beneath it is the only
-    /// thing the drop-down reveals, and only when there's a local reading to
-    /// build it from.
+    /// there is anything to show it for; WHY and WHAT THIS MEANS are the only
+    /// things the drop-down reveals, and only when `LiveCollapsedRowSpec
+    /// .revealsDropDown` says so — see that function's doc for why the gate
+    /// is a named call here rather than an inline condition.
     @ViewBuilder
-    private var currentStateSection: some View {
+    private func currentStateSection(insight: LiveStateInsight?) -> some View {
         if let spec = LiveCollapsedRowSpec.build(state: store.state, reading: store.reading,
                                                  text: store.text,
                                                  provisional: store.baseline?.provisional ?? false,
                                                  isStale: store.isStale) {
             VStack(alignment: .leading, spacing: 14) {
                 collapsedRow(spec)
-                // WHY is the ONLY thing the drop-down reveals, and only when
-                // there's both a local reading to build it from AND
-                // `revealsDropDown` says this row is actually open — the
-                // insight-only fallback (`spec.isExpandable == false`) has no
-                // reading, so this can never be true for it regardless of
-                // `expanded`.
-                if LiveCollapsedRowSpec.revealsDropDown(isExpandable: spec.isExpandable, expanded: expanded),
-                   let state = store.state, let reading = store.reading {
-                    whyList(state, reading: reading)
+                if LiveCollapsedRowSpec.revealsDropDown(isExpandable: spec.isExpandable, expanded: expanded) {
+                    // WHY needs both a local reading to build it from AND
+                    // the spec's own `isExpandable` — the insight-only
+                    // fallback (`spec.isExpandable == false`) has no
+                    // reading, so `revealsDropDown` is already false for it
+                    // regardless of `expanded`, and this can never fire.
+                    if let state = store.state, let reading = store.reading {
+                        whyList(state, reading: reading)
+                    }
+                    // WHAT THIS MEANS used to be a body-level sibling of this
+                    // whole section, so it stayed on screen even while this
+                    // row was collapsed. Moved in here so the one chevron
+                    // governs both explanations at once.
+                    if let insight {
+                        whatThisMeansSection(insight)
+                    }
                 }
             }
         } else {
@@ -794,10 +802,12 @@ struct LiveStateWidget: View {
     /// of recolouring it), this distinction goes away on its own; until then
     /// each half is coloured by its own source.
     ///
-    /// A `body`-level sibling of `currentStateSection` AND of the RIGHT NOW
-    /// block (see `body`) — not a container the recommendation lives inside.
-    /// Renders nothing when there are no bullets, at least one always shows
-    /// when it renders anything at all.
+    /// Called from inside `currentStateSection`'s drop-down, alongside
+    /// `whyList` — not a container the recommendation lives inside, and not a
+    /// `body`-level sibling of it either: collapsing the Current State row
+    /// must hide this along with WHY, which is exactly what being nested
+    /// inside that same drop-down guarantees. Renders nothing when there are
+    /// no bullets, at least one always shows when it renders anything at all.
     @ViewBuilder
     private func whatThisMeansSection(_ insight: LiveStateInsight) -> some View {
         if !insight.bullets.isEmpty {
