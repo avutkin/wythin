@@ -1,0 +1,101 @@
+import Foundation
+
+/// Tuning for the live read. UNCALIBRATED — first guesses, chosen so the four
+/// quadrants in the spec behave as described. `gainClampLow` is the
+/// consequential one: at 0.25 a high level nearly ignores a slope, which is the
+/// intended behaviour, but it also means a genuine collapse from a high level
+/// takes longer to register.
+enum LiveThresholds {
+    /// Smallest worthwhile change, in personal SD per window. Below this a
+    /// slope is not a trend — it is noise, and reporting it is how the widget
+    /// ends up with a story every time it looks.
+    static let swc: Float = 0.30
+    /// How much a trend can be worth relative to a level, before the gain.
+    static let trendGainK: Float = 0.5
+    static let gainClampLow:  Float = 0.25
+    static let gainClampHigh: Float = 1.5
+    /// Fraction of the window that must carry samples, at whatever cadence the
+    /// data was recorded. Expressed as coverage rather than a count so it holds
+    /// at 2 s and at 30 s alike.
+    static let minCoverage: Float = 0.6
+    static let windowMinutes = 10
+}
+
+/// One metric's read over the window.
+struct MetricReading: Equatable {
+    let metric: LiveMetric
+    /// Where the window sits against the person's usual, in their own SD.
+    let level: Float
+    /// Slope across the window in personal SD per window. Zero when gated.
+    let trend: Float
+    /// True when the slope cleared the smallest-worthwhile-change gate.
+    let meaningful: Bool
+    /// Level adjusted by the gain-weighted trend. What the classifier scores.
+    let effective: Float
+}
+
+/// A ten-minute window, reduced to per-metric readings against the baseline.
+struct LiveReading {
+    let readings: [LiveMetric: MetricReading]
+    /// Fraction of the window that carried samples.
+    let coverage: Float
+
+    /// Trend counts for less the higher the level already is, and for more the
+    /// lower it is. This is the whole asymmetry in one line.
+    static func gain(_ level: Float) -> Float {
+        min(max(1 - level / 2, LiveThresholds.gainClampLow), LiveThresholds.gainClampHigh)
+    }
+
+    static func effective(level: Float, trend: Float) -> Float {
+        level + LiveThresholds.trendGainK * gain(level) * trend
+    }
+
+    static func build(window: [MetricsHistoryPoint],
+                      baseline: LiveBaseline,
+                      windowMinutes: Int = LiveThresholds.windowMinutes,
+                      now: Date = .now) -> LiveReading? {
+
+        let valid = MetricsQualityFilter.filter(window).sorted { $0.timestamp < $1.timestamp }
+        guard valid.count >= 2, let first = valid.first, let last = valid.last else { return nil }
+
+        // Coverage, inferred from the data's own spacing rather than assumed.
+        let windowSec = Double(windowMinutes) * 60
+        let spans     = zip(valid, valid.dropFirst()).map { $1.timestamp.timeIntervalSince($0.timestamp) }
+        let cadence   = spans.sorted()[spans.count / 2]
+        let span      = last.timestamp.timeIntervalSince(first.timestamp) + cadence
+        let coverage  = Float(min(span / windowSec, 1))
+        guard coverage >= LiveThresholds.minCoverage else { return nil }
+
+        var readings: [LiveMetric: MetricReading] = [:]
+        for metric in LiveMetric.allCases {
+            let values = valid.compactMap { metric.value($0) }
+            guard values.count >= 2,
+                  let median = AnchorDetector.median(values),
+                  let level  = baseline.z(median, for: metric),
+                  let sd     = baseline.stat(for: metric)?.sdBlended(prior: LivePrior.prior(for: metric))
+            else { continue }
+
+            // Slope across the window, expressed in the person's own SD so it is
+            // comparable between metrics. 8% of one metric and 8% of another are
+            // unrelated magnitudes; 0.4 SD means the same thing everywhere.
+            let half  = values.count / 2
+            let early = values.prefix(half)
+            let late  = values.suffix(values.count - half)
+            let earlyMean = early.reduce(0, +) / Float(early.count)
+            let lateMean  = late.reduce(0, +) / Float(late.count)
+            let rawTrend  = (lateMean - earlyMean) / sd
+
+            let meaningful = abs(rawTrend) >= LiveThresholds.swc
+            let trend      = meaningful ? rawTrend : 0
+
+            readings[metric] = MetricReading(
+                metric:     metric,
+                level:      level,
+                trend:      trend,
+                meaningful: meaningful,
+                effective:  effective(level: level, trend: trend))
+        }
+        guard !readings.isEmpty else { return nil }
+        return LiveReading(readings: readings, coverage: coverage)
+    }
+}

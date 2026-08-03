@@ -1,0 +1,130 @@
+import XCTest
+@testable import Wythin
+
+final class LiveReadingTests: XCTestCase {
+
+    // MARK: The gain
+
+    func testGainShrinksAtAHighLevel() {
+        XCTAssertEqual(LiveReading.gain(1.5), 0.25, accuracy: 0.001)
+    }
+
+    func testGainIsOneAtTheCentre() {
+        XCTAssertEqual(LiveReading.gain(0), 1.0, accuracy: 0.001)
+    }
+
+    func testGainGrowsAtALowLevel() {
+        XCTAssertEqual(LiveReading.gain(-1.0), 1.5, accuracy: 0.001)
+    }
+
+    func testGainIsClampedAtBothEnds() {
+        XCTAssertEqual(LiveReading.gain(99), LiveThresholds.gainClampLow, accuracy: 0.001)
+        XCTAssertEqual(LiveReading.gain(-99), LiveThresholds.gainClampHigh, accuracy: 0.001)
+    }
+
+    // MARK: The four quadrants from the spec
+
+    func testHighAndEasingBarelyMoves() {
+        XCTAssertEqual(LiveReading.effective(level: 1.5, trend: -0.4), 1.45, accuracy: 0.01)
+    }
+
+    func testLowAndFallingMovesALot() {
+        XCTAssertEqual(LiveReading.effective(level: -1.0, trend: -0.4), -1.30, accuracy: 0.01)
+    }
+
+    func testLowButRisingRecoversMeaningfully() {
+        XCTAssertEqual(LiveReading.effective(level: -1.0, trend: 0.5), -0.625, accuracy: 0.01)
+    }
+
+    func testHighAndRisingSaturates() {
+        XCTAssertEqual(LiveReading.effective(level: 1.5, trend: 0.4), 1.55, accuracy: 0.01)
+    }
+
+    // MARK: Building from a window
+
+    // The brief's original helper called `MetricsHistoryPoint(timestamp:meanBPM:
+    // signalQuality:rrInvalidRate:ecgQualityTier:)`, which does not exist: the
+    // "timestamp:" labeled convenience initializer has no `rrInvalidRate`
+    // parameter, and it leaves `sdnn`/`rmssd` at their `nil` default — which
+    // `MetricsQualityFilter.isValid` rejects outright (it requires `sdnn > 5.0`
+    // and `rmssd > 3.0`), so every point would be filtered out regardless.
+    // Repaired minimally: drop `rrInvalidRate` (unsupported here) and supply a
+    // plausible constant `sdnn`/`rmssd` so points pass the quality filter. No
+    // asserted value changes — only `meanBPM` varies per point, which is what
+    // every test actually exercises via `.hr`.
+    private func window(_ values: [Float], spacingSec: Double, now: Date) -> [MetricsHistoryPoint] {
+        let count = values.count
+        return values.enumerated().map { idx, v in
+            let age = Double(count - 1 - idx) * spacingSec
+            return MetricsHistoryPoint(timestamp: now.addingTimeInterval(-age),
+                                       meanBPM: v, rmssd: 40, sdnn: 50,
+                                       signalQuality: 1.0, ecgQualityTier: 2)
+        }
+    }
+
+    private func baseline(mean: Double, sd: Double, days: Int = 30) -> LiveBaseline {
+        let rollups = (1...days).map { d -> DailyRollup in
+            let day = Calendar.current.date(byAdding: .day, value: -d,
+                                            to: Calendar.current.startOfDay(for: Date()))!
+            return DailyRollup(day: day, dc: nil, rmssd: nil, rsaMs: nil, rcmse: nil,
+                               pip: nil, dfa1: nil, stressBalance: nil, vti: nil,
+                               meanBPM: mean, sampleCount: 5_000, wearSeconds: 10_000,
+                               mean: [LiveMetric.hr.rawValue: mean],
+                               sd:   [LiveMetric.hr.rawValue: sd])
+        }
+        return LiveBaseline.build(rollups: rollups)!
+    }
+
+    func testFlatWindowAtBaselineGivesZeroLevelAndFlatTrend() {
+        let now = Date()
+        let pts = window((0..<300).map { _ in Float(60) }, spacingSec: 2, now: now)
+        let r = LiveReading.build(window: pts, baseline: baseline(mean: 60, sd: 8), now: now)
+        let hr = r?.readings[.hr]
+        XCTAssertEqual(hr?.level ?? 99, 0, accuracy: 0.1)
+        XCTAssertFalse(hr?.meaningful ?? true)
+        XCTAssertEqual(hr?.trend ?? 99, 0, accuracy: 0.001, "a gated trend is zeroed, not passed through")
+    }
+
+    func testASmallSlopeIsGatedByTheSWC() {
+        let now = Date()
+        // Rises 0.5 bpm across the window — far under one SD of 8.
+        let vals = (0..<300).map { Float(60) + Float($0) * 0.5 / 300 }
+        let pts = window(vals, spacingSec: 2, now: now)
+        let hr = LiveReading.build(window: pts, baseline: baseline(mean: 60, sd: 8), now: now)?.readings[.hr]
+        XCTAssertFalse(hr?.meaningful ?? true)
+        XCTAssertEqual(hr?.trend ?? 99, 0, accuracy: 0.001)
+    }
+
+    func testALargeSlopeClearsTheSWC() {
+        let now = Date()
+        // Rises 12 bpm across the window — 1.5 SD.
+        let vals = (0..<300).map { Float(60) + Float($0) * 12 / 300 }
+        let pts = window(vals, spacingSec: 2, now: now)
+        let hr = LiveReading.build(window: pts, baseline: baseline(mean: 60, sd: 8), now: now)?.readings[.hr]
+        XCTAssertTrue(hr?.meaningful ?? false)
+        XCTAssertGreaterThan(hr?.trend ?? 0, 0.5)
+    }
+
+    // MARK: Cadence — the anchor lesson
+
+    func testBuildsAtTheTwoSecondForegroundCadence() {
+        let now = Date()
+        let pts = window((0..<300).map { _ in Float(60) }, spacingSec: 2, now: now)
+        XCTAssertNotNil(LiveReading.build(window: pts, baseline: baseline(mean: 60, sd: 8), now: now))
+    }
+
+    func testBuildsAtTheThirtySecondBackgroundCadence() {
+        let now = Date()
+        // 10 minutes at 30 s is 20 points — the old count-based gate refused this.
+        let pts = window((0..<20).map { _ in Float(60) }, spacingSec: 30, now: now)
+        XCTAssertNotNil(LiveReading.build(window: pts, baseline: baseline(mean: 60, sd: 8), now: now),
+                        "coverage, not raw count, must decide")
+    }
+
+    func testRefusesAWindowThatIsMostlyEmpty() {
+        let now = Date()
+        // Three points at 30 s covers 90 s of a 10-minute window.
+        let pts = window((0..<3).map { _ in Float(60) }, spacingSec: 30, now: now)
+        XCTAssertNil(LiveReading.build(window: pts, baseline: baseline(mean: 60, sd: 8), now: now))
+    }
+}
