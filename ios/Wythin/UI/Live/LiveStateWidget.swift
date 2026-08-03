@@ -663,7 +663,7 @@ struct LiveStateWidget: View {
                             .fill(accent.opacity(0.7))
                             .frame(width: 5, height: 5)
                             .padding(.top, 6)
-                        Text(styledBullet(bullet))
+                        Text(MarkdownBullet.styled(bullet))
                             .font(.system(size: 14))
                             .foregroundStyle(Theme.dim)
                             .fixedSize(horizontal: false, vertical: true)
@@ -673,19 +673,6 @@ struct LiveStateWidget: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    /// Renders `**bold**` markdown in a bullet and brightens the bold spans to
-    /// the primary text color so the key idea stands out against the dim body.
-    private func styledBullet(_ s: String) -> AttributedString {
-        var attr = (try? AttributedString(
-            markdown: s,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        )) ?? AttributedString(s)
-        for run in attr.runs where run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true {
-            attr[run.range].foregroundColor = Theme.text
-        }
-        return attr
     }
 
     @ViewBuilder

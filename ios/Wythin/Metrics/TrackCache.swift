@@ -148,7 +148,13 @@ final class TrackCache {
     /// 2 — macro-trend metric names overlaid with the app's own card names
     ///     (`_MACRO_TREND_METRIC_NAMES`), so the read stops calling Energy
     ///     Reserve "vagal tone" while the Vagal Tone card sits below it.
-    static let macroReadRevision = 2
+    /// 3 — reply reshaped from "two prose sentences" to `•` bullets plus
+    ///     `→` actions, to match `LiveStateWidget`'s bulleted read. A cached
+    ///     value from before this bump is old prose with no `•` markers in
+    ///     it at all; the new renderer would show it as a single unstyled
+    ///     fallback line rather than the bulleted card the rest of the
+    ///     period's data already renders as, so it must not survive the bump.
+    static let macroReadRevision = 3
 
     /// Revision of the *rollup computation* itself: `MetricsQualityFilter`'s
     /// gate, `DailyRollupCompute`'s averaging, or anything else that changes
