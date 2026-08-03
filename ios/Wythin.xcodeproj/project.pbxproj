@@ -44,7 +44,6 @@
 		A124 /* PacerCircleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F124 /* PacerCircleView.swift */; };
 		A126 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F126 /* SettingsView.swift */; };
 		A127 /* MetricsHistoryPoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = F127 /* MetricsHistoryPoint.swift */; };
-		A240 /* DailyRollup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F240 /* DailyRollup.swift */; };
 		A251 /* TrackCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F251 /* TrackCache.swift */; };
 		A252 /* TrackPeriod.swift in Sources */ = {isa = PBXBuildFile; fileRef = F252 /* TrackPeriod.swift */; };
 		A253 /* TrackMetricSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = F253 /* TrackMetricSpec.swift */; };
@@ -117,7 +116,7 @@
 		A209 /* MotionCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F209 /* MotionCompute.swift */; };
 		A210 /* AnchorDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F210 /* AnchorDetector.swift */; };
 		A211 /* DailyAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F211 /* DailyAnchor.swift */; };
-		A260 /* FeltStateLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F260 /* FeltStateLog.swift */; };
+		A262 /* FeltStateLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F262 /* FeltStateLog.swift */; };
 		A213 /* AnchorBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F213 /* AnchorBaseline.swift */; };
 		A214 /* PotentialScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F214 /* PotentialScore.swift */; };
 		A215 /* StreakCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F215 /* StreakCompute.swift */; };
@@ -253,7 +252,6 @@
 		F124 /* PacerCircleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacerCircleView.swift; sourceTree = "<group>"; };
 		F126 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		F127 /* MetricsHistoryPoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsHistoryPoint.swift; sourceTree = "<group>"; };
-		F240 /* DailyRollup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyRollup.swift; sourceTree = "<group>"; };
 		F251 /* TrackCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackCache.swift; sourceTree = "<group>"; };
 		F252 /* TrackPeriod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPeriod.swift; sourceTree = "<group>"; };
 		F253 /* TrackMetricSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackMetricSpec.swift; sourceTree = "<group>"; };
@@ -326,7 +324,7 @@
 		F209 /* MotionCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionCompute.swift; sourceTree = "<group>"; };
 		F210 /* AnchorDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetector.swift; sourceTree = "<group>"; };
 		F211 /* DailyAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyAnchor.swift; sourceTree = "<group>"; };
-		F260 /* FeltStateLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeltStateLog.swift; sourceTree = "<group>"; };
+		F262 /* FeltStateLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeltStateLog.swift; sourceTree = "<group>"; };
 		F213 /* AnchorBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaseline.swift; sourceTree = "<group>"; };
 		F214 /* PotentialScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScore.swift; sourceTree = "<group>"; };
 		F215 /* StreakCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakCompute.swift; sourceTree = "<group>"; };
@@ -605,7 +603,7 @@
 			isa = PBXGroup;
 			children = (
 				F211 /* DailyAnchor.swift */,
-				F260 /* FeltStateLog.swift */,
+				F262 /* FeltStateLog.swift */,
 				F114 /* HRVSession.swift */,
 				F115 /* HRVSample.swift */,
 				F116 /* ResonanceResult.swift */,
@@ -878,7 +876,7 @@
 				A214 /* PotentialScore.swift in Sources */,
 				A213 /* AnchorBaseline.swift in Sources */,
 				A211 /* DailyAnchor.swift in Sources */,
-				A260 /* FeltStateLog.swift in Sources */,
+				A262 /* FeltStateLog.swift in Sources */,
 				A210 /* AnchorDetector.swift in Sources */,
 				A101 /* WythinApp.swift in Sources */,
 				A102 /* AppEnvironment.swift in Sources */,
