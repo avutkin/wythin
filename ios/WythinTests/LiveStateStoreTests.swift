@@ -948,3 +948,33 @@ final class FeltStateCheckInStorageKeyTests: XCTestCase {
                           "one drop-down toggling must never be able to toggle the other")
     }
 }
+
+/// `FeltStateCheckInCopy` — the check-in's own fixed strings. `helper` in
+/// particular: the user asked for "no dash constructions in this card", and
+/// for a line short enough to never wrap, so these pin both properties
+/// directly rather than trusting a future edit to preserve them by habit.
+final class FeltStateCheckInCopyTests: XCTestCase {
+
+    func testHelperHasNoDashConstruction() {
+        XCTAssertFalse(FeltStateCheckInCopy.helper.contains("—"),
+                       "one short clause, not two joined by a dash")
+        XCTAssertFalse(FeltStateCheckInCopy.helper.contains("-"),
+                       "no dash of any kind, not just the em-dash")
+    }
+
+    /// A rough proxy for "fits on one line at default dynamic type on a
+    /// standard phone width" — the row's own font is 11pt system, and this
+    /// codebase's narrowest supported phone (see `DayPotentialStrip`'s own
+    /// 1-line headline treatment) comfortably fits ~45 characters of an
+    /// 11pt system font inside its horizontal padding. The old two-clause
+    /// helper ("A few seconds — helps your numbers mean something", 52
+    /// characters) wrapped; this pins the replacement staying well under
+    /// that, not just "shorter than before".
+    func testHelperIsShortEnoughToFitOnOneLine() {
+        XCTAssertLessThanOrEqual(FeltStateCheckInCopy.helper.count, 45)
+    }
+
+    func testQuestionIsUnchanged() {
+        XCTAssertEqual(FeltStateCheckInCopy.question, "How do you feel right now?")
+    }
+}

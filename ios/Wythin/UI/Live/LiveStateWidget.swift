@@ -433,7 +433,13 @@ enum FeltStateDragMapping {
 /// this section's call sites.
 enum FeltStateCheckInCopy {
     static let question             = "How do you feel right now?"
-    static let helper               = "A few seconds — helps your numbers mean something"
+    /// One short clause, not two joined by a dash — the row is a quiet
+    /// invitation beneath Current State, not a second headline, and it must
+    /// fit on one line at the default dynamic-type size on a standard phone
+    /// width. Previously "A few seconds — helps your numbers mean
+    /// something", which wrapped to two lines and put the whole section at
+    /// three, outweighing the state row above it.
+    static let helper               = "Helps your numbers mean something"
     static let skipHint             = "Skip any you like"
     static let confirmationTitle    = "Saved"
     static let confirmationSubtitle = "Checked in just now · tap to change"
@@ -946,24 +952,30 @@ struct LiveStateWidget: View {
     /// Same tap affordance as `collapsedRow` above and `DayPotentialStrip
     /// .strip` — tinted fill, rounded clip, stroked border, whole row
     /// tappable — so this reads as a control the same way theirs do.
+    ///
+    /// Deliberately quiet: the question sits at a fraction of the state
+    /// row's 20pt title, and the helper line is capped to one line rather
+    /// than left to wrap — a check-in invitation should never visually
+    /// outweigh the state it's asking about.
     private var checkInCollapsedRow: some View {
         Button {
             withAnimation(.snappy) { checkInExpanded.toggle() }
         } label: {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(FeltStateCheckInCopy.question)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Theme.text)
+                        .lineLimit(1)
                     Text(FeltStateCheckInCopy.helper)
-                        .font(.system(size: 12.5))
+                        .font(.system(size: 11))
                         .foregroundStyle(Theme.dim)
+                        .lineLimit(1)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: checkInExpanded ? "chevron.up" : "chevron.down")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(Theme.accent)
-                    .padding(.top, 2)
-                Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
