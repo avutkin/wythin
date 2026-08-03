@@ -20,3 +20,6 @@ ios/Wythin.xcodeproj/project.xcworkspace/xcuserdata/
 
 # Hetzner deploy secrets
 server/deploy/.env
+
+# Worktrees created for isolated task execution
+.claude/worktrees/
