@@ -381,7 +381,7 @@ _MACRO_TREND_PAYLOAD = {
 @pytest.mark.asyncio
 async def test_macro_trend_success():
     app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
-        content="Your recovery markers held steady this week.\n→ Keep the evening breathing."
+        content="• Vagal tone held **steady** all week.\n→ Keep the evening breathing."
     )
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -390,7 +390,9 @@ async def test_macro_trend_success():
         app.dependency_overrides.pop(get_openai_client, None)
 
     assert r.status_code == 200
-    assert "→" in r.json()["text"]
+    text = r.json()["text"]
+    assert "•" in text
+    assert "→" in text
 
 
 @pytest.mark.asyncio
@@ -507,6 +509,56 @@ def test_macro_trend_prompt_does_not_assert_baseline_is_always_personal():
     assert "the person's own baseline, a" not in p, (
         "must not unconditionally assert the baseline is personal"
     )
+
+
+def test_macro_trend_prompt_specifies_bulleted_structure_capped_at_three():
+    """The rewritten prompt (bullets for what the period shows, arrows for
+    what to do next) replaces the old 'two sentences' shape. Pin the actual
+    constraints the model is given, not just that SOME text is present —
+    a prompt that dropped the cap, or that stopped asking for bullets at all,
+    must fail this."""
+    from server.routers.insights import _MACRO_TREND_SYSTEM_PROMPT as p
+
+    lowered = p.lower()
+    # Bulleted reads for what the period shows, capped at three.
+    assert "•" in p
+    assert "at most three" in lowered
+    # Actions still use '→', same character the old shape used.
+    assert "→" in p
+    # No leftover instruction to write prose sentences — the old shape must
+    # actually be gone, not just supplemented.
+    assert "two sentences" not in lowered
+    # The old unconditional "no markdown" ban must be gone too — bold spans
+    # are markdown, and now explicitly allowed.
+    assert "no markdown, no" not in lowered
+
+
+def test_macro_trend_prompt_matches_live_state_bold_bullet_convention():
+    """The user's ask: the macro read's bullets should follow the SAME bold-
+    span convention `_LIVE_STATE_SYSTEM_PROMPT` already defines for its own
+    bullets, so the two surfaces read as one system rather than two prompts
+    that happen to both use '•'. Pin the shared phrase rather than merely
+    'both mention bold' — two independently-worded bold instructions would
+    still pass a looser check."""
+    from server.routers.insights import (
+        _MACRO_TREND_SYSTEM_PROMPT as macro,
+        _LIVE_STATE_SYSTEM_PROMPT as live,
+    )
+
+    shared = "the takeaway, exactly one short bold span per bullet"
+    assert shared in live
+    assert shared in macro
+
+
+def test_macro_trend_prompt_keeps_delta_sign_and_banned_token_rules():
+    """The restructuring must not have dropped the two load-bearing
+    correctness rules while rewriting the reply shape around it."""
+    from server.routers.insights import _MACRO_TREND_SYSTEM_PROMPT as p
+
+    assert "benefit-signed" in p
+    assert "never describe it as a rise" in p
+    for token in _BANNED_OUTPUT_TOKENS:
+        assert token in p, f"{token!r} must still be named as a banned word"
 
 
 # Exactly the seven keys ios/Wythin/Metrics/TrackMetricSpec.swift sends

@@ -359,18 +359,28 @@ _MACRO_TREND_SYSTEM_PROMPT = (
     "range instead and do NOT claim it reflects their history. Every number "
     "was computed by the app: never compute, restate more precisely, or "
     "contradict one, and never invent a metric you were not given.\n\n"
-    "Reply in EXACTLY this plain-text structure:\n"
-    "Two sentences reading the period as a whole. Name at most three metrics "
-    "by their plain-English names. Say what the pattern is, not what each "
-    "number was.\n"
-    "→ One concrete action for the coming period.\n"
-    "→ Optionally one more action.\n\n"
+    "Reply in EXACTLY this plain-text structure — nothing else, no headings, "
+    "no greeting, no markdown beyond the bold spans:\n"
+    "• <the first specific thing the period shows>\n"
+    "• <a second, if there is a genuinely separate one>\n"
+    "• <a third, if there is one>\n"
+    "→ <one concrete action for the coming period>\n"
+    "→ <optionally a second action>\n\n"
+    "BULLETS — at most THREE, one line each, ONE specific idea per bullet, no "
+    "padding or throat-clearing. Name the metric by its plain-English name and "
+    "say what the PATTERN over the period is, not what each number was. Wrap "
+    "the single key idea of each bullet in **double asterisks** to bold it — "
+    "the takeaway, exactly one short bold span per bullet — the same "
+    "convention the live-state read already uses for its own bullets.\n"
+    "ACTIONS — one or two '→' lines, concrete and specific to the coming "
+    "period, matched to what the bullets found.\n"
     "delta_pct is benefit-signed: positive always means improvement, including "
     "where the raw value fell. A positive delta on Inner noise or Stress "
     "balance means it went DOWN, which is good — never describe it as a rise.\n"
-    "No headings, no bullet characters other than '→', no markdown, no "
-    "greeting. Plain, warm, direct. Do not use the words 'HRV', 'RMSSD', "
-    "'LF/HF', 'entropy' or 'PIP' — use the plain-English names given."
+    "No bullet characters other than '•' and '→', no other markdown, no "
+    "greeting. Plain, warm, direct. Keep the whole reply under 70 words. Do "
+    "not use the words 'HRV', 'RMSSD', 'LF/HF', 'entropy' or 'PIP' — use the "
+    "plain-English names given."
 )
 
 
@@ -484,7 +494,12 @@ async def generate_insight(
             raise HTTPException(status_code=422, detail="trends is required for macro_trend mode")
         system_prompt = _MACRO_TREND_SYSTEM_PROMPT
         user_content = _format_macro_trend(req)
-        max_tokens = 180
+        # 180 sized the old two-sentences-plus-actions shape. The bulleted
+        # shape's own cap ("under 70 words") is tighter than that prose ever
+        # was, but bullets add per-line overhead ('• ', '→ ', a bold span) a
+        # raw word count doesn't capture — 150 leaves headroom for that
+        # without giving the model back the room the word cap just removed.
+        max_tokens = 150
     else:
         if not req.activity_type:
             raise HTTPException(status_code=422, detail="activity_type is required for activity mode")
