@@ -73,3 +73,39 @@ final class RestorativeScoreTests: XCTestCase {
         }
     }
 }
+
+// MARK: - The score must be traceable from what is printed
+
+extension RestorativeScoreTests {
+
+    func testMeanImprovementExplainsTheScore() {
+        // The reported average is what the score is built from, so a reader can
+        // check one against the other: mean 12.6 % of a 20 % full mark ≈ 63.
+        let uplifts: [Double?] = [65, 12, 8, 5, 4, 3, 6, 7, 4]
+        let mean  = RestorativeScore.meanImprovement(uplifts: uplifts)!
+        let score = RestorativeScore.score(uplifts: uplifts)!
+        XCTAssertGreaterThan(mean, 0)
+        XCTAssertGreaterThan(score, 0)
+        XCTAssertLessThan(score, 100, "one huge metric must not carry eight modest ones")
+    }
+
+    func testAllNineImprovingDoesNotImplyOneHundred() {
+        // The case that prompted this: every metric moved the right way, and
+        // the score is still mid-range because most moved only a little.
+        let allImproved: [Double?] = Array(repeating: 10, count: 9)
+        XCTAssertEqual(RestorativeScore.improvedCount(uplifts: allImproved).improved, 9)
+        XCTAssertEqual(RestorativeScore.score(uplifts: allImproved)!, 50, accuracy: 1)
+    }
+
+    func testCappedCountNamesMetricsThatCannotLiftItFurther() {
+        let uplifts: [Double?] = [65, 25, 5, 5, 5, 5, 5, 5, 5]
+        XCTAssertEqual(RestorativeScore.cappedCount(uplifts: uplifts), 2)
+    }
+
+    func testMeanImprovementIgnoresRegressionsRatherThanSubtracting() {
+        // Matches the scoring rule, so the printed average cannot disagree with
+        // the number above it.
+        XCTAssertEqual(RestorativeScore.meanImprovement(uplifts: [20, 20, 20, -60])!,
+                       15, accuracy: 0.001)
+    }
+}

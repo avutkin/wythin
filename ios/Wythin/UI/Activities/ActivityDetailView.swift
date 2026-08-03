@@ -136,11 +136,22 @@ struct ActivityDetailView: View {
                                 ExerciseScoreGauge(score: score,
                                                    caption: RestorativeScore.caption(score),
                                                    crowned: score >= ExerciseOverallScore.crownThreshold)
-                                Text("Built from how far the nine metrics improved — \(counts.improved) of \(counts.measured) moved the right way.")
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(Theme.dim)
-                                    .multilineTextAlignment(.center)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                // The count alone read as though 9 of 9 should
+                                // mean 100. The score is the average *size* of
+                                // the improvements, so it says so and shows the
+                                // average it came from.
+                                VStack(spacing: 3) {
+                                    if let mean = RestorativeScore.meanImprovement(uplifts: uplifts) {
+                                        Text(String(format: "Average improvement %+.0f%% — full marks is +%.0f%% on a metric.",
+                                                    mean, RestorativeScore.fullMarks))
+                                            .foregroundStyle(Theme.text.opacity(0.75))
+                                    }
+                                    Text("\(counts.improved) of \(counts.measured) metrics moved the right way\(RestorativeScore.cappedCount(uplifts: uplifts) > 0 ? ", \(RestorativeScore.cappedCount(uplifts: uplifts)) already at full marks" : "").")
+                                        .foregroundStyle(Theme.dim)
+                                }
+                                .font(.system(size: 10, design: .monospaced))
+                                .multilineTextAlignment(.center)
+                                .fixedSize(horizontal: false, vertical: true)
                             }
                             .cardStyle()
                         }

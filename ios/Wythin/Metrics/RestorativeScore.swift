@@ -34,11 +34,34 @@ enum RestorativeScore {
         return Int((credits.reduce(0, +) / Double(credits.count) * 100).rounded())
     }
 
-    /// How many of the nine actually improved — the honest denominator behind
-    /// the score, and the thing people check it against.
+    /// How many of the nine actually improved.
+    ///
+    /// Reported alongside the score but never as its explanation: the score is
+    /// about the *size* of the improvements, this is about the *count*, and
+    /// printing them next to each other unexplained made a 9-of-9 session
+    /// scoring 63 look like an error.
     static func improvedCount(uplifts: [Double?]) -> (improved: Int, measured: Int) {
         let present = uplifts.compactMap { $0 }
         return (present.filter { $0 > 0 }.count, present.count)
+    }
+
+    /// The average improvement the score actually represents, in percent.
+    ///
+    /// This is what makes the score checkable: 63 is a mean improvement of
+    /// about 12.6 %, because full marks is +20 %. Regressions are floored at
+    /// zero here for the same reason they are in `score` — so the printed
+    /// average cannot disagree with the number above it.
+    static func meanImprovement(uplifts: [Double?]) -> Double? {
+        let present = uplifts.compactMap { $0 }
+        guard present.count >= minimumMetrics else { return nil }
+        return present.map { max($0, 0) }.reduce(0, +) / Double(present.count)
+    }
+
+    /// Metrics whose improvement was large enough to earn full marks, and so
+    /// could not lift the score any further. Worth naming: a +65 % metric
+    /// contributes exactly what a +20 % one does, which surprises people.
+    static func cappedCount(uplifts: [Double?]) -> Int {
+        uplifts.compactMap { $0 }.filter { $0 >= fullMarks }.count
     }
 
     /// Plain-language read. Describes the practice, never the practitioner.
