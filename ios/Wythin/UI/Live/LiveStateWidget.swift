@@ -730,14 +730,20 @@ struct LiveStateWidget: View {
     /// Shares its affordance vocabulary with `DayPotentialStrip.strip` — a
     /// tinted fill, a rounded clip and a stroked border, both keyed off the
     /// row's own accent — so a tappable row reads as tappable everywhere on
-    /// this card, not only on the strip above it. The chevron sits right
-    /// after the text instead of stranded at the far trailing edge (a large
-    /// `Spacer` before it, not after, is what caused that): a small
-    /// `Spacer(minLength: 0)` after the chevron still lets the tinted
-    /// background stretch to the card's full width.
+    /// this card, not only on the strip above it.
+    ///
+    /// The chevron sits at the row's true trailing edge, vertically centred
+    /// against the icon/text — matching `DayPotentialStrip.strip`, whose
+    /// HStack uses the default centred alignment for exactly this reason. A
+    /// `Spacer()` placed AFTER the chevron (a past attempt at "stranded",
+    /// stop-gap fix) pushed it inboard instead, roughly wherever the text
+    /// happened to end. The text block now claims the remaining width itself
+    /// (`.frame(maxWidth: .infinity, alignment: .leading)`), so the chevron —
+    /// the next and last child in the HStack — is pushed to the true
+    /// trailing edge with no spacer needed at all.
     @ViewBuilder
     private func collapsedRow(_ spec: LiveCollapsedRowSpec) -> some View {
-        let content = HStack(alignment: .top, spacing: 12) {
+        let content = HStack(alignment: .center, spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(spec.accent.opacity(0.16))
@@ -760,12 +766,11 @@ struct LiveStateWidget: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             if spec.isExpandable {
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(spec.accent)
-                    .padding(.top, 5)
-                Spacer(minLength: 0)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
