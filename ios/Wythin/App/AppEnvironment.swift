@@ -318,16 +318,29 @@ final class AppEnvironment {
     /// on the moment the Live tab appears, not computed when it does.
     let dayPotential = DayPotentialStore()
 
-    /// Read-only mirror of the on-disk rollup cache, for `LiveStateStore` to
-    /// build the user's baseline from. The Track tab owns its own separate
-    /// `TrackCache()` instance (`TrackView.cache`) and is the only thing that
-    /// ever fetches raw samples and writes new rollups; this instance never
-    /// calls `refresh`/`setMacroRead`, only `load()` + the pure `rollups(in:)`
-    /// read, so the two can never race on a write. Whatever Track has written
-    /// — this session or a previous one — is on disk and reachable from here;
-    /// if Track has never been opened there is nothing to load, and
-    /// `LiveBaseline.build` returning nil for an empty rollup list is the
-    /// documented cold-start fallback, not an error.
+    /// Mirror of the on-disk rollup cache, for `LiveStateStore` to build the
+    /// user's baseline from. The Track tab owns its own separate
+    /// `TrackCache()` instance (`TrackView.cache`) and remains the only thing
+    /// that fetches raw samples for the full 90-day window Track's charts
+    /// need; whatever Track has written — this session or a previous one —
+    /// is on disk and reachable from here via `load()` + the pure
+    /// `rollups(in:)` read.
+    ///
+    /// This instance also makes one narrow write of its own: `init` calls
+    /// `warmLiveBaseline()`, a bounded 14-day launch warm-up, so the Live tab
+    /// has a baseline without waiting for the user to ever open Track — see
+    /// that method's doc for why. That makes two independent `TrackCache`
+    /// instances writing the same file, which is a real hazard: `save()` is
+    /// atomic per write but writes each instance's *entire* in-memory
+    /// snapshot, so a stale snapshot saved after the other instance wrote
+    /// would clobber it. `TrackCache.mergeComputed` (what the warm-up calls
+    /// instead of `refresh`) reloads from disk immediately before merging and
+    /// saving, and — because both it and `refresh` are synchronous
+    /// `@MainActor` methods with no suspension point inside them — nothing
+    /// can interleave between that reload and that save. If Track has never
+    /// been opened and the warm-up hasn't landed yet either, there is simply
+    /// nothing to load, and `LiveBaseline.build` returning nil for an empty
+    /// rollup list is the documented cold-start fallback, not an error.
     let trackCache = TrackCache()
 
     /// Main-actor context for stores that own their own persistence
@@ -348,6 +361,8 @@ final class AppEnvironment {
     private var lastAnchorCheckAt: Date = .distantPast     // throttles anchor detection to ~5 min
     /// Anchors are frozen once a day, so checking every five minutes is generous.
     private let anchorCheckInterval: TimeInterval = 300
+    /// Guards `warmLiveBaseline()` to at most once per launch — see its doc.
+    private var didWarmLiveBaseline = false
 
     // MARK: Init
 
@@ -361,6 +376,7 @@ final class AppEnvironment {
         bindBLE()
         loadHistory()
         trackCache.load()
+        warmLiveBaseline()
         startUsageTracking()
         prewarmDashboards()
         // Register the notification categories up front: without them a nudge
@@ -442,6 +458,87 @@ final class AppEnvironment {
             var sessions = FetchDescriptor<HRVSession>(sortBy: [SortDescriptor(\.startedAt, order: .reverse)])
             sessions.fetchLimit = 60
             _ = try? context.fetch(sessions)
+        }
+    }
+
+    /// One-shot, bounded warm-up so the Live tab's Current State engine has a
+    /// baseline without depending on the user ever having opened Track.
+    /// `TrackCache.refresh` is the only thing that has ever turned raw
+    /// samples into rollups, and its one caller is `TrackView.swift:142` — so
+    /// a user who never visits Track, or whose cache was just discarded by a
+    /// `rollupComputeVersion` bump, gets `LiveBaseline.build` returning nil
+    /// forever and the Live widget silently falling back to its old
+    /// LLM-only rendering with nothing on screen to say anything changed.
+    ///
+    /// Warms the most recent 14 *closed* days (yesterday back 13 more),
+    /// deliberately not the full `AnchorBaseline.windowDays` (60):
+    /// `LiveBaseline` is prior-blended and already produces a usable — if
+    /// `provisional`, see `LivePrior.firmDays` (7) — baseline from a handful
+    /// of days, so there is no reason to pay for sixty days of up-to-60,000-
+    /// row fetches just to unblock the Live tab at launch. `today` is
+    /// excluded on purpose: it is still accumulating, `refresh` is what keeps
+    /// it current on every Track appear, and excluding it means this warm-up
+    /// never has to decide whether to (permanently, incorrectly) record an
+    /// in-progress day as `noDataDays`. Track's own visits keep extending
+    /// coverage toward the fuller 90-day window over time, exactly as before
+    /// this warm-up existed.
+    ///
+    /// The SwiftData fetch AND the `DailyRollupCompute` pass (`TrackCache.
+    /// computeRollups`) both run inside `Task.detached` on a background
+    /// `ModelContext(container)` — `loadHistory()`'s own pattern — because
+    /// `TrackCache.refresh` normally does both of those synchronously on
+    /// `@MainActor`, and up to 60,000 `HRVSample` rows a day for two weeks on
+    /// the main thread at launch is watchdog-kill territory. Only the
+    /// finished rollups are published back to the main actor, via
+    /// `TrackCache.mergeComputed` (see `trackCache`'s doc for why that method
+    /// exists instead of `refresh`).
+    private func warmLiveBaseline() {
+        guard !didWarmLiveBaseline else { return }
+        didWarmLiveBaseline = true
+
+        let cal      = Calendar.current
+        let today    = cal.startOfDay(for: Date())
+        let warmDays = 14
+        guard let windowStart = cal.date(byAdding: .day, value: -warmDays, to: today) else { return }
+        // Half-open range: excludes `today`, per the doc above.
+        let days = TrackRangeBuilder.dayStarts(from: windowStart, to: today, calendar: cal)
+
+        // `trackCache.load()` already ran in `init`, so this is a cheap,
+        // synchronous, in-memory check. It skips the background fetch
+        // entirely once these days are already cached — the common case on
+        // every relaunch after the first, and whenever Track has already
+        // been opened this session.
+        let pending = trackCache.uncachedDays(days, today: today)
+        guard !pending.isEmpty else { return }
+
+        // Each day's end computed up front, on the main actor, so the
+        // closure handed to `Task.detached` only has to capture plain
+        // `Date`s — not a `Calendar` — across the actor boundary.
+        var orderedDays: [Date] = []
+        var dayEnds: [Date: Date] = [:]
+        for day in pending {
+            guard let end = cal.date(byAdding: .day, value: 1, to: day) else { continue }
+            orderedDays.append(day)
+            dayEnds[day] = end
+        }
+        guard !orderedDays.isEmpty else { return }
+
+        let container = modelContainer
+        Task { @MainActor in
+            let (rollups, emptyDays) = await Task.detached {
+                let ctx = ModelContext(container)
+                return TrackCache.computeRollups(days: orderedDays) { day in
+                    guard let end = dayEnds[day] else { return [] }
+                    var desc = FetchDescriptor<HRVSample>(
+                        predicate: #Predicate { $0.timestamp >= day && $0.timestamp < end },
+                        sortBy:    [SortDescriptor(\.timestamp)])
+                    // Same bound `TrackView`'s own per-day fetch uses — a
+                    // full day of ~2 s ticks is ~43,200 rows.
+                    desc.fetchLimit = 60_000
+                    return ((try? ctx.fetch(desc)) ?? []).map { MetricsHistoryPoint(from: $0) }
+                }
+            }.value
+            self.trackCache.mergeComputed(rollups: rollups, emptyDays: emptyDays)
         }
     }
 

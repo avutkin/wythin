@@ -304,6 +304,70 @@ final class TrackCache {
         return changed
     }
 
+    /// Pure day → rollup pass, decoupled from `refresh`'s SwiftData-driven
+    /// loop so it can run off the main actor. `refresh` conflates the fetch,
+    /// the `DailyRollupCompute` pass, and the cached/no-data skip bookkeeping
+    /// into one `@MainActor` method — fine for Track's one-page-at-a-time
+    /// visits, but a multi-day warm-up driven from app launch
+    /// (`AppEnvironment.warmLiveBaseline`) must not run either the fetch or
+    /// the compute on the main actor: up to 60,000 `HRVSample` rows a day,
+    /// repeated across two weeks, is watchdog-kill territory. Takes the fetch
+    /// as a closure — `refresh`'s own pattern — so it is testable without
+    /// SwiftData: supply points directly.
+    ///
+    /// Returns the finished rollups and the days that computed to no data;
+    /// the caller folds both into a live `TrackCache` instance with
+    /// `mergeComputed` once back on the main actor. Does not consult or
+    /// mutate `rollupsByDay`/`noDataDays` — callers are expected to have
+    /// already narrowed `days` to what actually needs fetching (see
+    /// `uncachedDays`), the same way `TrackView.loadRollups` narrows its own
+    /// fetch before calling `refresh`.
+    nonisolated static func computeRollups(
+        days: [Date], fetchDay: (Date) throws -> [MetricsHistoryPoint]
+    ) -> (rollups: [DailyRollup], emptyDays: [Date]) {
+        var rollups:   [DailyRollup] = []
+        var emptyDays: [Date] = []
+        for day in days {
+            guard let points = try? fetchDay(day) else { continue }
+            if let rollup = DailyRollupCompute.rollup(day: day, points: points) {
+                rollups.append(rollup)
+            } else {
+                emptyDays.append(day)
+            }
+        }
+        return (rollups, emptyDays)
+    }
+
+    /// Folds rollups computed elsewhere (off the main actor — see
+    /// `computeRollups`) into this cache and saves once.
+    ///
+    /// Reloads from disk immediately before merging. `TrackView` owns a
+    /// second, independent `TrackCache` instance over the same file
+    /// (`AppEnvironment.trackCache`'s doc explains why two instances exist),
+    /// and `save()` writes this instance's *entire* in-memory snapshot — a
+    /// stale snapshot merged blindly could clobber whatever Track wrote in
+    /// between. Reloading right before the merge closes that window: this
+    /// method and `refresh` are both synchronous `@MainActor` methods with no
+    /// `await` inside them, and an actor runs one non-suspending unit of its
+    /// own isolated work to completion before starting the next, so nothing
+    /// can interleave between this load and this save. The only overlap left
+    /// is two writers computing the *same* day from the same samples, which
+    /// is a harmless no-op merge — the result is deterministic.
+    @discardableResult
+    func mergeComputed(rollups: [DailyRollup], emptyDays: [Date]) -> Bool {
+        load()
+        var changed = false
+        for rollup in rollups where rollupsByDay[rollup.day] != rollup {
+            rollupsByDay[rollup.day] = rollup
+            changed = true
+        }
+        for day in emptyDays where noDataDays.insert(day).inserted {
+            changed = true
+        }
+        if changed { save() }
+        return changed
+    }
+
     /// A hash of the *values* covering `days`, used to key cached macro reads.
     ///
     /// It must be a value hash rather than a write counter: today's rollup is
