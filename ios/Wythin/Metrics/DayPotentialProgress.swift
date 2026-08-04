@@ -171,17 +171,24 @@ enum DayPotentialBarGeometry {
         return trackWidth * CGFloat(clamped)
     }
 
-    /// The knob's centre x-position, clamped so the circle stays entirely on
-    /// the track at both ends.
+    /// The travelling marker's centre x-position, clamped so it stays
+    /// entirely on the track at both ends.
     ///
     /// At fraction 0 or 1 the fill boundary itself sits exactly on the
-    /// capsule's rounded edge, so a knob centred there would draw half off
+    /// capsule's rounded edge, so a marker centred there would draw half off
     /// the track — that is why this clamps independently rather than simply
-    /// reusing `fillWidth` as the knob's centre.
-    static func knobCenterX(fraction: Double, trackWidth: CGFloat, knobRadius: CGFloat) -> CGFloat {
-        guard trackWidth > knobRadius * 2 else { return trackWidth / 2 }
+    /// reusing `fillWidth` as the marker's centre.
+    ///
+    /// `markerRadius` is half the marker's own on-screen width, not a
+    /// circle's radius — the marker is a crown icon, not a circle, but a
+    /// crown drawn in a fixed square frame still clamps the same way a
+    /// circle would: by half its footprint. Callers must pass the frame's
+    /// actual half-width rather than a guessed or stale figure, since a
+    /// too-small value here lets the crown draw past the capsule's edge.
+    static func markerCenterX(fraction: Double, trackWidth: CGFloat, markerRadius: CGFloat) -> CGFloat {
+        guard trackWidth > markerRadius * 2 else { return trackWidth / 2 }
         let raw = fillWidth(fraction: fraction, trackWidth: trackWidth)
-        return min(max(raw, knobRadius), trackWidth - knobRadius)
+        return min(max(raw, markerRadius), trackWidth - markerRadius)
     }
 }
 

@@ -287,9 +287,18 @@ final class DayPotentialProgressTests: XCTestCase {
 
 // MARK: - Progress bar geometry
 
-/// The capsule bar's fill width and knob clamping — the one part of the
+/// The capsule bar's fill width and marker clamping — the one part of the
 /// restyle that is real logic rather than paint, so it is pinned here
 /// independent of any view.
+///
+/// The travelling marker used to be a plain circle (`knobCenterX`,
+/// `knobRadius: 11` — half of a 22pt-diameter circle); it is now a crown
+/// icon drawn in a fixed 20pt square frame (`DayPotentialStrip.markerSize`),
+/// so the function and every pinned value below moved from "knob"/circle
+/// wording to "marker" wording and from radius 11 to radius 10 to match.
+/// The clamp arithmetic itself is unchanged — only the real half-width fed
+/// into it changed, which is exactly the "re-derive from the shape's actual
+/// size" fix this rename exists to pin.
 final class DayPotentialBarGeometryTests: XCTestCase {
 
     func testFillWidthAtZeroFractionIsZero() {
@@ -312,29 +321,30 @@ final class DayPotentialBarGeometryTests: XCTestCase {
         XCTAssertEqual(DayPotentialBarGeometry.fillWidth(fraction: -0.2, trackWidth: 200), 0)
     }
 
-    /// At 0%, the naive centre (x=0) would draw the knob half off the left
+    /// At 0%, the naive centre (x=0) would draw the marker half off the left
     /// edge of the capsule — it must clamp to sit fully on the track so it
     /// stays visible at the very start.
-    func testKnobCenterAtZeroPercentClampsOntoTheTrack() {
-        XCTAssertEqual(DayPotentialBarGeometry.knobCenterX(fraction: 0, trackWidth: 200, knobRadius: 11), 11)
+    func testMarkerCenterAtZeroPercentClampsOntoTheTrack() {
+        XCTAssertEqual(DayPotentialBarGeometry.markerCenterX(fraction: 0, trackWidth: 200, markerRadius: 10), 10)
     }
 
-    /// At 100%, the naive centre (x=trackWidth) would draw the knob half off
-    /// the right edge — the same clamp, the other direction, so it stays
-    /// visible at the very end too.
-    func testKnobCenterAtFullPercentClampsOntoTheTrack() {
-        XCTAssertEqual(DayPotentialBarGeometry.knobCenterX(fraction: 1, trackWidth: 200, knobRadius: 11), 189)
+    /// At 100%, the naive centre (x=trackWidth) would draw the marker half
+    /// off the right edge — the same clamp, the other direction, so it
+    /// stays visible at the very end too.
+    func testMarkerCenterAtFullPercentClampsOntoTheTrack() {
+        XCTAssertEqual(DayPotentialBarGeometry.markerCenterX(fraction: 1, trackWidth: 200, markerRadius: 10), 190)
     }
 
-    func testKnobCenterMidTrackNeedsNoClamping() {
-        XCTAssertEqual(DayPotentialBarGeometry.knobCenterX(fraction: 0.5, trackWidth: 200, knobRadius: 11), 100)
+    func testMarkerCenterMidTrackNeedsNoClamping() {
+        XCTAssertEqual(DayPotentialBarGeometry.markerCenterX(fraction: 0.5, trackWidth: 200, markerRadius: 10), 100)
     }
 
-    /// A track too narrow to hold the knob at all — its own diameter alone
-    /// exceeds the track width — must not invert the clamp into a negative
-    /// or out-of-range position; it settles on the track's centre instead.
-    func testKnobCenterOnATrackNarrowerThanTheKnobFallsBackToCentre() {
-        XCTAssertEqual(DayPotentialBarGeometry.knobCenterX(fraction: 0.5, trackWidth: 10, knobRadius: 11), 5)
+    /// A track too narrow to hold the marker at all — its own footprint
+    /// alone exceeds the track width — must not invert the clamp into a
+    /// negative or out-of-range position; it settles on the track's centre
+    /// instead.
+    func testMarkerCenterOnATrackNarrowerThanTheMarkerFallsBackToCentre() {
+        XCTAssertEqual(DayPotentialBarGeometry.markerCenterX(fraction: 0.5, trackWidth: 10, markerRadius: 10), 5)
     }
 }
 

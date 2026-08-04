@@ -158,7 +158,18 @@ struct DayPotentialStrip: View {
     // MARK: Next-crown progress bar geometry
 
     private static let barHeight: CGFloat = 36
-    private static let knobDiameter: CGFloat = 22
+    /// The capsule's own visual thickness — roughly half of `barHeight`, the
+    /// row's full allotted height, so the track reads as a line rather than
+    /// the slab it used to be. `barHeight` stays taller than this on
+    /// purpose: it leaves room for the travelling marker below to overflow
+    /// the thin track a little, the way a slider's thumb sits proud of a
+    /// thin rail, without being clipped by the row.
+    private static let trackHeight: CGFloat = 18
+    /// The travelling marker's fixed square footprint. Giving it an actual
+    /// frame — rather than letting the crown glyph's own rendered bounds
+    /// decide it — is what lets `DayPotentialBarGeometry.markerCenterX`
+    /// clamp correctly: the clamp needs a real half-width, not a guess.
+    private static let markerSize: CGFloat = 20
     /// Reserved at the trailing end for the crown, held out of the fill
     /// track entirely — earning a full week must not paint the fill straight
     /// under the icon, since the reference always shows that milestone
@@ -168,12 +179,18 @@ struct DayPotentialStrip: View {
     /// Fills toward whichever crown the ladder above is currently building —
     /// the cumulative count, same as the ladder, not this week's attendance.
     ///
-    /// The trailing crown is a silhouette of that specific crown, not a
+    /// Two crowns ride this bar, and they are one crown at two moments, not
+    /// two decorations. The travelling white crown *is* the in-progress
+    /// week — a white crown is exactly what the ladder above calls a week
+    /// that hasn't closed yet — moving toward the trailing crown, which is
+    /// that same week's future: the specific colour it becomes once it
+    /// closes. The trailing crown is a silhouette of that colour, not a
     /// neutral placeholder: it is tinted with `nextCrownColor` the whole
     /// time it's outlined, then fills solid the instant it's earned, so the
     /// colour never changes at the moment of completion — only the fill
-    /// does. The copy beneath names this same colour, from this same
-    /// function, so the sentence and the silhouette cannot disagree.
+    /// does, which is the same instant the travelling crown reaches it. The
+    /// copy beneath names this same colour, from this same function, so the
+    /// sentence and the silhouette cannot disagree.
     private var crownProgressBar: some View {
         let fraction = CrownLadder.progressFraction(forMorningCount: totalMornings)
         let earned = fraction >= 1.0
@@ -183,19 +200,23 @@ struct DayPotentialStrip: View {
             GeometryReader { geo in
                 let trackWidth = max(geo.size.width - Self.crownSlotWidth, 0)
                 let fillWidth = DayPotentialBarGeometry.fillWidth(fraction: fraction, trackWidth: trackWidth)
-                let knobX = DayPotentialBarGeometry.knobCenterX(
-                    fraction: fraction, trackWidth: trackWidth, knobRadius: Self.knobDiameter / 2)
+                let markerX = DayPotentialBarGeometry.markerCenterX(
+                    fraction: fraction, trackWidth: trackWidth, markerRadius: Self.markerSize / 2)
 
                 ZStack(alignment: .leading) {
                     // Beyond the fill: near-black track, not empty space.
+                    // Constrained to `trackHeight` and left otherwise
+                    // unpositioned so the ZStack's own leading/centre
+                    // alignment centres it vertically in the taller row.
                     Capsule().fill(Theme.bg)
+                        .frame(height: Self.trackHeight)
 
                     // The fill itself, with a faint lighter core line for
                     // depth — subtle on purpose, it is not the fill boundary
-                    // marker, the knob below is.
+                    // marker, the crown below is.
                     Capsule()
                         .fill(accent)
-                        .frame(width: fillWidth)
+                        .frame(width: fillWidth, height: Self.trackHeight)
                         .overlay(alignment: .leading) {
                             if fillWidth > 16 {
                                 Capsule()
@@ -205,24 +226,29 @@ struct DayPotentialStrip: View {
                             }
                         }
 
-                    // The knob at the fill boundary. Its glow is purely
-                    // decorative — the solid white circle beneath already
-                    // marks the boundary on its own, so the glow carries no
+                    // The marker at the fill boundary: a white crown,
+                    // because the boundary it marks is literally the week
+                    // in progress, the same thing a white crown means in
+                    // the ladder above. Deliberately toned down from a
+                    // plain white fill — a muted opacity of `Theme.text`
+                    // rather than the pure colour — and with no glow behind
+                    // it: the earlier glow was purely decorative, so
+                    // dropping it removes brightness without losing any
                     // information a Reduce Transparency or low-vision
-                    // rendering would lose.
-                    ZStack {
-                        Circle()
-                            .fill(accent.opacity(0.55))
-                            .frame(width: Self.knobDiameter + 16, height: Self.knobDiameter + 16)
-                            .blur(radius: 6)
-                        Circle()
-                            .fill(Theme.text)
-                            .frame(width: Self.knobDiameter, height: Self.knobDiameter)
-                    }
-                    .position(x: knobX, y: geo.size.height / 2)
+                    // rendering would otherwise lose. It stays legible
+                    // against both the fill and the dark remainder on
+                    // shape and position alone.
+                    Image(systemName: "crown.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Theme.text.opacity(0.82))
+                        .frame(width: Self.markerSize, height: Self.markerSize)
+                        .position(x: markerX, y: geo.size.height / 2)
 
                     // The milestone crown, inside the capsule at the
-                    // trailing end, on the reserved dark slot.
+                    // trailing end, on the reserved dark slot. At
+                    // `trackHeight` this still sits comfortably inside the
+                    // capsule, so it stays put on the centreline rather
+                    // than needing to move outside the track.
                     Image(systemName: earned ? "crown.fill" : "crown")
                         .font(.system(size: 13))
                         .foregroundStyle(nextColor)
