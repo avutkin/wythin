@@ -537,6 +537,31 @@ final class ActivityLog {
         }
     }
 
+    /// ΔDC per extra bpm — the index in its own units, always available from the
+    /// stored window averages.
+    var brakePerBeat: Double? {
+        ExerciseSuppression.brakePerBeat(dcPre: beforeDC.map(Double.init),
+                                         dcDuring: duringDC.map(Double.init),
+                                         hrPre: beforeHR.map(Double.init),
+                                         hrDuring: duringHR.map(Double.init))
+    }
+
+    /// Suppression as an axis value.
+    ///
+    /// Scored from the index against fixed anchors so it exists from the first
+    /// session. The history percentile, when there is history, becomes the
+    /// wording rather than the number — "cheaper than usual" is a comparison,
+    /// and a comparison cannot be the score when there is nothing to compare to.
+    var suppressionAxis: AxisValue {
+        if vagalRoseDuring { return .unavailable(reason: "vagal tone rose — nothing suppressed") }
+        guard let score = ExerciseSuppression.economyScore(brakePerBeat: brakePerBeat) else {
+            return .unavailable(reason: "not enough heart-rate rise to measure")
+        }
+        let word = suppressionScore.map(ExerciseResponse.word(for:))
+            ?? ExerciseResponse.word(for: score)
+        return .score(score, word: word)
+    }
+
     /// Recovery as an axis value, scored from how long it took rather than from
     /// a level — so a session still falling can never score as partly recovered.
     var recoveryAxis: AxisValue {

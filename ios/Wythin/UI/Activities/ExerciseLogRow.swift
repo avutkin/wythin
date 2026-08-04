@@ -63,11 +63,7 @@ struct ExerciseLogRow: View {
 
 
 
-    private var suppression: AxisValue {
-        guard entry.vsiSlopePer10 != nil else { return .unavailable(reason: "no fit") }
-        guard let score = entry.suppressionScore else { return .unavailable(reason: historyProgress) }
-        return .score(score, word: ExerciseResponse.word(for: score))
-    }
+    private var suppression: AxisValue { entry.suppressionAxis }
 
     private var efficiency: AxisValue {
         // The absence that matters most: chest motion does not measure barbell

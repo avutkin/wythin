@@ -175,3 +175,37 @@ extension ExerciseSuppressionTests {
             samples: wide, minimumSpan: ExerciseSuppression.minimumMotionSpan))
     }
 }
+
+// MARK: - The economy score exists from session one
+
+extension ExerciseSuppressionTests {
+
+    func testCheapWorkScoresTopAndCostlyWorkScoresBottom() {
+        XCTAssertEqual(ExerciseSuppression.economyScore(
+            brakePerBeat: ExerciseSuppression.cheapBrakePerBeat), 100)
+        XCTAssertEqual(ExerciseSuppression.economyScore(
+            brakePerBeat: ExerciseSuppression.costlyBrakePerBeat), 0)
+    }
+
+    func testTheScoreFallsAsTheCostRises() {
+        let scores = [0.04, 0.08, 0.12, 0.16, 0.20]
+            .map { ExerciseSuppression.economyScore(brakePerBeat: $0)! }
+        XCTAssertEqual(scores, scores.sorted(by: >))
+    }
+
+    func testBeyondTheAnchorsItClampsRatherThanOverflowing() {
+        XCTAssertEqual(ExerciseSuppression.economyScore(brakePerBeat: 0.001), 100)
+        XCTAssertEqual(ExerciseSuppression.economyScore(brakePerBeat: 5.0), 0)
+    }
+
+    func testNoIndexMeansNoScore() {
+        XCTAssertNil(ExerciseSuppression.economyScore(brakePerBeat: nil))
+    }
+
+    func testItNeedsNoHistoryAtAll() {
+        // The bug this fixes: every axis was a percentile, so the first three
+        // sessions of a kind had no scoreable axis and therefore no session
+        // score. This one is anchored, so it exists immediately.
+        XCTAssertNotNil(ExerciseSuppression.economyScore(brakePerBeat: 0.08))
+    }
+}

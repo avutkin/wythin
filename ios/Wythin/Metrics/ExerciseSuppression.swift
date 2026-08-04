@@ -127,6 +127,27 @@ enum ExerciseSuppression {
     /// normalise against.
     static let minimumHRRise: Double = 8
 
+    // MARK: - Absolute economy score
+
+    /// Milliseconds of brake per extra beat at which the work was as cheap as
+    /// this gets, and at which it was as expensive.
+    ///
+    /// Anchored rather than ranked against history, for the same reason
+    /// Recovery and the restorative score are: a percentile needs three prior
+    /// sessions of the same kind, so every axis was unavailable until the
+    /// fourth — and a session with no post-session recording had no scoreable
+    /// axis at all, which left the whole session score blank. An anchored score
+    /// means the same thing on session one as on session fifty.
+    static let cheapBrakePerBeat: Double = 0.04
+    static let costlyBrakePerBeat: Double = 0.20
+
+    /// 0–100 from the index itself: less brake given up per beat scores higher.
+    static func economyScore(brakePerBeat: Double?) -> Int? {
+        guard let v = brakePerBeat else { return nil }
+        let t = (v - cheapBrakePerBeat) / (costlyBrakePerBeat - cheapBrakePerBeat)
+        return Int((100 * (1 - min(max(t, 0), 1))).rounded())
+    }
+
     /// Fraction of pre-session vagal tone withdrawn at the trough, 0…1.
     ///
     /// Descriptive only. Depth is the size of the stimulus, not its quality —
