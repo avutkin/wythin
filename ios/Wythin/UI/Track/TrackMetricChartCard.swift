@@ -2,7 +2,13 @@ import SwiftUI
 import Charts
 
 /// One metric's bar chart for one page: header average, benefit-signed delta,
-/// bars with their values printed on top, and the personal reference line.
+/// bars, and the personal reference line.
+///
+/// W and 6M print each bar's value on top of it. M can't — it has one bar per
+/// day, ~30 of them, and thirty 8pt numbers do not fit across a phone. Its
+/// numbers come from the weekly average lines drawn over the bars instead,
+/// one per calendar week; any single day's own value is still readable by
+/// tapping its bar, which puts it in the header.
 struct TrackMetricChartCard: View {
     let spec:   TrackMetricSpec
     let series: TrackSeries
@@ -145,14 +151,16 @@ struct TrackMetricChartCard: View {
                         x:      .value("Bucket", bar.bucket.start, unit: xUnit),
                         yStart: .value(spec.def.label, barAnchor),
                         yEnd:   .value(spec.def.label, v),
-                        width:  .ratio(0.6)
+                        width:  barWidth
                     )
-                    .cornerRadius(2)
+                    .cornerRadius(cornerRadius)
                     .foregroundStyle(barColor(bar, value: v))
                     .annotation(position: .top, spacing: 2) {
-                        Text(spec.def.format(v))
-                            .font(.system(size: 8, design: .monospaced))
-                            .foregroundStyle(Theme.dim)
+                        if showsBarValues {
+                            Text(spec.def.format(v))
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundStyle(Theme.dim)
+                        }
                     }
                 } else {
                     // Invisible anchor at this bucket's x-position. When every
@@ -173,23 +181,78 @@ struct TrackMetricChartCard: View {
                         .opacity(0)
                 }
             }
+
+            // The month page's weekly means, drawn *after* the bars so they
+            // sit on top of them rather than behind. Each spans exactly its
+            // own week: `start` is that week's first day and `end` the day
+            // after its last, which on the same date scale the bars are
+            // placed against lands flush with the outer edges of the first
+            // and last bar underneath it. Empty for every other period.
+            ForEach(series.weekAverages) { week in
+                if let v = week.value {
+                    RuleMark(
+                        xStart: .value("Week start", week.start),
+                        xEnd:   .value("Week end", week.end),
+                        y:      .value(spec.def.label, v)
+                    )
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .butt))
+                    .foregroundStyle(spec.color)
+                    .annotation(position: .top, spacing: 1) {
+                        // On a chip, unlike the bar-top values on W and 6M.
+                        // A week's mean sits *inside* its own bars by
+                        // definition — roughly half of them rise above it —
+                        // so bare text here lands on top of bright green
+                        // bars and is unreadable against them.
+                        Text(spec.def.format(v))
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(spec.color)
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 0.5)
+                            .background(RoundedRectangle(cornerRadius: 3)
+                                .fill(Theme.bg.opacity(0.85)))
+                    }
+                }
+            }
         }
         .frame(height: 132)
         .chartYScale(domain: yDomain)
         .chartYAxis(.hidden)
         .chartXAxis {
-            // Every period's bars get an axis label: W and 6M always did
-            // (≤7 bars), and now M does too, since its bars are calendar
-            // weeks (≤6 of them, same as 6M) rather than ~30 days. That
-            // used to need a "label only the extremes" thinning pass to
-            // stay legible — moot now that there's nothing to thin.
-            AxisMarks(values: series.bars.map(\.bucket.start)) { value in
-                if let d = value.as(Date.self),
-                   let bar = series.bars.first(where: { $0.bucket.start == d }) {
-                    AxisValueLabel {
-                        Text(bar.value == nil ? "·" : bar.bucket.label)
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(Theme.dim)
+            if period == .month {
+                // One label per calendar week rather than per day: ~30 dates
+                // will not fit, and the day-of-month digits they would carry are
+                // the least useful thing this axis could say. Each label names
+                // the period its week covers ("6–12") and hangs off that
+                // week's middle day so it sits centred under the average line
+                // and the seven bars it stands for.
+                AxisMarks(values: series.weekAverages.map(\.midDay)) { value in
+                    if let d = value.as(Date.self),
+                       let week = series.weekAverages.first(where: { $0.midDay == d }) {
+                        AxisValueLabel {
+                            Text(week.value == nil ? "·" : week.label)
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundStyle(Theme.dim)
+                                // Without this the label is offered only the
+                                // width Charts thinks is free to the right of
+                                // its tick, and the last week — anchored a few
+                                // days short of the plot's trailing edge —
+                                // truncates to "27–…" even though the whole
+                                // "27–31" fits inside the plot.
+                                .fixedSize()
+                        }
+                    }
+                }
+            } else {
+                // W and 6M label every bar — ≤7 of them, so nothing needs
+                // thinning to stay legible.
+                AxisMarks(values: series.bars.map(\.bucket.start)) { value in
+                    if let d = value.as(Date.self),
+                       let bar = series.bars.first(where: { $0.bucket.start == d }) {
+                        AxisValueLabel {
+                            Text(bar.value == nil ? "·" : bar.bucket.label)
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundStyle(Theme.dim)
+                        }
                     }
                 }
             }
@@ -230,17 +293,30 @@ struct TrackMetricChartCard: View {
         }
     }
 
-    /// One bar per bucket: a day for W, a calendar week for M, a calendar
-    /// month for 6M. Must match whatever granularity `TrackSeriesBuilder.bars`
-    /// actually produced for this period, or Charts spaces/widths the bars
-    /// against the wrong unit and they no longer line up with their bucket.
+    /// One bar per bucket: a day for W and M, a calendar month for 6M. Must
+    /// match whatever granularity `TrackSeriesBuilder.bars` actually produced
+    /// for this period, or Charts spaces/widths the bars against the wrong
+    /// unit and they no longer line up with their bucket.
     private var xUnit: Calendar.Component {
         switch period {
-        case .week:     return .day
-        case .month:    return .weekOfYear
-        case .sixMonth: return .month
+        case .week, .month: return .day
+        case .sixMonth:     return .month
         }
     }
+
+    /// A month packs ~30 bars into the width W gives 7, so its bars take up
+    /// more of their band than W's and 6M's do — at 0.6 they'd be hairlines
+    /// with more gap than bar between them.
+    private var barWidth: MarkDimension { period == .month ? .ratio(0.82) : .ratio(0.6) }
+
+    /// A 2pt radius on a ~7pt-wide monthly bar rounds most of the bar away;
+    /// W's and 6M's are wide enough to carry it.
+    private var cornerRadius: CGFloat { period == .month ? 1 : 2 }
+
+    /// Whether each bar prints its own value on top. False for the month —
+    /// see this view's doc comment for why, and for what carries the numbers
+    /// there instead.
+    private var showsBarValues: Bool { period != .month }
 
     private func barColor(_ bar: TrackBar, value: Double) -> Color {
         if selectedBucket == bar.bucket.start { return spec.color }
