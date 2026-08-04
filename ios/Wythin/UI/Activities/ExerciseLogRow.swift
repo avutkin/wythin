@@ -39,8 +39,13 @@ struct ExerciseLogRow: View {
             out.append(("VAGAL BRAKE GIVEN UP", String(format: "%.2f", brake),
                         "ms per extra bpm", Theme.hrv))
         }
-        if let pct = recoveryPercent {
-            out.append(("VAGAL TONE BACK", "\(pct)%", "of resting, at +10 min", Theme.accent))
+        switch entry.recoveryOutcome {
+        case let .reached(minutes):
+            out.append(("HALFWAY BACK IN", "\(Int(minutes.rounded()))", "min after stopping", Theme.accent))
+        case let .notReached(observed):
+            out.append(("HALFWAY BACK IN", ">\(Int(observed.rounded()))", "min — not yet clear", Theme.domainHeavy))
+        case .notObserved:
+            break
         }
         if let load = entry.exerciseLoad {
             out.append(("LOAD", "\(Int(load.rounded()))", "effort × time", Theme.rsa))
@@ -56,11 +61,7 @@ struct ExerciseLogRow: View {
                                          hrDuring: entry.duringHR.map(Double.init))
     }
 
-    private var recoveryPercent: Int? {
-        guard let after = (entry.afterTailDC ?? entry.afterDC).map(Double.init),
-              let pre = entry.beforeDC.map(Double.init), pre > 0 else { return nil }
-        return Int((min(max(after / pre * 100, 0), 100)).rounded())
-    }
+
 
     private var suppression: AxisValue {
         guard entry.vsiSlopePer10 != nil else { return .unavailable(reason: "no fit") }
@@ -86,9 +87,7 @@ struct ExerciseLogRow: View {
     /// The headline score, from the three axes only — never from Load.
     private var overall: AxisValue {
         ExerciseOverallScore.compute(suppression: suppression,
-                                     recovery: ExerciseResponse.reactivationScore(
-                                        dcAfter: (entry.afterTailDC ?? entry.afterDC).map(Double.init),
-                                        dcPre: entry.beforeDC.map(Double.init)),
+                                     recovery: entry.recoveryAxis,
                                      efficiency: efficiency)
     }
 

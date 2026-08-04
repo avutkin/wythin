@@ -186,6 +186,13 @@ final class ActivityLog {
     /// person actually had.
     var afterTailDC:           Float?
 
+    /// Minutes after the session ended until the vagal brake first came halfway
+    /// back to its pre-session level and held there. `nil` means it did not —
+    /// see `recoveryObservedMinutes` for how long we watched before saying so.
+    var halfRecoveryMinutes:   Double?
+    /// How much recording there was after the session, in minutes.
+    var recoveryObservedMinutes: Double?
+
     /// Vagal tone rose with heart rate rather than falling — yoga, mobility,
     /// anything where the brake comes on. Not a failure to measure.
     var vagalRoseDuring:       Bool = false
@@ -470,6 +477,7 @@ final class ActivityLog {
         }
 
         computeRecoveryTail(context: context)
+        computeRecoveryTiming(context: context)
         scoreSlopesAgainstHistory(context: context)
     }
 
@@ -489,6 +497,62 @@ final class ActivityLog {
         // Falls back to the window mean when the strap came off before the tail,
         // so a short recording degrades rather than going blank.
         afterTailDC = vals.isEmpty ? afterDC : vals.reduce(0, +) / Float(vals.count)
+    }
+
+    /// Time for the vagal brake to come halfway back, which is what "recovery"
+    /// actually means. A level at a fixed moment could not distinguish a session
+    /// climbing back from one still falling.
+    private func computeRecoveryTiming(context: ModelContext) {
+        guard let end = endedAt else { return }
+        // Looks past the stored 10-minute window: recovery that takes longer is
+        // exactly the case worth reporting, and cutting it off at ten minutes
+        // would report "never" for a session that came back at twelve.
+        let horizon = end.addingTimeInterval(4 * 3600)
+        let predicate = #Predicate<HRVSample> {
+            $0.timestamp >= end && $0.timestamp <= horizon
+        }
+        var desc = FetchDescriptor<HRVSample>(predicate: predicate,
+                                              sortBy: [SortDescriptor(\.timestamp)])
+        desc.fetchLimit = 20_000
+        let raw = (try? context.fetch(desc)) ?? []
+        let after = raw
+            .filter { MetricsQualityFilter.isValid(MetricsHistoryPoint(from: $0)) }
+            .compactMap { s -> (minutes: Double, dc: Double)? in
+                guard let dc = s.dc else { return nil }
+                return (s.timestamp.timeIntervalSince(end) / 60, Double(dc))
+            }
+
+        let outcome = RecoveryTiming.halfRecovery(after: after,
+                                                  dcPre: beforeDC.map(Double.init))
+        switch outcome {
+        case let .reached(minutes):
+            halfRecoveryMinutes = minutes
+            recoveryObservedMinutes = after.last?.minutes
+        case let .notReached(observed):
+            halfRecoveryMinutes = nil
+            recoveryObservedMinutes = observed
+        case .notObserved:
+            halfRecoveryMinutes = nil
+            recoveryObservedMinutes = nil
+        }
+    }
+
+    /// Recovery as an axis value, scored from how long it took rather than from
+    /// a level — so a session still falling can never score as partly recovered.
+    var recoveryAxis: AxisValue {
+        let outcome = recoveryOutcome
+        guard let score = RecoveryTiming.score(outcome) else {
+            return .unavailable(reason: "not enough recording after")
+        }
+        return .score(score, word: ExerciseResponse.word(for: score))
+    }
+
+    /// The stored timing, back in the shape the views and the score consume.
+    var recoveryOutcome: RecoveryTiming.Outcome {
+        if let m = halfRecoveryMinutes { return .reached(minutes: m) }
+        if let o = recoveryObservedMinutes,
+           o >= RecoveryTiming.minimumObservationMinutes { return .notReached(observedMinutes: o) }
+        return .notObserved
     }
 
     /// What this session is compared against: its subtype when it has one,

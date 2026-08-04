@@ -40,7 +40,7 @@ extension SessionCoachSummary {
         // ── What was great ────────────────────────────────────────────────
         var strengths: [String] = []
         if let r = score(recovery), r >= 60 {
-            strengths.append("Your vagal brake came back strongly — \(r)% of resting tone regained within ten minutes of stopping.")
+            strengths.append("Your vagal brake came back quickly after you stopped.")
         }
         if let s = score(suppression), s >= 60 {
             strengths.append("You held that heart rate cheaply: less vagal shutdown per beat than your recent sessions of this kind.")
@@ -60,7 +60,7 @@ extension SessionCoachSummary {
         // ── What to improve ───────────────────────────────────────────────
         var improvements: [String] = []
         if let r = score(recovery), r < 40 {
-            improvements.append("Recovery was slow — only \(r)% of vagal tone back at ten minutes. Add five minutes of slow nasal breathing before you finish.")
+            improvements.append("Your vagal brake was slow to come back. Add five minutes of slow nasal breathing before you finish.")
         }
         if let s = score(suppression), s < 40 {
             improvements.append("This heart rate cost more vagal tone than usual, which usually means you arrived under-recovered rather than that the session was wrong.")
