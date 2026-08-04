@@ -492,6 +492,203 @@ async def user_metrics(user_id: str, window: str = "24h", offset: int = 0):
     }
 
 
+# ── Track: daily averages per metric, the way the app's Track screen reads ──
+#
+# Mirrors ios/Wythin/Metrics: one bar per bucket, a personal baseline from the
+# 90-day median of daily averages (needing 14 days before it stops being a
+# fixed norm), and a benefit-signed delta against the immediately prior period.
+_TRACK_BASELINE_DAYS = 90
+_TRACK_MIN_BASELINE_DAYS = 14
+
+# period -> (bucket, count) where bucket is 'day', 'week' or 'month'.
+_TRACK_PERIODS = {
+    "week":      ("day", 7),
+    "halfmonth": ("day", 15),
+    "month":     ("day", 30),
+    "sixweek":   ("week", 6),
+    "sixmonth":  ("month", 6),
+}
+
+# Benefit direction, from ActivityMetricsGrid.swift. Metrics the app has no
+# stated direction for are reported as None: bars and averages still make
+# sense, "better than typical" does not.
+_TRACK_DIRECTION = {
+    "mean_bpm": "lower",  "rmssd": "higher", "rsa_ms": "higher", "vti": "higher",
+    "dc": "higher",       "rcmse": "higher", "pip": "lower",     "lf_hf": "lower",
+    "dfa1": "target",     "coherence": "higher",
+    "sdnn": None, "pnn50": None, "cbi": None, "breath_bpm": None,
+}
+_TRACK_TARGET = {"dfa1": 1.0}
+
+
+@router.get("/users/{user_id}/track")
+async def user_track(user_id: str, period: str = "week", offset: int = 0,
+                     tz_offset: int = 0):
+    """Per-metric daily averages over a period, with the baseline and the
+    period-over-period delta the app's Track screen shows.
+
+    `offset` pages backwards whole periods. `tz_offset` is the viewer's JS
+    timezone offset so days break on their midnight, not UTC's."""
+    period = period if period in _TRACK_PERIODS else "week"
+    bucket, count = _TRACK_PERIODS[period]
+    offset = max(0, min(offset, 120))
+    tz_offset = max(-900, min(tz_offset, 900))
+    off = timedelta(minutes=tz_offset)
+
+    # Work in the viewer's local calendar, then shift back to UTC for the query.
+    local_today = (datetime.now(timezone.utc) - off).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    if bucket == "day":
+        end_local = local_today + timedelta(days=1) - timedelta(days=count * offset)
+        start_local = end_local - timedelta(days=count)
+    elif bucket == "week":
+        end_local = local_today + timedelta(days=1) - timedelta(weeks=count * offset)
+        start_local = end_local - timedelta(weeks=count)
+    else:  # month — anchored to the first of the month, like the app's 6M page
+        first = local_today.replace(day=1)
+        months_back = count * offset
+        y, m = first.year, first.month - months_back
+        while m <= 0:
+            m += 12
+            y -= 1
+        end_local = _add_months(datetime(y, m, 1, tzinfo=timezone.utc), 1)
+        start_local = _add_months(end_local, -count)
+
+    prior_start_local = start_local - (end_local - start_local)
+    baseline_start_local = end_local - timedelta(days=_TRACK_BASELINE_DAYS)
+    # One pass over every day that any part of the response needs.
+    query_from = min(prior_start_local, baseline_start_local)
+
+    avg_cols = ", ".join(f"AVG({c}) AS {c}" for c in _METRIC_COLS)
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            SELECT (date_trunc('day', ts - $2::interval))::date AS day, {avg_cols}
+            FROM metric_samples
+            WHERE user_id = $1::uuid AND ts >= $3 AND ts < $4
+            GROUP BY day
+            ORDER BY day
+            """,
+            user_id, off, query_from + off, end_local + off,
+        )
+
+    daily = {r["day"]: r for r in rows}
+    buckets = _track_buckets(bucket, start_local, end_local, count)
+    prior_buckets = _track_buckets(bucket, prior_start_local, start_local, count)
+
+    def mean(values):
+        vals = [v for v in values if v is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    def bucket_value(col, b_start, b_end):
+        return mean([daily[d][col] for d in daily if b_start <= d < b_end])
+
+    metrics = []
+    for col in _METRIC_COLS:
+        bars = [{"label": label, "start": b_start.isoformat(),
+                 "value": bucket_value(col, b_start, b_end)}
+                for label, b_start, b_end in buckets]
+        present = [b["value"] for b in bars if b["value"] is not None]
+        average = sum(present) / len(present) if present else None
+
+        prior = [bucket_value(col, s, e) for _, s, e in prior_buckets]
+        prior_present = [v for v in prior if v is not None]
+        prior_avg = sum(prior_present) / len(prior_present) if prior_present else None
+
+        direction = _TRACK_DIRECTION.get(col)
+        delta = None
+        if average is not None and prior_avg not in (None, 0):
+            raw = (average - prior_avg) / abs(prior_avg) * 100.0
+            # Benefit-signed: positive always means "better".
+            if direction == "lower":
+                raw = -raw
+            elif direction == "target":
+                target = _TRACK_TARGET.get(col, 1.0)
+                raw = (abs(prior_avg - target) - abs(average - target)) / abs(prior_avg) * 100.0
+            delta = round(raw, 1)
+
+        # Baseline: the median of this person's own daily averages over the
+        # trailing 90 days, once there are enough of them.
+        window = sorted(v for d, r in daily.items()
+                        if baseline_start_local.date() <= d < end_local.date()
+                        for v in [r[col]] if v is not None)
+        reference, personal = None, False
+        if len(window) >= _TRACK_MIN_BASELINE_DAYS:
+            mid = len(window) // 2
+            reference = (window[mid] if len(window) % 2
+                         else (window[mid - 1] + window[mid]) / 2)
+            personal = True
+
+        better = None
+        if reference is not None and direction in ("higher", "lower", "target"):
+            if direction == "higher":
+                better = sum(1 for v in present if v > reference)
+            elif direction == "lower":
+                better = sum(1 for v in present if v < reference)
+            else:
+                target = _TRACK_TARGET.get(col, 1.0)
+                better = sum(1 for v in present if abs(v - target) < abs(reference - target))
+
+        metrics.append({
+            "key": col,
+            "bars": [{**b, "value": round(b["value"], 3) if b["value"] is not None else None}
+                     for b in bars],
+            "average": round(average, 3) if average is not None else None,
+            "delta_pct": delta,
+            "direction": direction,
+            "reference": round(reference, 3) if reference is not None else None,
+            "reference_is_personal": personal,
+            "better_count": better,
+            "present_count": len(present),
+        })
+
+    return {
+        "period": period,
+        "offset": offset,
+        "bucket": bucket,
+        "start": start_local.isoformat(),
+        "end": end_local.isoformat(),
+        "metrics": metrics,
+    }
+
+
+def _add_months(d: datetime, n: int) -> datetime:
+    y, m = d.year, d.month + n
+    while m > 12:
+        m -= 12
+        y += 1
+    while m <= 0:
+        m += 12
+        y -= 1
+    return d.replace(year=y, month=m, day=1)
+
+
+def _track_buckets(bucket: str, start: datetime, end: datetime, count: int):
+    """(label, start_date, end_date) per bar, in the viewer's calendar."""
+    out = []
+    if bucket == "day":
+        d = start
+        while d < end:
+            nxt = d + timedelta(days=1)
+            label = d.strftime("%-d") if count > 7 else d.strftime("%a")[0] + " " + d.strftime("%-m/%-d")
+            out.append((label, d.date(), nxt.date()))
+            d = nxt
+    elif bucket == "week":
+        d = start
+        while d < end:
+            nxt = d + timedelta(weeks=1)
+            out.append((d.strftime("%-m/%-d"), d.date(), nxt.date()))
+            d = nxt
+    else:
+        d = start
+        while d < end:
+            nxt = _add_months(d, 1)
+            out.append((d.strftime("%b"), d.date(), nxt.date()))
+            d = nxt
+    return out
+
+
 @router.get("/activities/{activity_id}")
 async def activity_detail(activity_id: str):
     """One activity's full before/during/after metric grid + impact score."""

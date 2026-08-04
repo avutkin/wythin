@@ -548,3 +548,59 @@ async def test_metric_window_can_step_back_in_time():
     edge_skew = abs(datetime.fromisoformat(back["end"])
                     - datetime.fromisoformat(now_win["start"]))
     assert edge_skew < timedelta(seconds=5), edge_skew
+
+
+@pytest.mark.asyncio
+async def test_track_daily_averages_and_baseline():
+    """The Track view: one bar per day (or per month at 6M), the average across
+    present bars, a personal baseline once there is enough history, and a
+    benefit-signed delta against the prior period. Requires a database."""
+    from datetime import datetime, timezone, timedelta
+    import uuid
+
+    now = datetime.now(timezone.utc)
+    device = f"test-track-{uuid.uuid4().hex[:8]}"
+    # Two readings a day for the last 20 days: dc climbs 5.0 -> 15.0.
+    samples = []
+    for day_back in range(20):
+        value = 15.0 - day_back * 0.5
+        for hour in (9, 15):
+            ts = (now - timedelta(days=day_back)).replace(hour=hour, minute=0, second=0, microsecond=0)
+            samples.append({"ts": ts.isoformat(), "dc": value, "mean_bpm": 60.0})
+    async with _client() as client:
+        r = await client.post("/v1/metrics", headers={"X-User-ID": device},
+                              json={"samples": samples})
+        assert r.status_code in (200, 201), r.text
+        stats = (await client.get("/admin/stats", params={"range": "all"})).json()
+        uid = next(u["id"] for u in stats["users"] if u["device_id"] == device)
+
+        wk = (await client.get(f"/admin/users/{uid}/track",
+                               params={"period": "week", "tz_offset": 0})).json()
+        prev = (await client.get(f"/admin/users/{uid}/track",
+                                 params={"period": "week", "offset": 1, "tz_offset": 0})).json()
+
+    assert wk["period"] == "week" and wk["offset"] == 0
+    dc = next(m for m in wk["metrics"] if m["key"] == "dc")
+    assert len(dc["bars"]) == 7, "a week is seven bars"
+
+    # Every present bar is the mean of that day's two identical readings, so the
+    # values land on the ramp we uploaded.
+    present = [b["value"] for b in dc["bars"] if b["value"] is not None]
+    assert present, "expected bars for the days we uploaded"
+    assert max(present) <= 15.0 and min(present) >= 5.0
+    assert abs(dc["average"] - sum(present) / len(present)) < 0.01
+
+    # 20 days of history clears the 14-day minimum, so the baseline is personal.
+    assert dc["reference"] is not None
+    assert dc["reference_is_personal"] is True
+
+    # dc is a higher-is-better metric and it has been climbing, so this week
+    # beats the one before it.
+    assert dc["direction"] == "higher"
+    assert dc["delta_pct"] is not None and dc["delta_pct"] > 0
+
+    # The prior page covers earlier days and is a distinct window.
+    assert prev["offset"] == 1 and prev["start"] < wk["start"]
+
+    # Every stored metric gets a card, even ones with no data this week.
+    assert len(wk["metrics"]) == 14

@@ -88,6 +88,16 @@
   th .arrow { opacity: .5; font-size: 9px; }
   td .device { font-family: var(--mono); font-size: 12px; color: var(--dim); }
   td .never { color: var(--dim); font-size: 12px; }
+  .mini.track .delta { font: 11px var(--mono); margin: -2px 0 4px; }
+  .mini.track .delta.up { color: var(--accent); }
+  .mini.track .delta.down { color: var(--warn); }
+  .mini.track .cap .t .tech { color: var(--dim); opacity: .7; }
+  .mini.track svg { height: 130px; }
+  .mini.track .foot { font: 11px var(--mono); color: var(--dim); margin-top: 4px; }
+  .ref { stroke: var(--dim); stroke-width: 1; stroke-dasharray: 4 4; opacity: .6; }
+  .ref-t { opacity: .7; }
+  .tbar { opacity: .85; }
+  .tbar:hover { opacity: 1; }
   .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px 20px; }
   .facts .k { font-family: var(--mono); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); margin-bottom: 5px; }
   .facts .v { font-size: 14px; color: var(--text); word-break: break-word; }
@@ -162,6 +172,23 @@
           </span>
         </h2>
         <div class="charts" id="user-charts"></div>
+      </div>
+      <div class="panel">
+        <h2>Trends
+          <span class="sub">—
+            <select id="track-period">
+              <option value="week">Week</option>
+              <option value="halfmonth">Half-month</option>
+              <option value="month">Month</option>
+              <option value="sixweek">6 weeks</option>
+              <option value="sixmonth">6 months</option>
+            </select>
+            <button id="track-prev" title="Previous period">‹</button>
+            <span id="track-label"></span>
+            <button id="track-next" title="Next period">›</button>
+          </span>
+        </h2>
+        <div class="charts" id="track-charts"></div>
       </div>
       <div class="panel">
         <h2>Usage <span class="sub">— app opens, active time &amp; ECG recordings per day (30d)</span></h2>
@@ -369,6 +396,14 @@
     // Changing the window length restarts at the present; the arrows walk back
     // and forward a whole window at a time.
     state.metricOffset = 0;
+    state.trackOffset = 0;
+    $("#track-period").onchange = () => { state.trackOffset = 0; loadUserTrack(id).catch(() => {}); };
+    $("#track-prev").onclick = () => { state.trackOffset = (state.trackOffset || 0) + 1; loadUserTrack(id).catch(() => {}); };
+    $("#track-next").onclick = () => {
+      if (!state.trackOffset) return;
+      state.trackOffset -= 1;
+      loadUserTrack(id).catch(() => {});
+    };
     $("#user-window").onchange = () => { state.metricOffset = 0; loadUserMetrics(id).catch(() => {}); };
     $("#win-prev").onclick = () => { state.metricOffset = (state.metricOffset || 0) + 1; loadUserMetrics(id).catch(() => {}); };
     $("#win-next").onclick = () => {
@@ -377,6 +412,7 @@
       loadUserMetrics(id).catch(() => {});
     };
     loadUserMetrics(id).catch(() => {});
+    loadUserTrack(id).catch(() => {});
     loadUserUsage(id).catch(() => {});
     const t = $("#user-sessions");
     if (!d.sessions.length) {
@@ -432,20 +468,20 @@
   // disagree — note Energy Reserve is RMSSD there, not SDNN, which this
   // dashboard had wrong. Columns with no product name keep their technical one.
   const LIVE_SIGNALS = [
-    { k: "mean_bpm",   label: "Pulse",               unit: "bpm",    color: "var(--warn)",    d: 0 },
-    { k: "rmssd",      label: "Energy Reserve",      unit: "ms",     color: "var(--hrv)",     d: 0 },
-    { k: "rsa_ms",     label: "Conscious Breathing", unit: "ms",     color: "var(--rsa)",     d: 0 },
-    { k: "vti",        label: "Calm Power",          unit: "",       color: "var(--breathe)", d: 2 },
-    { k: "coherence",  label: "Coherence",           unit: "",       color: "var(--coh)",     d: 2 },
-    { k: "dc",         label: "Vagal Tone",          unit: "ms",     color: "var(--accent)",  d: 1 },
-    { k: "dfa1",       label: "Harmony",             unit: "",       color: "var(--coh)",     d: 2 },
-    { k: "pip",        label: "Inner Noise",         unit: "%",      color: "var(--breathe)", d: 0 },
-    { k: "rcmse",      label: "Adaptive Capacity",   unit: "",       color: "var(--accent)",  d: 2 },
-    { k: "sdnn",       label: "SDNN",                unit: "ms",     color: "var(--hrv)",     d: 0 },
-    { k: "pnn50",      label: "pNN50",               unit: "%",      color: "var(--hrv)",     d: 1 },
-    { k: "lf_hf",      label: "LF/HF",               unit: "",       color: "var(--warn)",    d: 2 },
-    { k: "cbi",        label: "CBI",                 unit: "",       color: "var(--rsa)",     d: 2 },
-    { k: "breath_bpm", label: "Breath",              unit: "br/min", color: "var(--breathe)", d: 1 },
+    { k: "mean_bpm",   label: "Pulse",               unit: "bpm",    color: "var(--warn)",    d: 0 , tech: "HR" },
+    { k: "rmssd",      label: "Energy Reserve",      unit: "ms",     color: "var(--hrv)",     d: 0 , tech: "HRV" },
+    { k: "rsa_ms",     label: "Conscious Breathing", unit: "ms",     color: "var(--rsa)",     d: 0 , tech: "RSA" },
+    { k: "vti",        label: "Calm Power",          unit: "",       color: "var(--breathe)", d: 2 , tech: "VTI" },
+    { k: "coherence",  label: "Coherence",           unit: "",       color: "var(--coh)",     d: 2 , tech: "COH" },
+    { k: "dc",         label: "Vagal Tone",          unit: "ms",     color: "var(--accent)",  d: 1 , tech: "DC" },
+    { k: "dfa1",       label: "Harmony",             unit: "",       color: "var(--coh)",     d: 2 , tech: "DFA α1" },
+    { k: "pip",        label: "Inner Noise",         unit: "%",      color: "var(--breathe)", d: 0 , tech: "PIP" },
+    { k: "rcmse",      label: "Adaptive Capacity",   unit: "",       color: "var(--accent)",  d: 2 , tech: "RCMSE" },
+    { k: "sdnn",       label: "SDNN",                unit: "ms",     color: "var(--hrv)",     d: 0 , tech: "SDNN" },
+    { k: "pnn50",      label: "pNN50",               unit: "%",      color: "var(--hrv)",     d: 1 , tech: "pNN50" },
+    { k: "lf_hf",      label: "LF/HF",               unit: "",       color: "var(--warn)",    d: 2 , tech: "LF/HF" },
+    { k: "cbi",        label: "CBI",                 unit: "",       color: "var(--rsa)",     d: 2 , tech: "CBI" },
+    { k: "breath_bpm", label: "Breath",              unit: "br/min", color: "var(--breathe)", d: 1 , tech: "BR" },
   ];
   async function loadUserMetrics(id) {
     const off = state.metricOffset || 0;
@@ -493,6 +529,86 @@
     </div>`;
   }
 
+  // ── Trends: daily averages per metric, the app's Track card ─────────────
+  const TRACK_PRIOR_NOUN = { week: "week", halfmonth: "half-month", month: "month",
+                             sixweek: "6 weeks", sixmonth: "6 months" };
+
+  async function loadUserTrack(id) {
+    const period = $("#track-period").value, off = state.trackOffset || 0;
+    const d = await api(`users/${id}/track?period=${period}&offset=${off}&tz_offset=${new Date().getTimezoneOffset()}`);
+    const day = (iso) => new Date(iso + (iso.endsWith("Z") ? "" : "")).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    $("#track-label").textContent = `${day(d.start)} → ${day(d.end)}`;
+    $("#track-next").disabled = off === 0;
+
+    const host = $("#track-charts");
+    host.innerHTML = LIVE_SIGNALS.map(sig => {
+      const m = d.metrics.find(x => x.key === sig.k);
+      return m ? trackCard(sig, m, d) : "";
+    }).join("");
+    [...host.querySelectorAll(".mini")].forEach(box => drawTrackBars(box));
+  }
+
+  function trackCard(sig, m, d) {
+    const val = m.average == null ? "—" : fmt(m.average, sig.d);
+    // Benefit-signed, so a positive delta always reads as improvement.
+    const delta = m.delta_pct == null ? ""
+      : `<div class="delta ${m.delta_pct >= 0 ? "up" : "down"}">${m.delta_pct >= 0 ? "▲" : "▼"} ${fmt(Math.abs(m.delta_pct), 0)}% vs prior ${TRACK_PRIOR_NOUN[d.period]}</div>`;
+    const footer = (m.better_count == null || !m.present_count) ? ""
+      : `<div class="foot">${m.better_count} of ${m.present_count} ${d.bucket === "month" ? "months" : "days"} better than typical.</div>`;
+    return `<div class="mini track" data-bars='${esc(JSON.stringify({
+        bars: m.bars, reference: m.reference, color: sig.color, decimals: sig.d,
+        personal: m.reference_is_personal }))}'>
+      <div class="cap">
+        <span class="t">${esc(sig.label)}${sig.tech && sig.tech.toUpperCase() !== sig.label.toUpperCase()
+            ? ` <span class="tech">${esc(sig.tech)}</span>` : ""}</span>
+        <span class="v" style="color:${sig.color}">${val} <small>${esc(sig.unit)}</small></span>
+      </div>
+      ${delta}
+      <svg></svg>
+      ${footer}
+    </div>`;
+  }
+
+  function drawTrackBars(box) {
+    const cfg = JSON.parse(box.dataset.bars);
+    const svg = box.querySelector("svg");
+    const W = Math.max(180, Math.round(svg.clientWidth || 320)), H = 130;
+    const pad = { l: 6, r: 6, t: 16, b: 18 };
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    const bars = cfg.bars || [];
+    const values = bars.map(b => b.value).filter(v => v != null);
+    if (!values.length) {
+      svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" class="tick">no data in this period</text>`;
+      return;
+    }
+    const top = Math.max(...values, cfg.reference ?? 0) * 1.12 || 1;
+    const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b, bw = iw / bars.length;
+    const y = (v) => pad.t + ih - (v / top) * ih;
+
+    let el = "";
+    if (cfg.reference != null) {
+      const ry = y(cfg.reference);
+      el += `<line class="ref" x1="${pad.l}" y1="${ry.toFixed(1)}" x2="${W - pad.r}" y2="${ry.toFixed(1)}"/>`;
+      el += `<text class="tick ref-t" x="${W - pad.r}" y="${(ry - 3).toFixed(1)}" text-anchor="end">typical</text>`;
+    }
+    bars.forEach((b, i) => {
+      if (b.value == null) return;
+      const x = pad.l + i * bw, h = Math.max(1, ih - (y(b.value) - pad.t));
+      el += `<rect class="tbar" x="${(x + bw * 0.15).toFixed(1)}" y="${y(b.value).toFixed(1)}" width="${Math.max(1, bw * 0.7).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${cfg.color}"><title>${b.label}: ${Number(b.value).toFixed(cfg.decimals)}</title></rect>`;
+      // Value labels only when the bars are wide enough to carry them.
+      if (bars.length <= 8) {
+        el += `<text class="tick" x="${(x + bw / 2).toFixed(1)}" y="${(y(b.value) - 4).toFixed(1)}" text-anchor="middle">${Number(b.value).toFixed(cfg.decimals)}</text>`;
+      }
+    });
+    // X labels: every bar when few, otherwise first / middle / last.
+    const idx = bars.length <= 8 ? bars.map((_, i) => i)
+                                 : [0, Math.floor(bars.length / 2), bars.length - 1];
+    idx.forEach(i => {
+      el += `<text class="tick" x="${(pad.l + i * bw + bw / 2).toFixed(1)}" y="${H - 5}" text-anchor="middle">${esc(bars[i].label)}</text>`;
+    });
+    svg.innerHTML = el;
+  }
+
   async function loadUserUsage(id) {
     const d = await api(`users/${id}/usage?days=30`);
     const a = d.averages || {};
@@ -516,12 +632,12 @@
 
   // ── Session detail ────────────────────────────────────────────────────
   const SIGNALS = [
-    { k: "mean_bpm",   label: "HR",         unit: "bpm", color: "var(--warn)",    d: 0 },
-    { k: "rmssd",      label: "HRV · RMSSD", unit: "ms", color: "var(--hrv)",     d: 0 },
-    { k: "rsa_ms",     label: "RSA",        unit: "ms",  color: "var(--rsa)",     d: 0 },
-    { k: "coherence",  label: "Coherence",  unit: "",    color: "var(--coh)",     d: 2 },
-    { k: "breath_bpm", label: "Breath",     unit: "br/min", color: "var(--breathe)", d: 1 },
-    { k: "sdnn",       label: "SDNN",       unit: "ms",  color: "var(--hrv)",     d: 0 },
+    { k: "mean_bpm",   label: "HR",         unit: "bpm", color: "var(--warn)",    d: 0 , tech: "HR" },
+    { k: "rmssd",      label: "HRV · RMSSD", unit: "ms", color: "var(--hrv)",     d: 0 , tech: "HRV" },
+    { k: "rsa_ms",     label: "RSA",        unit: "ms",  color: "var(--rsa)",     d: 0 , tech: "RSA" },
+    { k: "coherence",  label: "Coherence",  unit: "",    color: "var(--coh)",     d: 2 , tech: "COH" },
+    { k: "breath_bpm", label: "Breath",     unit: "br/min", color: "var(--breathe)", d: 1 , tech: "BR" },
+    { k: "sdnn",       label: "SDNN",       unit: "ms",  color: "var(--hrv)",     d: 0 , tech: "SDNN" },
   ];
   async function openSession(id) {
     const d = await api(`sessions/${id}/samples`);
