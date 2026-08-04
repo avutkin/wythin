@@ -14,16 +14,20 @@ final class RecoveryTimingTests: XCTestCase {
     // MARK: - Reaching halfway
 
     func testTimeToHalfwayIsReported() {
-        // Resting 8, so the bar is 4. Climbs 2 → 6 over 10 min, crossing 4 at 5.
+        // Fell to 2 from a resting 8, so the bar is halfway between them: 5.
+        // The climb 2 → 6 over ten minutes crosses 5 at 7.5.
         let out = RecoveryTiming.halfRecovery(after: ramp(from: 2, to: 6, minutes: 10),
-                                              dcPre: 8)
+                                              dcPre: 8, dcTrough: 2)
         guard case let .reached(m) = out else { return XCTFail("expected reached, got \(out)") }
-        XCTAssertEqual(m, 5, accuracy: 0.6)
+        XCTAssertEqual(m, 7.5, accuracy: 0.6)
     }
 
     func testAFasterRecoveryReportsASmallerTime() {
-        let fast = RecoveryTiming.halfRecovery(after: ramp(from: 2, to: 8, minutes: 10), dcPre: 8)
-        let slow = RecoveryTiming.halfRecovery(after: ramp(from: 2, to: 4.2, minutes: 10), dcPre: 8)
+        // Both must clear the bar of 5; the steeper climb must get there sooner.
+        let fast = RecoveryTiming.halfRecovery(after: ramp(from: 2, to: 9, minutes: 10),
+                                               dcPre: 8, dcTrough: 2)
+        let slow = RecoveryTiming.halfRecovery(after: ramp(from: 2, to: 5.5, minutes: 10),
+                                               dcPre: 8, dcTrough: 2)
         guard case let .reached(f) = fast, case let .reached(s) = slow else {
             return XCTFail("expected both to reach")
         }
@@ -36,7 +40,7 @@ final class RecoveryTimingTests: XCTestCase {
         // The real session: it descends the whole time. A percentage quoted the
         // level and read as though something had come back. This cannot.
         let falling = ramp(from: 4.6, to: 2.3, minutes: 9)
-        let out = RecoveryTiming.halfRecovery(after: falling, dcPre: 8.0)
+        let out = RecoveryTiming.halfRecovery(after: falling, dcPre: 8.0, dcTrough: 2.0)
         guard case let .notReached(observed) = out else {
             return XCTFail("a falling trace must never read as reached, got \(out)")
         }
@@ -47,14 +51,14 @@ final class RecoveryTimingTests: XCTestCase {
     func testATouchThatDoesNotHoldIsNotRecovery() {
         var s = ramp(from: 2, to: 3, minutes: 10)
         s.append((minutes: 4.0, dc: 9.0))   // one spike over the bar
-        let out = RecoveryTiming.halfRecovery(after: s, dcPre: 8)
+        let out = RecoveryTiming.halfRecovery(after: s, dcPre: 8, dcTrough: 2)
         guard case .notReached = out else { return XCTFail("a single spike is not recovery") }
     }
 
     // MARK: - Honest absence
 
     func testTooShortARecordingSaysSoRatherThanScoringZero() {
-        let out = RecoveryTiming.halfRecovery(after: ramp(from: 2, to: 2.5, minutes: 3), dcPre: 8)
+        let out = RecoveryTiming.halfRecovery(after: ramp(from: 2, to: 2.5, minutes: 3), dcPre: 8, dcTrough: 2)
         XCTAssertEqual(out, .notObserved)
         XCTAssertNil(RecoveryTiming.score(out),
                      "three minutes of watching cannot justify a zero")
@@ -62,19 +66,19 @@ final class RecoveryTimingTests: XCTestCase {
 
     func testNoRestingLevelMeansNothingToMeasureAgainst() {
         XCTAssertEqual(RecoveryTiming.halfRecovery(after: ramp(from: 2, to: 6, minutes: 10),
-                                                   dcPre: nil), .notObserved)
+                                                   dcPre: nil, dcTrough: 2), .notObserved)
         XCTAssertEqual(RecoveryTiming.halfRecovery(after: ramp(from: 2, to: 6, minutes: 10),
-                                                   dcPre: 0), .notObserved)
+                                                   dcPre: 0, dcTrough: 2), .notObserved)
     }
 
     func testEmptyAfterWindow() {
-        XCTAssertEqual(RecoveryTiming.halfRecovery(after: [], dcPre: 8), .notObserved)
+        XCTAssertEqual(RecoveryTiming.halfRecovery(after: [], dcPre: 8, dcTrough: 2), .notObserved)
     }
 
     func testSamplesBeforeTheEndAreIgnored() {
         var s = ramp(from: 2, to: 6, minutes: 10)
         s.append((minutes: -5, dc: 9))   // still mid-session
-        guard case let .reached(m) = RecoveryTiming.halfRecovery(after: s, dcPre: 8) else {
+        guard case let .reached(m) = RecoveryTiming.halfRecovery(after: s, dcPre: 8, dcTrough: 2) else {
             return XCTFail("expected reached")
         }
         XCTAssertGreaterThan(m, 0)
@@ -101,5 +105,42 @@ final class RecoveryTimingTests: XCTestCase {
         let s = RecoveryTiming.summary(.notReached(observedMinutes: 9)).lowercased()
         XCTAssertTrue(s.contains("less than halfway"))
         XCTAssertFalse(s.contains("back to your resting level "))
+    }
+}
+
+// MARK: - The bar is measured from the fall, not from resting
+
+extension RecoveryTimingTests {
+
+    func testTheTargetIsHalfwayFromTroughToResting() {
+        // Fell 8 → 2, so halfway back is 5 — not 4, which is half of resting.
+        XCTAssertEqual(RecoveryTiming.targetLevel(dcPre: 8, dcTrough: 2), 5, accuracy: 0.001)
+    }
+
+    func testAMildSessionIsNotInstantlyRecovered() {
+        // The bug this replaces: vagal tone dipped only to 6 of a resting 8, so
+        // half of resting (4) sat below the trough and was met at minute zero —
+        // "halfway back in 0 minutes" for a session that had barely dipped.
+        let flat: [(minutes: Double, dc: Double)] =
+            stride(from: 0.0, through: 10.0, by: 0.5).map { ($0, 6.0) }
+        let out = RecoveryTiming.halfRecovery(after: flat, dcPre: 8, dcTrough: 6)
+        guard case .notReached = out else {
+            return XCTFail("a trace that never climbs must not read as recovered, got \(out)")
+        }
+    }
+
+    func testADeepSessionUsesADeeperBar() {
+        // Fell to 1 of a resting 9, so the bar is 5. Reaching 4 is not halfway.
+        let climb: [(minutes: Double, dc: Double)] =
+            stride(from: 0.0, through: 10.0, by: 0.5).map { ($0, 1.0 + 3.0 * ($0 / 10)) }
+        guard case .notReached = RecoveryTiming.halfRecovery(after: climb, dcPre: 9, dcTrough: 1) else {
+            return XCTFail("topping out at 4 is short of the halfway bar of 5")
+        }
+    }
+
+    func testNoSuppressionMeansNothingToRecoverFrom() {
+        let flat: [(minutes: Double, dc: Double)] = [(0, 8), (5, 8), (10, 8)]
+        XCTAssertEqual(RecoveryTiming.halfRecovery(after: flat, dcPre: 8, dcTrough: 8), .notObserved)
+        XCTAssertEqual(RecoveryTiming.halfRecovery(after: flat, dcPre: 8, dcTrough: nil), .notObserved)
     }
 }
