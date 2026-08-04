@@ -18,6 +18,8 @@ struct DayPotentialStrip: View {
         VStack(alignment: .leading, spacing: 11) {
             strip
             crownRow
+            weekRow
+            crownProgressBar
             baselineBar
             if expanded { expandedBody }
             if store.anchor == nil, (store.streak?.current ?? 0) > 0 { nudge }
@@ -87,11 +89,13 @@ struct DayPotentialStrip: View {
                 crownIcon(token)
             }
             Spacer()
-            Text(DayPotentialCrownCopy.text(forMorningCount: totalMornings))
-                .font(.system(size: 11.5))
-                .foregroundStyle(Theme.dim)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
+            if let count = DayPotentialCrownCopy.countLabel(forMorningCount: totalMornings) {
+                Text(count)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Theme.dim)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
         }
     }
 
@@ -117,6 +121,63 @@ struct DayPotentialStrip: View {
         case .yellow: return Theme.domainHeavy
         case .red:    return Theme.warn
         case .green:  return Theme.accent
+        }
+    }
+
+    // MARK: This week
+
+    private static let weekdayLetters = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+
+    /// Monday-through-Sunday context for the current calendar week —
+    /// deliberately a different measurement than the crown row above it, so
+    /// this row marks days rather than restating the ladder's own count.
+    private var weekRow: some View {
+        let cells = DayPotentialWeekRow.cells(loggedDays: store.loggedDays, today: Date())
+        return HStack(spacing: 8) {
+            ForEach(Array(cells.enumerated()), id: \.offset) { index, cell in
+                weekCell(cell, letter: Self.weekdayLetters[index])
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func weekCell(_ cell: DayPotentialWeekCell, letter: String) -> some View {
+        VStack(spacing: 4) {
+            Text(letter)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(cell.isToday ? accent : Theme.dim)
+            // A dot, not a bar segment — this row and the progress bar below
+            // measure different things and must not look like one control.
+            Circle()
+                .strokeBorder(cell.isToday ? accent : Theme.dim.opacity(0.4),
+                             lineWidth: cell.isLogged ? 0 : 1.2)
+                .background(Circle().fill(cell.isLogged ? accent : Color.clear))
+                .frame(width: 7, height: 7)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: Next-crown progress
+
+    /// Fills toward whichever crown the ladder above is currently building —
+    /// the cumulative count, same as the ladder, not this week's attendance.
+    private var crownProgressBar: some View {
+        let fraction = CrownLadder.progressFraction(forMorningCount: totalMornings)
+        let earned = fraction >= 1.0
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                ProgressView(value: fraction, total: 1)
+                    .tint(accent)
+                    .scaleEffect(x: 1, y: 0.6, anchor: .center)
+                Image(systemName: earned ? "crown.fill" : "crown")
+                    .font(.system(size: 12))
+                    .foregroundStyle(earned
+                        ? crownColor(CrownLadder.nextCrownColor(forMorningCount: totalMornings))
+                        : Theme.dim)
+            }
+            Text(DayPotentialCrownCopy.nudgeText(forMorningCount: totalMornings))
+                .font(.system(size: 11.5))
+                .foregroundStyle(Theme.dim)
         }
     }
 
