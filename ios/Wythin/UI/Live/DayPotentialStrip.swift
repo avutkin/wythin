@@ -170,6 +170,10 @@ struct DayPotentialStrip: View {
     /// decide it — is what lets `DayPotentialBarGeometry.markerCenterX`
     /// clamp correctly: the clamp needs a real half-width, not a guess.
     private static let markerSize: CGFloat = 20
+    /// The trailing milestone crown's frame. Slightly smaller than the
+    /// travelling marker so the one that is still being earned reads as the
+    /// destination rather than competing with the one in motion.
+    private static let milestoneSize: CGFloat = 17
     /// Reserved at the trailing end for the crown, held out of the fill
     /// track entirely — earning a full week must not paint the fill straight
     /// under the icon, since the reference always shows that milestone
@@ -245,7 +249,11 @@ struct DayPotentialStrip: View {
                         .font(.system(size: 15))
                         .foregroundStyle(Theme.text.opacity(0.82))
                         .frame(width: Self.markerSize, height: Self.markerSize)
-                        .position(x: markerX, y: geo.size.height / 2)
+                        .position(x: markerX,
+                                  y: DayPotentialBarGeometry.crownCenterY(
+                                        rowHeight: geo.size.height,
+                                        trackHeight: Self.trackHeight,
+                                        glyphHeight: Self.markerSize))
 
                     // The milestone crown, at the trailing end on the
                     // reserved dark slot. Taller than the rail, so like the
@@ -255,7 +263,16 @@ struct DayPotentialStrip: View {
                     Image(systemName: earned ? "crown.fill" : "crown")
                         .font(.system(size: 13))
                         .foregroundStyle(nextColor)
-                        .position(x: geo.size.width - Self.crownSlotWidth / 2, y: geo.size.height / 2)
+                        // An explicit frame so the seating arithmetic has a
+                        // real height to work from rather than the glyph's
+                        // own intrinsic bounds, which vary between the
+                        // outlined and filled variants.
+                        .frame(width: Self.milestoneSize, height: Self.milestoneSize)
+                        .position(x: geo.size.width - Self.crownSlotWidth / 2,
+                                  y: DayPotentialBarGeometry.crownCenterY(
+                                        rowHeight: geo.size.height,
+                                        trackHeight: Self.trackHeight,
+                                        glyphHeight: Self.milestoneSize))
                 }
             }
             .frame(height: Self.barHeight)

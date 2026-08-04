@@ -190,6 +190,27 @@ enum DayPotentialBarGeometry {
         let raw = fillWidth(fraction: fraction, trackWidth: trackWidth)
         return min(max(raw, markerRadius), trackWidth - markerRadius)
     }
+
+    /// The centre y a crown needs so that its *lower* edge rests on the
+    /// rail's lower edge.
+    ///
+    /// Both crowns used to be centred on the rail, which left them
+    /// straddling it — half above, half below — so a 3pt rail read as a
+    /// line drawn through the middle of two icons. Standing them on it
+    /// instead makes the rail the ground they sit on, which is what the
+    /// progression means: the travelling crown walks along it toward the
+    /// one waiting at the end.
+    ///
+    /// `glyphHeight` is the crown's own frame height, not its rendered
+    /// glyph bounds — SwiftUI's `.position` centres the frame, so the frame
+    /// is what the arithmetic has to work in. A caller passing a stale
+    /// height sinks the crown below the rail rather than seating it.
+    static func crownCenterY(rowHeight: CGFloat,
+                             trackHeight: CGFloat,
+                             glyphHeight: CGFloat) -> CGFloat {
+        let railBottom = rowHeight / 2 + trackHeight / 2
+        return railBottom - glyphHeight / 2
+    }
 }
 
 // MARK: - This week, at a glance
