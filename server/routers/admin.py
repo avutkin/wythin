@@ -452,10 +452,17 @@ _METRIC_COLS = ("mean_bpm", "rmssd", "sdnn", "pnn50", "lf_hf", "rsa_ms",
 
 
 @router.get("/users/{user_id}/metrics")
-async def user_metrics(user_id: str, window: str = "24h"):
+async def user_metrics(user_id: str, window: str = "24h", offset: int = 0):
     """Bucketed per-user metric_samples series for the live charts. `window` is
-    one of 24h / 7d / 30d; each column is averaged per time bucket."""
-    span, bucket = _METRIC_WINDOWS.get(window, _METRIC_WINDOWS["24h"])
+    one of 24h / 7d / 30d; each column is averaged per time bucket.
+
+    `offset` steps backwards a whole window at a time — offset=1 is the window
+    before the current one — so yesterday is reachable without a date picker."""
+    window = window if window in _METRIC_WINDOWS else "24h"
+    span, bucket = _METRIC_WINDOWS[window]
+    offset = max(0, min(offset, 3650))
+    end = datetime.now(timezone.utc) - span * offset
+    start = end - span
     avg_cols = ", ".join(f"AVG({c}) AS {c}" for c in _METRIC_COLS)
     pool = get_pool()
     async with pool.acquire() as conn:
@@ -463,18 +470,21 @@ async def user_metrics(user_id: str, window: str = "24h"):
             f"""
             SELECT date_bin($2::interval, ts, TIMESTAMPTZ 'epoch') AS bucket, {avg_cols}
             FROM metric_samples
-            WHERE user_id = $1::uuid AND ts > NOW() - $3::interval
+            WHERE user_id = $1::uuid AND ts > $3 AND ts <= $4
             GROUP BY bucket
             ORDER BY bucket
             """,
-            user_id, bucket, span,
+            user_id, bucket, start, end,
         )
 
     def _f(v):
         return float(v) if v is not None else None
 
     return {
-        "window": window if window in _METRIC_WINDOWS else "24h",
+        "window": window,
+        "offset": offset,
+        "start":  start.isoformat(),
+        "end":    end.isoformat(),
         "samples": [
             {"ts": r["bucket"].isoformat(), **{c: _f(r[c]) for c in _METRIC_COLS}}
             for r in rows

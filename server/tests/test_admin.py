@@ -513,3 +513,38 @@ async def test_user_table_lists_only_users_active_in_range():
     # denominator rather than shrinking with the range.
     assert len(day["users"]) <= day["kpis"]["total_users"]
     assert len(day["users"]) < len(every["users"])
+
+
+@pytest.mark.asyncio
+async def test_metric_window_can_step_back_in_time():
+    """The live-metric charts can walk backwards a window at a time: offset=1
+    shows the 24h before the one offset=0 shows, so yesterday is reachable
+    without a date picker. Requires a database."""
+    from datetime import datetime, timezone, timedelta
+    import uuid
+
+    now = datetime.now(timezone.utc)
+    device = f"test-offset-{uuid.uuid4().hex[:8]}"
+    async with _client() as client:
+        r = await client.post("/v1/metrics", headers={"X-User-ID": device}, json={"samples": [
+            {"ts": (now - timedelta(hours=2)).isoformat(),  "mean_bpm": 61.0},   # this window
+            {"ts": (now - timedelta(hours=30)).isoformat(), "mean_bpm": 72.0},   # one window back
+        ]})
+        assert r.status_code in (200, 201), r.text
+
+        stats = (await client.get("/admin/stats", params={"range": "all"})).json()
+        uid = next(u["id"] for u in stats["users"] if u["device_id"] == device)
+        now_win = (await client.get(f"/admin/users/{uid}/metrics",
+                                    params={"window": "24h"})).json()
+        back = (await client.get(f"/admin/users/{uid}/metrics",
+                                 params={"window": "24h", "offset": 1})).json()
+
+    assert [round(s["mean_bpm"]) for s in now_win["samples"]] == [61], now_win["samples"]
+    assert [round(s["mean_bpm"]) for s in back["samples"]] == [72], back["samples"]
+    # Each response says which window it covers, so the UI can label it.
+    assert now_win["offset"] == 0 and back["offset"] == 1
+    # The windows abut. Each request anchors on its own "now", so the shared
+    # edge differs by the milliseconds between the two calls, not by a gap.
+    edge_skew = abs(datetime.fromisoformat(back["end"])
+                    - datetime.fromisoformat(now_win["start"]))
+    assert edge_skew < timedelta(seconds=5), edge_skew
