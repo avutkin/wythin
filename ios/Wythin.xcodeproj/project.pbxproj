@@ -123,6 +123,7 @@
 		A216 /* TrendShapeCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F216 /* TrendShapeCompute.swift */; };
 		A217 /* DayPotentialInsight.swift in Sources */ = {isa = PBXBuildFile; fileRef = F217 /* DayPotentialInsight.swift */; };
 		A218 /* DayLoadSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F218 /* DayLoadSummary.swift */; };
+		A500 /* DayPotentialProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = F500 /* DayPotentialProgress.swift */; };
 		A219 /* DayPotentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F219 /* DayPotentialStore.swift */; };
 		A220 /* DayPotentialStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F220 /* DayPotentialStrip.swift */; };
 		A221 /* NudgeSampleBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F221 /* NudgeSampleBuffer.swift */; };
@@ -181,6 +182,7 @@
 		AT17 /* TrendShapeComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT17 /* TrendShapeComputeTests.swift */; };
 		AT18 /* DayPotentialInsightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT18 /* DayPotentialInsightTests.swift */; };
 		AT19 /* DayLoadSummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT19 /* DayLoadSummaryTests.swift */; };
+		AT500 /* DayPotentialProgressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT500 /* DayPotentialProgressTests.swift */; };
 		AT20 /* DayPotentialStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT20 /* DayPotentialStateTests.swift */; };
 		AT21 /* NudgeSampleBufferTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT21 /* NudgeSampleBufferTests.swift */; };
 		AT22 /* NudgeSignalsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT22 /* NudgeSignalsTests.swift */; };
@@ -331,6 +333,7 @@
 		F216 /* TrendShapeCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendShapeCompute.swift; sourceTree = "<group>"; };
 		F217 /* DayPotentialInsight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsight.swift; sourceTree = "<group>"; };
 		F218 /* DayLoadSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLoadSummary.swift; sourceTree = "<group>"; };
+		F500 /* DayPotentialProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialProgress.swift; sourceTree = "<group>"; };
 		F219 /* DayPotentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStore.swift; sourceTree = "<group>"; };
 		F220 /* DayPotentialStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStrip.swift; sourceTree = "<group>"; };
 		F221 /* NudgeSampleBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeSampleBuffer.swift; sourceTree = "<group>"; };
@@ -380,6 +383,7 @@
 		FT17 /* TrendShapeComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendShapeComputeTests.swift; sourceTree = "<group>"; };
 		FT18 /* DayPotentialInsightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialInsightTests.swift; sourceTree = "<group>"; };
 		FT19 /* DayLoadSummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayLoadSummaryTests.swift; sourceTree = "<group>"; };
+		FT500 /* DayPotentialProgressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialProgressTests.swift; sourceTree = "<group>"; };
 		FT20 /* DayPotentialStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayPotentialStateTests.swift; sourceTree = "<group>"; };
 		FT21 /* NudgeSampleBufferTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeSampleBufferTests.swift; sourceTree = "<group>"; };
 		FT22 /* NudgeSignalsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NudgeSignalsTests.swift; sourceTree = "<group>"; };
@@ -545,6 +549,7 @@
 		GAPP_MET /* Metrics */ = {
 			isa = PBXGroup;
 			children = (
+				F500 /* DayPotentialProgress.swift */,
 				F218 /* DayLoadSummary.swift */,
 				F217 /* DayPotentialInsight.swift */,
 				F216 /* TrendShapeCompute.swift */,
@@ -709,6 +714,7 @@
 		GTESTS /* WythinTests */ = {
 			isa = PBXGroup;
 			children = (
+				FT500 /* DayPotentialProgressTests.swift */,
 				FT19 /* DayLoadSummaryTests.swift */,
 				FT20 /* DayPotentialStateTests.swift */,
 				FT38 /* UsageUploaderTests.swift */,
@@ -869,6 +875,7 @@
 			files = (
 				A220 /* DayPotentialStrip.swift in Sources */,
 				A219 /* DayPotentialStore.swift in Sources */,
+				A500 /* DayPotentialProgress.swift in Sources */,
 				A218 /* DayLoadSummary.swift in Sources */,
 				A217 /* DayPotentialInsight.swift in Sources */,
 				A216 /* TrendShapeCompute.swift in Sources */,
@@ -1003,6 +1010,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AT500 /* DayPotentialProgressTests.swift in Sources */,
 				AT19 /* DayLoadSummaryTests.swift in Sources */,
 				AT20 /* DayPotentialStateTests.swift in Sources */,
 				AT38 /* UsageUploaderTests.swift in Sources */,

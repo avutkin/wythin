@@ -40,11 +40,11 @@ struct DayPotentialStrip: View {
                         .foregroundStyle(accent)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
-                    ProgressView(value: Double(store.result?.score ?? 0), total: 100)
+                    ProgressView(value: Double(displayScore ?? 0), total: 100)
                         .tint(accent)
                         .scaleEffect(x: 1, y: 0.6, anchor: .center)
                 }
-                Text(store.state.showsScore ? "\(store.result?.score ?? 0)" : "—")
+                Text(store.state.showsScore ? "\(displayScore ?? 0)" : "—")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(store.state.showsScore ? accent : Theme.dim)
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
@@ -63,6 +63,12 @@ struct DayPotentialStrip: View {
 
     private var headline: String {
         store.state.headline(band: store.result?.band)
+    }
+
+    /// Only the display is floored — `PotentialScore`, the stored result,
+    /// and the server all still see a genuine 0.
+    private var displayScore: Int? {
+        DayPotentialDisplay.score(for: store.result)
     }
 
     // MARK: Streak
