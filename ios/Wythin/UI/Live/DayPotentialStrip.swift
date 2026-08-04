@@ -158,13 +158,13 @@ struct DayPotentialStrip: View {
     // MARK: Next-crown progress bar geometry
 
     private static let barHeight: CGFloat = 36
-    /// The capsule's own visual thickness — roughly half of `barHeight`, the
-    /// row's full allotted height, so the track reads as a line rather than
-    /// the slab it used to be. `barHeight` stays taller than this on
-    /// purpose: it leaves room for the travelling marker below to overflow
-    /// the thin track a little, the way a slider's thumb sits proud of a
-    /// thin rail, without being clipped by the row.
-    private static let trackHeight: CGFloat = 18
+    /// The capsule's own visual thickness. Deliberately a rail rather than a
+    /// bar: both crowns are taller than it and sit proud of it, the way a
+    /// slider's thumb sits on a thin track, so the crowns read as the
+    /// subjects and the line reads as the distance between them.
+    /// `barHeight` stays well above this to give that overflow room without
+    /// the row clipping it.
+    private static let trackHeight: CGFloat = 10
     /// The travelling marker's fixed square footprint. Giving it an actual
     /// frame — rather than letting the crown glyph's own rendered bounds
     /// decide it — is what lets `DayPotentialBarGeometry.markerCenterX`
@@ -211,20 +211,13 @@ struct DayPotentialStrip: View {
                     Capsule().fill(Theme.bg)
                         .frame(height: Self.trackHeight)
 
-                    // The fill itself, with a faint lighter core line for
-                    // depth — subtle on purpose, it is not the fill boundary
-                    // marker, the crown below is.
+                    // The fill. No inner core line any more: it existed to
+                    // give a thick slab some depth, and on a rail this thin
+                    // it would be a second stripe inside a 10pt one rather
+                    // than a highlight.
                     Capsule()
                         .fill(accent)
                         .frame(width: fillWidth, height: Self.trackHeight)
-                        .overlay(alignment: .leading) {
-                            if fillWidth > 16 {
-                                Capsule()
-                                    .fill(Theme.text.opacity(0.16))
-                                    .frame(width: fillWidth - 12, height: 2)
-                                    .padding(.leading, 6)
-                            }
-                        }
 
                     // The marker at the fill boundary: a white crown,
                     // because the boundary it marks is literally the week
@@ -244,11 +237,11 @@ struct DayPotentialStrip: View {
                         .frame(width: Self.markerSize, height: Self.markerSize)
                         .position(x: markerX, y: geo.size.height / 2)
 
-                    // The milestone crown, inside the capsule at the
-                    // trailing end, on the reserved dark slot. At
-                    // `trackHeight` this still sits comfortably inside the
-                    // capsule, so it stays put on the centreline rather
-                    // than needing to move outside the track.
+                    // The milestone crown, at the trailing end on the
+                    // reserved dark slot. Taller than the rail, so like the
+                    // travelling marker it sits proud of it on the
+                    // centreline — the crowns are the subjects here and the
+                    // rail is only the distance between them.
                     Image(systemName: earned ? "crown.fill" : "crown")
                         .font(.system(size: 13))
                         .foregroundStyle(nextColor)
