@@ -186,6 +186,11 @@ final class ActivityLog {
     /// person actually had.
     var afterTailDC:           Float?
 
+    /// Lowest vagal tone reached during the session — the bottom of the hole
+    /// recovery is measured as climbing out of. A 10th percentile rather than a
+    /// true minimum, so one artifact sample cannot define it.
+    var duringDCTrough:        Float?
+
     /// Minutes after the session ended until the vagal brake first came halfway
     /// back to its pre-session level and held there. `nil` means it did not —
     /// see `recoveryObservedMinutes` for how long we watched before saying so.
@@ -483,6 +488,10 @@ final class ActivityLog {
             efficiencySlope = nil
         }
 
+        // The trough must exist before the timing, which measures against it.
+        let dcDuring = during.compactMap(\.dc).sorted()
+        duringDCTrough = dcDuring.isEmpty ? nil : dcDuring[Int(0.10 * Double(dcDuring.count - 1))]
+
         computeRecoveryTail(context: context)
         computeRecoveryTiming(context: context)
         scoreSlopesAgainstHistory(context: context)
@@ -530,7 +539,8 @@ final class ActivityLog {
             }
 
         let outcome = RecoveryTiming.halfRecovery(after: after,
-                                                  dcPre: beforeDC.map(Double.init))
+                                                  dcPre: beforeDC.map(Double.init),
+                                                  dcTrough: duringDCTrough.map(Double.init))
         switch outcome {
         case let .reached(minutes):
             halfRecoveryMinutes = minutes

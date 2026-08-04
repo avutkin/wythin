@@ -10,10 +10,26 @@ import Foundation
 /// not happen it says so instead of quoting a number.
 enum RecoveryTiming {
 
-    /// The bar: halfway back to the pre-session level. Chosen over full return
-    /// because a full return often falls outside the recorded window, which
-    /// would make the metric absent precisely on the hardest sessions.
+    /// The bar: halfway back **from where it bottomed out to where it started**.
+    ///
+    /// Not half of the resting level, which was the first attempt and is wrong:
+    /// for a session whose vagal tone never fell below half of resting, that bar
+    /// sits under the trough and is already met the moment you stop — reporting
+    /// "halfway back in 0 minutes" for a session that had barely dipped.
+    ///
+    /// Measuring against the fall makes it a recovery fraction rather than an
+    /// absolute level, so a light session and a brutal one are asked the same
+    /// question: how long to climb half of your own hole.
+    ///
+    /// Halfway rather than full return because a full return often falls outside
+    /// the recording, which would make the metric absent precisely on the
+    /// hardest sessions.
     static let targetFraction: Double = 0.5
+
+    /// The level being climbed to, given where it started and where it fell to.
+    static func targetLevel(dcPre: Double, dcTrough: Double) -> Double {
+        dcTrough + (dcPre - dcTrough) * targetFraction
+    }
 
     /// Once reached, it must hold above this share of the target — a single
     /// noisy sample crossing the line is not recovery.
@@ -32,13 +48,18 @@ enum RecoveryTiming {
     }
 
     /// - Parameter after: (minutes since the session ended, DC), any order.
+    /// - Parameter dcTrough: the lowest vagal tone reached during the session.
+    ///   Without it there is no fall to measure the climb against.
     static func halfRecovery(after: [(minutes: Double, dc: Double)],
-                             dcPre: Double?) -> Outcome {
-        guard let dcPre, dcPre > 0 else { return .notObserved }
+                             dcPre: Double?,
+                             dcTrough: Double?) -> Outcome {
+        guard let dcPre, dcPre > 0, let dcTrough else { return .notObserved }
+        // A session that never suppressed has no hole to climb out of.
+        guard dcPre > dcTrough else { return .notObserved }
         let series = after.filter { $0.minutes >= 0 }.sorted { $0.minutes < $1.minutes }
         guard let observed = series.last?.minutes, !series.isEmpty else { return .notObserved }
 
-        let target = dcPre * targetFraction
+        let target = targetLevel(dcPre: dcPre, dcTrough: dcTrough)
         if let idx = series.firstIndex(where: { $0.dc >= target }),
            series[idx...].allSatisfy({ $0.dc >= target * holdFraction }) {
             return .reached(minutes: series[idx].minutes)
