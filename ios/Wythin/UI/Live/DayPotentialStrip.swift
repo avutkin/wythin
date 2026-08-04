@@ -88,7 +88,7 @@ struct DayPotentialStrip: View {
                 crownIcon(token)
             }
             Spacer()
-            if let count = DayPotentialCrownCopy.countLabel(forMorningCount: totalMornings) {
+            if let count = DayPotentialCrownCopy.countLabel(current: store.streak?.current ?? 0, total: totalMornings) {
                 Text(count)
                     .font(.system(size: 11.5))
                     .foregroundStyle(Theme.dim)

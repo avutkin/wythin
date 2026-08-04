@@ -259,10 +259,28 @@ enum DayPotentialCrownCopy {
     /// The running total beside the crown row. Nothing to show yet reads as
     /// an invitation rather than a "0 mornings" report card, so this is nil
     /// until the first one lands.
-    static func countLabel(forMorningCount mornings: Int) -> String? {
-        guard mornings > 0 else { return nil }
-        let noun = mornings == 1 ? "morning" : "mornings"
-        return "\(mornings) \(noun)"
+    ///
+    /// Takes both `current` (the unbroken run of mornings ending today, from
+    /// `StreakResult.current`) and `total` (every morning ever recorded,
+    /// from `StreakResult.totalAnchors`) rather than deriving one from the
+    /// other, because neither number alone can say what this label needs to
+    /// say. `total` alone cannot say whether a day was ever missed, so a
+    /// version fed only `total` could not tell "consecutive" apart from
+    /// "cumulative with a gap" and would have to guess. `current` alone
+    /// would undercount the crown row above, which is deliberately
+    /// cumulative so that missing one Tuesday costs a day, not the ladder.
+    /// The word "consecutive" is only ever printed when the two numbers
+    /// agree, i.e. when the run really does account for every morning on
+    /// record; collapsing this back to a single argument would eventually
+    /// print "consecutive" over a cumulative count, which is a false claim
+    /// about the user's own data the first time a day is skipped.
+    static func countLabel(current: Int, total: Int) -> String? {
+        guard total > 0 else { return nil }
+        guard total > 1 else { return "1 day of measurement" }
+        if current == total {
+            return "\(total) consecutive days of measurement"
+        }
+        return "\(total) days of measurement"
     }
 
     /// The line beneath the progress bar. Points at the next crown rather
