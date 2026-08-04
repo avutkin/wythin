@@ -87,7 +87,7 @@ struct DayPotentialStrip: View {
                 crownIcon(token)
             }
             Spacer()
-            Text("\(totalMornings) mornings recorded")
+            Text(DayPotentialCrownCopy.text(forMorningCount: totalMornings))
                 .font(.system(size: 11.5))
                 .foregroundStyle(Theme.dim)
                 .lineLimit(1)

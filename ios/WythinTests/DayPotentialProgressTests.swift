@@ -113,4 +113,55 @@ final class DayPotentialProgressTests: XCTestCase {
             CrownToken(.white),
         ])
     }
+
+    // MARK: - Copy
+
+    func testZeroMorningsInvitesRatherThanReprimands() {
+        let text = DayPotentialCrownCopy.text(forMorningCount: 0)
+        XCTAssertEqual(text, "Record a morning to start your first crown.")
+        XCTAssertFalse(text.contains("0"), "must not claim zero mornings as a fact to report")
+    }
+
+    func testOneMorningUsesSingularNoun() {
+        XCTAssertEqual(DayPotentialCrownCopy.text(forMorningCount: 1),
+                       "1 morning · 6 to your next crown")
+    }
+
+    /// One away from the next crown.
+    func testSixMorningsIsOneAwayFromTheNextCrown() {
+        XCTAssertEqual(DayPotentialCrownCopy.text(forMorningCount: 6),
+                       "6 mornings · 1 to your next crown")
+    }
+
+    /// The spec's own worked example.
+    func testElevenMorningsMatchesTheSpecExample() {
+        XCTAssertEqual(DayPotentialCrownCopy.text(forMorningCount: 11),
+                       "11 mornings · 3 to your next crown")
+    }
+
+    /// Landing exactly on a boundary starts a fresh full week toward the one
+    /// after it.
+    func testExactlyOnACrownBoundaryPointsAFullWeekAhead() {
+        XCTAssertEqual(DayPotentialCrownCopy.text(forMorningCount: 7),
+                       "7 mornings · 7 to your next crown")
+    }
+
+    /// The user has asked three times for no dash construction in this UI —
+    /// this pins that regression directly rather than trusting a one-off read.
+    func testCopyNeverUsesADashConstruction() {
+        for mornings in [0, 1, 6, 7, 11, 14, 28, 587] {
+            let text = DayPotentialCrownCopy.text(forMorningCount: mornings)
+            XCTAssertFalse(text.contains("—"), "\(mornings) mornings produced a dash: \(text)")
+            XCTAssertFalse(text.contains(" - "), "\(mornings) mornings produced a hyphen dash: \(text)")
+        }
+    }
+
+    /// A "best run yet" claim ages badly the instant a day is missed — the
+    /// copy must never assert it, regression-tested directly since the old
+    /// streak label used to say exactly this.
+    func testCopyNeverClaimsABestRun() {
+        for mornings in [0, 1, 6, 7, 11, 14, 28, 587] {
+            XCTAssertFalse(DayPotentialCrownCopy.text(forMorningCount: mornings).lowercased().contains("best"))
+        }
+    }
 }

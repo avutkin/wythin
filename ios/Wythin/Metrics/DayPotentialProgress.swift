@@ -90,3 +90,21 @@ enum CrownLadder {
         return tokens
     }
 }
+
+// MARK: - Nudge copy
+
+/// The line beside the crowns. Points at the next crown rather than
+/// recapping the past, because tomorrow's morning recording is the thing it
+/// can actually influence — a "best run yet" claim ages badly the moment a
+/// day is missed, and this line must be true every single day it renders.
+enum DayPotentialCrownCopy {
+    static func text(forMorningCount mornings: Int) -> String {
+        guard mornings > 0 else {
+            return "Record a morning to start your first crown."
+        }
+        let remainder = mornings % 7
+        let toNext = remainder == 0 ? 7 : 7 - remainder
+        let noun = mornings == 1 ? "morning" : "mornings"
+        return "\(mornings) \(noun) · \(toNext) to your next crown"
+    }
+}
