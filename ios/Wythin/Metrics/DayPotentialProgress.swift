@@ -24,7 +24,22 @@ enum DayPotentialDisplay {
 /// crown standing in for more than `CrownLadder.collapseThreshold` of its
 /// colour — see `CrownLadder` for why that collapse exists.
 struct CrownToken: Equatable {
-    enum Color: Equatable { case white, yellow, red, green }
+    enum Color: Equatable {
+        case white, yellow, red, green
+
+        /// The word this colour is called on screen. Kept on the enum itself
+        /// so the nudge copy and the trailing silhouette's tint can only ever
+        /// read it from one place — they cannot drift apart by editing one
+        /// site and forgetting the other.
+        var word: String {
+            switch self {
+            case .white:  return "white"
+            case .yellow: return "yellow"
+            case .red:    return "red"
+            case .green:  return "green"
+            }
+        }
+    }
     let color: Color
     let overflowCount: Int?
 
@@ -218,6 +233,12 @@ enum DayPotentialCrownCopy {
     /// the moment a day is missed, and this line must be true every single
     /// day it renders. Describes the bar's own measurement (mornings until
     /// the next crown) and nothing about the calendar week shown above it.
+    ///
+    /// Names the colour of that next crown via `CrownLadder.nextCrownColor`,
+    /// the same function the trailing silhouette reads its tint from — so a
+    /// week that is about to collapse into a red or green crown is always
+    /// described in the same word the silhouette is painted, never "yellow"
+    /// in prose next to a red outline.
     static func nudgeText(forMorningCount mornings: Int) -> String {
         guard mornings > 0 else {
             return "Record a morning to start your first crown."
@@ -225,6 +246,7 @@ enum DayPotentialCrownCopy {
         let remainder = mornings % 7
         let toNext = remainder == 0 ? 7 : 7 - remainder
         let noun = toNext == 1 ? "day" : "days"
-        return "\(toNext) \(noun) to your next crown"
+        let colorWord = CrownLadder.nextCrownColor(forMorningCount: mornings).word
+        return "\(toNext) \(noun) to your next \(colorWord) crown"
     }
 }

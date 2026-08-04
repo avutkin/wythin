@@ -139,23 +139,57 @@ final class DayPotentialProgressTests: XCTestCase {
 
     func testOneDayRemainingUsesSingularNoun() {
         // 6 mornings in: one more closes the week, so the nudge must say
-        // "1 day", not "1 days".
+        // "1 day", not "1 days". The week being closed is the first ever,
+        // so its colour is yellow.
         XCTAssertEqual(DayPotentialCrownCopy.nudgeText(forMorningCount: 6),
-                       "1 day to your next crown")
+                       "1 day to your next yellow crown")
     }
 
     /// The spec's own worked example: 11 mornings is 4 into the second
-    /// week, so 3 remain.
+    /// week, so 3 remain, and that week is an ordinary yellow.
     func testElevenMorningsNudgeMatchesTheSpecExample() {
         XCTAssertEqual(DayPotentialCrownCopy.nudgeText(forMorningCount: 11),
-                       "3 days to your next crown")
+                       "3 days to your next yellow crown")
     }
 
     /// Landing exactly on a boundary starts a fresh full week toward the one
-    /// after it.
+    /// after it, which at this point in the ladder is still yellow.
     func testExactlyOnACrownBoundaryPointsAFullWeekAhead() {
         XCTAssertEqual(DayPotentialCrownCopy.nudgeText(forMorningCount: 7),
-                       "7 days to your next crown")
+                       "7 days to your next yellow crown")
+    }
+
+    // MARK: - Copy: the colour word must agree with the silhouette's tint
+
+    /// This is the regression the whole feature exists to prevent: the
+    /// sentence and the trailing silhouette are painted from two different
+    /// call sites, and only sharing `nextCrownColor` keeps them honest. Pins
+    /// it at the red collapse boundary — one morning short of the 4th
+    /// completed week, the week whose completion rolls four yellows into a
+    /// red (see `testFourthYellowCompletingTurnsIntoARed` above) — so a test
+    /// that merely checked "contains a colour word" could not pass while the
+    /// word and the underlying colour had actually diverged.
+    func testAtTheRedCollapseBoundaryTheWordAndTheColourAgree() {
+        let mornings = 27
+        let color = CrownLadder.nextCrownColor(forMorningCount: mornings)
+        XCTAssertEqual(color, .red, "test setup: 27 mornings must be one day from the red-collapse boundary")
+        XCTAssertEqual(DayPotentialCrownCopy.nudgeText(forMorningCount: mornings),
+                       "1 day to your next \(color.word) crown")
+        XCTAssertEqual(DayPotentialCrownCopy.nudgeText(forMorningCount: mornings),
+                       "1 day to your next red crown")
+    }
+
+    /// Same guard at the green collapse boundary — one morning short of the
+    /// 16th completed week, which rolls four reds into a green (see
+    /// `testFourthRedCompletingTurnsIntoAGreen` above).
+    func testAtTheGreenCollapseBoundaryTheWordAndTheColourAgree() {
+        let mornings = 111
+        let color = CrownLadder.nextCrownColor(forMorningCount: mornings)
+        XCTAssertEqual(color, .green, "test setup: 111 mornings must be one day from the green-collapse boundary")
+        XCTAssertEqual(DayPotentialCrownCopy.nudgeText(forMorningCount: mornings),
+                       "1 day to your next \(color.word) crown")
+        XCTAssertEqual(DayPotentialCrownCopy.nudgeText(forMorningCount: mornings),
+                       "1 day to your next green crown")
     }
 
     /// The user has asked three times for no dash construction in this UI —

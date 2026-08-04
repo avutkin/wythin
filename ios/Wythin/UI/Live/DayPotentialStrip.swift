@@ -145,24 +145,42 @@ struct DayPotentialStrip: View {
             Text(letter)
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(cell.isToday ? accent : Theme.dim)
-            // A dot, not a bar segment — this row and the progress bar below
-            // measure different things and must not look like one control.
-            Circle()
-                .strokeBorder(cell.isToday ? accent : Theme.dim.opacity(0.4),
-                             lineWidth: cell.isLogged ? 0 : 1.2)
-                .background(Circle().fill(cell.isLogged ? accent : Color.clear))
-                .frame(width: 7, height: 7)
+            // A crown, not a dot — a day is now the same unit as the earned
+            // ladder above it, just smaller: this row is the diary, not the
+            // achievement, so it must not compete with the ladder for
+            // attention. A day later this week is neither marked nor dimmed
+            // as missed, because it hasn't happened yet.
+            Image(systemName: cell.isLogged ? "crown.fill" : "crown")
+                .font(.system(size: 8.5, weight: .medium))
+                .foregroundStyle(weekCrownColor(cell))
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// A recorded morning is always the same plain white as the ladder's own
+    /// white crown. Today keeps its own accent tint only while unlogged —
+    /// once a morning lands the weekday letter above is already the only
+    /// thing marking "today", exactly as it was before this row drew crowns.
+    private func weekCrownColor(_ cell: DayPotentialWeekCell) -> Color {
+        if cell.isLogged { return Theme.text }
+        return cell.isToday ? accent : Theme.dim.opacity(0.4)
     }
 
     // MARK: Next-crown progress
 
     /// Fills toward whichever crown the ladder above is currently building —
     /// the cumulative count, same as the ladder, not this week's attendance.
+    ///
+    /// The trailing crown is a silhouette of that specific crown, not a
+    /// neutral placeholder: it is tinted with `nextCrownColor` the whole
+    /// time it's outlined, then fills solid the instant it's earned, so the
+    /// colour never changes at the moment of completion — only the fill
+    /// does. The copy beneath names this same colour, from this same
+    /// function, so the sentence and the silhouette cannot disagree.
     private var crownProgressBar: some View {
         let fraction = CrownLadder.progressFraction(forMorningCount: totalMornings)
         let earned = fraction >= 1.0
+        let nextColor = crownColor(CrownLadder.nextCrownColor(forMorningCount: totalMornings))
         return VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
                 ProgressView(value: fraction, total: 1)
@@ -170,9 +188,7 @@ struct DayPotentialStrip: View {
                     .scaleEffect(x: 1, y: 0.6, anchor: .center)
                 Image(systemName: earned ? "crown.fill" : "crown")
                     .font(.system(size: 12))
-                    .foregroundStyle(earned
-                        ? crownColor(CrownLadder.nextCrownColor(forMorningCount: totalMornings))
-                        : Theme.dim)
+                    .foregroundStyle(nextColor)
             }
             Text(DayPotentialCrownCopy.nudgeText(forMorningCount: totalMornings))
                 .font(.system(size: 11.5))
