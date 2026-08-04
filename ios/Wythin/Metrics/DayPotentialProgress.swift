@@ -91,20 +91,140 @@ enum CrownLadder {
     }
 }
 
-// MARK: - Nudge copy
+// MARK: - Crown ladder: progress toward the next crown
 
-/// The line beside the crowns. Points at the next crown rather than
-/// recapping the past, because tomorrow's morning recording is the thing it
-/// can actually influence — a "best run yet" claim ages badly the moment a
-/// day is missed, and this line must be true every single day it renders.
+extension CrownLadder {
+
+    /// How far into the *current* week's run of mornings sits, as a 0–1
+    /// fraction — the bar beneath the ladder fills this.
+    ///
+    /// A freshly completed week (`mornings` an exact multiple of seven) must
+    /// read as a full bar, not an empty one: the naive remainder is zero
+    /// right at that instant, which would flash the bar back to empty the
+    /// same morning a crown was earned.
+    static func progressFraction(forMorningCount mornings: Int) -> Double {
+        guard mornings > 0 else { return 0 }
+        let remainder = mornings % 7
+        return remainder == 0 ? 1.0 : Double(remainder) / 7.0
+    }
+
+    /// The colour of the crown the progress bar is currently tracking: the
+    /// one still being worked toward while the bar is partial, or the one
+    /// that was just finished at the instant the bar reads full.
+    ///
+    /// That second case is why this is keyed off the *ceiling* week number
+    /// rather than always looking one week ahead — at an exact boundary
+    /// (say, 28 mornings) the week that finishes is week 4 itself, the one
+    /// that collapses four yellows into a red, not week 5. Getting this
+    /// wrong would show the outline crown turning red a week early, out of
+    /// step with the red crown the ladder above it just grew.
+    ///
+    /// Mirrors the collapse rule in `counts(forMorningCount:)`: a crown is
+    /// yellow unless finishing it also finishes a run of four (which makes
+    /// it a red) or a run of sixteen (which makes it a green). Kept as its
+    /// own pure function, separate from the token list, so the outline
+    /// crown at the end of the progress bar can pick its colour without
+    /// re-deriving the whole ladder.
+    static func nextCrownColor(forMorningCount mornings: Int) -> CrownToken.Color {
+        guard mornings > 0 else { return colorForWeek(1) }
+        let remainder = mornings % 7
+        let weekNumber = remainder == 0 ? mornings / 7 : mornings / 7 + 1
+        return colorForWeek(weekNumber)
+    }
+
+    private static func colorForWeek(_ n: Int) -> CrownToken.Color {
+        if n % 16 == 0 { return .green }
+        if n % 4 == 0  { return .red }
+        return .yellow
+    }
+}
+
+// MARK: - This week, at a glance
+
+/// One day in the current-week row: whether it has a recorded morning, and
+/// whether it's the day this is being shown on.
+///
+/// Deliberately carries no notion of "missed" — a day later in the week
+/// than today hasn't happened yet, and marking it as a failure would be the
+/// same scolding tone the rest of this strip has already dropped.
+struct DayPotentialWeekCell: Equatable {
+    let date: Date
+    let isLogged: Bool
+    let isToday: Bool
+}
+
+/// Builds the Monday-through-Sunday row shown under the crown ladder.
+///
+/// This counts a different thing than the ladder above it: the ladder is a
+/// lifetime total that never resets, so a person can be mid-crown while
+/// this week's row shows only two or three marks, or the other way around.
+/// The row exists to answer "what has this week looked like so far", not to
+/// restate the ladder's arithmetic — see `DayPotentialCrownCopy` for the
+/// copy that must stay paired with the ladder instead.
+enum DayPotentialWeekRow {
+
+    /// Where `date` sits in a week that always starts on Monday, regardless
+    /// of the device's own calendar settings — 0 for Monday, 6 for Sunday.
+    static func mondayFirstIndex(for date: Date, calendar: Calendar = .current) -> Int {
+        // `.weekday` is 1...7 for Sunday...Saturday under the Gregorian
+        // calendar no matter how `firstWeekday` is configured, so this
+        // stays Monday-first even on a device set to a Sunday-first week.
+        let sundayFirst = calendar.component(.weekday, from: date)
+        return (sundayFirst + 5) % 7
+    }
+
+    /// The seven cells for the calendar week containing `today`.
+    static func cells(loggedDays: Set<Date>, today: Date,
+                       calendar: Calendar = .current) -> [DayPotentialWeekCell] {
+        let startOfToday = calendar.startOfDay(for: today)
+        let offsetFromMonday = mondayFirstIndex(for: startOfToday, calendar: calendar)
+        guard let monday = calendar.date(byAdding: .day, value: -offsetFromMonday, to: startOfToday)
+        else { return [] }
+
+        return (0..<7).compactMap { offset in
+            guard let day = calendar.date(byAdding: .day, value: offset, to: monday) else { return nil }
+            return DayPotentialWeekCell(date: day,
+                                         isLogged: loggedDays.contains(day),
+                                         isToday: day == startOfToday)
+        }
+    }
+}
+
+// MARK: - Crown copy
+
+/// The two lines of copy attached to the ladder: the running total shown
+/// beside the crowns, and the nudge shown beneath the progress bar.
+///
+/// Kept as two functions rather than one combined string because they now
+/// sit in different places on screen — the count beside the crowns, the
+/// nudge under the bar, with the calendar-week row between them. Both stay
+/// anchored to the same cumulative count, never to the week row, since a
+/// person can be mid-crown while this week's row shows something else
+/// entirely and the copy must not pretend those are the same measurement.
 enum DayPotentialCrownCopy {
-    static func text(forMorningCount mornings: Int) -> String {
+
+    /// The running total beside the crown row. Nothing to show yet reads as
+    /// an invitation rather than a "0 mornings" report card, so this is nil
+    /// until the first one lands.
+    static func countLabel(forMorningCount mornings: Int) -> String? {
+        guard mornings > 0 else { return nil }
+        let noun = mornings == 1 ? "morning" : "mornings"
+        return "\(mornings) \(noun)"
+    }
+
+    /// The line beneath the progress bar. Points at the next crown rather
+    /// than recapping the past, because tomorrow's morning recording is the
+    /// thing it can actually influence — a "best run yet" claim ages badly
+    /// the moment a day is missed, and this line must be true every single
+    /// day it renders. Describes the bar's own measurement (mornings until
+    /// the next crown) and nothing about the calendar week shown above it.
+    static func nudgeText(forMorningCount mornings: Int) -> String {
         guard mornings > 0 else {
             return "Record a morning to start your first crown."
         }
         let remainder = mornings % 7
         let toNext = remainder == 0 ? 7 : 7 - remainder
-        let noun = mornings == 1 ? "morning" : "mornings"
-        return "\(mornings) \(noun) · \(toNext) to your next crown"
+        let noun = toNext == 1 ? "day" : "days"
+        return "\(toNext) \(noun) to your next crown"
     }
 }
