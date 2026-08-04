@@ -24,17 +24,14 @@ struct OnboardingStateSlider: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Theme.text)
-                Spacer()
-                Text(value.map(String.init) ?? "—")
-                    .font(Theme.monoBody)
-                    .foregroundStyle(value == nil ? Theme.dim : tint)
-                    .monospacedDigit()
-            }
+            Text(title)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Theme.text)
 
+            // No numeric readout: the position of the thumb between two named
+            // ends is the answer, and a 0-10 score invites people to think about
+            // the number instead of the feeling. Set-vs-unset is still legible —
+            // an untouched slider has no coloured fill behind the thumb.
             Slider(value: proxy, in: 0...10, step: 1)
                 .tint(value == nil ? Theme.border : tint)
 
