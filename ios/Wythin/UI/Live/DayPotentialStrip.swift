@@ -5,25 +5,19 @@ import SwiftUI
 /// local day-load line.
 ///
 /// The score is computed on-device, so this renders offline; only the prose
-/// needs the network. Colour comes from the locally-computed band, never from
-/// the model.
+/// needs the network. The paint is fixed regardless of the reading — a hard
+/// morning must read as a low number, not as an alarm — so only the
+/// headline's band word carries that information now.
 struct DayPotentialStrip: View {
     let store: DayPotentialStore
     @AppStorage("dayPotentialExpanded") private var expanded = false
 
-    private var accent: Color {
-        switch store.result?.band {
-        case .full, .good:      return Theme.accent
-        case .steady:           return Theme.breathe
-        case .light, .depleted: return Theme.warn
-        case nil:               return Theme.dim
-        }
-    }
+    private let accent = Theme.accent
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
             strip
-            dots
+            crownRow
             baselineBar
             if expanded { expandedBody }
             if store.anchor == nil, (store.streak?.current ?? 0) > 0 { nudge }
@@ -46,11 +40,11 @@ struct DayPotentialStrip: View {
                         .foregroundStyle(accent)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
-                    ProgressView(value: Double(store.result?.score ?? 0), total: 100)
+                    ProgressView(value: Double(displayScore ?? 0), total: 100)
                         .tint(accent)
                         .scaleEffect(x: 1, y: 0.6, anchor: .center)
                 }
-                Text(store.state.showsScore ? "\(store.result?.score ?? 0)" : "—")
+                Text(store.state.showsScore ? "\(displayScore ?? 0)" : "—")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(store.state.showsScore ? accent : Theme.dim)
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
@@ -71,33 +65,59 @@ struct DayPotentialStrip: View {
         store.state.headline(band: store.result?.band)
     }
 
-    // MARK: Streak
+    /// Only the display is floored — `PotentialScore`, the stored result,
+    /// and the server all still see a genuine 0.
+    private var displayScore: Int? {
+        DayPotentialDisplay.score(for: store.result)
+    }
 
-    private var dots: some View {
+    // MARK: Crowns
+
+    /// Cumulative mornings recorded, ever — the same count `StreakCompute`
+    /// already totals for the baseline-forming bar below, so the ladder and
+    /// that bar never disagree about how much history exists.
+    private var totalMornings: Int {
+        store.streak?.totalAnchors ?? 0
+    }
+
+    private var crownRow: some View {
         HStack(spacing: 7) {
-            ForEach(0..<7, id: \.self) { i in
-                let day = Calendar.current.date(
-                    byAdding: .day, value: i - 6,
-                    to: Calendar.current.startOfDay(for: Date())) ?? Date()
-                let logged = store.loggedDays.contains(day)
-                Circle()
-                    .fill(logged ? accent : .clear)
-                    .frame(width: 9, height: 9)
-                    .overlay(Circle().strokeBorder(
-                        logged ? .clear : Theme.dim.opacity(0.35), lineWidth: 1.5))
+            ForEach(Array(CrownLadder.tokens(forMorningCount: totalMornings).enumerated()),
+                    id: \.offset) { _, token in
+                crownIcon(token)
             }
             Spacer()
-            Text(streakLabel)
+            Text(DayPotentialCrownCopy.text(forMorningCount: totalMornings))
                 .font(.system(size: 11.5))
                 .foregroundStyle(Theme.dim)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
         }
     }
 
-    private var streakLabel: String {
-        let current = store.streak?.current ?? 0
-        let best    = store.streak?.best ?? 0
-        if current > 0, current == best, current > 2 { return "\(current) mornings — your best run yet" }
-        return "\(current) mornings in a row"
+    @ViewBuilder
+    private func crownIcon(_ token: CrownToken) -> some View {
+        HStack(spacing: 2) {
+            Image(systemName: "crown.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(crownColor(token.color))
+            if let overflow = token.overflowCount {
+                Text("×\(overflow)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.dim)
+            }
+        }
+    }
+
+    /// Fixed per tier, not band-derived — the ladder marks accumulated
+    /// history, so it must not flicker with today's reading.
+    private func crownColor(_ c: CrownToken.Color) -> Color {
+        switch c {
+        case .white:  return Theme.text
+        case .yellow: return Theme.domainHeavy
+        case .red:    return Theme.warn
+        case .green:  return Theme.accent
+        }
     }
 
     /// Only while the range is still forming. Once firm it is noise, and its
@@ -112,7 +132,7 @@ struct DayPotentialStrip: View {
                              total: Double(AnchorBaseline.firmAnchors))
                     .tint(Theme.breathe)
                     .scaleEffect(x: 1, y: 0.5, anchor: .center)
-                Text("\(logged) of \(AnchorBaseline.firmAnchors) readings — your range is still forming")
+                Text("\(logged) of \(AnchorBaseline.firmAnchors) readings · your range is still forming")
                     .font(.system(size: 11.5))
                     .foregroundStyle(Theme.dim)
             }
