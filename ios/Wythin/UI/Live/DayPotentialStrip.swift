@@ -157,7 +157,11 @@ struct DayPotentialStrip: View {
 
     // MARK: Next-crown progress bar geometry
 
-    private static let barHeight: CGFloat = 36
+    /// The row the bar occupies. Sized to the tallest thing standing on the
+    /// rail rather than to the rail itself: the rail sits on this row's lower
+    /// edge and the crowns rise from it, so leftover height here would show as
+    /// dead space under the bar.
+    private static let barHeight: CGFloat = 22
     /// The capsule's own visual thickness. Deliberately a rail rather than a
     /// bar: both crowns are taller than it and sit proud of it, the way a
     /// slider's thumb sits on a thin track, so the crowns read as the
@@ -170,10 +174,6 @@ struct DayPotentialStrip: View {
     /// decide it — is what lets `DayPotentialBarGeometry.markerCenterX`
     /// clamp correctly: the clamp needs a real half-width, not a guess.
     private static let markerSize: CGFloat = 20
-    /// The trailing milestone crown's frame. Slightly smaller than the
-    /// travelling marker so the one that is still being earned reads as the
-    /// destination rather than competing with the one in motion.
-    private static let milestoneSize: CGFloat = 17
     /// Reserved at the trailing end for the crown, held out of the fill
     /// track entirely — earning a full week must not paint the fill straight
     /// under the icon, since the reference always shows that milestone
@@ -211,68 +211,55 @@ struct DayPotentialStrip: View {
                 let markerX = DayPotentialBarGeometry.markerCenterX(
                     fraction: fraction, trackWidth: trackWidth, markerRadius: Self.markerSize / 2)
 
-                ZStack(alignment: .leading) {
-                    // Beyond the fill: near-black rail, not empty space.
-                    //
-                    // Width is `trackWidth`, not the full row: unconstrained
-                    // it ran the whole width and passed *under* the crown
-                    // slot, so the rail and the crown overlapped instead of
-                    // the rail ending where the crown begins. Both capsules
-                    // now occupy exactly the same rect, leading-aligned and
-                    // vertically centred by the ZStack, so the fill can
-                    // never sit at a different height or offset from the
-                    // rail it fills.
+                // Bottom-aligned, and that is the whole trick: the rail
+                // and both crowns share this container's lower edge, so
+                // SwiftUI seats them rather than arithmetic doing it.
+                //
+                // The previous attempt computed a centre y from the crown's
+                // frame height, which was wrong for a reason worth keeping
+                // written down: an SF Symbol does not fill its frame. The
+                // glyph floats inside it, so aligning frame bottoms left the
+                // drawn crown hovering around the rail's middle. Letting the
+                // layout system align the images' own bounds sidesteps the
+                // glyph-versus-frame gap entirely.
+                ZStack(alignment: .bottomLeading) {
+                    // The rail, and the fill over it in exactly the same
+                    // rect — same width basis, same height, same leading and
+                    // bottom edge — so the fill can never sit at a different
+                    // height or offset from the rail it fills.
                     Capsule().fill(Theme.bg)
                         .frame(width: trackWidth, height: Self.trackHeight)
 
-                    // The fill. No inner core line any more: it existed to
-                    // give a thick slab some depth, and on a rail this thin
-                    // it would be a second stripe inside a 10pt one rather
-                    // than a highlight.
                     Capsule()
                         .fill(accent)
                         .frame(width: fillWidth, height: Self.trackHeight)
 
-                    // The marker at the fill boundary: a white crown,
-                    // because the boundary it marks is literally the week
-                    // in progress, the same thing a white crown means in
-                    // the ladder above. Deliberately toned down from a
-                    // plain white fill — a muted opacity of `Theme.text`
-                    // rather than the pure colour — and with no glow behind
-                    // it: the earlier glow was purely decorative, so
-                    // dropping it removes brightness without losing any
-                    // information a Reduce Transparency or low-vision
-                    // rendering would otherwise lose. It stays legible
-                    // against both the fill and the dark remainder on
-                    // shape and position alone.
+                    // The travelling marker: a white crown, because the
+                    // boundary it marks is literally the week in progress,
+                    // which is exactly what a white crown means in the
+                    // ladder above. Muted rather than pure white, and no
+                    // glow: the glow was decoration, so dropping it removes
+                    // brightness without losing anything the shape and
+                    // position do not already carry.
+                    //
+                    // Width is fixed so the x arithmetic has a real
+                    // half-width to centre on; height is left to the glyph
+                    // so its own bottom is what gets seated.
                     Image(systemName: "crown.fill")
                         .font(.system(size: 15))
                         .foregroundStyle(Theme.text.opacity(0.82))
-                        .frame(width: Self.markerSize, height: Self.markerSize)
-                        .position(x: markerX,
-                                  y: DayPotentialBarGeometry.crownCenterY(
-                                        rowHeight: geo.size.height,
-                                        trackHeight: Self.trackHeight,
-                                        glyphHeight: Self.markerSize))
+                        .frame(width: Self.markerSize)
+                        .offset(x: markerX - Self.markerSize / 2)
 
-                    // The milestone crown, at the trailing end on the
-                    // reserved dark slot. Taller than the rail, so like the
-                    // travelling marker it sits proud of it on the
-                    // centreline — the crowns are the subjects here and the
-                    // rail is only the distance between them.
+                    // The milestone crown, standing at the rail's end on the
+                    // reserved slot. Smaller than the travelling marker so
+                    // the destination does not compete with the crown in
+                    // motion.
                     Image(systemName: earned ? "crown.fill" : "crown")
                         .font(.system(size: 13))
                         .foregroundStyle(nextColor)
-                        // An explicit frame so the seating arithmetic has a
-                        // real height to work from rather than the glyph's
-                        // own intrinsic bounds, which vary between the
-                        // outlined and filled variants.
-                        .frame(width: Self.milestoneSize, height: Self.milestoneSize)
-                        .position(x: geo.size.width - Self.crownSlotWidth / 2,
-                                  y: DayPotentialBarGeometry.crownCenterY(
-                                        rowHeight: geo.size.height,
-                                        trackHeight: Self.trackHeight,
-                                        glyphHeight: Self.milestoneSize))
+                        .frame(width: Self.crownSlotWidth)
+                        .offset(x: trackWidth)
                 }
             }
             .frame(height: Self.barHeight)
