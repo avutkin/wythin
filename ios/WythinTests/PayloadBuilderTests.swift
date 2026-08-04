@@ -125,7 +125,7 @@ extension PayloadBuilderTests {
             bars: [], average: 52, deltaPct: 9, reference: 57,
             referenceIsPersonal: true,
             betterCount: 6, presentCount: 7,
-            referenceLines: [],
+            referenceLines: [], weekAverages: [],
             summary: "6 of 7 days better than your baseline.")
 
         let payload = MacroTrendPayload(period: .week, rangeLabel: range.label,
@@ -158,7 +158,7 @@ extension PayloadBuilderTests {
             bars: [], average: 52, deltaPct: 9, reference: 55,
             referenceIsPersonal: false,
             betterCount: 3, presentCount: 6,
-            referenceLines: [],
+            referenceLines: [], weekAverages: [],
             summary: "3 of 6 days better than typical.")
 
         let payload = MacroTrendPayload(period: .week, rangeLabel: "X",
@@ -174,7 +174,7 @@ extension PayloadBuilderTests {
         let empty = TrackSeries(bars: [], average: nil, deltaPct: nil, reference: 8,
                                 referenceIsPersonal: false,
                                 betterCount: 0, presentCount: 0,
-                                referenceLines: [],
+                                referenceLines: [], weekAverages: [],
                                 summary: "No data this period.")
         let payload = MacroTrendPayload(
             period: .week, rangeLabel: "X",
@@ -187,7 +187,8 @@ extension PayloadBuilderTests {
             let spec = TrackMetrics.all.first { $0.def.label == label }!
             let s = TrackSeries(bars: [], average: 1, deltaPct: nil, reference: 1,
                                 referenceIsPersonal: false,
-                                betterCount: 0, presentCount: 1, referenceLines: [], summary: "")
+                                betterCount: 0, presentCount: 1,
+                                referenceLines: [], weekAverages: [], summary: "")
             return MacroTrendPayload(period: .week, rangeLabel: "X",
                                      series: [(spec, s)]).trends[spec.trendKey]?.direction
         }

@@ -128,7 +128,7 @@ final class TrackPeriodTests: XCTestCase {
         // an adjacent week.
         let w = TrackRangeBuilder.range(period: .week, offset: 0, today: date(2026, 7, 28), calendar: cal)
         XCTAssertEqual(w.buckets.map(\.label),
-                       ["M 7-27", "T 7-28", "W 7-29", "T 7-30", "F 7-31", "S 8-1", "S 8-2"])
+                       ["M 7/27", "T 7/28", "W 7/29", "T 7/30", "F 7/31", "S 8/1", "S 8/2"])
 
         let m = TrackRangeBuilder.range(period: .month, offset: 0, today: date(2026, 7, 28), calendar: cal)
         XCTAssertEqual(m.buckets.first!.label, "1")
@@ -138,13 +138,13 @@ final class TrackPeriodTests: XCTestCase {
     // MARK: shortDateLabel
 
     func testShortDateLabelHasNoLeadingZeros() {
-        XCTAssertEqual(TrackRangeBuilder.shortDateLabel(date(2026, 8, 30), calendar: cal), "8-30")
+        XCTAssertEqual(TrackRangeBuilder.shortDateLabel(date(2026, 8, 30), calendar: cal), "8/30")
         // Single-digit month AND single-digit day, the case a naive
         // DateFormatter pattern is most likely to get wrong in one locale
         // or another.
-        XCTAssertEqual(TrackRangeBuilder.shortDateLabel(date(2026, 1, 5), calendar: cal), "1-5")
-        XCTAssertEqual(TrackRangeBuilder.shortDateLabel(date(2026, 11, 3), calendar: cal), "11-3")
-        XCTAssertEqual(TrackRangeBuilder.shortDateLabel(date(2026, 12, 25), calendar: cal), "12-25")
+        XCTAssertEqual(TrackRangeBuilder.shortDateLabel(date(2026, 1, 5), calendar: cal), "1/5")
+        XCTAssertEqual(TrackRangeBuilder.shortDateLabel(date(2026, 11, 3), calendar: cal), "11/3")
+        XCTAssertEqual(TrackRangeBuilder.shortDateLabel(date(2026, 12, 25), calendar: cal), "12/25")
     }
 
     // MARK: priorNoun

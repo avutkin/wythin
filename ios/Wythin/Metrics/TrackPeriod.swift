@@ -83,7 +83,7 @@ enum TrackRangeBuilder {
         let end      = cal.date(byAdding: .weekOfYear, value: 1, to: start)!
 
         let buckets = dayBuckets(from: start, to: end, calendar: cal) { d in
-            // Narrow weekday plus the date, e.g. "S 8-30" — a bare "S" alone
+            // Narrow weekday plus the date, e.g. "S 8/30" — a bare "S" alone
             // could mean Saturday or Sunday, and it gives no way to tell one
             // Tuesday's bar from another week's without also reading the
             // page-level range label above the chart.
@@ -171,16 +171,19 @@ enum TrackRangeBuilder {
         return out
     }
 
-    /// Month-day, hyphen-joined, never zero-padded: "8-30", "1-5". Built
-    /// from calendar components rather than a `DateFormatter` pattern like
-    /// "M-d" — whether a single-count numeric pattern letter zero-pads is a
-    /// locale/format-provider detail, not a Swift guarantee, and this axis
-    /// label is exactly the kind of small, easy-to-miss regression a
-    /// pinned test should catch outright rather than one relying on that
-    /// behaviour holding across OS versions.
+    /// Month-day, slash-joined, never zero-padded: "8/30", "1/5". A slash
+    /// rather than a hyphen because the only other date range on this screen
+    /// — the month page's week labels, "13–19" — uses a dash to mean "from
+    /// here to there", and a day label reading "8-30" invites being read the
+    /// same way. Built from calendar components rather than a `DateFormatter`
+    /// pattern like "M/d" — whether a single-count numeric pattern letter
+    /// zero-pads is a locale/format-provider detail, not a Swift guarantee,
+    /// and this axis label is exactly the kind of small, easy-to-miss
+    /// regression a pinned test should catch outright rather than one relying
+    /// on that behaviour holding across OS versions.
     static func shortDateLabel(_ d: Date, calendar cal: Calendar) -> String {
         let c = cal.dateComponents([.month, .day], from: d)
-        return "\(c.month!)-\(c.day!)"
+        return "\(c.month!)/\(c.day!)"
     }
 
     private static func fmt(_ format: String, _ cal: Calendar) -> DateFormatter {

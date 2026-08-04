@@ -8,6 +8,32 @@ struct TrackBar: Identifiable, Equatable {
     var id: Date { bucket.start }
 }
 
+/// One calendar week inside a month page: the horizontal average line drawn
+/// across that week's daily bars, plus the span it covers and the label that
+/// stands in for the seven day labels underneath it.
+///
+/// Only the month view has these. The week view is already seven days wide —
+/// a weekly average there would just be the header value drawn twice — and
+/// the 6M view's bars are whole months, which weeks do not divide.
+struct TrackWeekAverage: Identifiable, Equatable {
+    /// First day of the week that this month actually contributed (inclusive).
+    let start: Date
+    /// One day past the week's last contributed day (exclusive) — where the
+    /// line's right end sits, flush with the right edge of that day's bar.
+    let end:   Date
+    /// The day the axis label hangs off: the middle of `start..<end`. Anchoring
+    /// on the week's *start* instead would push the first label half off the
+    /// plot's leading edge and leave every label sitting left of the days it
+    /// describes.
+    let midDay: Date
+    /// The unweighted mean of the week's present days; nil when none are.
+    let value: Double?
+    /// The week period as days of the month, e.g. "6–12".
+    let label: String
+
+    var id: Date { start }
+}
+
 /// One horizontal line drawn on a metric's chart: a value and the short
 /// legend text describing what it is.
 ///
@@ -50,6 +76,11 @@ struct TrackSeries: Equatable {
     /// against at all (the first page a person ever opens), rather than
     /// falling back to some other value that isn't what the line claims to be.
     let referenceLines: [TrackReferenceLine]
+
+    /// The month page's per-week average lines. Empty for every other period —
+    /// see `TrackWeekAverage` for why only the month has them.
+    let weekAverages: [TrackWeekAverage]
+
     /// "N of N days better than prior week." — the footer copy, phrased
     /// against `referenceLines` (not `reference`; see its doc above for why
     /// they can differ).
@@ -68,13 +99,15 @@ enum TrackSeriesBuilder {
 
     // MARK: Bars
 
-    /// `calendar` only matters for the month page, which regroups its daily
-    /// buckets into calendar weeks below — every other period's buckets
-    /// already come straight out of `range.buckets` at the granularity the
-    /// chart wants, so it's unused there.
-    static func bars(spec: TrackMetricSpec, range: TrackRange, rollups: [DailyRollup],
-                     calendar cal: Calendar = .current) -> [TrackBar] {
-        let daily = range.buckets.map { bucket -> TrackBar in
+    /// One bar per bucket, at whatever granularity `range.buckets` already
+    /// carries: a day for W and M, a calendar month for 6M. The month page
+    /// used to collapse its days into five weekly bars here; it now charts the
+    /// days themselves and draws the weekly means as lines over them
+    /// (`weekAverages`), so a month reads as a real distribution rather than
+    /// five flat steps.
+    static func bars(spec: TrackMetricSpec, range: TrackRange,
+                     rollups: [DailyRollup]) -> [TrackBar] {
+        range.buckets.map { bucket -> TrackBar in
             let values = rollups
                 .filter { $0.day >= bucket.start && $0.day < bucket.end }
                 .compactMap { spec.rollup($0) }
@@ -88,16 +121,11 @@ enum TrackSeriesBuilder {
             return TrackBar(bucket: bucket,
                             value: values.reduce(0, +) / Double(values.count))
         }
-        // The month page charts weekly bars, not daily ones — see
-        // `weekBars` for how the month's first and last, usually-partial
-        // calendar weeks are handled.
-        guard range.period == .month else { return daily }
-        return weekBars(dailyBars: daily, calendar: cal)
     }
 
     /// Groups a month's daily bars into calendar weeks (Monday-first, or
-    /// whatever the injected calendar's `firstWeekday` says) and collapses
-    /// each into one bar: the unweighted mean of that week's present days,
+    /// whatever the injected calendar's `firstWeekday` says) and reduces each
+    /// to one average line: the unweighted mean of that week's present days,
     /// nil when none of them are.
     ///
     /// A month's first and last calendar week essentially never align with
@@ -112,8 +140,8 @@ enum TrackSeriesBuilder {
     /// call "last week"), rather than an arbitrary 7-day slice counted from
     /// the 1st that drifts out of alignment with the real week as the month
     /// goes on.
-    static func weekBars(dailyBars: [TrackBar],
-                        calendar cal: Calendar = .current) -> [TrackBar] {
+    static func weekAverages(dailyBars: [TrackBar],
+                             calendar cal: Calendar = .current) -> [TrackWeekAverage] {
         var groups: [Date: [TrackBar]] = [:]
         for bar in dailyBars {
             let weekStart = cal.dateInterval(of: .weekOfYear, for: bar.bucket.start)?.start
@@ -126,9 +154,29 @@ enum TrackSeriesBuilder {
             let end    = group.last!.bucket.end
             let values = group.compactMap(\.value)
             let value: Double? = values.isEmpty ? nil : values.reduce(0, +) / Double(values.count)
-            let bucket = TrackBucket(start: start, end: end,
-                                     label: TrackRangeBuilder.shortDateLabel(start, calendar: cal))
-            return TrackBar(bucket: bucket, value: value)
+            let lastDay = group.last!.bucket.start
+            // "6–12", not "6": the label replaces seven day labels, so it has
+            // to say how far the week it names actually reaches — especially
+            // for the month's two edge weeks, which are the ones that don't
+            // run a full seven days.
+            //
+            // Days only, no month prefix. Both ends are always in the same
+            // month (the edge weeks are clipped to the month, not stretched
+            // into the neighbouring one), and the page's own header already
+            // says which month — so a "7-" on each end is redundant, and at
+            // five labels across a phone it is the difference between them
+            // fitting and the last one truncating to "7-2…".
+            //
+            // A one-day edge week (a month starting on a Sunday, or ending on
+            // a Monday) is labelled with the bare day: "31–31" says the same
+            // thing at twice the width, right where the axis has the least
+            // room to spare.
+            let firstDay = cal.component(.day, from: start)
+            let finalDay = cal.component(.day, from: lastDay)
+            let label = firstDay == finalDay ? "\(firstDay)" : "\(firstDay)–\(finalDay)"
+            return TrackWeekAverage(start: start, end: end,
+                                    midDay: group[group.count / 2].bucket.start,
+                                    value: value, label: label)
         }
     }
 
@@ -161,11 +209,16 @@ enum TrackSeriesBuilder {
         // Named `currentBars` rather than `bars` so this local doesn't shadow
         // the static `bars(spec:range:rollups:)` function before the prior
         // range's bars are computed below.
-        let currentBars = bars(spec: spec, range: range, rollups: rollups, calendar: cal)
+        let currentBars = bars(spec: spec, range: range, rollups: rollups)
         let present = currentBars.compactMap(\.value)
         let average = present.isEmpty ? nil : present.reduce(0, +) / Double(present.count)
 
-        let priorBars    = bars(spec: spec, range: priorRange, rollups: rollups, calendar: cal)
+        // Only the month draws weekly lines; every other period's bars are
+        // already at or above week granularity.
+        let weeks = range.period == .month
+            ? weekAverages(dailyBars: currentBars, calendar: cal) : []
+
+        let priorBars    = bars(spec: spec, range: priorRange, rollups: rollups)
         let priorPresent = priorBars.compactMap(\.value)
         let priorAverage = priorPresent.isEmpty
             ? nil : priorPresent.reduce(0, +) / Double(priorPresent.count)
@@ -194,6 +247,7 @@ enum TrackSeriesBuilder {
             reference: reference, referenceIsPersonal: isPersonal,
             betterCount: betterCount, presentCount: present.count,
             referenceLines: referenceLines,
+            weekAverages: weeks,
             summary: summary(period: range.period, better: chartBetterCount, total: present.count))
     }
 
