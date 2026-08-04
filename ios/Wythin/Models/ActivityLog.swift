@@ -302,10 +302,17 @@ final class ActivityLog {
         // recomputes live) still had the value. On a version bump we recompute
         // every finished entry once from the samples still in store, then fall back
         // to the cheap ongoing guard.
-        // v3 adds the exercise response (Load, VSI slope, efficiency slope,
-        // domain split) for activating entries. Restorative entries recompute
-        // their windows as before and simply gain nothing.
-        let currentVersion = 3
+        // BUMP THIS whenever a stored field is added or its computation changes.
+        // Nothing recomputes an existing entry except a bump, so a new field
+        // added without one is invisible on every session already logged — the
+        // code looks correct and the screen shows stale storage.
+        //
+        // v3  the exercise response: Load, VSI slope, efficiency slope, domains.
+        // v4  recovery as a time (halfRecoveryMinutes, recoveryObservedMinutes,
+        //     afterTailDC), vagalRoseDuring, the axis scores, and the corrected
+        //     resting heart rate — which changes Load and the VSI slope on every
+        //     entry already stored under v3.
+        let currentVersion = 4
         let versionKey = "activityBackfillVersion"
         let migrating = UserDefaults.standard.integer(forKey: versionKey) < currentVersion
 
