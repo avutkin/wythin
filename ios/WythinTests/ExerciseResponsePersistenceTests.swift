@@ -261,6 +261,34 @@ final class ExerciseResponsePersistenceTests: XCTestCase {
                         "suppression still ranks — it normalises by heart rate")
     }
 
+    func testBackfillFillsEveryFieldAddedSinceTheLastBump() throws {
+        // The failure this guards: a stored field is added, the backfill version
+        // is not bumped, and every already-logged session keeps showing stale
+        // storage while the code reads as though it were correct.
+        let ctx = makeContext()
+        let end = seed(ctx)
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Intervals",
+                                startedAt: start, endedAt: end)
+        ctx.insert(entry)
+        try? ctx.save()
+
+        // Simulate an entry written under an older version: windows present,
+        // exercise response never computed.
+        entry.computeHRVWindows(context: ctx)
+        entry.exerciseLoad = nil
+        entry.halfRecoveryMinutes = nil
+        entry.afterTailDC = nil
+        try? ctx.save()
+
+        UserDefaults.standard.set(0, forKey: "activityBackfillVersion")
+        ActivityLog.backfillMissingWindows(context: ctx)
+
+        XCTAssertNotNil(entry.exerciseLoad, "Load must be rebuilt by the backfill")
+        XCTAssertNotNil(entry.afterTailDC, "the recovery tail must be rebuilt")
+        XCTAssertNotNil(entry.recoveryObservedMinutes,
+                        "recovery timing must be rebuilt, not left to a future session")
+    }
+
     func testRecomputeIsIdempotent() throws {
         let ctx = makeContext()
         let end = seed(ctx)
