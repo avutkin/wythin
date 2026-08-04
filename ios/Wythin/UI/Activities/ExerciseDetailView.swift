@@ -52,11 +52,7 @@ struct ExerciseDetailView: View {
 
     // MARK: - Axis values
 
-    private var suppression: AxisValue {
-        guard entry.vsiSlopePer10 != nil else { return .unavailable(reason: "no fit") }
-        guard let s = entry.suppressionScore else { return .unavailable(reason: historyProgress) }
-        return .score(s, word: ExerciseResponse.word(for: s))
-    }
+    private var suppression: AxisValue { entry.suppressionAxis }
 
     private var efficiency: AxisValue {
         guard entry.hasExternalWorkSignal else { return .unavailable(reason: "no ext. signal") }
