@@ -10,6 +10,7 @@ final class AnchorDetectorTests: XCTestCase {
                              motion: Float? = 5,
                              hr: Float = 60,
                              vti: Float = 3.6,
+                             breathBPM: Float = 13,
                              spacing: Double = 2) -> [MetricsHistoryPoint] {
         let cal = Calendar.current
         var comps = DateComponents(year: 2026, month: 7, day: 20)
@@ -19,7 +20,7 @@ final class AnchorDetectorTests: XCTestCase {
         return (0..<count).map { i in
             MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(Double(i) * spacing),
                                 meanBPM: hr, vti: vti, dc: 7.5, pip: 42, dfa1: 1.0,
-                                breathBPM: 13, motion: motion,
+                                breathBPM: breathBPM, motion: motion,
                                 signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
         }
     }
@@ -80,6 +81,58 @@ final class AnchorDetectorTests: XCTestCase {
                                 signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
         }
         XCTAssertNil(AnchorDetector.detect(points))
+    }
+
+    // MARK: - Resonance breathing
+
+    /// Resonance/coherent breathing (~4.5–7/min) is a first-class practice in
+    /// this app, not sensor noise — `AutonomicCompute.balance` already treats
+    /// paced breathing below 10/min as deliberate. The point gate must admit
+    /// it rather than throwing out the stillest, most intentional mornings.
+    func testResonanceBreathingAt55BPMPasses() {
+        let a = AnchorDetector.detect(stillPoints(minutes: 6, hour: 7, breathBPM: 5.5))
+        XCTAssertNotNil(a, "5.5 br/min is standard resonance-breathing pacing, not an outlier")
+    }
+
+    func testResonanceBreathingAt6BPMPasses() {
+        let a = AnchorDetector.detect(stillPoints(minutes: 6, hour: 7, breathBPM: 6))
+        XCTAssertNotNil(a)
+    }
+
+    func testBreathingAt2BPMStillRejected() {
+        // Below the resonance floor: a rate this slow is a detection failure,
+        // not a person, and must still disqualify the window.
+        XCTAssertNil(AnchorDetector.detect(stillPoints(minutes: 6, hour: 7, breathBPM: 2)))
+    }
+
+    func testBreathingAt25BPMStillRejected() {
+        XCTAssertNil(AnchorDetector.detect(stillPoints(minutes: 6, hour: 7, breathBPM: 25)))
+    }
+
+    func testFullMorningOfResonanceBreathingProducesAnAnchor() {
+        // The user's actual practice: a whole rested window paced at ~5.5–6
+        // br/min, with the rate varying tick to tick as real coherent
+        // breathing does, not pinned to one boundary value. Under the old
+        // 8...20 range every sample here failed `passesPointGates` and the
+        // morning had no anchor at all — that is the regression this test
+        // pins. (The boundary tests above pass a single value through the
+        // gate; this exercises the whole detection pipeline end to end, so it
+        // would fail if the gate were bypassed rather than genuinely widened,
+        // since `testBreathingAt2BPMStillRejected` / `At25BPM` would then also
+        // wrongly pass.)
+        let cal = Calendar.current
+        var comps = DateComponents(year: 2026, month: 7, day: 20); comps.hour = 7
+        let start = cal.date(from: comps)!
+        let points = (0..<180).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(Double(i) * 2),
+                                meanBPM: 58, vti: 3.8, dc: 7.5, pip: 42, dfa1: 1.0,
+                                breathBPM: i.isMultiple(of: 2) ? 5.5 : 6.0, motion: 5,
+                                signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2)
+        }
+        let a = AnchorDetector.detect(points)
+        XCTAssertNotNil(a, "resonance breathing at ~5.5-6 br/min must anchor the day, not disqualify it")
+        XCTAssertEqual(a?.breathBPM ?? 0, 5.75, accuracy: 0.5)
+        XCTAssertEqual(a?.confidence, .high)
     }
 
     // MARK: - Cadence
