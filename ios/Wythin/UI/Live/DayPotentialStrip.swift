@@ -5,20 +5,14 @@ import SwiftUI
 /// local day-load line.
 ///
 /// The score is computed on-device, so this renders offline; only the prose
-/// needs the network. Colour comes from the locally-computed band, never from
-/// the model.
+/// needs the network. The paint is fixed regardless of the reading — a hard
+/// morning must read as a low number, not as an alarm — so only the
+/// headline's band word carries that information now.
 struct DayPotentialStrip: View {
     let store: DayPotentialStore
     @AppStorage("dayPotentialExpanded") private var expanded = false
 
-    private var accent: Color {
-        switch store.result?.band {
-        case .full, .good:      return Theme.accent
-        case .steady:           return Theme.breathe
-        case .light, .depleted: return Theme.warn
-        case nil:               return Theme.dim
-        }
-    }
+    private let accent = Theme.accent
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
@@ -112,7 +106,7 @@ struct DayPotentialStrip: View {
                              total: Double(AnchorBaseline.firmAnchors))
                     .tint(Theme.breathe)
                     .scaleEffect(x: 1, y: 0.5, anchor: .center)
-                Text("\(logged) of \(AnchorBaseline.firmAnchors) readings — your range is still forming")
+                Text("\(logged) of \(AnchorBaseline.firmAnchors) readings · your range is still forming")
                     .font(.system(size: 11.5))
                     .foregroundStyle(Theme.dim)
             }
