@@ -20,7 +20,6 @@ struct DayPotentialStrip: View {
             crownRow
             weekRow
             crownProgressBar
-            baselineBar
             if expanded { expandedBody }
             if store.anchor == nil, (store.streak?.current ?? 0) > 0 { nudge }
         }
@@ -75,9 +74,9 @@ struct DayPotentialStrip: View {
 
     // MARK: Crowns
 
-    /// Cumulative mornings recorded, ever — the same count `StreakCompute`
-    /// already totals for the baseline-forming bar below, so the ladder and
-    /// that bar never disagree about how much history exists.
+    /// Cumulative mornings recorded, ever. `StreakCompute` already totals it,
+    /// and the ladder, the progress bar and the nudge copy all read this one
+    /// number so they cannot disagree about how much history exists.
     private var totalMornings: Int {
         store.streak?.totalAnchors ?? 0
     }
@@ -178,25 +177,6 @@ struct DayPotentialStrip: View {
             Text(DayPotentialCrownCopy.nudgeText(forMorningCount: totalMornings))
                 .font(.system(size: 11.5))
                 .foregroundStyle(Theme.dim)
-        }
-    }
-
-    /// Only while the range is still forming. Once firm it is noise, and its
-    /// old 60-day target implied sixty mornings of work before anything
-    /// happened — the score actually starts on the second.
-    @ViewBuilder
-    private var baselineBar: some View {
-        let logged = store.streak?.totalAnchors ?? 0
-        if logged < AnchorBaseline.firmAnchors {
-            VStack(alignment: .leading, spacing: 5) {
-                ProgressView(value: Double(logged),
-                             total: Double(AnchorBaseline.firmAnchors))
-                    .tint(Theme.breathe)
-                    .scaleEffect(x: 1, y: 0.5, anchor: .center)
-                Text("\(logged) of \(AnchorBaseline.firmAnchors) readings · your range is still forming")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Theme.dim)
-            }
         }
     }
 
