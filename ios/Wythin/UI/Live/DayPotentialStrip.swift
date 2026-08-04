@@ -164,7 +164,7 @@ struct DayPotentialStrip: View {
     /// subjects and the line reads as the distance between them.
     /// `barHeight` stays well above this to give that overflow room without
     /// the row clipping it.
-    private static let trackHeight: CGFloat = 6
+    private static let trackHeight: CGFloat = 3
     /// The travelling marker's fixed square footprint. Giving it an actual
     /// frame — rather than letting the crown glyph's own rendered bounds
     /// decide it — is what lets `DayPotentialBarGeometry.markerCenterX`
@@ -208,12 +208,18 @@ struct DayPotentialStrip: View {
                     fraction: fraction, trackWidth: trackWidth, markerRadius: Self.markerSize / 2)
 
                 ZStack(alignment: .leading) {
-                    // Beyond the fill: near-black track, not empty space.
-                    // Constrained to `trackHeight` and left otherwise
-                    // unpositioned so the ZStack's own leading/centre
-                    // alignment centres it vertically in the taller row.
+                    // Beyond the fill: near-black rail, not empty space.
+                    //
+                    // Width is `trackWidth`, not the full row: unconstrained
+                    // it ran the whole width and passed *under* the crown
+                    // slot, so the rail and the crown overlapped instead of
+                    // the rail ending where the crown begins. Both capsules
+                    // now occupy exactly the same rect, leading-aligned and
+                    // vertically centred by the ZStack, so the fill can
+                    // never sit at a different height or offset from the
+                    // rail it fills.
                     Capsule().fill(Theme.bg)
-                        .frame(height: Self.trackHeight)
+                        .frame(width: trackWidth, height: Self.trackHeight)
 
                     // The fill. No inner core line any more: it existed to
                     // give a thick slab some depth, and on a rail this thin
