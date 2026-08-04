@@ -51,8 +51,6 @@ private struct StateCopy {
     let headline: String
     let feels:    String
     let color:    Color
-    /// Seconds per pulse cycle of the needle — slow when rested, quick when roused.
-    let pulse:    Double
 }
 
 private func copy(for s: ANSState) -> StateCopy {
@@ -61,28 +59,24 @@ private func copy(for s: ANSState) -> StateCopy {
         return StateCopy(
             headline: "Resting and recovering",
             feels:    "Breath comes easy and shoulders drop. This is the state your body repairs in.",
-            color:    Theme.accent,
-            pulse:    5.0)
+            color:    Theme.accent)
     case .sympathetic:
         // Amber, not red: being revved is what effort requires. It is a cost at
         // rest, not a fault. Red is reserved for the dorsal state below.
         return StateCopy(
             headline: "Revved up",
             feels:    "Heart quicker, muscles primed, attention sharp. Great for effort, tiring at rest.",
-            color:    Theme.rsa,
-            pulse:    1.6)
+            color:    Theme.rsa)
     case .dorsalVagal:
         return StateCopy(
             headline: "Running on empty",
             feels:    "Flat and withdrawn. Your system is conserving rather than recovering.",
-            color:    Theme.warn,
-            pulse:    6.5)
+            color:    Theme.warn)
     case .mixed:
         return StateCopy(
             headline: "Finding balance",
             feels:    "Shifting between rest and readiness. Normal while you settle or warm up.",
-            color:    Theme.breathe,
-            pulse:    3.0)
+            color:    Theme.breathe)
     }
 }
 
@@ -111,9 +105,13 @@ private struct BalanceSection: View {
 
             // Dorsal vagal is low arousal AND low vagal tone, but `sns = 1 − pns`
             // is pure arithmetic — collapsed variability forces sns toward 1 and
-            // would park the needle deep in READY, the opposite of the truth.
+            // would park the marker deep in READY, the opposite of the truth.
             // The axis simply does not apply here, so don't pretend to place them.
-            BalanceTrack(sns: indices.sns, color: c.color, pulse: c.pulse,
+            //
+            // PNS and SNS sit at the ends of the same line as the track —
+            // parasympathetic on the left under REST, sympathetic on the
+            // right under DRIVE — rather than as a caption underneath it.
+            BalanceTrack(pns: indices.pns, sns: indices.sns, color: c.color,
                          placeable: indices.state != .dorsalVagal)
 
             if indices.state == .dorsalVagal {
@@ -133,97 +131,89 @@ private struct BalanceSection: View {
                      tint: Theme.rsa,
                      edge: .trailing)
             }
-
-            Rectangle()
-                .fill(Theme.border)
-                .frame(height: 0.5)
-
-            // Each term sits under its own end of the track: parasympathetic
-            // under REST on the left, sympathetic under DRIVE on the right.
-            HStack(spacing: 8) {
-                Text("Parasympathetic (PNS) \(fmt(indices.pns))")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text("Sympathetic (SNS) \(fmt(indices.sns))")
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .font(.system(size: 10, design: .monospaced))
-            .foregroundStyle(Theme.dim.opacity(0.65))
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Nervous system: \(c.headline). \(c.feels)")
     }
-
-    private func fmt(_ v: Float) -> String { String(format: "%.2f", v) }
 }
 
 // MARK: - Balance Track
 //
-// The hero. A needle riding a calm-to-ready gradient, breathing at a rate set by
-// the current state, so the balance is something you feel before you read it.
+// The hero. A marker riding a green-to-red gradient — the colour underneath
+// it says which way the balance is leaning without a legend — with the PNS
+// and SNS numbers anchored at the track's own ends, so it reads as one row
+// instead of a bar plus a separate caption underneath it.
 // Deliberately no hard centre divider: the classification threshold moves with
 // breathing rate (see AutonomicCompute.classify), so a fixed midpoint would
 // contradict the headline whenever slow breathing is doing the work.
 
 private struct BalanceTrack: View {
+    let pns:   Float
     let sns:   Float
     let color: Color
-    let pulse: Double
     /// False when the rest↔ready axis is meaningless for the current state.
     let placeable: Bool
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var breathing = false
-
-    private let halo: CGFloat = 36
+    private let markerHeight: CGFloat = 22
 
     var body: some View {
-        GeometryReader { geo in
-            let usable = max(0, geo.size.width - halo)
-            let x = CGFloat(min(1, max(0, sns))) * usable
+        HStack(spacing: 8) {
+            Text(BalanceTrackMath.format(pns))
 
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(LinearGradient(
-                        colors: placeable
-                            ? [Theme.accent.opacity(0.55),
-                               Theme.dim.opacity(0.30),
-                               Theme.rsa.opacity(0.55)]
-                            : [Theme.dim.opacity(0.18),
-                               Theme.dim.opacity(0.18),
-                               Theme.dim.opacity(0.18)],
-                        startPoint: .leading, endPoint: .trailing))
-                    .frame(height: 8)
+            GeometryReader { geo in
+                let x = BalanceTrackMath.markerOffset(sns: sns, trackWidth: geo.size.width)
 
-                if placeable {
-                    ZStack {
-                        Circle()
-                            .fill(color)
-                            .frame(width: halo, height: halo)
-                            .scaleEffect(breathing ? 1.0 : 0.5)
-                            .opacity(breathing ? 0.10 : 0.42)
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(LinearGradient(
+                            colors: BalanceTrackMath.gradientColors(placeable: placeable),
+                            startPoint: .leading, endPoint: .trailing))
+                        .frame(height: 8)
+
+                    if placeable {
                         Capsule()
                             .fill(Theme.text)
-                            .frame(width: 4, height: 22)
+                            .frame(width: 4, height: markerHeight)
                             .shadow(color: color.opacity(0.9), radius: 7)
+                            .offset(x: x)
                     }
-                    .frame(width: halo, height: halo)
-                    .offset(x: x)
                 }
             }
-            .frame(height: halo)
+            .frame(height: markerHeight)
+            .frame(maxWidth: .infinity)
+
+            Text(BalanceTrackMath.format(sns))
         }
-        .frame(height: halo)
+        .font(.system(size: 10, design: .monospaced))
+        .foregroundStyle(Theme.dim.opacity(0.65))
         .animation(.spring(duration: 0.6), value: sns)
-        .onAppear { restartPulse() }
-        .onChange(of: pulse) { _, _ in restartPulse() }
+    }
+}
+
+/// The track's pure geometry and formatting, pulled out of the view so the
+/// mapping from a 0–1 balance value to a pixel offset — and the colour and
+/// number choices at each end — can be pinned by tests without a SwiftUI
+/// host.
+enum BalanceTrackMath {
+    /// Width reserved for the marker so it doesn't run off either end of
+    /// the track at sns 0 or 1.
+    static let markerWidth: CGFloat = 24
+
+    static func markerOffset(sns: Float, trackWidth: CGFloat) -> CGFloat {
+        let usable = max(0, trackWidth - markerWidth)
+        return CGFloat(min(1, max(0, sns))) * usable
     }
 
-    private func restartPulse() {
-        guard !reduceMotion else { breathing = false; return }
-        withAnimation(nil) { breathing = false }
-        withAnimation(.easeInOut(duration: pulse / 2).repeatForever(autoreverses: true)) {
-            breathing = true
-        }
+    /// Same precision the card has always shown for PNS/SNS.
+    static func format(_ v: Float) -> String { String(format: "%.2f", v) }
+
+    /// Green (rest) → red (drive), continuous, so the colour under the
+    /// marker reads the lean at a glance. Flat and dim when the axis
+    /// doesn't apply (dorsal vagal — see `BalanceSection`).
+    static func gradientColors(placeable: Bool) -> [Color] {
+        placeable
+            ? [Theme.accent, Theme.warn]
+            : [Theme.dim.opacity(0.18), Theme.dim.opacity(0.18)]
     }
 }
 
