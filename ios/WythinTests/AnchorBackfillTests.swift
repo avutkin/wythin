@@ -40,12 +40,13 @@ final class AnchorBackfillTests: XCTestCase {
     /// drops anything that looks like an off-body strap before the detector
     /// ever sees it.
     private func insertRest(day: Date, hour: Int, count: Int, spacing: Double,
-                            hr: Float, motion: Float?, into ctx: ModelContext) {
+                            hr: Float, motion: Float?, breathBPM: Float = 13,
+                            into ctx: ModelContext) {
         let start = day.addingTimeInterval(Double(hour) * 3600)
         for i in 0..<count {
             ctx.insert(HRVSample(anchorTestTimestamp: start.addingTimeInterval(Double(i) * spacing),
                                  meanBPM: hr, vti: 3.6, rmssd: 36.6, sdnn: 45,
-                                 dc: 7.5, pip: 42, dfa1: 1.0, breathBPM: 13, motion: motion,
+                                 dc: 7.5, pip: 42, dfa1: 1.0, breathBPM: breathBPM, motion: motion,
                                  signalQuality: 0.98, rrInvalidRate: 0.01, ecgQualityTier: 2))
         }
     }
@@ -123,6 +124,25 @@ final class AnchorBackfillTests: XCTestCase {
         XCTAssertEqual(rebuilt.count, 1)
         XCTAssertEqual(rebuilt.first?.restingHR ?? 0, 60, accuracy: 0.001,
                        "the 08:00 rest anchors the day the 06:00 run could not")
+    }
+
+    func testReplayRebuildsAResonanceBreathingDayThatHadNoAnchor() async {
+        // This is the user-visible bug: a morning of resonance breathing
+        // (~5.5/min) had no anchor under the old 8...20 gate, so there is
+        // nothing stored for it — `insertAnchor` is deliberately not called.
+        // Bumping the version is what makes the replay reach this day at all;
+        // widening the gate alone would not touch history already on v2.
+        let ctx = ModelContext(container)
+        insertRest(day: day(5), hour: 7, count: 180, spacing: 2,
+                  hr: 58, motion: 5, breathBPM: 5.5, into: ctx)
+        try! ctx.save()
+
+        await AnchorBackfill.runIfNeeded(container: container, defaults: defaults)
+
+        let rebuilt = anchors(on: day(5))
+        XCTAssertEqual(rebuilt.count, 1,
+                       "a day the old gate rejected outright must anchor once replayed under the new range")
+        XCTAssertEqual(rebuilt.first?.breathBPM ?? 0, 5.5, accuracy: 0.001)
     }
 
     func testTodaysFrozenAnchorIsLeftAlone() async {
@@ -240,6 +260,14 @@ final class AnchorBackfillTests: XCTestCase {
 
         XCTAssertEqual(outcome.anchorsWritten, 1, "it got as far as building the anchor")
         XCTAssertFalse(outcome.saved, "but nothing reached the store")
+    }
+
+    func testVersionIsBumpedForTheWidenedBreathGate() {
+        // The breath gate widened to admit resonance breathing (~5.5-6/min);
+        // that only reaches existing history if the version advances, since
+        // `runIfNeeded` no-ops once the stored flag is already caught up.
+        XCTAssertEqual(AnchorBackfill.version, 3,
+                       "a user already on v2 must be replayed, or the wider gate never touches their history")
     }
 
     func testTheFlagFollowsSavedAndNothingElse() {

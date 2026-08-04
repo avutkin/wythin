@@ -88,7 +88,7 @@ struct DayPotentialStrip: View {
                 crownIcon(token)
             }
             Spacer()
-            if let count = DayPotentialCrownCopy.countLabel(forMorningCount: totalMornings) {
+            if let count = DayPotentialCrownCopy.countLabel(current: store.streak?.current ?? 0, total: totalMornings) {
                 Text(count)
                     .font(.system(size: 11.5))
                     .foregroundStyle(Theme.dim)
@@ -127,69 +127,149 @@ struct DayPotentialStrip: View {
 
     private static let weekdayLetters = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
 
-    /// Monday-through-Sunday context for the current calendar week —
-    /// deliberately a different measurement than the crown row above it, so
-    /// this row marks days rather than restating the ladder's own count.
+    /// Monday-through-Sunday context for the current calendar week, spread
+    /// across the same width as the capsule beneath it so each letter sits
+    /// above roughly its own share of the bar.
+    ///
+    /// This used to draw a small crown under each letter — a day's own
+    /// attendance mark, deliberately a different measurement than the
+    /// ladder above it. That mark is gone now: the capsule beneath already
+    /// carries the week's progress at real size, and a row of seven more
+    /// crowns above it and a row of earned crowns above *that* read as
+    /// "crowns, crowns, and more crowns" rather than adding information.
+    /// The letters alone still answer "what week is this", which is all
+    /// this row ever needed to do next to the bar.
     private var weekRow: some View {
         let cells = DayPotentialWeekRow.cells(loggedDays: store.loggedDays, today: Date())
         return HStack(spacing: 8) {
             ForEach(Array(cells.enumerated()), id: \.offset) { index, cell in
-                weekCell(cell, letter: Self.weekdayLetters[index])
+                Text(Self.weekdayLetters[index])
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(cell.isToday ? accent : Theme.dim)
+                    .frame(maxWidth: .infinity)
             }
         }
+        // Same horizontal extent as the capsule below, so the two rows line
+        // up: both are full-width flex rows inside the same leading-aligned
+        // stack, with no independent padding of their own to drift them
+        // apart.
     }
 
-    @ViewBuilder
-    private func weekCell(_ cell: DayPotentialWeekCell, letter: String) -> some View {
-        VStack(spacing: 4) {
-            Text(letter)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(cell.isToday ? accent : Theme.dim)
-            // A crown, not a dot — a day is now the same unit as the earned
-            // ladder above it, just smaller: this row is the diary, not the
-            // achievement, so it must not compete with the ladder for
-            // attention. A day later this week is neither marked nor dimmed
-            // as missed, because it hasn't happened yet.
-            Image(systemName: cell.isLogged ? "crown.fill" : "crown")
-                .font(.system(size: 8.5, weight: .medium))
-                .foregroundStyle(weekCrownColor(cell))
-        }
-        .frame(maxWidth: .infinity)
-    }
+    // MARK: Next-crown progress bar geometry
 
-    /// A recorded morning is always the same plain white as the ladder's own
-    /// white crown. Today keeps its own accent tint only while unlogged —
-    /// once a morning lands the weekday letter above is already the only
-    /// thing marking "today", exactly as it was before this row drew crowns.
-    private func weekCrownColor(_ cell: DayPotentialWeekCell) -> Color {
-        if cell.isLogged { return Theme.text }
-        return cell.isToday ? accent : Theme.dim.opacity(0.4)
-    }
-
-    // MARK: Next-crown progress
+    /// The row the bar occupies. Sized to the tallest thing standing on the
+    /// rail rather than to the rail itself: the rail sits on this row's lower
+    /// edge and the crowns rise from it, so leftover height here would show as
+    /// dead space under the bar.
+    private static let barHeight: CGFloat = 22
+    /// The capsule's own visual thickness. Deliberately a rail rather than a
+    /// bar: both crowns are taller than it and sit proud of it, the way a
+    /// slider's thumb sits on a thin track, so the crowns read as the
+    /// subjects and the line reads as the distance between them.
+    /// `barHeight` stays well above this to give that overflow room without
+    /// the row clipping it.
+    private static let trackHeight: CGFloat = 3
+    /// The travelling marker's fixed square footprint. Giving it an actual
+    /// frame — rather than letting the crown glyph's own rendered bounds
+    /// decide it — is what lets `DayPotentialBarGeometry.markerCenterX`
+    /// clamp correctly: the clamp needs a real half-width, not a guess.
+    private static let markerSize: CGFloat = 20
+    /// Reserved at the trailing end for the crown, held out of the fill
+    /// track entirely — earning a full week must not paint the fill straight
+    /// under the icon, since the reference always shows that milestone
+    /// sitting on the capsule's unlit portion.
+    /// Narrow on purpose: wide enough for the crown and a hair of breathing
+    /// room, no wider. Any slack here reads as a gap between the rail and
+    /// the crown, which makes the crown look detached rather than like the
+    /// thing the rail runs into.
+    private static let crownSlotWidth: CGFloat = 22
 
     /// Fills toward whichever crown the ladder above is currently building —
     /// the cumulative count, same as the ladder, not this week's attendance.
     ///
-    /// The trailing crown is a silhouette of that specific crown, not a
+    /// Two crowns ride this bar, and they are one crown at two moments, not
+    /// two decorations. The travelling white crown *is* the in-progress
+    /// week — a white crown is exactly what the ladder above calls a week
+    /// that hasn't closed yet — moving toward the trailing crown, which is
+    /// that same week's future: the specific colour it becomes once it
+    /// closes. The trailing crown is a silhouette of that colour, not a
     /// neutral placeholder: it is tinted with `nextCrownColor` the whole
     /// time it's outlined, then fills solid the instant it's earned, so the
     /// colour never changes at the moment of completion — only the fill
-    /// does. The copy beneath names this same colour, from this same
-    /// function, so the sentence and the silhouette cannot disagree.
+    /// does, which is the same instant the travelling crown reaches it. The
+    /// copy beneath names this same colour, from this same function, so the
+    /// sentence and the silhouette cannot disagree.
     private var crownProgressBar: some View {
         let fraction = CrownLadder.progressFraction(forMorningCount: totalMornings)
         let earned = fraction >= 1.0
         let nextColor = crownColor(CrownLadder.nextCrownColor(forMorningCount: totalMornings))
-        return VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                ProgressView(value: fraction, total: 1)
-                    .tint(accent)
-                    .scaleEffect(x: 1, y: 0.6, anchor: .center)
-                Image(systemName: earned ? "crown.fill" : "crown")
-                    .font(.system(size: 12))
-                    .foregroundStyle(nextColor)
+
+        return VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { geo in
+                let trackWidth = max(geo.size.width - Self.crownSlotWidth, 0)
+                let fillWidth = DayPotentialBarGeometry.fillWidth(fraction: fraction, trackWidth: trackWidth)
+                let markerX = DayPotentialBarGeometry.markerCenterX(
+                    fraction: fraction, trackWidth: trackWidth, markerRadius: Self.markerSize / 2)
+
+                // Bottom-aligned, and that is the whole trick: the rail
+                // and both crowns share this container's lower edge, so
+                // SwiftUI seats them rather than arithmetic doing it.
+                //
+                // The previous attempt computed a centre y from the crown's
+                // frame height, which was wrong for a reason worth keeping
+                // written down: an SF Symbol does not fill its frame. The
+                // glyph floats inside it, so aligning frame bottoms left the
+                // drawn crown hovering around the rail's middle. Letting the
+                // layout system align the images' own bounds sidesteps the
+                // glyph-versus-frame gap entirely.
+                ZStack(alignment: .bottomLeading) {
+                    // The rail, and the fill over it in exactly the same
+                    // rect — same width basis, same height, same leading and
+                    // bottom edge — so the fill can never sit at a different
+                    // height or offset from the rail it fills.
+                    Capsule().fill(Theme.bg)
+                        .frame(width: trackWidth, height: Self.trackHeight)
+
+                    Capsule()
+                        .fill(accent)
+                        .frame(width: fillWidth, height: Self.trackHeight)
+
+                    // The travelling marker: a white crown, because the
+                    // boundary it marks is literally the week in progress,
+                    // which is exactly what a white crown means in the
+                    // ladder above. Muted rather than pure white, and no
+                    // glow: the glow was decoration, so dropping it removes
+                    // brightness without losing anything the shape and
+                    // position do not already carry.
+                    //
+                    // Width is fixed so the x arithmetic has a real
+                    // half-width to centre on; height is left to the glyph
+                    // so its own bottom is what gets seated.
+                    Image(systemName: "crown.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Theme.text.opacity(0.82))
+                        .frame(width: Self.markerSize)
+                        .offset(x: markerX - Self.markerSize / 2)
+
+                    // The milestone crown, standing at the rail's end on the
+                    // reserved slot. Smaller than the travelling marker so
+                    // the destination does not compete with the crown in
+                    // motion.
+                    Image(systemName: earned ? "crown.fill" : "crown")
+                        .font(.system(size: 13))
+                        .foregroundStyle(nextColor)
+                        .frame(width: Self.crownSlotWidth)
+                        .offset(x: trackWidth)
+                }
             }
+            .frame(height: Self.barHeight)
+            // The bar only moves in whole-day steps when the store's
+            // morning count changes; animating that jump — under any
+            // Reduce Motion setting or not — would read as motion for its
+            // own sake rather than carrying information, so it is switched
+            // off outright rather than gated on the accessibility setting.
+            .transaction { $0.animation = nil }
+
             Text(DayPotentialCrownCopy.nudgeText(forMorningCount: totalMornings))
                 .font(.system(size: 11.5))
                 .foregroundStyle(Theme.dim)

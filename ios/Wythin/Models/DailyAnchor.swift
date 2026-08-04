@@ -66,8 +66,11 @@ enum AnchorBackfill {
     /// stored anchors have to be recomputed or they sit in the same baseline as
     /// anchors built by different rules, which is worse than having neither.
     static let flagKey = "anchorBackfillVersion"
-    /// 2 — cadence-aware run splitting, tolerant quality gates, 300 s window.
-    static let version = 2
+    /// 3 — breath gate widened to admit resonance breathing (was 8...20, now
+    /// 4...20): mornings paced at ~5.5-6/min were being rejected outright, and
+    /// a user already parked on v2 is never touched by that fix unless the
+    /// flag advances again to force a replay.
+    static let version = 3
 
     /// What the replay did, for the log line. The counts are the only way to
     /// read an on-device before/after anchor total: a total that moved little

@@ -117,16 +117,31 @@ final class DayPotentialProgressTests: XCTestCase {
     // MARK: - Copy: count label (beside the crown row)
 
     func testZeroMorningsHasNoCountLabel() {
-        XCTAssertNil(DayPotentialCrownCopy.countLabel(forMorningCount: 0))
+        XCTAssertNil(DayPotentialCrownCopy.countLabel(current: 0, total: 0))
     }
 
-    func testOneMorningUsesSingularNounInCountLabel() {
-        XCTAssertEqual(DayPotentialCrownCopy.countLabel(forMorningCount: 1), "1 morning")
+    func testOneMorningUsesSingularPlainFormRegardlessOfStreak() {
+        // "1 consecutive day" would be silly, so even when the one morning
+        // on record is itself the current run, the label stays plain.
+        XCTAssertEqual(DayPotentialCrownCopy.countLabel(current: 1, total: 1), "1 day of measurement")
     }
 
-    /// The spec's own worked example.
-    func testElevenMorningsCountLabelMatchesTheSpecExample() {
-        XCTAssertEqual(DayPotentialCrownCopy.countLabel(forMorningCount: 11), "11 mornings")
+    /// The spec's own worked example: an unbroken run of eleven that
+    /// accounts for every morning on record earns the "consecutive" wording.
+    func testElevenMorningsWithNoGapUsesConsecutiveWording() {
+        XCTAssertEqual(DayPotentialCrownCopy.countLabel(current: 11, total: 11),
+                       "11 consecutive days of measurement")
+    }
+
+    /// The case that matters: the cumulative total is eleven, but the
+    /// current run is shorter, meaning a day was missed somewhere in the
+    /// history. The label must fall back to the plain, total-only wording
+    /// rather than claiming a consecutive run that isn't true. A test that
+    /// only ever passed equal `current`/`total` pairs would still pass even
+    /// if the code always printed "consecutive" — this one would not.
+    func testGapBetweenCurrentAndTotalDropsConsecutiveWording() {
+        XCTAssertEqual(DayPotentialCrownCopy.countLabel(current: 4, total: 11),
+                       "11 days of measurement")
     }
 
     // MARK: - Copy: nudge line (beneath the progress bar)
@@ -199,9 +214,15 @@ final class DayPotentialProgressTests: XCTestCase {
             let nudge = DayPotentialCrownCopy.nudgeText(forMorningCount: mornings)
             XCTAssertFalse(nudge.contains("—"), "\(mornings) mornings produced a dash: \(nudge)")
             XCTAssertFalse(nudge.contains(" - "), "\(mornings) mornings produced a hyphen dash: \(nudge)")
-            if let count = DayPotentialCrownCopy.countLabel(forMorningCount: mornings) {
+            // Exercised at both an unbroken run and a gapped one, since the
+            // two branches produce different sentences.
+            if let count = DayPotentialCrownCopy.countLabel(current: mornings, total: mornings) {
                 XCTAssertFalse(count.contains("—"), "\(mornings) mornings produced a dash: \(count)")
                 XCTAssertFalse(count.contains(" - "), "\(mornings) mornings produced a hyphen dash: \(count)")
+            }
+            if let count = DayPotentialCrownCopy.countLabel(current: 0, total: mornings) {
+                XCTAssertFalse(count.contains("—"), "\(mornings) mornings (gapped) produced a dash: \(count)")
+                XCTAssertFalse(count.contains(" - "), "\(mornings) mornings (gapped) produced a hyphen dash: \(count)")
             }
         }
     }
@@ -282,6 +303,69 @@ final class DayPotentialProgressTests: XCTestCase {
     /// by one in the other direction.
     func testWeekBeforeTheGreenTransitionStaysYellow() {
         XCTAssertEqual(CrownLadder.nextCrownColor(forMorningCount: 105), .yellow)
+    }
+}
+
+// MARK: - Progress bar geometry
+
+/// The capsule bar's fill width and marker clamping — the one part of the
+/// restyle that is real logic rather than paint, so it is pinned here
+/// independent of any view.
+///
+/// The travelling marker used to be a plain circle (`knobCenterX`,
+/// `knobRadius: 11` — half of a 22pt-diameter circle); it is now a crown
+/// icon drawn in a fixed 20pt square frame (`DayPotentialStrip.markerSize`),
+/// so the function and every pinned value below moved from "knob"/circle
+/// wording to "marker" wording and from radius 11 to radius 10 to match.
+/// The clamp arithmetic itself is unchanged — only the real half-width fed
+/// into it changed, which is exactly the "re-derive from the shape's actual
+/// size" fix this rename exists to pin.
+final class DayPotentialBarGeometryTests: XCTestCase {
+
+    func testFillWidthAtZeroFractionIsZero() {
+        XCTAssertEqual(DayPotentialBarGeometry.fillWidth(fraction: 0, trackWidth: 200), 0)
+    }
+
+    func testFillWidthAtFullFractionIsTheWholeTrack() {
+        XCTAssertEqual(DayPotentialBarGeometry.fillWidth(fraction: 1, trackWidth: 200), 200)
+    }
+
+    func testFillWidthAtMidFractionIsHalfTheTrack() {
+        XCTAssertEqual(DayPotentialBarGeometry.fillWidth(fraction: 0.5, trackWidth: 200), 100)
+    }
+
+    /// A fraction outside 0...1 must never paint past either end of the
+    /// capsule, even though `CrownLadder.progressFraction` should not itself
+    /// produce one — this guards the geometry independently of that caller.
+    func testFillWidthClampsFractionOutsideZeroToOne() {
+        XCTAssertEqual(DayPotentialBarGeometry.fillWidth(fraction: 1.4, trackWidth: 200), 200)
+        XCTAssertEqual(DayPotentialBarGeometry.fillWidth(fraction: -0.2, trackWidth: 200), 0)
+    }
+
+    /// At 0%, the naive centre (x=0) would draw the marker half off the left
+    /// edge of the capsule — it must clamp to sit fully on the track so it
+    /// stays visible at the very start.
+    func testMarkerCenterAtZeroPercentClampsOntoTheTrack() {
+        XCTAssertEqual(DayPotentialBarGeometry.markerCenterX(fraction: 0, trackWidth: 200, markerRadius: 10), 10)
+    }
+
+    /// At 100%, the naive centre (x=trackWidth) would draw the marker half
+    /// off the right edge — the same clamp, the other direction, so it
+    /// stays visible at the very end too.
+    func testMarkerCenterAtFullPercentClampsOntoTheTrack() {
+        XCTAssertEqual(DayPotentialBarGeometry.markerCenterX(fraction: 1, trackWidth: 200, markerRadius: 10), 190)
+    }
+
+    func testMarkerCenterMidTrackNeedsNoClamping() {
+        XCTAssertEqual(DayPotentialBarGeometry.markerCenterX(fraction: 0.5, trackWidth: 200, markerRadius: 10), 100)
+    }
+
+    /// A track too narrow to hold the marker at all — its own footprint
+    /// alone exceeds the track width — must not invert the clamp into a
+    /// negative or out-of-range position; it settles on the track's centre
+    /// instead.
+    func testMarkerCenterOnATrackNarrowerThanTheMarkerFallsBackToCentre() {
+        XCTAssertEqual(DayPotentialBarGeometry.markerCenterX(fraction: 0.5, trackWidth: 10, markerRadius: 10), 5)
     }
 }
 

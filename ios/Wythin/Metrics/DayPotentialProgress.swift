@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 // MARK: - Score floor
@@ -154,6 +155,51 @@ extension CrownLadder {
     }
 }
 
+// MARK: - Progress bar geometry
+
+/// Pure geometry for the capsule progress bar's fill and knob placement,
+/// kept out of the view so the boundary-clamping maths can be pinned exactly
+/// without hosting a SwiftUI view to measure it.
+enum DayPotentialBarGeometry {
+
+    /// Width of the filled portion of the capsule, in points, for a given
+    /// fraction and track width. `fraction` is clamped to 0...1 first — a
+    /// stale or corrupted store value must never paint past either end of
+    /// the capsule.
+    static func fillWidth(fraction: Double, trackWidth: CGFloat) -> CGFloat {
+        let clamped = min(max(fraction, 0), 1)
+        return trackWidth * CGFloat(clamped)
+    }
+
+    /// The travelling marker's centre x-position, clamped so it stays
+    /// entirely on the track at both ends.
+    ///
+    /// At fraction 0 or 1 the fill boundary itself sits exactly on the
+    /// capsule's rounded edge, so a marker centred there would draw half off
+    /// the track — that is why this clamps independently rather than simply
+    /// reusing `fillWidth` as the marker's centre.
+    ///
+    /// `markerRadius` is half the marker's own on-screen width, not a
+    /// circle's radius — the marker is a crown icon, not a circle, but a
+    /// crown drawn in a fixed square frame still clamps the same way a
+    /// circle would: by half its footprint. Callers must pass the frame's
+    /// actual half-width rather than a guessed or stale figure, since a
+    /// too-small value here lets the crown draw past the capsule's edge.
+    static func markerCenterX(fraction: Double, trackWidth: CGFloat, markerRadius: CGFloat) -> CGFloat {
+        guard trackWidth > markerRadius * 2 else { return trackWidth / 2 }
+        let raw = fillWidth(fraction: fraction, trackWidth: trackWidth)
+        return min(max(raw, markerRadius), trackWidth - markerRadius)
+    }
+
+    // Seating the crowns on the rail deliberately has no helper here. It was
+    // tried as arithmetic — a centre y derived from the crown's frame height —
+    // and it was wrong, because an SF Symbol does not fill its frame: the glyph
+    // floats inside it, so aligning frame bottoms left the drawn crown hovering
+    // near the rail's middle. The bar now bottom-aligns the rail and both
+    // crowns in one ZStack and lets the layout system seat the images' own
+    // bounds. Do not reintroduce a frame-based calculation for this.
+}
+
 // MARK: - This week, at a glance
 
 /// One day in the current-week row: whether it has a recorded morning, and
@@ -221,10 +267,28 @@ enum DayPotentialCrownCopy {
     /// The running total beside the crown row. Nothing to show yet reads as
     /// an invitation rather than a "0 mornings" report card, so this is nil
     /// until the first one lands.
-    static func countLabel(forMorningCount mornings: Int) -> String? {
-        guard mornings > 0 else { return nil }
-        let noun = mornings == 1 ? "morning" : "mornings"
-        return "\(mornings) \(noun)"
+    ///
+    /// Takes both `current` (the unbroken run of mornings ending today, from
+    /// `StreakResult.current`) and `total` (every morning ever recorded,
+    /// from `StreakResult.totalAnchors`) rather than deriving one from the
+    /// other, because neither number alone can say what this label needs to
+    /// say. `total` alone cannot say whether a day was ever missed, so a
+    /// version fed only `total` could not tell "consecutive" apart from
+    /// "cumulative with a gap" and would have to guess. `current` alone
+    /// would undercount the crown row above, which is deliberately
+    /// cumulative so that missing one Tuesday costs a day, not the ladder.
+    /// The word "consecutive" is only ever printed when the two numbers
+    /// agree, i.e. when the run really does account for every morning on
+    /// record; collapsing this back to a single argument would eventually
+    /// print "consecutive" over a cumulative count, which is a false claim
+    /// about the user's own data the first time a day is skipped.
+    static func countLabel(current: Int, total: Int) -> String? {
+        guard total > 0 else { return nil }
+        guard total > 1 else { return "1 day of measurement" }
+        if current == total {
+            return "\(total) consecutive days of measurement"
+        }
+        return "\(total) days of measurement"
     }
 
     /// The line beneath the progress bar. Points at the next crown rather

@@ -11,7 +11,17 @@ enum AnchorThresholds {
     static let hrStabilitySD: Float = 3
     static let maxInvalidRate: Float = 0.05
     static let minECGTier: Int = 1
-    static let breathRange: ClosedRange<Float> = 8...20
+    /// Lower bound set by resonance breathing, not by normal waking
+    /// respiration: this app's own practice paces users to ~4.5–7/min, and
+    /// `AutonomicCompute.balance` already treats sub-10/min breathing as a
+    /// deliberate case (the vagal peak moves out of the HF band there), not
+    /// an error. A gate that rejected it was disqualifying the stillest,
+    /// most intentional mornings the anchor exists to capture. 4 sits below
+    /// the slowest standard protocol with margin but still excludes rates so
+    /// low they indicate no breath was detected at all — see
+    /// `BreathingCompute`'s fix for the 5.86 br/min floor artifact, which
+    /// this range would otherwise have let straight through.
+    static let breathRange: ClosedRange<Float> = 4...20
     /// Preferred window length — below this DC is dropped from the score.
     static let preferredMinSec: Double = 300
     /// The span the medians are taken over, however long the rest ran. A
