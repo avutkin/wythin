@@ -164,7 +164,7 @@ struct DayPotentialStrip: View {
     /// subjects and the line reads as the distance between them.
     /// `barHeight` stays well above this to give that overflow room without
     /// the row clipping it.
-    private static let trackHeight: CGFloat = 10
+    private static let trackHeight: CGFloat = 6
     /// The travelling marker's fixed square footprint. Giving it an actual
     /// frame — rather than letting the crown glyph's own rendered bounds
     /// decide it — is what lets `DayPotentialBarGeometry.markerCenterX`
@@ -174,7 +174,11 @@ struct DayPotentialStrip: View {
     /// track entirely — earning a full week must not paint the fill straight
     /// under the icon, since the reference always shows that milestone
     /// sitting on the capsule's unlit portion.
-    private static let crownSlotWidth: CGFloat = 34
+    /// Narrow on purpose: wide enough for the crown and a hair of breathing
+    /// room, no wider. Any slack here reads as a gap between the rail and
+    /// the crown, which makes the crown look detached rather than like the
+    /// thing the rail runs into.
+    private static let crownSlotWidth: CGFloat = 22
 
     /// Fills toward whichever crown the ladder above is currently building —
     /// the cumulative count, same as the ladder, not this week's attendance.
