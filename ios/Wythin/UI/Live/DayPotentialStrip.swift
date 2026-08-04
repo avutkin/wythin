@@ -127,46 +127,43 @@ struct DayPotentialStrip: View {
 
     private static let weekdayLetters = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
 
-    /// Monday-through-Sunday context for the current calendar week —
-    /// deliberately a different measurement than the crown row above it, so
-    /// this row marks days rather than restating the ladder's own count.
+    /// Monday-through-Sunday context for the current calendar week, spread
+    /// across the same width as the capsule beneath it so each letter sits
+    /// above roughly its own share of the bar.
+    ///
+    /// This used to draw a small crown under each letter — a day's own
+    /// attendance mark, deliberately a different measurement than the
+    /// ladder above it. That mark is gone now: the capsule beneath already
+    /// carries the week's progress at real size, and a row of seven more
+    /// crowns above it and a row of earned crowns above *that* read as
+    /// "crowns, crowns, and more crowns" rather than adding information.
+    /// The letters alone still answer "what week is this", which is all
+    /// this row ever needed to do next to the bar.
     private var weekRow: some View {
         let cells = DayPotentialWeekRow.cells(loggedDays: store.loggedDays, today: Date())
         return HStack(spacing: 8) {
             ForEach(Array(cells.enumerated()), id: \.offset) { index, cell in
-                weekCell(cell, letter: Self.weekdayLetters[index])
+                Text(Self.weekdayLetters[index])
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(cell.isToday ? accent : Theme.dim)
+                    .frame(maxWidth: .infinity)
             }
         }
+        // Same horizontal extent as the capsule below, so the two rows line
+        // up: both are full-width flex rows inside the same leading-aligned
+        // stack, with no independent padding of their own to drift them
+        // apart.
     }
 
-    @ViewBuilder
-    private func weekCell(_ cell: DayPotentialWeekCell, letter: String) -> some View {
-        VStack(spacing: 4) {
-            Text(letter)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(cell.isToday ? accent : Theme.dim)
-            // A crown, not a dot — a day is now the same unit as the earned
-            // ladder above it, just smaller: this row is the diary, not the
-            // achievement, so it must not compete with the ladder for
-            // attention. A day later this week is neither marked nor dimmed
-            // as missed, because it hasn't happened yet.
-            Image(systemName: cell.isLogged ? "crown.fill" : "crown")
-                .font(.system(size: 8.5, weight: .medium))
-                .foregroundStyle(weekCrownColor(cell))
-        }
-        .frame(maxWidth: .infinity)
-    }
+    // MARK: Next-crown progress bar geometry
 
-    /// A recorded morning is always the same plain white as the ladder's own
-    /// white crown. Today keeps its own accent tint only while unlogged —
-    /// once a morning lands the weekday letter above is already the only
-    /// thing marking "today", exactly as it was before this row drew crowns.
-    private func weekCrownColor(_ cell: DayPotentialWeekCell) -> Color {
-        if cell.isLogged { return Theme.text }
-        return cell.isToday ? accent : Theme.dim.opacity(0.4)
-    }
-
-    // MARK: Next-crown progress
+    private static let barHeight: CGFloat = 36
+    private static let knobDiameter: CGFloat = 22
+    /// Reserved at the trailing end for the crown, held out of the fill
+    /// track entirely — earning a full week must not paint the fill straight
+    /// under the icon, since the reference always shows that milestone
+    /// sitting on the capsule's unlit portion.
+    private static let crownSlotWidth: CGFloat = 34
 
     /// Fills toward whichever crown the ladder above is currently building —
     /// the cumulative count, same as the ladder, not this week's attendance.
@@ -181,15 +178,65 @@ struct DayPotentialStrip: View {
         let fraction = CrownLadder.progressFraction(forMorningCount: totalMornings)
         let earned = fraction >= 1.0
         let nextColor = crownColor(CrownLadder.nextCrownColor(forMorningCount: totalMornings))
-        return VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                ProgressView(value: fraction, total: 1)
-                    .tint(accent)
-                    .scaleEffect(x: 1, y: 0.6, anchor: .center)
-                Image(systemName: earned ? "crown.fill" : "crown")
-                    .font(.system(size: 12))
-                    .foregroundStyle(nextColor)
+
+        return VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { geo in
+                let trackWidth = max(geo.size.width - Self.crownSlotWidth, 0)
+                let fillWidth = DayPotentialBarGeometry.fillWidth(fraction: fraction, trackWidth: trackWidth)
+                let knobX = DayPotentialBarGeometry.knobCenterX(
+                    fraction: fraction, trackWidth: trackWidth, knobRadius: Self.knobDiameter / 2)
+
+                ZStack(alignment: .leading) {
+                    // Beyond the fill: near-black track, not empty space.
+                    Capsule().fill(Theme.bg)
+
+                    // The fill itself, with a faint lighter core line for
+                    // depth — subtle on purpose, it is not the fill boundary
+                    // marker, the knob below is.
+                    Capsule()
+                        .fill(accent)
+                        .frame(width: fillWidth)
+                        .overlay(alignment: .leading) {
+                            if fillWidth > 16 {
+                                Capsule()
+                                    .fill(Theme.text.opacity(0.16))
+                                    .frame(width: fillWidth - 12, height: 2)
+                                    .padding(.leading, 6)
+                            }
+                        }
+
+                    // The knob at the fill boundary. Its glow is purely
+                    // decorative — the solid white circle beneath already
+                    // marks the boundary on its own, so the glow carries no
+                    // information a Reduce Transparency or low-vision
+                    // rendering would lose.
+                    ZStack {
+                        Circle()
+                            .fill(accent.opacity(0.55))
+                            .frame(width: Self.knobDiameter + 16, height: Self.knobDiameter + 16)
+                            .blur(radius: 6)
+                        Circle()
+                            .fill(Theme.text)
+                            .frame(width: Self.knobDiameter, height: Self.knobDiameter)
+                    }
+                    .position(x: knobX, y: geo.size.height / 2)
+
+                    // The milestone crown, inside the capsule at the
+                    // trailing end, on the reserved dark slot.
+                    Image(systemName: earned ? "crown.fill" : "crown")
+                        .font(.system(size: 13))
+                        .foregroundStyle(nextColor)
+                        .position(x: geo.size.width - Self.crownSlotWidth / 2, y: geo.size.height / 2)
+                }
             }
+            .frame(height: Self.barHeight)
+            // The bar only moves in whole-day steps when the store's
+            // morning count changes; animating that jump — under any
+            // Reduce Motion setting or not — would read as motion for its
+            // own sake rather than carrying information, so it is switched
+            // off outright rather than gated on the accessibility setting.
+            .transaction { $0.animation = nil }
+
             Text(DayPotentialCrownCopy.nudgeText(forMorningCount: totalMornings))
                 .font(.system(size: 11.5))
                 .foregroundStyle(Theme.dim)

@@ -285,6 +285,59 @@ final class DayPotentialProgressTests: XCTestCase {
     }
 }
 
+// MARK: - Progress bar geometry
+
+/// The capsule bar's fill width and knob clamping — the one part of the
+/// restyle that is real logic rather than paint, so it is pinned here
+/// independent of any view.
+final class DayPotentialBarGeometryTests: XCTestCase {
+
+    func testFillWidthAtZeroFractionIsZero() {
+        XCTAssertEqual(DayPotentialBarGeometry.fillWidth(fraction: 0, trackWidth: 200), 0)
+    }
+
+    func testFillWidthAtFullFractionIsTheWholeTrack() {
+        XCTAssertEqual(DayPotentialBarGeometry.fillWidth(fraction: 1, trackWidth: 200), 200)
+    }
+
+    func testFillWidthAtMidFractionIsHalfTheTrack() {
+        XCTAssertEqual(DayPotentialBarGeometry.fillWidth(fraction: 0.5, trackWidth: 200), 100)
+    }
+
+    /// A fraction outside 0...1 must never paint past either end of the
+    /// capsule, even though `CrownLadder.progressFraction` should not itself
+    /// produce one — this guards the geometry independently of that caller.
+    func testFillWidthClampsFractionOutsideZeroToOne() {
+        XCTAssertEqual(DayPotentialBarGeometry.fillWidth(fraction: 1.4, trackWidth: 200), 200)
+        XCTAssertEqual(DayPotentialBarGeometry.fillWidth(fraction: -0.2, trackWidth: 200), 0)
+    }
+
+    /// At 0%, the naive centre (x=0) would draw the knob half off the left
+    /// edge of the capsule — it must clamp to sit fully on the track so it
+    /// stays visible at the very start.
+    func testKnobCenterAtZeroPercentClampsOntoTheTrack() {
+        XCTAssertEqual(DayPotentialBarGeometry.knobCenterX(fraction: 0, trackWidth: 200, knobRadius: 11), 11)
+    }
+
+    /// At 100%, the naive centre (x=trackWidth) would draw the knob half off
+    /// the right edge — the same clamp, the other direction, so it stays
+    /// visible at the very end too.
+    func testKnobCenterAtFullPercentClampsOntoTheTrack() {
+        XCTAssertEqual(DayPotentialBarGeometry.knobCenterX(fraction: 1, trackWidth: 200, knobRadius: 11), 189)
+    }
+
+    func testKnobCenterMidTrackNeedsNoClamping() {
+        XCTAssertEqual(DayPotentialBarGeometry.knobCenterX(fraction: 0.5, trackWidth: 200, knobRadius: 11), 100)
+    }
+
+    /// A track too narrow to hold the knob at all — its own diameter alone
+    /// exceeds the track width — must not invert the clamp into a negative
+    /// or out-of-range position; it settles on the track's centre instead.
+    func testKnobCenterOnATrackNarrowerThanTheKnobFallsBackToCentre() {
+        XCTAssertEqual(DayPotentialBarGeometry.knobCenterX(fraction: 0.5, trackWidth: 10, knobRadius: 11), 5)
+    }
+}
+
 // MARK: - This week's row
 
 final class DayPotentialWeekRowTests: XCTestCase {
@@ -359,3 +412,4 @@ final class DayPotentialWeekRowTests: XCTestCase {
         XCTAssertEqual(cells.last?.date, sunday)
     }
 }
+

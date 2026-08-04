@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 // MARK: - Score floor
@@ -151,6 +152,36 @@ extension CrownLadder {
         if n % 16 == 0 { return .green }
         if n % 4 == 0  { return .red }
         return .yellow
+    }
+}
+
+// MARK: - Progress bar geometry
+
+/// Pure geometry for the capsule progress bar's fill and knob placement,
+/// kept out of the view so the boundary-clamping maths can be pinned exactly
+/// without hosting a SwiftUI view to measure it.
+enum DayPotentialBarGeometry {
+
+    /// Width of the filled portion of the capsule, in points, for a given
+    /// fraction and track width. `fraction` is clamped to 0...1 first — a
+    /// stale or corrupted store value must never paint past either end of
+    /// the capsule.
+    static func fillWidth(fraction: Double, trackWidth: CGFloat) -> CGFloat {
+        let clamped = min(max(fraction, 0), 1)
+        return trackWidth * CGFloat(clamped)
+    }
+
+    /// The knob's centre x-position, clamped so the circle stays entirely on
+    /// the track at both ends.
+    ///
+    /// At fraction 0 or 1 the fill boundary itself sits exactly on the
+    /// capsule's rounded edge, so a knob centred there would draw half off
+    /// the track — that is why this clamps independently rather than simply
+    /// reusing `fillWidth` as the knob's centre.
+    static func knobCenterX(fraction: Double, trackWidth: CGFloat, knobRadius: CGFloat) -> CGFloat {
+        guard trackWidth > knobRadius * 2 else { return trackWidth / 2 }
+        let raw = fillWidth(fraction: fraction, trackWidth: trackWidth)
+        return min(max(raw, knobRadius), trackWidth - knobRadius)
     }
 }
 
