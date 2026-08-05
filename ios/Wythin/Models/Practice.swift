@@ -2,17 +2,9 @@ import SwiftUI
 
 // MARK: - Practice content domain
 //
-// Static, in-app content (teacher-led practices) — NOT SwiftData records, so no
-// @Model and no schema entry. Each Practice maps to an existing `ActivityType`
-// (+ optional subtype) so logging reuses the whole ActivityLog pipeline.
-
-struct Teacher: Identifiable, Hashable {
-    let id:    String          // stable slug, e.g. "mara-quinn"
-    let name:  String
-    let title: String          // e.g. "Breathwork Guide"
-    let bio:   String
-    let art:   PracticeArt
-}
+// Static, in-app content — NOT SwiftData records, so no @Model and no schema
+// entry. Each Practice maps to an existing `ActivityType` (+ optional subtype)
+// so logging reuses the whole ActivityLog pipeline.
 
 enum PracticeCategory: String, CaseIterable, Identifiable {
     case breathwork, meditation, movement, recovery
@@ -73,8 +65,8 @@ enum PracticeKind: Equatable, Hashable {
 }
 
 /// Local art token — an optional SF Symbol over a two-stop gradient. There is no
-/// remote image loading in the app, so every practice/teacher paints from this.
-/// A nil symbol leaves the gradient bare, for art that is the colour field itself.
+/// remote image loading in the app, so every practice paints from this. A nil
+/// symbol leaves the gradient bare, for art that is the colour field itself.
 struct PracticeArt: Hashable {
     let symbol:   String?      // SF Symbol name, or nil for a bare gradient
     let hexStops: [String]     // two hex colours → LinearGradient via Color(hex:)
@@ -105,7 +97,6 @@ struct Practice: Identifiable, Hashable {
     let id:                  String
     let title:               String
     let subtitle:            String
-    let teacherID:           String
     let category:            PracticeCategory
     let states:              [PracticeState] // non-empty; first is primary
     let activityType:        ActivityType   // reuse the logging enum
@@ -116,7 +107,7 @@ struct Practice: Identifiable, Hashable {
     let art:                 PracticeArt
     let kind:                PracticeKind
 
-    /// Resonance is the featured biofeedback practice — shown with a ★.
+    /// The featured practice, shown with a ★ above the grid.
     var isStarred: Bool { kind == .biofeedback(.resonance) }
 
     var isBiofeedback: Bool {

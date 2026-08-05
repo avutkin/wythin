@@ -2,9 +2,10 @@ import SwiftUI
 
 // MARK: - Practice Detail
 //
-// Opened from the hub. Shows the practice hero, teacher, meta and description,
-// then dispatches actions on the practice's kind:
-//   .content              → Log it (prefilled)
+// Opened from the hub. Shows the practice hero, meta and description, then
+// dispatches actions on the practice's kind:
+//   .content                 → Log it (prefilled)
+//   .pacer                   → Start the guided breath session + Log it
 //   .biofeedback(.resonance) → Start Resonance pacer  + Log it
 //   .biofeedback(.workout)   → Start live workout feedback + Log it
 
@@ -20,14 +21,11 @@ struct PracticeDetailView: View {
     @State private var showBiofeedback = false
     @State private var showPacer       = false
 
-    private var teacher: Teacher? { PracticeCatalog.teacher(practice.teacherID) }
-
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     hero
-                    if let t = teacher { teacherRow(t) }
                     metaRow
                     if !practice.states.isEmpty { stateRow }
                     if !practice.tags.isEmpty { tagRow }
@@ -112,19 +110,6 @@ struct PracticeDetailView: View {
         .frame(height: 190)
         .frame(maxWidth: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: 18))
-    }
-
-    // MARK: Teacher row
-
-    private func teacherRow(_ t: Teacher) -> some View {
-        HStack(spacing: 10) {
-            ArtThumb(art: t.art, size: 40)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(t.name).font(Theme.mono(14)).foregroundStyle(Theme.text)
-                Text(t.title).font(Theme.monoLabel).foregroundStyle(Theme.dim)
-            }
-            Spacer()
-        }
     }
 
     // MARK: Meta + tags

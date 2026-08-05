@@ -35,6 +35,16 @@ struct BreathPattern: Equatable, Hashable {
     /// Six beats a side — at 60 BPM, a 24-second cycle and 2.5 breaths a minute.
     static let box = BreathPattern(inhale: 6, holdIn: 6, exhale: 6, holdOut: 6)
 
+    /// Even in, even out, no holds — at 60 BPM a 10-second cycle, which is six
+    /// breaths a minute: the rate around which heart-rate variability peaks.
+    static let resonance = BreathPattern(inhale: 5, holdIn: 0, exhale: 5, holdOut: 0)
+
+    /// An even in-and-out breath of `beats` a side, which is what the pace
+    /// control produces for a hold-free pattern.
+    static func even(beats: Int) -> BreathPattern {
+        BreathPattern(inhale: beats, holdIn: 0, exhale: beats, holdOut: 0)
+    }
+
     /// An equal-sided box of `beats` per phase, which is what the pace control
     /// produces — a box breath is symmetric by definition.
     static func box(beats: Int) -> BreathPattern {
@@ -52,6 +62,22 @@ struct BreathPattern: Equatable, Hashable {
 
     var cycleBeats: Int { inhale + holdIn + exhale + holdOut }
 
+    /// Whether the breath pauses at the top and bottom. Hold-free patterns pace
+    /// on a ring rather than a box — there are only two phases to show.
+    var hasHolds: Bool { holdIn > 0 || holdOut > 0 }
+
+    /// The phases that actually run, in order. A zero-beat hold is not a phase.
+    var activePhases: [BreathPhase] {
+        BreathPhase.allCases.filter { beats($0) > 0 }
+    }
+
+    /// Beats elapsed in a cycle before this phase begins.
+    func beatsBefore(_ phase: BreathPhase) -> Int {
+        BreathPhase.allCases
+            .prefix(while: { $0 != phase })
+            .reduce(0) { $0 + beats($1) }
+    }
+
     /// How long one cycle lasts at a given tempo.
     func cycleSeconds(bpm: Int) -> Double {
         guard bpm > 0 else { return 0 }
@@ -64,6 +90,8 @@ struct BreathPattern: Equatable, Hashable {
         return cycle > 0 ? 60.0 / cycle : 0
     }
 
-    /// "6-6-6-6", for the practice copy and the session readout.
-    var label: String { "\(inhale)-\(holdIn)-\(exhale)-\(holdOut)" }
+    /// "6-6-6-6", or just "5-5" when there are no holds to report.
+    var label: String {
+        hasHolds ? "\(inhale)-\(holdIn)-\(exhale)-\(holdOut)" : "\(inhale)-\(exhale)"
+    }
 }

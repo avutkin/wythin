@@ -1,6 +1,11 @@
 import SwiftUI
 
-// MARK: - Box pacer
+// MARK: - Pacers
+//
+// Two visuals over the same engine. `BoxPacerView` suits a breath with holds —
+// four sides, four phases. `RingPacerView` suits a hold-free breath, where a box
+// would leave two sides permanently dark; a ring divides its circumference by
+// beat share instead, so the whole cycle is one continuous sweep.
 //
 // Four things move, all read off one BoxBreathEngine:
 //
@@ -191,5 +196,128 @@ private struct BoxSide: Shape {
             path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + c))
         }
         return path
+    }
+}
+
+// MARK: - Ring pacer
+
+/// For hold-free breaths. The ring's circumference is divided between the phases
+/// by their beat share, so the sweep runs continuously round rather than stopping
+/// at a corner — which is what an even in-and-out breath actually feels like.
+struct RingPacerView: View {
+    let engine: BoxBreathEngine
+
+    private let diameter: CGFloat = 260
+
+    private var pattern: BreathPattern { engine.pattern }
+    private var state:   BreathState   { engine.state }
+
+    var body: some View {
+        ZStack {
+            ringTrack
+            innerCircle
+            centreReadout
+            pips.offset(y: diameter * 0.45)
+            phaseLabels
+        }
+        .frame(width: diameter + 96, height: diameter + 96)
+    }
+
+    // MARK: The ring
+
+    private var ringTrack: some View {
+        ZStack {
+            Circle()
+                .stroke(Theme.border, lineWidth: 3)
+
+            ForEach(pattern.activePhases) { phase in
+                Circle()
+                    .trim(from: start(phase), to: end(phase))
+                    .stroke(Theme.breathe.opacity(phase == state.phase ? 1.0 : 0.35),
+                            style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    .animation(.linear(duration: engine.beatDuration), value: state.beatInPhase)
+                    .animation(.easeOut(duration: 0.35), value: state.phase)
+            }
+        }
+        .rotationEffect(.degrees(-90))   // trim starts at 3 o'clock; begin at 12
+        .frame(width: diameter, height: diameter)
+    }
+
+    private func start(_ phase: BreathPhase) -> CGFloat {
+        CGFloat(pattern.beatsBefore(phase)) / CGFloat(max(1, pattern.cycleBeats))
+    }
+
+    /// A past arc in full, the live arc as far as the beat has got, one still to
+    /// come not at all.
+    private func end(_ phase: BreathPhase) -> CGFloat {
+        let span = CGFloat(pattern.beats(phase)) / CGFloat(max(1, pattern.cycleBeats))
+        if phase.rawValue < state.phase.rawValue { return start(phase) + span }
+        if phase.rawValue > state.phase.rawValue { return start(phase) }
+        let done = CGFloat(state.beatInPhase) / CGFloat(max(1, pattern.beats(phase)))
+        return start(phase) + span * done
+    }
+
+    // MARK: The lungs
+
+    private var innerCircle: some View {
+        Circle()
+            .fill(
+                RadialGradient(colors: [Theme.breathe.opacity(0.28), Theme.breathe.opacity(0.05)],
+                               center: .center, startRadius: 0, endRadius: diameter * 0.4)
+            )
+            .overlay(Circle().stroke(Theme.breathe.opacity(0.45), lineWidth: 1.5))
+            .frame(width: diameter * 0.78, height: diameter * 0.78)
+            .scaleEffect(state.phase == .inhale ? 1.0 : 0.55)
+            .animation(.easeInOut(duration: Double(pattern.beats(state.phase)) * engine.beatDuration),
+                       value: state.phase)
+    }
+
+    // MARK: Readout
+
+    private var centreReadout: some View {
+        VStack(spacing: 6) {
+            Text(state.phase.label)
+                .font(Theme.display(17))
+                .tracking(4)
+                .foregroundStyle(Theme.breathe)
+
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text("\(state.beatInPhase)")
+                    .font(.system(size: 46, weight: .light, design: .monospaced))
+                    .foregroundStyle(Theme.text)
+                    .contentTransition(.numericText())
+                Text("/\(pattern.beats(state.phase))")
+                    .font(.system(size: 17, design: .monospaced))
+                    .foregroundStyle(Theme.dim)
+            }
+        }
+    }
+
+    private var pips: some View {
+        HStack(spacing: 7) {
+            ForEach(1...max(1, pattern.beats(state.phase)), id: \.self) { beat in
+                Circle()
+                    .fill(beat <= state.beatInPhase ? Theme.breathe : Theme.border)
+                    .frame(width: 7, height: 7)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: state.beatInPhase)
+    }
+
+    /// Both phase names sit at the arc they own — top for the inhale, bottom for
+    /// the exhale — so the whole cycle reads at a glance, as on the box.
+    private var phaseLabels: some View {
+        ZStack {
+            label(.inhale).offset(y: -(diameter / 2 + 22))
+            label(.exhale).offset(y:   diameter / 2 + 22)
+        }
+    }
+
+    private func label(_ phase: BreathPhase) -> some View {
+        Text(phase.label)
+            .font(Theme.monoLabel)
+            .tracking(3)
+            .foregroundStyle(phase == state.phase ? Theme.breathe : Theme.dim)
+            .animation(.easeOut(duration: 0.3), value: state.phase)
     }
 }

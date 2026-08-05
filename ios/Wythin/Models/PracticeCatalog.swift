@@ -2,34 +2,16 @@ import Foundation
 
 // MARK: - PracticeCatalog
 //
-// Seed content for the Practices hub. All teachers and practices here are
-// original placeholders (fictional names, original copy) so the hub is
-// browsable and testable before any real content pipeline exists.
+// Seed content for the Practices hub. Trimmed to the two guided pacers while
+// they are built out; the browsable content practices (the meditations, the
+// movement work) are in git history at b84a5cb and come back once these settle.
 
 enum PracticeCatalog {
 
-    static let teachers: [Teacher] = [
-        Teacher(id: "mara-quinn",  name: "Mara Quinn",  title: "Breathwork Guide",
-                bio: "Mara teaches slow, paced breathing to steady the nervous system and build calm you can return to any time.",
-                art: PracticeArt(symbol: "lungs", hexStops: ["#58A6FF", "#1E3A5F"])),
-        Teacher(id: "elias-vance", name: "Elias Vance", title: "Meditation Teacher",
-                bio: "Elias offers quiet, unforced meditations — space to notice the mind and let it settle.",
-                art: PracticeArt(symbol: "brain.head.profile", hexStops: ["#818CF8", "#312E81"])),
-        Teacher(id: "noor-haddad", name: "Noor Haddad", title: "Movement Coach",
-                bio: "Noor blends mobility and mindful movement to release tension and reconnect body and breath.",
-                art: PracticeArt(symbol: "figure.yoga", hexStops: ["#34D399", "#065F46"])),
-        Teacher(id: "theo-brandt", name: "Theo Brandt", title: "Strength & Endurance",
-                bio: "Theo coaches strength and easy-pace endurance work, with live biofeedback to keep effort honest.",
-                art: PracticeArt(symbol: "figure.strengthtraining.traditional", hexStops: ["#FB7185", "#7F1D1D"])),
-    ]
-
-    // Trimmed to Box Breathing while the pacer is being built out. The rest of
-    // the catalog (Resonance, the meditations, the movement practices) is in git
-    // history at b84a5cb and comes back once the pacer settles.
     static let practices: [Practice] = [
         Practice(
             id: "box-breathing", title: "Box Breathing", subtitle: "Even in, even held, even out, even held",
-            teacherID: "mara-quinn", category: .breathwork, states: [.focus, .stress],
+            category: .breathwork, states: [.focus, .stress],
             activityType: .breathwork, subtype: "Box Breathing", defaultDurationMins: 6,
             description: "An even four-part breath used by people who need to stay level under load. A metronome counts each beat so you can keep the rhythm with your eyes closed, and the box on screen shows exactly where you are in the cycle. Set the time, pace and tempo at the bottom of the session.",
             tags: ["Steady", "Control", "Clarity"],
@@ -38,13 +20,18 @@ enum PracticeCatalog {
             // in PracticeArt can't reproduce.
             art: PracticeArt(hexStops: ["#4E7A3E", "#94903F"]),
             kind: .pacer(.box)),
+
+        Practice(
+            id: "resonance-breathing", title: "Resonance Breathing", subtitle: "Six breaths a minute, no holds",
+            category: .breathwork, states: [.stress, .focus],
+            activityType: .breathwork, subtype: "Resonance", defaultDurationMins: 10,
+            description: "An even breath in and out with nothing held at either end. At the default pace it lands near six breaths a minute — the rate around which heart-rate variability peaks and heart and breath fall into step. The ring shows the whole cycle; the beat keeps you on it.",
+            tags: ["Coherence", "Vagal Tone", "Calm"],
+            art: PracticeArt(hexStops: ["#00E5A0", "#134E4A"]),
+            kind: .pacer(.resonance)),
     ]
 
     // MARK: Lookups
-
-    static func teacher(_ id: String) -> Teacher? {
-        teachers.first { $0.id == id }
-    }
 
     static func practices(in category: PracticeCategory) -> [Practice] {
         practices.filter { $0.category == category }
@@ -63,10 +50,6 @@ enum PracticeCatalog {
                 return lp == rp ? lhs.offset < rhs.offset : lp
             }
             .map(\.element)
-    }
-
-    static func practices(byTeacher id: String) -> [Practice] {
-        practices.filter { $0.teacherID == id }
     }
 
     static var starred: [Practice] {

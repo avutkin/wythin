@@ -1,9 +1,9 @@
 import SwiftUI
 
-// MARK: - Box Breathing session
+// MARK: - Guided breath session
 //
-// A guided pacer. Time, pace and tempo are set from the panel at the bottom and
-// persist between sessions.
+// Serves any `.pacer` practice. A pattern with holds paces on the box; a hold-free
+// one paces on the ring.
 //
 // Pace is counted in beats per phase, not seconds, so however the tempo is set a
 // phase is always a whole number of beats — which keeps the accented beat that
@@ -19,15 +19,18 @@ struct BoxBreathingSessionView: View {
     @Environment(AppEnvironment.self) var env
     @Environment(\.dismiss) var dismiss
 
-    @AppStorage("boxBreathMinutes") private var minutes = 6
-    @AppStorage("boxBreathBeats")   private var beats   = 6
-    @AppStorage("boxBreathBPM")     private var bpm     = 60
+    // Keyed per practice, so the box and the ring keep their own settings.
+    @AppStorage private var minutes: Int
+    @AppStorage private var beats:   Int
+    @AppStorage private var bpm:     Int
 
-    @State private var engine:    BoxBreathEngine
-    @State private var cue      = MetronomeCue()
+    @State private var engine:   BoxBreathEngine
+    @State private var cue     = MetronomeCue()
     @State private var startedAt = Date.now
     @State private var sessionElapsed: TimeInterval = 0
-    @State private var isMuted = false
+    @State private var isMuted       = false
+    @State private var showSettings  = false
+    @State private var didComplete   = false
 
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -38,12 +41,23 @@ struct BoxBreathingSessionView: View {
 
     init(practice: Practice) {
         self.practice = practice
-        _engine = State(initialValue: BoxBreathEngine(pattern: practice.breathPattern ?? .box))
+        let base    = practice.breathPattern ?? .box
+        let defaults = practice.id
+        _minutes = AppStorage(wrappedValue: practice.defaultDurationMins, "pacer.\(defaults).minutes")
+        _beats   = AppStorage(wrappedValue: base.inhale,                  "pacer.\(defaults).beats")
+        _bpm     = AppStorage(wrappedValue: 60,                           "pacer.\(defaults).bpm")
+        _engine  = State(initialValue: BoxBreathEngine(pattern: base))
     }
 
-    private var pattern: BreathPattern { .box(beats: beats) }
-    private var target:  TimeInterval  { TimeInterval(minutes) * 60 }
+    /// The pattern the controls describe — the practice's own shape, resized to
+    /// the chosen pace. A box stays a box; a hold-free breath stays hold-free.
+    private var pattern: BreathPattern {
+        (practice.breathPattern?.hasHolds ?? true) ? .box(beats: beats) : .even(beats: beats)
+    }
+
+    private var target:    TimeInterval { TimeInterval(minutes) * 60 }
     private var remaining: TimeInterval { max(0, target - sessionElapsed) }
+    private var progress:  Double       { target > 0 ? min(sessionElapsed / target, 1) : 0 }
 
     var body: some View {
         NavigationStack {
@@ -51,14 +65,17 @@ struct BoxBreathingSessionView: View {
                 Theme.bg.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    Spacer(minLength: 4)
-                    BoxPacerView(engine: engine)
-                    Spacer(minLength: 4)
-                    readouts
-                        .padding(.bottom, 14)
-                    controls
-                        .padding(.horizontal)
-                        .padding(.bottom, 20)
+                    Spacer(minLength: 0)
+                    pacer
+                    Spacer(minLength: 0)
+
+                    VStack(spacing: 14) {
+                        progressBar
+                        readouts
+                        settingsPanel
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 18)
                 }
             }
             .navigationTitle(practice.title.uppercased())
@@ -87,61 +104,135 @@ struct BoxBreathingSessionView: View {
         .onReceive(ticker) { _ in
             guard engine.isRunning else { return }
             sessionElapsed = Date.now.timeIntervalSince(startedAt)
-            if sessionElapsed >= target { stop() }
+            if sessionElapsed >= target { didComplete = true; stop() }
         }
         .onChange(of: beats) { engine.reconfigure(pattern: pattern, bpm: bpm) }
         .onChange(of: bpm)   { engine.reconfigure(pattern: pattern, bpm: bpm) }
     }
 
-    // MARK: Readouts
+    // MARK: Pacer
 
-    private var readouts: some View {
-        HStack(spacing: 18) {
-            readout("CYCLE", "\(engine.state.cycle)")
-            readout("ELAPSED", mmss(sessionElapsed))
-            readout("LEFT", mmss(remaining))
-            readout("RATE", String(format: "%.1f br/min", pattern.breathsPerMinute(bpm: bpm)))
+    @ViewBuilder
+    private var pacer: some View {
+        if pattern.hasHolds {
+            BoxPacerView(engine: engine)
+        } else {
+            RingPacerView(engine: engine)
         }
     }
 
-    private func readout(_ label: String, _ value: String) -> some View {
+    // MARK: Progress
+
+    /// How far through the session, as a hairline. Precise numbers are in the
+    /// readouts; this is here so you can see the end coming without reading.
+    private var progressBar: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Theme.surface)
+                Capsule()
+                    .fill(Theme.breathe.opacity(0.8))
+                    .frame(width: geo.size.width * progress)
+                    .animation(.linear(duration: 1), value: progress)
+            }
+        }
+        .frame(height: 3)
+    }
+
+    private var readouts: some View {
+        HStack(spacing: 0) {
+            readout("CYCLE",   "\(engine.state.cycle)")
+            divider
+            readout("ELAPSED", mmss(sessionElapsed))
+            divider
+            readout("LEFT",    mmss(remaining))
+            divider
+            readout("RATE",    String(format: "%.1f", pattern.breathsPerMinute(bpm: bpm)),
+                    unit: "br/min")
+        }
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(Theme.border)
+            .frame(width: 0.5, height: 22)
+    }
+
+    private func readout(_ label: String, _ value: String, unit: String? = nil) -> some View {
         VStack(spacing: 3) {
             Text(label)
-                .font(Theme.monoLabel)
+                .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(Theme.dim)
-            Text(value)
-                .font(Theme.mono(15))
-                .foregroundStyle(Theme.text)
+                .tracking(1)
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(value)
+                    .font(Theme.mono(15))
+                    .foregroundStyle(Theme.text)
+                    .monospacedDigit()
+                if let unit {
+                    Text(unit)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(Theme.dim)
+                }
+            }
         }
-        .frame(minWidth: 68)
+        .frame(maxWidth: .infinity)
     }
 
     private func mmss(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds)
+        let total = Int(max(0, seconds))
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 
-    // MARK: Controls
+    // MARK: Settings
 
-    private var controls: some View {
+    /// Collapsed by default so the pacer keeps the screen; the summary line means
+    /// you can still read the current setup without opening it.
+    private var settingsPanel: some View {
         VStack(spacing: 0) {
-            stepperRow(label: "TIME", value: "\(minutes) min",
-                       canLower: minutes > minuteRange.lowerBound,
-                       canRaise: minutes < minuteRange.upperBound,
-                       lower: { minutes -= 1 }, raise: { minutes += 1 })
-            Divider().background(Theme.border)
-            stepperRow(label: "PACE", value: "\(beats)-\(beats)-\(beats)-\(beats)",
-                       canLower: beats > beatRange.lowerBound,
-                       canRaise: beats < beatRange.upperBound,
-                       lower: { beats -= 1 }, raise: { beats += 1 })
-            Divider().background(Theme.border)
-            stepperRow(label: "TEMPO", value: "\(bpm) BPM",
-                       canLower: bpm > bpmRange.lowerBound,
-                       canRaise: bpm < bpmRange.upperBound,
-                       lower: { bpm = max(bpmRange.lowerBound, bpm - bpmStep) },
-                       raise: { bpm = min(bpmRange.upperBound, bpm + bpmStep) })
+            Button {
+                withAnimation(.easeInOut(duration: 0.22)) { showSettings.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.accent)
+                    Text("\(minutes) MIN · \(pattern.label) · \(bpm) BPM")
+                        .font(Theme.monoLabel)
+                        .foregroundStyle(Theme.dim)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Theme.dim)
+                        .rotationEffect(.degrees(showSettings ? 180 : 0))
+                }
+                .padding(.vertical, 11)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if showSettings {
+                Divider().background(Theme.border)
+                stepperRow(label: "TIME", value: "\(minutes) min",
+                           canLower: minutes > minuteRange.lowerBound,
+                           canRaise: minutes < minuteRange.upperBound,
+                           lower: { minutes -= 1 }, raise: { minutes += 1 })
+                Divider().background(Theme.border)
+                stepperRow(label: "PACE", value: pattern.label,
+                           canLower: beats > beatRange.lowerBound,
+                           canRaise: beats < beatRange.upperBound,
+                           lower: { beats -= 1 }, raise: { beats += 1 })
+                Divider().background(Theme.border)
+                stepperRow(label: "TEMPO", value: "\(bpm) BPM",
+                           canLower: bpm > bpmRange.lowerBound,
+                           canRaise: bpm < bpmRange.upperBound,
+                           lower: { bpm = max(bpmRange.lowerBound, bpm - bpmStep) },
+                           raise: { bpm = min(bpmRange.upperBound, bpm + bpmStep) })
+            }
         }
-        .cardStyle()
+        .padding(.horizontal, 14)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.border, lineWidth: 0.5))
     }
 
     private func stepperRow(label: String, value: String,
@@ -152,7 +243,7 @@ struct BoxBreathingSessionView: View {
             Text(label)
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
-                .frame(width: 54, alignment: .leading)
+                .frame(width: 52, alignment: .leading)
 
             Text(value)
                 .font(Theme.mono(15))
@@ -162,7 +253,7 @@ struct BoxBreathingSessionView: View {
             stepButton("minus", enabled: canLower, action: lower)
             stepButton("plus",  enabled: canRaise, action: raise)
         }
-        .padding(.vertical, 9)
+        .padding(.vertical, 8)
     }
 
     private func stepButton(_ symbol: String, enabled: Bool,
@@ -184,6 +275,7 @@ struct BoxBreathingSessionView: View {
     private func start() {
         startedAt      = .now
         sessionElapsed = 0
+        didComplete    = false
         UIApplication.shared.isIdleTimerDisabled = true   // the screen is the pacer
         cue.isMuted = isMuted
         cue.start()

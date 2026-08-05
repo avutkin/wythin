@@ -18,33 +18,17 @@ final class PracticeCatalogTests: XCTestCase {
         }
     }
 
-    // MARK: Referential integrity
-
-    func testEveryPracticeReferencesAKnownTeacher() {
-        for practice in PracticeCatalog.practices {
-            XCTAssertNotNil(
-                PracticeCatalog.teacher(practice.teacherID),
-                "\(practice.id): unknown teacherID '\(practice.teacherID)'"
-            )
-        }
-    }
-
-    func testPracticeAndTeacherIDsAreUnique() {
-        let practiceIDs = PracticeCatalog.practices.map(\.id)
-        XCTAssertEqual(practiceIDs.count, Set(practiceIDs).count, "duplicate practice id")
-        let teacherIDs = PracticeCatalog.teachers.map(\.id)
-        XCTAssertEqual(teacherIDs.count, Set(teacherIDs).count, "duplicate teacher id")
-    }
-
     // MARK: Art
 
     func testEveryArtHasTwoColourStops() {
         for practice in PracticeCatalog.practices {
             XCTAssertEqual(practice.art.hexStops.count, 2, "\(practice.id): art needs two hex stops")
         }
-        for teacher in PracticeCatalog.teachers {
-            XCTAssertEqual(teacher.art.hexStops.count, 2, "\(teacher.id): art needs two hex stops")
-        }
+    }
+
+    func testPracticeIDsAreUnique() {
+        let ids = PracticeCatalog.practices.map(\.id)
+        XCTAssertEqual(ids.count, Set(ids).count, "duplicate practice id")
     }
 
     // MARK: Starred / featured
@@ -64,19 +48,13 @@ final class PracticeCatalogTests: XCTestCase {
         }
     }
 
-    func testPracticesByTeacherReturnsOnlyThatTeacher() {
-        for teacher in PracticeCatalog.teachers {
-            let byTeacher = PracticeCatalog.practices(byTeacher: teacher.id)
-            XCTAssertTrue(byTeacher.allSatisfy { $0.teacherID == teacher.id })
-        }
-    }
-
     /// The catalog is deliberately trimmed to Box Breathing alone while the pacer
     /// is built out, so "every category is populated" cannot hold. This pins the
     /// trimmed state instead: when practices come back it fails, which is the
     /// reminder to restore the real invariant above it.
-    func testCatalogIsTemporarilyBoxBreathingOnly() {
-        XCTAssertEqual(PracticeCatalog.practices.map(\.id), ["box-breathing"],
+    func testCatalogIsTemporarilyThePacersOnly() {
+        XCTAssertEqual(PracticeCatalog.practices.map(\.id),
+                       ["box-breathing", "resonance-breathing"],
                        "catalog changed — restore the per-category and per-state coverage tests")
     }
 
@@ -104,8 +82,8 @@ final class PracticeCatalogTests: XCTestCase {
         }
     }
 
-    /// Box Breathing serves focus and stress, so anxiety and sleep are empty for
-    /// now — their capsules lead to a blank grid until the catalog is restored.
+    /// Both pacers serve focus and stress, so anxiety and sleep are empty for now
+    /// — their capsules lead to a blank grid until the catalog is restored.
     func testOnlyFocusAndStressHavePracticesWhileTrimmed() {
         let populated = PracticeState.allCases.filter {
             !PracticeCatalog.practices(for: $0).isEmpty
@@ -133,6 +111,18 @@ final class PracticeCatalogTests: XCTestCase {
     }
 
     // MARK: Pacer practices
+
+    func testResonanceBreathingIsAHoldFreePacer() {
+        guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }) else {
+            return XCTFail("resonance-breathing missing from the catalog")
+        }
+        XCTAssertEqual(res.kind, .pacer(.resonance))
+        XCTAssertEqual(res.activityType, .breathwork)
+        XCTAssertEqual(res.subtype, "Resonance")
+        XCTAssertFalse(res.breathPattern?.hasHolds ?? true, "resonance pauses at neither end")
+        XCTAssertEqual(res.breathPattern?.breathsPerMinute(bpm: 60), 6.0,
+                       "the default pace is the coherent six a minute")
+    }
 
     func testBoxBreathingIsAPacerOnTheBoxPattern() {
         guard let box = PracticeCatalog.practices.first(where: { $0.id == "box-breathing" }) else {
