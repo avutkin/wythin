@@ -93,6 +93,26 @@ struct PracticeArt: Hashable {
     }
 }
 
+/// A published study backing a practice.
+///
+/// Every field here is transcribed from the real paper — these are shown to the
+/// user as evidence, so nothing in this type may be approximated or invented, and
+/// `finding` must say what the study actually found rather than what would sell
+/// the practice best.
+struct PracticeEvidence: Identifiable, Hashable {
+    let doi:     String        // also the identity
+    let title:   String
+    let authors: String        // "Balban et al."
+    let journal: String
+    let year:    Int
+    let finding: String        // one sentence, faithful to the result
+    let mark:    String        // 3-letter monogram for the source badge
+    let tint:    String        // badge hex
+
+    var id: String { doi }
+    var url: URL { URL(string: "https://doi.org/\(doi)")! }
+}
+
 struct Practice: Identifiable, Hashable {
     let id:                  String
     let title:               String
@@ -103,6 +123,10 @@ struct Practice: Identifiable, Hashable {
     let subtype:             String?        // must be a member of activityType.subtypes
     let defaultDurationMins: Int
     let description:         String
+    /// Two or three plain sentences on the mechanism — what the practice does to
+    /// the body, and why the shape of it matters.
+    let howItWorks:          [String]
+    let evidence:            [PracticeEvidence]
     let tags:                [String]
     let art:                 PracticeArt
     let kind:                PracticeKind

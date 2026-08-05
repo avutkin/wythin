@@ -33,8 +33,12 @@ struct PracticeDetailView: View {
                         .font(Theme.monoBody)
                         .foregroundStyle(Theme.text.opacity(0.85))
                         .fixedSize(horizontal: false, vertical: true)
+
                     VStack(spacing: 10) { actions }
                         .padding(.top, 4)
+
+                    if !practice.howItWorks.isEmpty { howItWorks }
+                    if !practice.evidence.isEmpty   { evidence }
                 }
                 .padding(.horizontal)
                 .padding(.top, 12)
@@ -216,6 +220,129 @@ struct PracticeDetailView: View {
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14)
                 .strokeBorder(filled ? Color.clear : Theme.accent.opacity(0.4), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: How it works
+
+    /// The mechanism, above the papers. Someone deciding whether to spend ten
+    /// minutes on this wants to know what it does to them before they want a
+    /// citation list.
+    private var howItWorks: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader("HOW IT WORKS", icon: "waveform.path.ecg")
+
+            VStack(alignment: .leading, spacing: 9) {
+                ForEach(Array(practice.howItWorks.enumerated()), id: \.offset) { _, line in
+                    HStack(alignment: .top, spacing: 9) {
+                        Circle()
+                            .fill(Theme.accent.opacity(0.7))
+                            .frame(width: 4, height: 4)
+                            .padding(.top, 6)
+                        Text(line)
+                            .font(Theme.monoBody)
+                            .foregroundStyle(Theme.text.opacity(0.85))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.border, lineWidth: 0.5))
+        }
+        .padding(.top, 8)
+    }
+
+    // MARK: Evidence
+
+    private var evidence: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader("EVIDENCE", icon: "text.document")
+
+            VStack(spacing: 10) {
+                ForEach(practice.evidence) { study in
+                    EvidenceCard(study: study)
+                }
+            }
+
+            Text("Findings are summarised as reported. Tap a study to read it in full.")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(Theme.dim.opacity(0.8))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 4)
+    }
+
+    private func sectionHeader(_ title: String, icon: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.accent)
+            Text(title)
+                .font(Theme.monoLabel)
+                .foregroundStyle(Theme.dim)
+                .tracking(1)
+        }
+    }
+}
+
+// MARK: - Evidence card
+
+/// One study, tappable through to the paper at its DOI.
+///
+/// The coloured monogram stands in for the journal's own mark — publisher logos
+/// are their trademarks, and shipping them would be borrowing someone's badge to
+/// vouch for us.
+private struct EvidenceCard: View {
+    let study: PracticeEvidence
+
+    var body: some View {
+        Link(destination: study.url) {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 9) {
+                    Text(study.mark)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                        .background(Color(hex: study.tint).opacity(0.85))
+                        .clipShape(RoundedRectangle(cornerRadius: 9))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(study.journal)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Theme.text)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        Text("\(study.authors) · \(String(study.year))")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(Theme.dim)
+                    }
+
+                    Spacer(minLength: 4)
+
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Theme.dim)
+                }
+
+                Text(study.title)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(Theme.text.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(study.finding)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.border, lineWidth: 0.5))
         }
         .buttonStyle(.plain)
     }

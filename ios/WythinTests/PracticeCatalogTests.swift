@@ -148,4 +148,83 @@ final class PracticeCatalogTests: XCTestCase {
             }
         }
     }
+
+    // MARK: Evidence
+    //
+    // These are shown to the user as scientific backing, so the bar is that every
+    // field resolves to a real, reachable paper. A malformed DOI here is a broken
+    // citation on screen.
+
+    private var allEvidence: [PracticeEvidence] {
+        PracticeCatalog.practices.flatMap(\.evidence)
+    }
+
+    func testEveryPracticeExplainsHowItWorks() {
+        for practice in PracticeCatalog.practices {
+            XCTAssertFalse(practice.howItWorks.isEmpty, "\(practice.id): no mechanism given")
+            for line in practice.howItWorks {
+                XCTAssertFalse(line.trimmingCharacters(in: .whitespaces).isEmpty,
+                               "\(practice.id): blank howItWorks line")
+            }
+        }
+    }
+
+    func testEveryPracticeCitesAtLeastOneStudy() {
+        for practice in PracticeCatalog.practices {
+            XCTAssertFalse(practice.evidence.isEmpty, "\(practice.id): no evidence cited")
+        }
+    }
+
+    func testEveryStudyHasACompleteCitation() {
+        for study in allEvidence {
+            XCTAssertFalse(study.title.isEmpty,   "\(study.doi): no title")
+            XCTAssertFalse(study.authors.isEmpty, "\(study.doi): no authors")
+            XCTAssertFalse(study.journal.isEmpty, "\(study.doi): no journal")
+            XCTAssertFalse(study.finding.isEmpty, "\(study.doi): no finding")
+            XCTAssertTrue((1950...2030).contains(study.year), "\(study.doi): implausible year")
+        }
+    }
+
+    /// A DOI always starts "10." and carries a registrant prefix and a suffix.
+    /// Anything else will not resolve, and a citation that does not resolve is
+    /// worse than no citation.
+    func testEveryDOIIsWellFormedAndResolvable() {
+        for study in allEvidence {
+            XCTAssertTrue(study.doi.hasPrefix("10."), "\(study.doi): not a DOI")
+            let parts = study.doi.split(separator: "/", maxSplits: 1)
+            XCTAssertEqual(parts.count, 2, "\(study.doi): DOI needs a prefix and a suffix")
+            XCTAssertFalse(parts.last?.isEmpty ?? true, "\(study.doi): empty DOI suffix")
+            XCTAssertEqual(study.url.scheme, "https")
+            XCTAssertEqual(study.url.host, "doi.org")
+            XCTAssertTrue(study.url.absoluteString.hasSuffix(study.doi))
+        }
+    }
+
+    func testStudyBadgesAreShortEnoughForTheirChip() {
+        for study in allEvidence {
+            XCTAssertTrue((2...3).contains(study.mark.count),
+                          "\(study.doi): mark '\(study.mark)' won't fit the badge")
+            XCTAssertEqual(study.tint.count, 7, "\(study.doi): tint must be #RRGGBB")
+            XCTAssertTrue(study.tint.hasPrefix("#"))
+        }
+    }
+
+    /// The same paper cited by two practices must be the same record, not two
+    /// transcriptions that could drift apart.
+    func testAStudyCitedTwiceIsIdentical() {
+        var byDOI: [String: PracticeEvidence] = [:]
+        for study in allEvidence {
+            if let existing = byDOI[study.doi] {
+                XCTAssertEqual(existing, study, "\(study.doi): cited with differing details")
+            }
+            byDOI[study.doi] = study
+        }
+    }
+
+    func testNoPracticeCitesTheSameStudyTwice() {
+        for practice in PracticeCatalog.practices {
+            let dois = practice.evidence.map(\.doi)
+            XCTAssertEqual(dois.count, Set(dois).count, "\(practice.id): duplicate citation")
+        }
+    }
 }
