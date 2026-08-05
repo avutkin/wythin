@@ -203,6 +203,15 @@ final class ActivityLog {
     /// rate to be recovery rather than drift.
     var duringHRPeak:          Float?
 
+    /// Seconds in each of the five heart-rate zones. Stored flat rather than as
+    /// a dictionary because SwiftData persists scalars, and five fields is
+    /// cheaper than a codable blob to query and to migrate.
+    var zone1Sec:              Double?
+    var zone2Sec:              Double?
+    var zone3Sec:              Double?
+    var zone4Sec:              Double?
+    var zone5Sec:              Double?
+
     /// Minutes after the session ended until the vagal brake first came halfway
     /// back to its pre-session level and held there. `nil` means it did not —
     /// see `recoveryObservedMinutes` for how long we watched before saying so.
@@ -331,7 +340,8 @@ final class ActivityLog {
         //     entry already stored under v3.
         // v5  heart-rate recovery (HRR60, T30), the session's HR peak, and the
         //     trough that the halfway bar is now measured from.
-        let currentVersion = 5
+        // v6  heart-rate zone seconds.
+        let currentVersion = 6
         let versionKey = "activityBackfillVersion"
         let migrating = UserDefaults.standard.integer(forKey: versionKey) < currentVersion
 
@@ -462,6 +472,17 @@ final class ActivityLog {
             guard let a = s.dfa1 else { return nil }
             return (date: s.timestamp, dfa1: Double(a))
         }
+        // Heart-rate zones, from the same samples and the same gap rule as the
+        // domains, so the two accounts of the session cover the same minutes.
+        let zoneSamples = during.compactMap { s -> (date: Date, hrReserve: Double)? in
+            guard let hr = s.meanBPM else { return nil }
+            return (s.timestamp, ExerciseIntensity.hrReserve(hr: hr, restingHR: resting,
+                                                             ceiling: ceiling))
+        }
+        let zones = HeartRateZones.split(samples: zoneSamples)
+        zone1Sec = zones[.z1]; zone2Sec = zones[.z2]; zone3Sec = zones[.z3]
+        zone4Sec = zones[.z4]; zone5Sec = zones[.z5]
+
         let split = ExerciseIntensity.domainSplit(samples: dfaSamples)
         domainModerateSec = split[.moderate]
         domainHeavySec    = split[.heavy]
@@ -623,6 +644,17 @@ final class ActivityLog {
         let word = suppressionScore.map(ExerciseResponse.word(for:))
             ?? ExerciseResponse.word(for: score)
         return .score(score, word: word)
+    }
+
+    /// The stored zone seconds, back in the shape the chart consumes.
+    var zoneSplit: [HeartRateZone: TimeInterval] {
+        var out: [HeartRateZone: TimeInterval] = [:]
+        if let v = zone1Sec { out[.z1] = v }
+        if let v = zone2Sec { out[.z2] = v }
+        if let v = zone3Sec { out[.z3] = v }
+        if let v = zone4Sec { out[.z4] = v }
+        if let v = zone5Sec { out[.z5] = v }
+        return out
     }
 
     /// Heart-rate recovery as an axis value.

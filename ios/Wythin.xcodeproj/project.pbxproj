@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		43A37C75E1DB1B68CE8566C1 /* ActivityTypeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */; };
+		8BA1A9E7E7D761F4235EA36D /* HeartRateZonesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6969DBAA3AA4BCFDCF9905B3 /* HeartRateZonesTests.swift */; };
 		F376098B5A3EB6A45FE89D91 /* HeartRateRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96F0176DC46EC1784607A99 /* HeartRateRecoveryTests.swift */; };
 		E6B3958DF1401633E29E088B /* RestorativeScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DFCB08D15274CC0BA39121F /* RestorativeScoreTests.swift */; };
 		32D9A8EE081061038298DB68 /* RecoveryTimingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4688AA2E13CE6C34D295CC0 /* RecoveryTimingTests.swift */; };
@@ -88,6 +89,7 @@
 		A148 /* MetricTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = F148 /* MetricTile.swift */; };
 		A149 /* ActivityMetricsGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = F149 /* ActivityMetricsGrid.swift */; };
 		A150 /* ActivityWindowChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = F150 /* ActivityWindowChart.swift */; };
+		3DDF68F447718CEF4F136246 /* HeartRateZoneBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDDB733DE8440C1589EECDEE /* HeartRateZoneBar.swift */; };
 		5AE4FB96AA42AD6C4FF262B3 /* RestorativeSummaryCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C0049B5514062DA793B6754 /* RestorativeSummaryCard.swift */; };
 		D07587900CF0F451D2296B6E /* RecoveryCurveChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FAD5A571618CC30124B0A6D /* RecoveryCurveChart.swift */; };
 		572FE6B7D226F114A58E9495 /* CostScatterChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEE9F1E89C1080D7968C81F /* CostScatterChart.swift */; };
@@ -95,6 +97,7 @@
 		973C076BBA17753FE1E14F39 /* IntensityDomainBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DB14932B2654296DD711453 /* IntensityDomainBar.swift */; };
 		464AD9DEC520D515A61A3DE7 /* SessionTimelineChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB3DAF0C092FF0CCF91FDF70 /* SessionTimelineChart.swift */; };
 		A151 /* ActivityMetricStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = F151 /* ActivityMetricStats.swift */; };
+		10C1696FBC513ADF37AA56CD /* HeartRateZones.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F9BB7F1EE03E47E6D25273A /* HeartRateZones.swift */; };
 		8339B037EDA4629C3C6F69DA /* HeartRateRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C596C8F87D7CF1A50DF06A /* HeartRateRecovery.swift */; };
 		3847A43031559CCBE6AA9DEE /* RestorativeScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 041B40C3B9505CB3B72A1174 /* RestorativeScore.swift */; };
 		14A847C99DDFBB4855D108FF /* RecoveryTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8425FF74AF41CA2DD465510 /* RecoveryTiming.swift */; };
@@ -231,6 +234,7 @@
 
 /* Begin PBXFileReference section */
 		12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTypeTests.swift; sourceTree = "<group>"; };
+		6969DBAA3AA4BCFDCF9905B3 /* HeartRateZonesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateZonesTests.swift; sourceTree = "<group>"; };
 		D96F0176DC46EC1784607A99 /* HeartRateRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateRecoveryTests.swift; sourceTree = "<group>"; };
 		8DFCB08D15274CC0BA39121F /* RestorativeScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorativeScoreTests.swift; sourceTree = "<group>"; };
 		A4688AA2E13CE6C34D295CC0 /* RecoveryTimingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryTimingTests.swift; sourceTree = "<group>"; };
@@ -313,6 +317,7 @@
 		F148 /* MetricTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricTile.swift; sourceTree = "<group>"; };
 		F149 /* ActivityMetricsGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricsGrid.swift; sourceTree = "<group>"; };
 		F150 /* ActivityWindowChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityWindowChart.swift; sourceTree = "<group>"; };
+		BDDB733DE8440C1589EECDEE /* HeartRateZoneBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateZoneBar.swift; sourceTree = "<group>"; };
 		3C0049B5514062DA793B6754 /* RestorativeSummaryCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorativeSummaryCard.swift; sourceTree = "<group>"; };
 		6FAD5A571618CC30124B0A6D /* RecoveryCurveChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryCurveChart.swift; sourceTree = "<group>"; };
 		BEEE9F1E89C1080D7968C81F /* CostScatterChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CostScatterChart.swift; sourceTree = "<group>"; };
@@ -320,6 +325,7 @@
 		8DB14932B2654296DD711453 /* IntensityDomainBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntensityDomainBar.swift; sourceTree = "<group>"; };
 		EB3DAF0C092FF0CCF91FDF70 /* SessionTimelineChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTimelineChart.swift; sourceTree = "<group>"; };
 		F151 /* ActivityMetricStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricStats.swift; sourceTree = "<group>"; };
+		1F9BB7F1EE03E47E6D25273A /* HeartRateZones.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateZones.swift; sourceTree = "<group>"; };
 		58C596C8F87D7CF1A50DF06A /* HeartRateRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateRecovery.swift; sourceTree = "<group>"; };
 		041B40C3B9505CB3B72A1174 /* RestorativeScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorativeScore.swift; sourceTree = "<group>"; };
 		F8425FF74AF41CA2DD465510 /* RecoveryTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryTiming.swift; sourceTree = "<group>"; };
@@ -488,6 +494,7 @@
 				F203 /* ActivityLogging.swift */,
 				F149 /* ActivityMetricsGrid.swift */,
 				F150 /* ActivityWindowChart.swift */,
+				BDDB733DE8440C1589EECDEE /* HeartRateZoneBar.swift */,
 				3C0049B5514062DA793B6754 /* RestorativeSummaryCard.swift */,
 				6FAD5A571618CC30124B0A6D /* RecoveryCurveChart.swift */,
 				BEEE9F1E89C1080D7968C81F /* CostScatterChart.swift */,
@@ -599,6 +606,7 @@
 				F146 /* LiveStateTrendCompute.swift */,
 				F199 /* LiveStateInsight.swift */,
 				F151 /* ActivityMetricStats.swift */,
+				1F9BB7F1EE03E47E6D25273A /* HeartRateZones.swift */,
 				58C596C8F87D7CF1A50DF06A /* HeartRateRecovery.swift */,
 				041B40C3B9505CB3B72A1174 /* RestorativeScore.swift */,
 				F8425FF74AF41CA2DD465510 /* RecoveryTiming.swift */,
@@ -784,6 +792,7 @@
 				FT06 /* PayloadBuilderTests.swift */,
 				FT07 /* ActivityMetricStatsTests.swift */,
 				12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */,
+				6969DBAA3AA4BCFDCF9905B3 /* HeartRateZonesTests.swift */,
 				D96F0176DC46EC1784607A99 /* HeartRateRecoveryTests.swift */,
 				8DFCB08D15274CC0BA39121F /* RestorativeScoreTests.swift */,
 				A4688AA2E13CE6C34D295CC0 /* RecoveryTimingTests.swift */,
@@ -1005,6 +1014,7 @@
 				A148 /* MetricTile.swift in Sources */,
 				A149 /* ActivityMetricsGrid.swift in Sources */,
 				A150 /* ActivityWindowChart.swift in Sources */,
+				3DDF68F447718CEF4F136246 /* HeartRateZoneBar.swift in Sources */,
 				5AE4FB96AA42AD6C4FF262B3 /* RestorativeSummaryCard.swift in Sources */,
 				D07587900CF0F451D2296B6E /* RecoveryCurveChart.swift in Sources */,
 				572FE6B7D226F114A58E9495 /* CostScatterChart.swift in Sources */,
@@ -1016,6 +1026,7 @@
 				A230 /* ActivityDetailView.swift in Sources */,
 				A231 /* ActivityFormSheets.swift in Sources */,
 				A151 /* ActivityMetricStats.swift in Sources */,
+				10C1696FBC513ADF37AA56CD /* HeartRateZones.swift in Sources */,
 				8339B037EDA4629C3C6F69DA /* HeartRateRecovery.swift in Sources */,
 				3847A43031559CCBE6AA9DEE /* RestorativeScore.swift in Sources */,
 				14A847C99DDFBB4855D108FF /* RecoveryTiming.swift in Sources */,
@@ -1103,6 +1114,7 @@
 				AT10 /* ClientProfileTests.swift in Sources */,
 				AT07 /* ActivityMetricStatsTests.swift in Sources */,
 				43A37C75E1DB1B68CE8566C1 /* ActivityTypeTests.swift in Sources */,
+				8BA1A9E7E7D761F4235EA36D /* HeartRateZonesTests.swift in Sources */,
 				F376098B5A3EB6A45FE89D91 /* HeartRateRecoveryTests.swift in Sources */,
 				E6B3958DF1401633E29E088B /* RestorativeScoreTests.swift in Sources */,
 				32D9A8EE081061038298DB68 /* RecoveryTimingTests.swift in Sources */,
