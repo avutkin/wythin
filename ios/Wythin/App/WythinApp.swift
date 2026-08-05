@@ -121,7 +121,16 @@ struct ContentView: View {
         .tint(Theme.accent)
         .toolbar(.hidden, for: .tabBar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            AppTabBar(selected: $selectedTab)
+            VStack(spacing: 0) {
+                // Stopping used to be possible only from the Activities tab, so an
+                // activity started from a nudge kept running while you were
+                // anywhere else with no way to end it. This rides above the tab bar
+                // on every screen except Activities, which has the full banner.
+                if selectedTab != .activities {
+                    RecordingPill { selectedTab = .activities }
+                }
+                AppTabBar(selected: $selectedTab)
+            }
         }
         .onChange(of: env.pendingTabRequest) { _, newValue in
             guard let tab = newValue else { return }
@@ -193,7 +202,8 @@ struct ContentView: View {
             _ = ActivityLogging.begin(type: .walk, subtype: nil, customName: nil,
                                       targetMinutes: NudgeInterventionLibrary
                                           .intervention(.walk).minutes,
-                                      context: modelContext)
+                                      context: modelContext,
+                                      client: env.sync.client)
             selectedTab = .activities
         }
     }
@@ -313,5 +323,62 @@ private struct TabBarButton: View {
             .contentShape(Rectangle())
         }
         .animation(.easeInOut(duration: 0.15), value: isSelected)
+    }
+}
+
+// MARK: - Recording pill
+
+/// Compact "something is recording" strip shown above the tab bar on every screen
+/// but Activities. Tapping it goes to the Activities tab, where the full banner
+/// carries the live metrics and the stop button.
+private struct RecordingPill: View {
+    @Environment(\.modelContext) private var ctx
+    @Query private var entries: [ActivityLog]
+
+    let onTap: () -> Void
+
+    @State private var now = Date.now
+    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    private var active: [ActivityLog] { ActivityLogging.activeEntries(in: entries) }
+
+    var body: some View {
+        if let entry = active.first {
+            Button(action: onTap) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Theme.warn)
+                        .frame(width: 6, height: 6)
+                    Text(entry.displayName.uppercased())
+                        .font(Theme.monoLabel)
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1)
+                    if active.count > 1 {
+                        Text("+\(active.count - 1)")
+                            .font(Theme.monoLabel)
+                            .foregroundStyle(Theme.dim)
+                    }
+                    Spacer()
+                    Text(mmss(now.timeIntervalSince(entry.startedAt)))
+                        .font(Theme.mono(13))
+                        .foregroundStyle(Theme.warn)
+                        .monospacedDigit()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Theme.dim)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .background(Theme.card)
+                .overlay(alignment: .top) { Divider().background(Theme.border) }
+            }
+            .buttonStyle(.plain)
+            .onReceive(ticker) { now = $0 }
+        }
+    }
+
+    private func mmss(_ seconds: TimeInterval) -> String {
+        let t = Int(max(0, seconds))
+        return String(format: "%02d:%02d", t / 60, t % 60)
     }
 }

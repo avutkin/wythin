@@ -8,6 +8,7 @@ import SwiftData
 /// disclosure, because for exercise they are raw material rather than a verdict.
 struct ExerciseDetailView: View {
     @Environment(\.modelContext) var ctx
+    @Environment(AppEnvironment.self) var env
     @Environment(\.dismiss) var dismiss
     @Bindable var entry: ActivityLog
 
@@ -81,6 +82,9 @@ struct ExerciseDetailView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    if entry.isActive {
+                        StillRecordingCard(entry: entry) { finish() }
+                    }
                     header
                     overallCard
                     coachCard
@@ -506,5 +510,12 @@ struct ExerciseDetailView: View {
                 }
             }
         }
+    }
+}
+
+extension ExerciseDetailView {
+    /// Close an activity that is still recording, from the detail screen.
+    func finish() {
+        ActivityLogging.end(entry, context: ctx, client: env.sync.client)
     }
 }

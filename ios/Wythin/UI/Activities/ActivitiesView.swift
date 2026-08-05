@@ -59,8 +59,12 @@ struct ActivitiesView: View {
         }
     }
 
-    private var activeEntry: ActivityLog? {
-        allEntries.first(where: { $0.isActive })
+    /// Every unfinished activity, not just the newest. Showing one was how an
+    /// orphan from an earlier build could sit in the log with no end time and no
+    /// way to stop it — the history list filters active entries out, so the
+    /// banner is the only place they can appear.
+    private var activeEntries: [ActivityLog] {
+        ActivityLogging.activeEntries(in: allEntries)
     }
 
     var body: some View {
@@ -88,8 +92,8 @@ struct ActivitiesView: View {
 
     private var logSection: some View {
         List {
-            // ── Active banner ─────────────────────────────────────
-            if let active = activeEntry {
+            // ── Active banners ────────────────────────────────────
+            ForEach(activeEntries) { active in
                 ActiveActivityBanner(entry: active, tick: env.latestTick) {
                     endActivity(active)
                 }
@@ -99,7 +103,7 @@ struct ActivitiesView: View {
             }
 
             // ── Action buttons (hidden while recording) ──
-            if activeEntry == nil {
+            if activeEntries.isEmpty {
                 Section {
                     HStack(spacing: 12) {
                         Button {
@@ -194,7 +198,8 @@ struct ActivitiesView: View {
         case .start:
             StartActivitySheet(preselected: nil) { type, subtype, name, target in
                 ActivityLogging.begin(type: type, subtype: subtype, customName: name,
-                                      targetMinutes: target, context: ctx)
+                                      targetMinutes: target, context: ctx,
+                                      client: env.sync.client)
             }
         case .logPast:
             LogPastSheet { type, subtype, name, start, end in
@@ -365,5 +370,66 @@ private struct MetricPill: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Still-recording card
+
+/// Shown at the top of a detail screen for an activity that has not finished.
+///
+/// Without it the screen simply had no end data — every window collapsed to
+/// `endedAt ?? startedAt`, a zero-length span — and offered no way to finish the
+/// activity, so the only route to stopping it was finding it again in the
+/// Activities list.
+struct StillRecordingCard: View {
+    @Bindable var entry: ActivityLog
+    let onFinish: () -> Void
+
+    @State private var now = Date.now
+    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Circle().fill(Theme.warn).frame(width: 6, height: 6)
+                Text("STILL RECORDING")
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.warn)
+                Spacer()
+                Text(mmss(now.timeIntervalSince(entry.startedAt)))
+                    .font(Theme.mono(18))
+                    .foregroundStyle(Theme.warn)
+                    .monospacedDigit()
+            }
+
+            Text("This activity has no end time yet, so its before/during/after windows can't be worked out.")
+                .font(Theme.monoLabel)
+                .foregroundStyle(Theme.dim)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(action: onFinish) {
+                HStack(spacing: 6) {
+                    Image(systemName: "stop.fill")
+                    Text("FINISH NOW")
+                }
+                .font(Theme.monoBody)
+                .foregroundStyle(Theme.warn)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(Theme.warn.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Theme.warn.opacity(0.35), lineWidth: 0.5))
+            }
+            .buttonStyle(.plain)
+        }
+        .cardStyle()
+        .onReceive(ticker) { now = $0 }
+    }
+
+    private func mmss(_ seconds: TimeInterval) -> String {
+        let t = Int(max(0, seconds))
+        return String(format: "%02d:%02d", t / 60, t % 60)
     }
 }

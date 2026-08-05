@@ -5,6 +5,7 @@ import SwiftData
 
 struct ActivityDetailView: View {
     @Environment(\.modelContext) var ctx
+    @Environment(AppEnvironment.self) var env
     @Environment(\.dismiss) var dismiss
     @Bindable var entry: ActivityLog
 
@@ -85,6 +86,10 @@ struct ActivityDetailView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+
+                    if entry.isActive {
+                        StillRecordingCard(entry: entry) { finish() }
+                    }
 
                     // Header
                     HStack(spacing: 10) {
@@ -242,3 +247,10 @@ struct ActivityDetailView: View {
             .onChange(of: entry.endedAt)   { loadChartPoints(); loadTwoMonthAverages() }
         }
     }
+
+extension ActivityDetailView {
+    /// Close an activity that is still recording, from the detail screen.
+    func finish() {
+        ActivityLogging.end(entry, context: ctx, client: env.sync.client)
+    }
+}

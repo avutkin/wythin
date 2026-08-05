@@ -162,6 +162,7 @@
 		AT07 /* ActivityMetricStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT07 /* ActivityMetricStatsTests.swift */; };
 		AT10 /* ClientProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT10 /* ClientProfileTests.swift */; };
 		AT11 /* PracticeCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT11 /* PracticeCatalogTests.swift */; };
+		AT71 /* ActiveActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT71 /* ActiveActivityTests.swift */; };
 		AT12 /* MotionComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT12 /* MotionComputeTests.swift */; };
 		AT13 /* AnchorDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT13 /* AnchorDetectorTests.swift */; };
 		AT43 /* AnchorBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT43 /* AnchorBackfillTests.swift */; };
@@ -387,6 +388,7 @@
 		FT07 /* ActivityMetricStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricStatsTests.swift; sourceTree = "<group>"; };
 		FT10 /* ClientProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientProfileTests.swift; sourceTree = "<group>"; };
 		FT11 /* PracticeCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeCatalogTests.swift; sourceTree = "<group>"; };
+		FT71 /* ActiveActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveActivityTests.swift; sourceTree = "<group>"; };
 		FT12 /* MotionComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionComputeTests.swift; sourceTree = "<group>"; };
 		FT13 /* AnchorDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetectorTests.swift; sourceTree = "<group>"; };
 		FT43 /* AnchorBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBackfillTests.swift; sourceTree = "<group>"; };
@@ -792,6 +794,7 @@
 				FT26 /* ImpactDeltaTests.swift */,
 				FT10 /* ClientProfileTests.swift */,
 				FT11 /* PracticeCatalogTests.swift */,
+				FT71 /* ActiveActivityTests.swift */,
 				FT70 /* BoxBreathEngineTests.swift */,
 				FT12 /* MotionComputeTests.swift */,
 				FT30 /* DailyRollupTests.swift */,
@@ -1107,6 +1110,7 @@
 				04B07817C335F28A352F88E9 /* ActivityClassTests.swift in Sources */,
 				AT26 /* ImpactDeltaTests.swift in Sources */,
 				AT11 /* PracticeCatalogTests.swift in Sources */,
+				AT71 /* ActiveActivityTests.swift in Sources */,
 				AT70 /* BoxBreathEngineTests.swift in Sources */,
 				AT12 /* MotionComputeTests.swift in Sources */,
 				AT40 /* RSAComputeTests.swift in Sources */,
