@@ -12,9 +12,9 @@ struct PracticeHubView: View {
 
     @Query(sort: \TrainSession.startedAt, order: .reverse) private var trainSessions: [TrainSession]
 
-    @State private var filter:   PracticeCategory? = nil     // nil = All
-    @State private var selected: Practice?         = nil
-    @State private var showBLESheet                = false
+    @State private var filter:   PracticeState? = nil        // nil = All
+    @State private var selected: Practice?      = nil
+    @State private var showBLESheet             = false
 
     // 3-up grid of practice tiles.
     private let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
@@ -22,7 +22,7 @@ struct PracticeHubView: View {
     /// Practices for the current filter. When unfiltered, Resonance is pulled
     /// out into the featured card so it isn't listed twice.
     private var visiblePractices: [Practice] {
-        let all = filter.map { PracticeCatalog.practices(in: $0) } ?? PracticeCatalog.practices
+        let all = filter.map { PracticeCatalog.practices(for: $0) } ?? PracticeCatalog.practices
         return filter == nil ? all.filter { !$0.isStarred } : all
     }
 
@@ -81,9 +81,9 @@ struct PracticeHubView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 CategoryCapsule(label: "All", isSelected: filter == nil) { filter = nil }
-                ForEach(PracticeCategory.allCases) { cat in
-                    CategoryCapsule(label: cat.label, isSelected: filter == cat) {
-                        filter = (filter == cat) ? nil : cat
+                ForEach(PracticeState.allCases) { state in
+                    CategoryCapsule(label: state.chip, isSelected: filter == state) {
+                        filter = (filter == state) ? nil : state
                     }
                 }
             }
@@ -215,6 +215,8 @@ private struct PracticeGridTile: View {
             badgeIcon("star.fill", Theme.accent)
         } else if practice.isBiofeedback {
             badgeIcon("waveform.path.ecg", Theme.breathe)
+        } else if practice.breathPattern != nil {
+            badgeIcon("metronome", Theme.breathe)
         }
     }
 

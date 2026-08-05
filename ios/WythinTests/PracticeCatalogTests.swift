@@ -78,4 +78,75 @@ final class PracticeCatalogTests: XCTestCase {
                            "\(category.rawValue) has no practices")
         }
     }
+
+    // MARK: States
+
+    /// States drive the hub's filter, so an untagged practice is unreachable
+    /// anywhere except the All tab.
+    func testEveryPracticeHasAtLeastOneState() {
+        for practice in PracticeCatalog.practices {
+            XCTAssertFalse(practice.states.isEmpty, "\(practice.id): no states")
+        }
+    }
+
+    func testNoPracticeRepeatsAState() {
+        for practice in PracticeCatalog.practices {
+            XCTAssertEqual(practice.states.count, Set(practice.states).count,
+                           "\(practice.id): duplicate state")
+        }
+    }
+
+    /// An empty state would render as a filter capsule leading to a blank grid.
+    func testEveryStateHasAtLeastOnePractice() {
+        for state in PracticeState.allCases {
+            XCTAssertFalse(PracticeCatalog.practices(for: state).isEmpty,
+                           "\(state.rawValue) has no practices")
+        }
+    }
+
+    func testPracticesForStateReturnsOnlyThatState() {
+        for state in PracticeState.allCases {
+            XCTAssertTrue(PracticeCatalog.practices(for: state).allSatisfy {
+                $0.states.contains(state)
+            })
+        }
+    }
+
+    /// Practices that exist for a state lead; ones that merely also serve it follow.
+    func testPracticesForStateSortsPrimaryFirst() {
+        for state in PracticeState.allCases {
+            let results = PracticeCatalog.practices(for: state)
+            let primaryFlags = results.map { $0.primaryState == state }
+            let firstSecondary = primaryFlags.firstIndex(of: false) ?? primaryFlags.count
+            XCTAssertFalse(primaryFlags[firstSecondary...].contains(true),
+                           "\(state.rawValue): a primary practice sorted after a secondary one")
+        }
+    }
+
+    // MARK: Pacer practices
+
+    func testBoxBreathingIsAPacerOnTheBoxPattern() {
+        guard let box = PracticeCatalog.practices.first(where: { $0.id == "box-breathing" }) else {
+            return XCTFail("box-breathing missing from the catalog")
+        }
+        XCTAssertEqual(box.kind, .pacer(.box))
+        XCTAssertEqual(box.breathPattern, .box)
+        XCTAssertEqual(box.activityType, .breathwork)
+        XCTAssertEqual(box.subtype, "Box Breathing")
+        XCTAssertFalse(box.isStarred, "only Resonance is featured")
+        XCTAssertFalse(box.isBiofeedback)
+    }
+
+    /// A pacer session logs for the elapsed time under this subtype, so it has to
+    /// survive the same invariant as everything else — asserted here explicitly
+    /// because it's the one practice whose subtype is chosen by a live session.
+    func testEveryPacerPracticeHasABreathPattern() {
+        for practice in PracticeCatalog.practices {
+            if case .pacer = practice.kind {
+                XCTAssertNotNil(practice.breathPattern, "\(practice.id): pacer without a pattern")
+                XCTAssertGreaterThan(practice.breathPattern?.cycleSeconds ?? 0, 0,
+                                     "\(practice.id): zero-length cycle would stall the session")
+            }
+        }
+    }
 }

@@ -18,6 +18,7 @@ struct PracticeDetailView: View {
     @State private var showLogSheet    = false
     @State private var showResonance   = false
     @State private var showBiofeedback = false
+    @State private var showPacer       = false
 
     private var teacher: Teacher? { PracticeCatalog.teacher(practice.teacherID) }
 
@@ -28,6 +29,7 @@ struct PracticeDetailView: View {
                     hero
                     if let t = teacher { teacherRow(t) }
                     metaRow
+                    if !practice.states.isEmpty { stateRow }
                     if !practice.tags.isEmpty { tagRow }
                     Text(practice.description)
                         .font(Theme.monoBody)
@@ -68,6 +70,9 @@ struct PracticeDetailView: View {
         .fullScreenCover(isPresented: $showBiofeedback) {
             BiofeedbackSessionView(activityType: practice.activityType,
                                    subtype: practice.subtype)
+        }
+        .fullScreenCover(isPresented: $showPacer) {
+            BoxBreathingSessionView(practice: practice)
         }
     }
 
@@ -143,6 +148,27 @@ struct PracticeDetailView: View {
         }
     }
 
+    /// What this practice is *for*. The hub filters on these, so they belong on
+    /// the detail screen too — otherwise the reason a practice showed up under a
+    /// state is invisible once you open it.
+    private var stateRow: some View {
+        HStack(spacing: 8) {
+            ForEach(practice.states) { state in
+                HStack(spacing: 5) {
+                    Image(systemName: state.icon).font(.system(size: 10))
+                    Text(state.label)
+                }
+                .font(Theme.monoLabel)
+                .foregroundStyle(Theme.accent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Theme.accent.opacity(0.12))
+                .clipShape(Capsule())
+            }
+            Spacer()
+        }
+    }
+
     private var tagRow: some View {
         HStack(spacing: 8) {
             ForEach(practice.tags, id: \.self) { tag in
@@ -177,6 +203,13 @@ struct PracticeDetailView: View {
         case .biofeedback(.workout):
             actionButton(title: "Start Session", icon: "waveform.path.ecg", filled: true) {
                 showBiofeedback = true
+            }
+            actionButton(title: "Log it", icon: "checkmark.circle", filled: false) {
+                showLogSheet = true
+            }
+        case .pacer:
+            actionButton(title: "Start \(practice.title)", icon: "play.fill", filled: true) {
+                showPacer = true
             }
             actionButton(title: "Log it", icon: "checkmark.circle", filled: false) {
                 showLogSheet = true

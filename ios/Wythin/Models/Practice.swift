@@ -27,11 +27,49 @@ enum PracticeCategory: String, CaseIterable, Identifiable {
     }
 }
 
+/// The state a person is trying to reach. This — not the modality — is what the
+/// hub filters on, because "what do I need right now" is the question someone
+/// opens the app with. Membership is many-to-many; a practice's first state is
+/// its primary one.
+enum PracticeState: String, CaseIterable, Identifiable {
+    case focus, stress, anxiety, sleep
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .focus:   return "Sharpen Focus"
+        case .stress:  return "Manage Stress"
+        case .anxiety: return "Reduce Anxiety"
+        case .sleep:   return "Improve Sleep"
+        }
+    }
+
+    /// Short form for the hub's capsule bar, where the full label won't fit.
+    var chip: String {
+        switch self {
+        case .focus:   return "Focus"
+        case .stress:  return "Stress"
+        case .anxiety: return "Anxiety"
+        case .sleep:   return "Sleep"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .focus:   return "target"
+        case .stress:  return "gauge.with.dots.needle.33percent"
+        case .anxiety: return "wind"
+        case .sleep:   return "moon.zzz"
+        }
+    }
+}
+
 enum BiofeedbackMode: Equatable, Hashable { case resonance, workout }
 
 enum PracticeKind: Equatable, Hashable {
     case content                        // browse + Log it
     case biofeedback(BiofeedbackMode)   // live session (resonance pacer / workout feedback)
+    case pacer(BreathPattern)           // guided breath session on a fixed pattern
 }
 
 /// Local art token — an SF Symbol over a two-stop gradient. There is no remote
@@ -52,6 +90,7 @@ struct Practice: Identifiable, Hashable {
     let subtitle:            String
     let teacherID:           String
     let category:            PracticeCategory
+    let states:              [PracticeState] // non-empty; first is primary
     let activityType:        ActivityType   // reuse the logging enum
     let subtype:             String?        // must be a member of activityType.subtypes
     let defaultDurationMins: Int
@@ -67,4 +106,13 @@ struct Practice: Identifiable, Hashable {
         if case .biofeedback = kind { return true }
         return false
     }
+
+    /// The breath pattern this practice paces, if it is a guided pacer.
+    var breathPattern: BreathPattern? {
+        if case .pacer(let pattern) = kind { return pattern }
+        return nil
+    }
+
+    /// The state this practice exists for, as opposed to the ones it also serves.
+    var primaryState: PracticeState? { states.first }
 }
