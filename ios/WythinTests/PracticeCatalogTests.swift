@@ -49,11 +49,10 @@ final class PracticeCatalogTests: XCTestCase {
 
     // MARK: Starred / featured
 
-    func testExactlyOneStarredResonancePractice() {
-        let starred = PracticeCatalog.starred
-        XCTAssertEqual(starred.count, 1)
-        XCTAssertEqual(starred.first?.id, "resonance")
-        XCTAssertEqual(starred.first?.kind, .biofeedback(.resonance))
+    /// Resonance carried the star and is out of the catalog for now, so nothing is
+    /// featured and the hub simply shows no featured card.
+    func testNothingIsFeaturedWhileTheCatalogIsTrimmed() {
+        XCTAssertTrue(PracticeCatalog.starred.isEmpty)
     }
 
     // MARK: Lookups
@@ -72,11 +71,20 @@ final class PracticeCatalogTests: XCTestCase {
         }
     }
 
-    func testEveryCategoryHasAtLeastOnePractice() {
-        for category in PracticeCategory.allCases {
-            XCTAssertFalse(PracticeCatalog.practices(in: category).isEmpty,
-                           "\(category.rawValue) has no practices")
+    /// The catalog is deliberately trimmed to Box Breathing alone while the pacer
+    /// is built out, so "every category is populated" cannot hold. This pins the
+    /// trimmed state instead: when practices come back it fails, which is the
+    /// reminder to restore the real invariant above it.
+    func testCatalogIsTemporarilyBoxBreathingOnly() {
+        XCTAssertEqual(PracticeCatalog.practices.map(\.id), ["box-breathing"],
+                       "catalog changed — restore the per-category and per-state coverage tests")
+    }
+
+    func testTheOnlyPopulatedCategoryIsBreathwork() {
+        let populated = PracticeCategory.allCases.filter {
+            !PracticeCatalog.practices(in: $0).isEmpty
         }
+        XCTAssertEqual(populated, [.breathwork])
     }
 
     // MARK: States
@@ -96,12 +104,13 @@ final class PracticeCatalogTests: XCTestCase {
         }
     }
 
-    /// An empty state would render as a filter capsule leading to a blank grid.
-    func testEveryStateHasAtLeastOnePractice() {
-        for state in PracticeState.allCases {
-            XCTAssertFalse(PracticeCatalog.practices(for: state).isEmpty,
-                           "\(state.rawValue) has no practices")
+    /// Box Breathing serves focus and stress, so anxiety and sleep are empty for
+    /// now — their capsules lead to a blank grid until the catalog is restored.
+    func testOnlyFocusAndStressHavePracticesWhileTrimmed() {
+        let populated = PracticeState.allCases.filter {
+            !PracticeCatalog.practices(for: $0).isEmpty
         }
+        XCTAssertEqual(populated, [.focus, .stress])
     }
 
     func testPracticesForStateReturnsOnlyThatState() {
@@ -133,7 +142,7 @@ final class PracticeCatalogTests: XCTestCase {
         XCTAssertEqual(box.breathPattern, .box)
         XCTAssertEqual(box.activityType, .breathwork)
         XCTAssertEqual(box.subtype, "Box Breathing")
-        XCTAssertFalse(box.isStarred, "only Resonance is featured")
+        XCTAssertFalse(box.isStarred, "the pacer is not the featured practice")
         XCTAssertFalse(box.isBiofeedback)
     }
 
@@ -144,7 +153,7 @@ final class PracticeCatalogTests: XCTestCase {
         for practice in PracticeCatalog.practices {
             if case .pacer = practice.kind {
                 XCTAssertNotNil(practice.breathPattern, "\(practice.id): pacer without a pattern")
-                XCTAssertGreaterThan(practice.breathPattern?.cycleSeconds ?? 0, 0,
+                XCTAssertGreaterThan(practice.breathPattern?.cycleBeats ?? 0, 0,
                                      "\(practice.id): zero-length cycle would stall the session")
             }
         }

@@ -168,9 +168,7 @@ struct ArtThumb: View {
             .fill(art.gradient)
             .frame(width: size, height: size)
             .overlay(
-                Image(systemName: art.symbol)
-                    .font(.system(size: size * 0.4, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.95))
+                art.glyph(size: size * 0.4, weight: .medium, opacity: 0.95)
             )
     }
 }
@@ -187,9 +185,7 @@ private struct PracticeGridTile: View {
             practice.art.gradient
                 .aspectRatio(1, contentMode: .fit)
                 .overlay(
-                    Image(systemName: practice.art.symbol)
-                        .font(.system(size: 26, weight: .light))
-                        .foregroundStyle(.white.opacity(0.9))
+                    practice.art.glyph(size: 26)
                 )
                 .overlay(alignment: .topTrailing) { badge }
                 .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -241,9 +237,7 @@ private struct FeaturedPracticeCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 practice.art.gradient
                     .overlay(
-                        Image(systemName: practice.art.symbol)
-                            .font(.system(size: 50, weight: .light))
-                            .foregroundStyle(.white.opacity(0.85))
+                        practice.art.glyph(size: 50, opacity: 0.85)
                     )
                     .overlay(alignment: .topLeading) {
                         HStack(spacing: 5) {

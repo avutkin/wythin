@@ -82,9 +82,7 @@ struct PracticeDetailView: View {
         ZStack(alignment: .bottomLeading) {
             practice.art.gradient
                 .overlay(
-                    Image(systemName: practice.art.symbol)
-                        .font(.system(size: 60, weight: .light))
-                        .foregroundStyle(.white.opacity(0.85))
+                    practice.art.glyph(size: 60, opacity: 0.85)
                 )
                 .overlay(
                     LinearGradient(colors: [.clear, .black.opacity(0.55)],

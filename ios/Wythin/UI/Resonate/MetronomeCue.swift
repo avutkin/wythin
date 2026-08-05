@@ -33,8 +33,10 @@ final class MetronomeCue {
 
     init() {
         let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
-        accentBuffer = MetronomeCue.click(frequency: 880, format: format)
-        plainBuffer  = MetronomeCue.click(frequency: 440, format: format)
+        // A4 and the E5 a fifth above it — consonant, so the accent reads as a
+        // lift rather than an interruption.
+        accentBuffer = MetronomeCue.tone(frequency: 659.25, format: format, gain: 0.5)
+        plainBuffer  = MetronomeCue.tone(frequency: 440.00, format: format, gain: 0.32)
 
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: format)
@@ -82,20 +84,37 @@ final class MetronomeCue {
 
     // MARK: Synthesis
 
-    /// A 40 ms sine burst with a fast decay — short enough to read as a click
-    /// rather than a tone, long enough to survive a phone speaker.
-    private static func click(frequency: Double, format: AVAudioFormat) -> AVAudioPCMBuffer? {
+    /// A soft struck tone, roughly a wooden mallet.
+    ///
+    /// Three things make it pleasant rather than a hard tick. The 6 ms attack
+    /// ramp removes the waveform discontinuity that reads as a "click". The slow
+    /// decay over ~300 ms lets it ring instead of snapping shut. And two quiet
+    /// harmonics give the fundamental some body, so it doesn't sound like a test
+    /// tone.
+    private static func tone(frequency: Double, format: AVAudioFormat,
+                             gain: Double) -> AVAudioPCMBuffer? {
         let sampleRate = format.sampleRate
-        let frames     = AVAudioFrameCount(sampleRate * 0.04)
+        let duration   = 0.30
+        let frames     = AVAudioFrameCount(sampleRate * duration)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames),
               let channel = buffer.floatChannelData?[0] else { return nil }
         buffer.frameLength = frames
 
-        let decay = 28.0   // e-folds per second — the burst is inaudible by ~40 ms
+        let attack = 0.006          // seconds
+        let decay  = 9.0            // e-folds per second
+
         for frame in 0..<Int(frames) {
             let t = Double(frame) / sampleRate
-            let envelope = exp(-decay * t)
-            channel[frame] = Float(sin(2 * .pi * frequency * t) * envelope * 0.6)
+
+            // Ramp in, then ring out.
+            let envelope = (t < attack ? t / attack : 1) * exp(-decay * t)
+
+            // Harmonics decay faster than the fundamental, as struck wood does.
+            var sample = sin(2 * .pi * frequency * t)
+            sample += 0.28 * sin(2 * .pi * frequency * 2 * t) * exp(-decay * 1.8 * t)
+            sample += 0.10 * sin(2 * .pi * frequency * 3 * t) * exp(-decay * 3.0 * t)
+
+            channel[frame] = Float(sample * envelope * gain)
         }
         return buffer
     }

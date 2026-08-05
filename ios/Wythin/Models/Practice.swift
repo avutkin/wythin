@@ -72,15 +72,32 @@ enum PracticeKind: Equatable, Hashable {
     case pacer(BreathPattern)           // guided breath session on a fixed pattern
 }
 
-/// Local art token — an SF Symbol over a two-stop gradient. There is no remote
-/// image loading in the app, so every practice/teacher paints from this.
+/// Local art token — an optional SF Symbol over a two-stop gradient. There is no
+/// remote image loading in the app, so every practice/teacher paints from this.
+/// A nil symbol leaves the gradient bare, for art that is the colour field itself.
 struct PracticeArt: Hashable {
-    let symbol:   String       // SF Symbol name
+    let symbol:   String?      // SF Symbol name, or nil for a bare gradient
     let hexStops: [String]     // two hex colours → LinearGradient via Color(hex:)
+
+    init(symbol: String? = nil, hexStops: [String]) {
+        self.symbol   = symbol
+        self.hexStops = hexStops
+    }
 
     var gradient: LinearGradient {
         LinearGradient(colors: hexStops.map { Color(hex: $0) },
                        startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    /// The glyph laid over the gradient — nothing at all when the art is meant to
+    /// be the colour field on its own.
+    @ViewBuilder
+    func glyph(size: CGFloat, weight: Font.Weight = .light, opacity: Double = 0.9) -> some View {
+        if let symbol {
+            Image(systemName: symbol)
+                .font(.system(size: size, weight: weight))
+                .foregroundStyle(.white.opacity(opacity))
+        }
     }
 }
 

@@ -25,6 +25,10 @@ struct BoxPacerView: View {
             boxTrack
             innerCircle
             centreReadout
+            // Outside the circle, in the band between its widest point and the
+            // box edge — so the circle can breathe through its full range without
+            // ever crossing the beat pips.
+            pips.offset(y: side * 0.45)
         }
         .frame(width: side + 96, height: side + 96)
     }
@@ -37,35 +41,27 @@ struct BoxPacerView: View {
             RoundedRectangle(cornerRadius: corner)
                 .stroke(Theme.border, lineWidth: 3)
 
-            // One segment per phase. Completed sides stay dim-lit until the cycle
-            // resets, so the box fills as the breath goes round.
+            // One segment per phase, each drawn on its own side. Completed sides
+            // stay dim-lit until the cycle resets, so the box fills as the breath
+            // goes round.
             ForEach(BreathPhase.allCases) { phase in
-                RoundedRectangle(cornerRadius: corner)
-                    .trim(from: trimStart(phase), to: trimEnd(phase))
+                BoxSide(phase: phase, corner: corner)
+                    .trim(from: 0, to: fill(phase))
                     .stroke(Theme.breathe.opacity(sideOpacity(phase)),
                             style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                    .animation(.linear(duration: 1), value: state.beatInPhase)
+                    .animation(.linear(duration: engine.beatDuration), value: state.beatInPhase)
                     .animation(.easeOut(duration: 0.35), value: state.phase)
             }
         }
         .frame(width: side, height: side)
-        // SwiftUI trims a rounded rect starting from the top-left corner going
-        // clockwise, which is exactly the phase order — no rotation needed.
     }
 
-    /// Fraction of the perimeter where each phase's side begins.
-    private func trimStart(_ phase: BreathPhase) -> CGFloat {
-        CGFloat(phase.rawValue) / CGFloat(BreathPhase.allCases.count)
-    }
-
-    /// A side in the past is fully drawn; the live side is drawn as far as the
-    /// beat has got; a side still to come isn't drawn at all.
-    private func trimEnd(_ phase: BreathPhase) -> CGFloat {
-        let full = trimStart(phase) + 1 / CGFloat(BreathPhase.allCases.count)
-        if phase.rawValue < state.phase.rawValue { return full }
-        if phase.rawValue > state.phase.rawValue { return trimStart(phase) }
-        let fraction = CGFloat(state.beatInPhase) / CGFloat(max(1, pattern.seconds(phase)))
-        return trimStart(phase) + fraction / CGFloat(BreathPhase.allCases.count)
+    /// How much of a side is drawn: a past side in full, the live side as far as
+    /// the beat has got, a side still to come not at all.
+    private func fill(_ phase: BreathPhase) -> CGFloat {
+        if phase.rawValue < state.phase.rawValue { return 1 }
+        if phase.rawValue > state.phase.rawValue { return 0 }
+        return CGFloat(state.beatInPhase) / CGFloat(max(1, pattern.beats(phase)))
     }
 
     private func sideOpacity(_ phase: BreathPhase) -> Double {
@@ -83,7 +79,9 @@ struct BoxPacerView: View {
                                center: .center, startRadius: 0, endRadius: side * 0.4)
             )
             .overlay(Circle().stroke(Theme.breathe.opacity(0.45), lineWidth: 1.5))
-            .frame(width: side * 0.72, height: side * 0.72)
+            // 0.80 of the box: its widest point still leaves a clear band inside
+            // the frame for the pips to sit in.
+            .frame(width: side * 0.80, height: side * 0.80)
             .scaleEffect(circleScale)
             .animation(.easeInOut(duration: circleAnimationDuration), value: circleScale)
     }
@@ -100,7 +98,7 @@ struct BoxPacerView: View {
     /// Holds snap instantly (nothing should appear to move); inhale and exhale
     /// take the whole phase.
     private var circleAnimationDuration: Double {
-        state.phase.isHold ? 0 : Double(pattern.seconds(state.phase))
+        state.phase.isHold ? 0 : Double(pattern.beats(state.phase)) * engine.beatDuration
     }
 
     // MARK: Centre readout
@@ -117,18 +115,16 @@ struct BoxPacerView: View {
                     .font(.system(size: 46, weight: .light, design: .monospaced))
                     .foregroundStyle(Theme.text)
                     .contentTransition(.numericText())
-                Text("/\(pattern.seconds(state.phase))")
+                Text("/\(pattern.beats(state.phase))")
                     .font(.system(size: 17, design: .monospaced))
                     .foregroundStyle(Theme.dim)
             }
-
-            pips
         }
     }
 
     private var pips: some View {
         HStack(spacing: 7) {
-            ForEach(1...max(1, pattern.seconds(state.phase)), id: \.self) { beat in
+            ForEach(1...max(1, pattern.beats(state.phase)), id: \.self) { beat in
                 Circle()
                     .fill(beat <= state.beatInPhase ? Theme.breathe : Theme.border)
                     .frame(width: 7, height: 7)
@@ -162,5 +158,38 @@ struct BoxPacerView: View {
             .tracking(3)
             .foregroundStyle(phase == state.phase ? Theme.breathe : Theme.dim)
             .animation(.easeOut(duration: 0.3), value: state.phase)
+    }
+}
+
+// MARK: - One side of the box
+
+/// The straight run of a single edge, corners excluded.
+///
+/// Drawn explicitly rather than by trimming a `RoundedRectangle`, because that
+/// shape's path does not begin where you would expect — trimming it from zero
+/// starts partway down the right edge, which put the inhale sweep on the wrong
+/// side of the box. An explicit path makes the phase-to-edge mapping exact.
+private struct BoxSide: Shape {
+    let phase:  BreathPhase
+    let corner: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let c = corner
+        switch phase {
+        case .inhale:   // top, left → right
+            path.move(to:    CGPoint(x: rect.minX + c, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX - c, y: rect.minY))
+        case .holdIn:   // right, top → bottom
+            path.move(to:    CGPoint(x: rect.maxX, y: rect.minY + c))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - c))
+        case .exhale:   // bottom, right → left
+            path.move(to:    CGPoint(x: rect.maxX - c, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX + c, y: rect.maxY))
+        case .holdOut:  // left, bottom → top
+            path.move(to:    CGPoint(x: rect.minX, y: rect.maxY - c))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + c))
+        }
+        return path
     }
 }
