@@ -191,6 +191,18 @@ final class ActivityLog {
     /// true minimum, so one artifact sample cannot define it.
     var duringDCTrough:        Float?
 
+    /// Beats per minute lost in the first sixty seconds after stopping, and the
+    /// short-term decay constant of the first thirty. Both from heart rate
+    /// alone, so they survive the sessions where DC cannot be computed at all.
+    var hrr60Bpm:              Double?
+    var t30Seconds:            Double?
+
+    /// Highest heart rate reached during the session — a 90th percentile rather
+    /// than a true maximum, so one artifact beat cannot define the session's
+    /// amplitude. Used to judge whether it ended hard enough for a fall in heart
+    /// rate to be recovery rather than drift.
+    var duringHRPeak:          Float?
+
     /// Minutes after the session ended until the vagal brake first came halfway
     /// back to its pre-session level and held there. `nil` means it did not —
     /// see `recoveryObservedMinutes` for how long we watched before saying so.
@@ -317,7 +329,9 @@ final class ActivityLog {
         //     afterTailDC), vagalRoseDuring, the axis scores, and the corrected
         //     resting heart rate — which changes Load and the VSI slope on every
         //     entry already stored under v3.
-        let currentVersion = 4
+        // v5  heart-rate recovery (HRR60, T30), the session's HR peak, and the
+        //     trough that the halfway bar is now measured from.
+        let currentVersion = 5
         let versionKey = "activityBackfillVersion"
         let migrating = UserDefaults.standard.integer(forKey: versionKey) < currentVersion
 
@@ -491,7 +505,10 @@ final class ActivityLog {
         // The trough must exist before the timing, which measures against it.
         let dcDuring = during.compactMap(\.dc).sorted()
         duringDCTrough = dcDuring.isEmpty ? nil : dcDuring[Int(0.10 * Double(dcDuring.count - 1))]
+        let hrDuring = during.compactMap(\.meanBPM).sorted()
+        duringHRPeak = hrDuring.isEmpty ? nil : hrDuring[Int(0.90 * Double(hrDuring.count - 1))]
 
+        computeHeartRateRecovery(context: context)
         computeRecoveryTail(context: context)
         computeRecoveryTiming(context: context)
         scoreSlopesAgainstHistory(context: context)
@@ -513,6 +530,35 @@ final class ActivityLog {
         // Falls back to the window mean when the strap came off before the tail,
         // so a short recording degrades rather than going blank.
         afterTailDC = vals.isEmpty ? afterDC : vals.reduce(0, +) / Float(vals.count)
+    }
+
+    /// How fast heart rate fell once the session ended.
+    ///
+    /// Separate from the vagal measures on purpose: it needs only heart rate,
+    /// so it produces a number on the resistance sessions where DC cannot be
+    /// computed and every vagal measure goes blank.
+    private func computeHeartRateRecovery(context: ModelContext) {
+        guard let end = endedAt else { return }
+        let horizon = end.addingTimeInterval(300)
+        let predicate = #Predicate<HRVSample> {
+            $0.timestamp >= end && $0.timestamp <= horizon
+        }
+        var desc = FetchDescriptor<HRVSample>(predicate: predicate,
+                                              sortBy: [SortDescriptor(\.timestamp)])
+        desc.fetchLimit = 5_000
+        let after = ((try? context.fetch(desc)) ?? [])
+            .filter { MetricsQualityFilter.isValid(MetricsHistoryPoint(from: $0)) }
+            .compactMap { s -> (seconds: Double, hr: Double)? in
+                guard let hr = s.meanBPM else { return nil }
+                return (s.timestamp.timeIntervalSince(end), Double(hr))
+            }
+
+        let resting = beforeHR.map(Double.init)
+        let peak    = duringHRPeak.map(Double.init) ?? duringHR.map(Double.init)
+        hrr60Bpm = HeartRateRecovery.hrr60(after: after,
+                                           hrAtEnd: after.first?.hr ?? duringHR.map(Double.init),
+                                           restingHR: resting, peakHR: peak)
+        t30Seconds = HeartRateRecovery.t30(after: after, restingHR: resting, peakHR: peak)
     }
 
     /// Time for the vagal brake to come halfway back, which is what "recovery"
@@ -577,6 +623,19 @@ final class ActivityLog {
         let word = suppressionScore.map(ExerciseResponse.word(for:))
             ?? ExerciseResponse.word(for: score)
         return .score(score, word: word)
+    }
+
+    /// Heart-rate recovery as an axis value.
+    ///
+    /// Kept separate from the vagal rebound rather than folded into one
+    /// "recovery" number: heart rate is routinely home while vagal tone is
+    /// still well down, and the distance between them is the difference between
+    /// looking recovered and being recovered.
+    var heartRateRecoveryAxis: AxisValue {
+        guard let score = HeartRateRecovery.score(hrr60: hrr60Bpm) else {
+            return .unavailable(reason: "ended too easy to measure a fall")
+        }
+        return .score(score, word: ExerciseResponse.word(for: score))
     }
 
     /// Recovery as an axis value, scored from how long it took rather than from

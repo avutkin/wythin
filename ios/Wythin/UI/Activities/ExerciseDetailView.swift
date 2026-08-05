@@ -90,6 +90,7 @@ struct ExerciseDetailView: View {
                     coachCard
                     sessionCard
                     suppressionCard
+                    heartRateRecoveryCard
                     recoveryCard
                     efficiencyCard
                     rawMetrics
@@ -242,16 +243,16 @@ struct ExerciseDetailView: View {
                 // Yoga and mobility work: the brake came on, not off. Saying
                 // "no fit" here described the app's difficulty rather than the
                 // person's session.
-                unitHeadline("VAGAL BRAKE STAYED ON", "↑",
+                unitHeadline("NO COST — BRAKE STAYED ON", "↑",
                              "your vagal tone rose during this session rather than being suppressed — there was no brake released to measure",
                              Theme.accent)
             } else if let brake = brakePerBeat, brake > 0 {
-                unitHeadline("VAGAL BRAKE GIVEN UP",
+                unitHeadline("AUTONOMIC COST",
                              String(format: "%.2f", brake),
                              "ms of brake released per extra beat per minute",
                              Theme.hrv)
             } else {
-                unitHeadline("VAGAL BRAKE", "—",
+                unitHeadline("AUTONOMIC COST", "—",
                              "not enough heart-rate rise in this session to measure a release against",
                              Theme.dim)
             }
@@ -278,10 +279,10 @@ struct ExerciseDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             switch entry.recoveryOutcome {
             case let .reached(minutes):
-                unitHeadline("HALFWAY BACK IN", "\(Int(minutes.rounded()))",
+                unitHeadline("VAGAL REBOUND", "\(Int(minutes.rounded()))",
                              "minutes after you stopped", Theme.accent)
             case let .notReached(observed):
-                unitHeadline("HALFWAY BACK IN", ">\(Int(observed.rounded()))",
+                unitHeadline("VAGAL REBOUND", ">\(Int(observed.rounded()))",
                              "minutes — still less than halfway back when the recording ends",
                              Theme.domainHeavy)
             case .notObserved:
@@ -297,6 +298,36 @@ struct ExerciseDetailView: View {
                                endedAt: windowEnd, dcPre: entry.beforeDC)
         }
         .cardStyle()
+    }
+
+    /// How fast heart rate fell, kept beside the vagal rebound rather than
+    /// merged into it — the gap between the two is the point.
+    @ViewBuilder
+    private var heartRateRecoveryCard: some View {
+        if entry.hrr60Bpm != nil || entry.t30Seconds != nil {
+            VStack(alignment: .leading, spacing: 10) {
+                if let hrr = entry.hrr60Bpm {
+                    unitHeadline("HEART RATE DROP", "\(Int(hrr.rounded()))",
+                                 "bpm lost in the first minute after stopping", Theme.rsa)
+                }
+                Text("How fast your heart rate came down. It needs only heart rate, so it works on sessions where vagal tone cannot be measured at all.")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let t30 = entry.t30Seconds {
+                    readout([("T30", String(format: "%.0f s", t30))])
+                }
+                if let hrr = entry.hrr60Bpm, case let .reached(mins) = entry.recoveryOutcome {
+                    // The finding neither number shows alone.
+                    Text(String(format: "Your heart rate dropped %d bpm in a minute while your vagal brake took %d minutes to come halfway back. Heart rate settles first; the brake is the slower half of recovery.",
+                                Int(hrr.rounded()), Int(mins.rounded())))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Theme.text.opacity(0.85))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .cardStyle()
+        }
     }
 
     @ViewBuilder

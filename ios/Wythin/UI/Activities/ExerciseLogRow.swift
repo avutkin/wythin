@@ -36,14 +36,20 @@ struct ExerciseLogRow: View {
         var out: [(String, String, String, Color)] = []
 
         if let brake = brakePerBeat {
-            out.append(("VAGAL BRAKE GIVEN UP", String(format: "%.2f", brake),
+            out.append(("AUTONOMIC COST", String(format: "%.2f", brake),
                         "ms per extra bpm", Theme.hrv))
+        }
+        // Heart-rate recovery first: it is the one that survives sessions where
+        // DC cannot be computed, so on lifting days it is often the only
+        // recovery number there is.
+        if let hrr = entry.hrr60Bpm {
+            out.append(("HEART RATE DROP", "\(Int(hrr.rounded()))", "bpm in first minute", Theme.rsa))
         }
         switch entry.recoveryOutcome {
         case let .reached(minutes):
-            out.append(("HALFWAY BACK IN", "\(Int(minutes.rounded()))", "min after stopping", Theme.accent))
+            out.append(("VAGAL REBOUND", "\(Int(minutes.rounded()))", "min after stopping", Theme.accent))
         case let .notReached(observed):
-            out.append(("HALFWAY BACK IN", ">\(Int(observed.rounded()))", "min — not yet clear", Theme.domainHeavy))
+            out.append(("VAGAL REBOUND", ">\(Int(observed.rounded()))", "min — not yet clear", Theme.domainHeavy))
         case .notObserved:
             break
         }
