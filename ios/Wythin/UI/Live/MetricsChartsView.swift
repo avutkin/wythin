@@ -791,16 +791,20 @@ struct MetricsChartsView: View, Equatable {
     @State private var showSignalQuality = false
 
     var body: some View {
+        // `LiveMetric`'s declaration order — the app's canonical display
+        // order, shared with the Track charts and the Live metric tiles.
+        // Breath Rate, Calm Power and Pulse have no Track chart, so they
+        // follow the seven that do.
         VStack(spacing: 10) {
-            dcCard
-            rcmseCard
-            pipCard
-            dfa1Card
-            lfhfCard
+            lfhfCard          // Stress Balance
+            rsaCard           // Conscious Breathing
+            dfa1Card          // Harmony
+            dcCard            // Vagal Tone
+            hrvCard           // Energy Reserve
+            pipCard           // Inner Noise
+            rcmseCard         // Adaptive Capacity
             breathRateCard
-            rsaCard
             vtiCard
-            hrvCard
             hrCard
 
             signalQualitySection

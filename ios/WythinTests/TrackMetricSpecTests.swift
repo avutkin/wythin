@@ -11,13 +11,13 @@ final class TrackMetricSpecTests: XCTestCase {
 
     func testHasExactlySevenMetricsInOrder() {
         // Matches `LiveMetric`'s declaration order for the cases the two
-        // screens share (rmssd, rsa, stressBalance, pip, dfa1, dc, rcmse) —
+        // screens share (stressBalance, rsa, dfa1, dc, rmssd, pip, rcmse) —
         // see `testOrderMatchesLiveMetricDeclarationOrder` below, which pins
         // that relationship directly rather than duplicating it as a literal
         // label list that could drift out of sync with `LiveMetric` unnoticed.
         XCTAssertEqual(TrackMetrics.all.map(\.def.label), [
-            "Energy Reserve", "Conscious Breathing", "Stress Balance",
-            "Inner Noise", "Harmony", "Vagal Tone", "Adaptive Capacity",
+            "Stress Balance", "Conscious Breathing", "Harmony",
+            "Vagal Tone", "Energy Reserve", "Inner Noise", "Adaptive Capacity",
         ])
     }
 
@@ -57,8 +57,10 @@ final class TrackMetricSpecTests: XCTestCase {
     }
 
     func testEveryExtractorReadsItsField() {
+        // stressBalance, rsaMs, dfa1, dc, rmssd, pip, rcmse — the fixture's
+        // fields read in display order.
         let values = TrackMetrics.all.map { $0.rollup(rollup) }
-        XCTAssertEqual(values, [40, 30, 45, 55, 1.0, 8, 1.4])
+        XCTAssertEqual(values, [45, 30, 1.0, 8, 40, 55, 1.4])
     }
 
     func testTrendKeysAreUniqueAndStressBalanceIsNotLfHf() {

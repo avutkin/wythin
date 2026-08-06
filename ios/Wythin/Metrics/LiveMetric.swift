@@ -14,20 +14,32 @@ import Foundation
 /// the same quantity `TrackMetrics` sends under that key (see
 /// `TrackMetricSpecTests.testTrendKeysAreUniqueAndStressBalanceIsNotLfHf`),
 /// while the payload's `lf_hf` remains the raw ratio.
+/// Declaration order is the app's canonical *display* order: the Track charts
+/// (`TrackMetrics.all`), the Live history charts (`MetricsChartsView.body`) and
+/// the Live metric tiles (`LiveView`) all follow it, so the same metric reads
+/// as "first" everywhere instead of each screen inventing its own sequence.
+/// `TrackMetricSpecTests.testOrderMatchesLiveMetricDeclarationOrder` pins that
+/// agreement. Nothing else reads the order — every production use of
+/// `allCases` builds a dictionary — so it is safe to re-sequence for
+/// presentation reasons.
+///
+/// The first five lead deliberately: stress balance and conscious breathing are
+/// the two a person can act on directly, then harmony, vagal tone and energy
+/// reserve. The rest follow in supporting order.
 enum LiveMetric: String, CaseIterable {
-    case hr         = "hr"
-    case rmssd      = "rmssd"
-    case rsa        = "rsa"
-    case sdnn       = "sdnn"
     case stressBalance = "stress_balance"
-    case coherence  = "coherence"
-    case breathBPM  = "breath_bpm"
-    case cbi        = "cbi"
-    case pip        = "pip"
+    case rsa        = "rsa"
     case dfa1       = "dfa1"
     case dc         = "dc"
+    case rmssd      = "rmssd"
+    case pip        = "pip"
     case rcmse      = "rcmse"
+    case breathBPM  = "breath_bpm"
     case vti        = "vti"
+    case hr         = "hr"
+    case sdnn       = "sdnn"
+    case coherence  = "coherence"
+    case cbi        = "cbi"
 
     /// Plain language only — this reaches the user.
     var displayName: String {

@@ -15,12 +15,14 @@ struct ConsistencyCard: View {
                 .foregroundStyle(Theme.dim)
 
             row(title: "PRACTICE",
+                unit: unitCaption(perDay: "MIN"),
                 stats: practiceStats,
                 values: summary.buckets.map(\.practiceMinutes),
                 color: Theme.accent,
                 format: { $0 < 1 ? "" : String(format: "%.0f", $0) })
 
             row(title: "WEAR",
+                unit: unitCaption(perDay: "H"),
                 stats: String(format: "avg %.1f h/day", summary.avgWearHours),
                 values: summary.buckets.map { ConsistencyCard.wearDisplayValue($0, period: period) },
                 color: Theme.hrv,
@@ -59,14 +61,30 @@ struct ConsistencyCard: View {
         return 0
     }
 
-    private var practiceStats: String {
-        let sessions = "\(summary.sessionCount) session\(summary.sessionCount == 1 ? "" : "s")"
-        let minutes  = String(format: "%.0f min", summary.totalPracticeMinutes)
-        let streak   = summary.streak.current > 0 ? "  🔥 \(summary.streak.current)d" : ""
-        return "\(sessions)   \(minutes)\(streak)"
+    /// What one bar counts, said next to the row title. Without it the numbers
+    /// printed over the bars are bare — "45" over a row headed PRACTICE reads
+    /// just as plausibly as 45 sessions as 45 minutes, and the stat line
+    /// beside it quotes both a session count and a minute total, so it
+    /// resolves nothing. A 6M bar is a whole month of practice, not a day of
+    /// it, so the caption has to follow the period rather than be a constant.
+    private func unitCaption(perDay unit: String) -> String {
+        switch period {
+        case .week, .month: return "\(unit)/DAY"
+        case .sixMonth:     return unit == "H" ? "H/DAY" : "\(unit)/MONTH"
+        }
     }
 
-    private func row(title: String, stats: String, values: [Double],
+    /// "26 sessions · 345 min total" — `total` because the bars above are
+    /// per-bucket, and without it the two numbers read as alternative
+    /// measures of the same thing rather than a count and its sum.
+    private var practiceStats: String {
+        let sessions = "\(summary.sessionCount) session\(summary.sessionCount == 1 ? "" : "s")"
+        let minutes  = String(format: "%.0f min total", summary.totalPracticeMinutes)
+        let streak   = summary.streak.current > 0 ? "  🔥 \(summary.streak.current)d" : ""
+        return "\(sessions) · \(minutes)\(streak)"
+    }
+
+    private func row(title: String, unit: String, stats: String, values: [Double],
                      color: Color, format: @escaping (Double) -> String) -> some View {
         // Charts anchors BarMark at zero, so a `value == 0` bar has zero
         // height and is invisible no matter its color — which would defeat
@@ -88,10 +106,13 @@ struct ConsistencyCard: View {
         let domainTop = scale * 1.25
 
         return VStack(alignment: .leading, spacing: 6) {
-            HStack {
+            HStack(spacing: 5) {
                 Text(title)
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.text)
+                Text(unit)
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundStyle(Theme.dim.opacity(0.8))
                 Spacer()
                 Text(stats)
                     .font(Theme.monoLabel)
