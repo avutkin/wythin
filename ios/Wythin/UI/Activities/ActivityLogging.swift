@@ -41,6 +41,15 @@ enum ActivityLogging {
         )
         context.insert(entry)
         try? context.save()
+        // Hopped to the main actor rather than making the whole logging path
+        // isolated: ActivityKit is main-actor bound, the callers are not, and
+        // the lock screen is not on the critical path of saving the entry.
+        let name = entry.displayName, icon = type.icon, began = entry.startedAt
+        Task { @MainActor in
+            LiveSessionController.shared.start(name: name, icon: icon,
+                                               startedAt: began,
+                                               targetMinutes: targetMinutes)
+        }
         return entry
     }
 
@@ -66,6 +75,7 @@ enum ActivityLogging {
     /// client skips insight generation but still closes the entry properly.
     static func end(_ entry: ActivityLog, context: ModelContext, client: InsightAPIClient?) {
         entry.endedAt = .now
+        Task { @MainActor in LiveSessionController.shared.end() }
         entry.computeHRVWindows(context: context)
         entry.computeExerciseResponse(context: context)
         try? context.save()

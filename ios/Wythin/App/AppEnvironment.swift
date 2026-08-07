@@ -796,6 +796,14 @@ final class AppEnvironment {
                     self.tickHistory.removeFirst(self.trimBatch)
                 }
 
+                // ── Live Activity: lock screen and Dynamic Island ─────────────
+                // Throttled inside the controller, so this can fire every tick.
+                if let hr = tick.meanBPM {
+                    LiveSessionController.shared.update(
+                        heartRate: Int(hr.rounded()),
+                        hrReserve: nil, zone: nil, strapLost: false)
+                }
+
                 // ── Always: shadow nudge engine (SP6 Phase 1) ─────────────────
                 // Records what *would* have fired so the thresholds can be tuned
                 // against real wear. Delivers nothing to the user.

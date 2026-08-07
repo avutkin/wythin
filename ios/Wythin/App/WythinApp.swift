@@ -100,6 +100,12 @@ struct ContentView: View {
             // Called on every launch: the function is idempotent and versions
             // itself internally, so it is cheap when there is nothing to do and
             // correct when a new field has been added.
+            // A force-quit mid-session leaves a Live Activity stranded on the
+            // lock screen with a heart rate that will never change again.
+            if (try? modelContext.fetch(FetchDescriptor<ActivityLog>()))?
+                .contains(where: { $0.isActive }) != true {
+                LiveSessionController.shared.endAnyOrphaned()
+            }
             ActivityLog.backfillMissingWindows(context: modelContext)
             didRunActivityBackfill = true
         }

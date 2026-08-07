@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		43A37C75E1DB1B68CE8566C1 /* ActivityTypeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */; };
+		0B1BBEB3233955BB0B6A1F00 /* LiveSessionUpdatePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 876CEF480CFB7EAD339CF1FF /* LiveSessionUpdatePolicyTests.swift */; };
 		4032933228B56FA9C4A74EC4 /* ActivityTimeMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDB84720371C4A5F65C58A2 /* ActivityTimeMathTests.swift */; };
 		8BA1A9E7E7D761F4235EA36D /* HeartRateZonesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6969DBAA3AA4BCFDCF9905B3 /* HeartRateZonesTests.swift */; };
 		F376098B5A3EB6A45FE89D91 /* HeartRateRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96F0176DC46EC1784607A99 /* HeartRateRecoveryTests.swift */; };
@@ -25,6 +26,7 @@
 		04B07817C335F28A352F88E9 /* ActivityClassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20866A7D973F59840EBFADEE /* ActivityClassTests.swift */; };
 		519BA43B55690D5F8761EBBF /* UsageUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE6F0E9C8772030B86BA730E /* UsageUploader.swift */; };
 		A101 /* WythinApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F101 /* WythinApp.swift */; };
+		60ED9331C4BD56C098F8D57D /* LiveSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E02F045E1EC55D2E98AF5D68 /* LiveSessionController.swift */; };
 		A102 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F102 /* AppEnvironment.swift */; };
 		A103 /* BLEService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F103 /* BLEService.swift */; };
 		A104 /* PolarH10Profile.swift in Sources */ = {isa = PBXBuildFile; fileRef = F104 /* PolarH10Profile.swift */; };
@@ -74,6 +76,7 @@
 		A134 /* BiofeedbackViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F134 /* BiofeedbackViews.swift */; };
 		A135 /* TrainSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F135 /* TrainSession.swift */; };
 		A136 /* ActivityLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F136 /* ActivityLog.swift */; };
+		8BB29D249F306D450E0B06B0 /* LiveSessionAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB6AD3DD651C17D0DECDF077 /* LiveSessionAttributes.swift */; };
 		A137 /* ActivitiesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F137 /* ActivitiesView.swift */; };
 		80FD4071E16403CDD0C0F55D /* ExerciseLogRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C610ECB383624DF3DB2E902 /* ExerciseLogRow.swift */; };
 		F84F7CB62F996193D6F7DBA1 /* ActivityLogRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10284DCB6D50B66249C5AB82 /* ActivityLogRow.swift */; };
@@ -236,6 +239,7 @@
 
 /* Begin PBXFileReference section */
 		12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTypeTests.swift; sourceTree = "<group>"; };
+		876CEF480CFB7EAD339CF1FF /* LiveSessionUpdatePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveSessionUpdatePolicyTests.swift; sourceTree = "<group>"; };
 		7CDB84720371C4A5F65C58A2 /* ActivityTimeMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTimeMathTests.swift; sourceTree = "<group>"; };
 		6969DBAA3AA4BCFDCF9905B3 /* HeartRateZonesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateZonesTests.swift; sourceTree = "<group>"; };
 		D96F0176DC46EC1784607A99 /* HeartRateRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateRecoveryTests.swift; sourceTree = "<group>"; };
@@ -255,6 +259,7 @@
 		C21C1F6442376CD6F03ABFA9 /* ExerciseScoreGauge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExerciseScoreGauge.swift; sourceTree = "<group>"; };
 		679350D1BBA9E9E28C249EC1 /* UsageEventLog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UsageEventLog.swift; sourceTree = "<group>"; };
 		F101 /* WythinApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WythinApp.swift; sourceTree = "<group>"; };
+		E02F045E1EC55D2E98AF5D68 /* LiveSessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveSessionController.swift; sourceTree = "<group>"; };
 		F102 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		F103 /* BLEService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEService.swift; sourceTree = "<group>"; };
 		F104 /* PolarH10Profile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolarH10Profile.swift; sourceTree = "<group>"; };
@@ -304,6 +309,7 @@
 		F134 /* BiofeedbackViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiofeedbackViews.swift; sourceTree = "<group>"; };
 		F135 /* TrainSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainSession.swift; sourceTree = "<group>"; };
 		F136 /* ActivityLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLog.swift; sourceTree = "<group>"; };
+		FB6AD3DD651C17D0DECDF077 /* LiveSessionAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveSessionAttributes.swift; sourceTree = "<group>"; };
 		F137 /* ActivitiesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivitiesView.swift; sourceTree = "<group>"; };
 		2C610ECB383624DF3DB2E902 /* ExerciseLogRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseLogRow.swift; sourceTree = "<group>"; };
 		10284DCB6D50B66249C5AB82 /* ActivityLogRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogRow.swift; sourceTree = "<group>"; };
@@ -519,6 +525,7 @@
 			isa = PBXGroup;
 			children = (
 				F101 /* WythinApp.swift */,
+				E02F045E1EC55D2E98AF5D68 /* LiveSessionController.swift */,
 				F102 /* AppEnvironment.swift */,
 				F247 /* NudgeRouting.swift */,
 			);
@@ -662,6 +669,7 @@
 				F127 /* MetricsHistoryPoint.swift */,
 				F135 /* TrainSession.swift */,
 				F136 /* ActivityLog.swift */,
+				FB6AD3DD651C17D0DECDF077 /* LiveSessionAttributes.swift */,
 				F200 /* Practice.swift */,
 				F201 /* PracticeCatalog.swift */,
 				F270 /* BreathPattern.swift */,
@@ -797,6 +805,7 @@
 				FT06 /* PayloadBuilderTests.swift */,
 				FT07 /* ActivityMetricStatsTests.swift */,
 				12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */,
+				876CEF480CFB7EAD339CF1FF /* LiveSessionUpdatePolicyTests.swift */,
 				7CDB84720371C4A5F65C58A2 /* ActivityTimeMathTests.swift */,
 				6969DBAA3AA4BCFDCF9905B3 /* HeartRateZonesTests.swift */,
 				D96F0176DC46EC1784607A99 /* HeartRateRecoveryTests.swift */,
@@ -946,6 +955,7 @@
 				A262 /* FeltStateLog.swift in Sources */,
 				A210 /* AnchorDetector.swift in Sources */,
 				A101 /* WythinApp.swift in Sources */,
+				60ED9331C4BD56C098F8D57D /* LiveSessionController.swift in Sources */,
 				A102 /* AppEnvironment.swift in Sources */,
 				A247 /* NudgeRouting.swift in Sources */,
 				A103 /* BLEService.swift in Sources */,
@@ -991,6 +1001,7 @@
 				A131 /* HRVAnalysisView.swift in Sources */,
 				A134 /* BiofeedbackViews.swift in Sources */,
 				A136 /* ActivityLog.swift in Sources */,
+				8BB29D249F306D450E0B06B0 /* LiveSessionAttributes.swift in Sources */,
 				A200 /* Practice.swift in Sources */,
 				A201 /* PracticeCatalog.swift in Sources */,
 				A137 /* ActivitiesView.swift in Sources */,
@@ -1121,6 +1132,7 @@
 				AT10 /* ClientProfileTests.swift in Sources */,
 				AT07 /* ActivityMetricStatsTests.swift in Sources */,
 				43A37C75E1DB1B68CE8566C1 /* ActivityTypeTests.swift in Sources */,
+				0B1BBEB3233955BB0B6A1F00 /* LiveSessionUpdatePolicyTests.swift in Sources */,
 				4032933228B56FA9C4A74EC4 /* ActivityTimeMathTests.swift in Sources */,
 				8BA1A9E7E7D761F4235EA36D /* HeartRateZonesTests.swift in Sources */,
 				F376098B5A3EB6A45FE89D91 /* HeartRateRecoveryTests.swift in Sources */,
