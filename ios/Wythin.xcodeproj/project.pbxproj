@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		43A37C75E1DB1B68CE8566C1 /* ActivityTypeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */; };
+		4032933228B56FA9C4A74EC4 /* ActivityTimeMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDB84720371C4A5F65C58A2 /* ActivityTimeMathTests.swift */; };
 		8BA1A9E7E7D761F4235EA36D /* HeartRateZonesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6969DBAA3AA4BCFDCF9905B3 /* HeartRateZonesTests.swift */; };
 		F376098B5A3EB6A45FE89D91 /* HeartRateRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96F0176DC46EC1784607A99 /* HeartRateRecoveryTests.swift */; };
 		E6B3958DF1401633E29E088B /* RestorativeScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DFCB08D15274CC0BA39121F /* RestorativeScoreTests.swift */; };
@@ -97,6 +98,7 @@
 		973C076BBA17753FE1E14F39 /* IntensityDomainBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DB14932B2654296DD711453 /* IntensityDomainBar.swift */; };
 		464AD9DEC520D515A61A3DE7 /* SessionTimelineChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB3DAF0C092FF0CCF91FDF70 /* SessionTimelineChart.swift */; };
 		A151 /* ActivityMetricStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = F151 /* ActivityMetricStats.swift */; };
+		2A7BCA7EBE1821092DD1E798 /* ActivityTimeMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = A540D1227CEE4ED9A4E55251 /* ActivityTimeMath.swift */; };
 		10C1696FBC513ADF37AA56CD /* HeartRateZones.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F9BB7F1EE03E47E6D25273A /* HeartRateZones.swift */; };
 		8339B037EDA4629C3C6F69DA /* HeartRateRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C596C8F87D7CF1A50DF06A /* HeartRateRecovery.swift */; };
 		3847A43031559CCBE6AA9DEE /* RestorativeScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 041B40C3B9505CB3B72A1174 /* RestorativeScore.swift */; };
@@ -234,6 +236,7 @@
 
 /* Begin PBXFileReference section */
 		12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTypeTests.swift; sourceTree = "<group>"; };
+		7CDB84720371C4A5F65C58A2 /* ActivityTimeMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTimeMathTests.swift; sourceTree = "<group>"; };
 		6969DBAA3AA4BCFDCF9905B3 /* HeartRateZonesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateZonesTests.swift; sourceTree = "<group>"; };
 		D96F0176DC46EC1784607A99 /* HeartRateRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateRecoveryTests.swift; sourceTree = "<group>"; };
 		8DFCB08D15274CC0BA39121F /* RestorativeScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorativeScoreTests.swift; sourceTree = "<group>"; };
@@ -325,6 +328,7 @@
 		8DB14932B2654296DD711453 /* IntensityDomainBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntensityDomainBar.swift; sourceTree = "<group>"; };
 		EB3DAF0C092FF0CCF91FDF70 /* SessionTimelineChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTimelineChart.swift; sourceTree = "<group>"; };
 		F151 /* ActivityMetricStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricStats.swift; sourceTree = "<group>"; };
+		A540D1227CEE4ED9A4E55251 /* ActivityTimeMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTimeMath.swift; sourceTree = "<group>"; };
 		1F9BB7F1EE03E47E6D25273A /* HeartRateZones.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateZones.swift; sourceTree = "<group>"; };
 		58C596C8F87D7CF1A50DF06A /* HeartRateRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateRecovery.swift; sourceTree = "<group>"; };
 		041B40C3B9505CB3B72A1174 /* RestorativeScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorativeScore.swift; sourceTree = "<group>"; };
@@ -606,6 +610,7 @@
 				F146 /* LiveStateTrendCompute.swift */,
 				F199 /* LiveStateInsight.swift */,
 				F151 /* ActivityMetricStats.swift */,
+				A540D1227CEE4ED9A4E55251 /* ActivityTimeMath.swift */,
 				1F9BB7F1EE03E47E6D25273A /* HeartRateZones.swift */,
 				58C596C8F87D7CF1A50DF06A /* HeartRateRecovery.swift */,
 				041B40C3B9505CB3B72A1174 /* RestorativeScore.swift */,
@@ -792,6 +797,7 @@
 				FT06 /* PayloadBuilderTests.swift */,
 				FT07 /* ActivityMetricStatsTests.swift */,
 				12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */,
+				7CDB84720371C4A5F65C58A2 /* ActivityTimeMathTests.swift */,
 				6969DBAA3AA4BCFDCF9905B3 /* HeartRateZonesTests.swift */,
 				D96F0176DC46EC1784607A99 /* HeartRateRecoveryTests.swift */,
 				8DFCB08D15274CC0BA39121F /* RestorativeScoreTests.swift */,
@@ -1026,6 +1032,7 @@
 				A230 /* ActivityDetailView.swift in Sources */,
 				A231 /* ActivityFormSheets.swift in Sources */,
 				A151 /* ActivityMetricStats.swift in Sources */,
+				2A7BCA7EBE1821092DD1E798 /* ActivityTimeMath.swift in Sources */,
 				10C1696FBC513ADF37AA56CD /* HeartRateZones.swift in Sources */,
 				8339B037EDA4629C3C6F69DA /* HeartRateRecovery.swift in Sources */,
 				3847A43031559CCBE6AA9DEE /* RestorativeScore.swift in Sources */,
@@ -1114,6 +1121,7 @@
 				AT10 /* ClientProfileTests.swift in Sources */,
 				AT07 /* ActivityMetricStatsTests.swift in Sources */,
 				43A37C75E1DB1B68CE8566C1 /* ActivityTypeTests.swift in Sources */,
+				4032933228B56FA9C4A74EC4 /* ActivityTimeMathTests.swift in Sources */,
 				8BA1A9E7E7D761F4235EA36D /* HeartRateZonesTests.swift in Sources */,
 				F376098B5A3EB6A45FE89D91 /* HeartRateRecoveryTests.swift in Sources */,
 				E6B3958DF1401633E29E088B /* RestorativeScoreTests.swift in Sources */,
