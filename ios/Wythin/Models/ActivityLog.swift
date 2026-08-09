@@ -404,7 +404,9 @@ final class ActivityLog {
         // v5  heart-rate recovery (HRR60, T30), the session's HR peak, and the
         //     trough that the halfway bar is now measured from.
         // v6  heart-rate zone seconds.
-        let currentVersion = 6
+        // v7  classification now follows measured heart-rate rise, so entries
+        //     stored under the old label-based rule must be re-evaluated.
+        let currentVersion = 7
         let versionKey = "activityBackfillVersion"
         let migrating = UserDefaults.standard.integer(forKey: versionKey) < currentVersion
 
@@ -503,7 +505,9 @@ final class ActivityLog {
     /// model untouched, and must not acquire exercise fields even accidentally.
     /// Call after `computeHRVWindows`, which supplies the DC baseline.
     func computeExerciseResponse(context: ModelContext) {
-        guard activityTypeEnum.activityClass == .activating else { return }
+        // Computed from the measurement, not the label — but the windows must
+        // exist first, so this runs after computeHRVWindows has filled them.
+        guard measuredClass == .activating else { return }
         guard let end = endedAt else { return }
 
         // Same window, quality gate and half-open [startedAt, end) partition as
@@ -682,6 +686,17 @@ final class ActivityLog {
             halfRecoveryMinutes = nil
             recoveryObservedMinutes = nil
         }
+    }
+
+    /// Which model this session is read with, from what the heart actually did.
+    ///
+    /// Every screen branches on this rather than on the activity type, so a
+    /// practice that raised the pulse gets the activation reading and the fuller
+    /// recovery analysis whatever tile it was logged under.
+    var measuredClass: ActivityClass {
+        ActivityClass.measured(beforeHR: beforeHR.map(Double.init),
+                               duringHR: duringHR.map(Double.init),
+                               fallback: activityTypeEnum.activityClass)
     }
 
     /// ΔDC per extra bpm — the index in its own units, always available from the

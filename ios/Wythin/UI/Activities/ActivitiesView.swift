@@ -150,7 +150,7 @@ struct ActivitiesView: View {
                 Section {
                     ForEach(group.entries) { entry in
                         Group {
-                            switch entry.activityTypeEnum.activityClass {
+                            switch entry.measuredClass {
                             case .activating:  ExerciseLogRow(entry: entry)
                             case .restorative: ActivityLogRow(entry: entry)
                             }
@@ -207,7 +207,7 @@ struct ActivitiesView: View {
                         start: start, end: end)
             }
         case .detail(let entry):
-            switch entry.activityTypeEnum.activityClass {
+            switch entry.measuredClass {
             case .activating:  ExerciseDetailView(entry: entry)
             case .restorative: ActivityDetailView(entry: entry)
             }
