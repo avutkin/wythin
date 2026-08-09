@@ -133,4 +133,90 @@ extension ImpactDeltaTests {
         XCTAssertTrue(PracticeImpactMeter.isClamped(-21))
         XCTAssertFalse(PracticeImpactMeter.isClamped(19))
     }
+
+    // MARK: Coverage
+    //
+    // The headline percentage is a mean over however many of the nine metrics
+    // had both a before and a during value. That denominator is now shown to the
+    // user, so it has to be exactly the one the mean used — a coverage line that
+    // disagrees with the number beside it is worse than no coverage line.
+
+    func testCoverageCountsExactlyTheMetricsTheMeanUsed() {
+        let e = ActivityLog(activityType: "Breathwork")
+        // Two metrics with a full before/during pair, the rest bare.
+        e.beforeHR    = 70;  e.duringHR    = 63
+        e.beforeRMSSD = 40;  e.duringRMSSD = 50
+
+        let coverage = e.impactCoverage
+        XCTAssertEqual(coverage.counted, 2)
+        XCTAssertEqual(coverage.total, activityMetricDefs.count)
+        XCTAssertEqual(coverage.missing.count, activityMetricDefs.count - 2)
+        XCTAssertFalse(coverage.isComplete)
+    }
+
+    func testCoverageIsCompleteWhenNothingIsMissing() {
+        let e = ActivityLog(activityType: "Breathwork")
+        XCTAssertTrue(e.impactCoverage.missing.isEmpty == false,
+                      "precondition: a bare entry has gaps")
+
+        // Fill every metric's before/during pair.
+        e.beforeHR = 70;      e.duringHR = 63
+        e.beforeRMSSD = 40;   e.duringRMSSD = 50
+        e.beforeRSA = 30;     e.duringRSA = 45
+        e.beforeVTI = 3.6;    e.duringVTI = 3.9
+        e.beforeStress = 50;  e.duringStress = 44
+        e.beforeRCMSE = 1.0;  e.duringRCMSE = 1.5
+        e.beforePIP = 40;     e.duringPIP = 34
+        e.beforeDC = 6;       e.duringDC = 9
+        e.beforeDFA1 = 0.9;   e.duringDFA1 = 1.0
+
+        let coverage = e.impactCoverage
+        XCTAssertTrue(coverage.isComplete, "missing: \(coverage.missing.map(\.label))")
+        XCTAssertEqual(coverage.counted, activityMetricDefs.count)
+        XCTAssertTrue(coverage.missing.isEmpty)
+        XCTAssertNotNil(e.impactDeltaPct)
+    }
+
+    /// The exact case on screen: Vagal Tone has a during value but no baseline,
+    /// so it shows a number with no percentage and must be reported as excluded.
+    func testAMetricWithNoBaselineIsExcludedAndExplained() {
+        let e = ActivityLog(activityType: "Breathwork")
+        e.beforeHR = 70; e.duringHR = 63
+        e.duringDC = 32                      // during only — no beforeDC
+
+        let coverage = e.impactCoverage
+        guard let gap = coverage.missing.first(where: { $0.label == "Vagal Tone" }) else {
+            return XCTFail("Vagal Tone should be reported missing")
+        }
+        XCTAssertTrue(gap.reason.contains("baseline"),
+                      "the reason should name the missing baseline: \(gap.reason)")
+        XCTAssertTrue(gap.reason.contains("2½ minutes"),
+                      "DC's warm-up is why it drops out first: \(gap.reason)")
+    }
+
+    func testEveryGapCarriesANonEmptyReason() {
+        let e = ActivityLog(activityType: "Breathwork")
+        for gap in e.impactCoverage.missing {
+            XCTAssertFalse(gap.reason.trimmingCharacters(in: .whitespaces).isEmpty,
+                           "\(gap.label): no reason given")
+        }
+    }
+
+    func testSummaryNamesBothSidesOfTheFraction() {
+        let e = ActivityLog(activityType: "Breathwork")
+        e.beforeHR = 70; e.duringHR = 63
+        XCTAssertEqual(e.impactCoverage.summary, "avg of 1/9 metrics")
+    }
+
+    /// A zero baseline is a distinct exclusion from a missing one — the reading
+    /// exists, the percentage just isn't defined.
+    func testAZeroBaselineIsExcludedForItsOwnReason() {
+        let e = ActivityLog(activityType: "Breathwork")
+        e.beforeRMSSD = 0; e.duringRMSSD = 50
+
+        guard let gap = e.impactCoverage.missing.first(where: { $0.label == "Energy Reserve" }) else {
+            return XCTFail("a zero baseline should be reported missing")
+        }
+        XCTAssertTrue(gap.reason.lowercased().contains("zero"), gap.reason)
+    }
 }

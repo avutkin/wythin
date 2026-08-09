@@ -6,6 +6,8 @@ import SwiftData
 struct ActivityLogRow: View {
     let entry: ActivityLog
 
+    @State private var showCoverage = false
+
     // 3×3 grid of the nine metrics grouped under the row header.
     private let metricCols = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
 
@@ -23,6 +25,22 @@ struct ActivityLogRow: View {
         if delta > 2  { return Theme.accent }
         if delta < -2 { return Theme.warn }
         return Theme.dim
+    }
+
+    /// Spells out that the headline is a mean of the tiles, over how many of
+    /// them, and what kept any of the nine out.
+    private func coverageExplanation(_ coverage: ImpactCoverage) -> String {
+        var lines = ["The average change across \(coverage.counted) of the \(coverage.total) metrics below, comparing the session against the five minutes before it."]
+        if !coverage.missing.isEmpty {
+            lines.append("")
+            lines.append(coverage.missing.count == 1
+                         ? "One metric couldn't be included:"
+                         : "\(coverage.missing.count) metrics couldn't be included:")
+            for gap in coverage.missing {
+                lines.append("\n\(gap.label) — \(gap.reason)")
+            }
+        }
+        return lines.joined(separator: "\n")
     }
 
     var body: some View {
@@ -58,15 +76,40 @@ struct ActivityLogRow: View {
                 Spacer()
 
                 if let delta = entry.impactDeltaPct {
-                    VStack(alignment: .trailing, spacing: 1) {
-                        Text(String(format: "%+.0f%%", delta))
-                            .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(deltaColor(delta))
-                        Text(ActivityImpact.caption(for: delta))
-                            .font(.system(size: 8, design: .monospaced))
-                            .foregroundStyle(Theme.dim)
+                    let coverage = entry.impactCoverage
+                    Button { showCoverage = true } label: {
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(String(format: "%+.0f%%", delta))
+                                .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(deltaColor(delta))
+                            // The denominator, always. This number is the mean of
+                            // the tiles below, and which tiles it could use varies
+                            // session to session.
+                            HStack(spacing: 3) {
+                                Text(coverage.summary)
+                                    .font(.system(size: 8, design: .monospaced))
+                                    .foregroundStyle(coverage.isComplete ? Theme.dim : Theme.warn.opacity(0.9))
+                                if !coverage.isComplete {
+                                    Image(systemName: "info.circle")
+                                        .font(.system(size: 7))
+                                        .foregroundStyle(Theme.warn.opacity(0.9))
+                                }
+                            }
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
+                            Text(ActivityImpact.caption(for: delta))
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundStyle(Theme.dim)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .alert("How this number is made", isPresented: $showCoverage) {
+                        Button("OK", role: .cancel) { }
+                    } message: {
+                        Text(coverageExplanation(coverage))
                     }
                 }
 

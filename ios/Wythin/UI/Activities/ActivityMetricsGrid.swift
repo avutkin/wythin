@@ -17,6 +17,11 @@ struct ActivityMetricDef: Identifiable {
     /// One-to-two sentences: why improving this metric matters and the state
     /// to expect. Shown under the metric's chart in the detail view.
     let why:       String
+    /// How much continuous clean signal this metric needs before it can be
+    /// computed at all, in words. Non-nil only for the metrics with a warm-up
+    /// long enough to go missing in a five-minute pre-session window — which is
+    /// the usual reason a tile has a value but no percentage.
+    var warmUp:    String? = nil
 }
 
 extension ActivityMetricDef {
@@ -57,11 +62,14 @@ private func fFloat(_ v: Double?, _ fmt: (Float?) -> String) -> String { fmt(v.m
 /// (MetricsChartsView): DC, RCMSE, PIP, DFA α1, LF/HF, RSA, VTI, HRV, HR.
 let activityMetricDefs: [ActivityMetricDef] = [
     .init(label: "Vagal Tone",          techLabel: "DC",     unit: "ms",  direction: .higher,      extract: { $0.dc.map(Double.init) },      format: f1,                                 beforeKey: \.beforeDC,    duringKey: \.duringDC,
-          why: "Vagal Tone (Deceleration Capacity) is your relaxation and recovery capacity — your vagal “brake”, how readily the heart slows. Higher means deeper parasympathetic recovery; expect it to climb as you settle."),
+          why: "Vagal Tone (Deceleration Capacity) is your relaxation and recovery capacity — your vagal “brake”, how readily the heart slows. Higher means deeper parasympathetic recovery; expect it to climb as you settle.",
+          warmUp: "about 2½ minutes"),
     .init(label: "Adaptive Capacity",   techLabel: "RCMSE",  unit: "",    direction: .higher,      extract: { $0.rcmse.map(Double.init) },   format: f2,                                 beforeKey: \.beforeRCMSE, duringKey: \.duringRCMSE,
-          why: "Adaptive Capacity (Refined Composite Multiscale Entropy) reflects how flexible your system is across timescales. Higher signals a resilient, responsive heart; expect a modest rise with calm focus."),
+          why: "Adaptive Capacity (Refined Composite Multiscale Entropy) reflects how flexible your system is across timescales. Higher signals a resilient, responsive heart; expect a modest rise with calm focus.",
+          warmUp: "about 1½ minutes"),
     .init(label: "Inner Noise",         techLabel: "PIP",    unit: "%",   direction: .lower,       extract: { $0.pip.map(Double.init) },     format: f1,                                 beforeKey: \.beforePIP,   duringKey: \.duringPIP,
-          why: "Inner Noise (Percentage of Inflection Points) captures beat-to-beat jitter — erratic, non-restorative variability. Lower means a cleaner, calmer signal; expect it to fall as you relax."),
+          why: "Inner Noise (Percentage of Inflection Points) captures beat-to-beat jitter — erratic, non-restorative variability. Lower means a cleaner, calmer signal; expect it to fall as you relax.",
+          warmUp: "about 30 seconds"),
     .init(label: "Harmony",             techLabel: "DFA α1", unit: "",    direction: .target(1.0), extract: { $0.dfa1.map(Double.init) },    format: f2,                                 beforeKey: \.beforeDFA1,  duringKey: \.duringDFA1,
           why: "Harmony (DFA α1) is the fractal balance of your heartbeat, with ~1.0 the healthy sweet spot. Moving toward 1.0 signals well-organised regulation; expect it to approach 1.0 as you relax."),
     .init(label: "Stress Balance",      techLabel: "LF/HF",  unit: "%",   direction: .lower,       extract: { pt in

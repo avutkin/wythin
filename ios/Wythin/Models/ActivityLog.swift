@@ -108,6 +108,25 @@ enum ActivityType: String, CaseIterable, Codable {
     }
 }
 
+/// How much of the nine-metric grid reached the headline average, and what kept
+/// the rest out.
+struct ImpactCoverage: Equatable {
+    struct Gap: Equatable {
+        let label:  String
+        let reason: String
+    }
+
+    let counted: Int
+    let total:   Int
+    let missing: [Gap]
+
+    var isComplete: Bool { counted == total }
+
+    /// "avg of 8/9 metrics" — printed under the headline so the denominator is
+    /// never implicit.
+    var summary: String { "avg of \(counted)/\(total) metrics" }
+}
+
 // MARK: - ActivityLog
 
 /// One logged activity entry (live-tracked or retrospective).
@@ -245,6 +264,50 @@ final class ActivityLog {
         }
         guard !deltas.isEmpty else { return nil }
         return deltas.reduce(0, +) / Double(deltas.count)
+    }
+
+    /// Which metrics actually reached the mean above, and why the rest didn't.
+    ///
+    /// The mean silently averages however many metrics happened to have both a
+    /// before and a during value — eight of nine is common, because Vagal Tone
+    /// needs the longest run of clean beats and is the first to drop out of a
+    /// five-minute pre-session window. A headline built on a moving denominator
+    /// has to show that denominator, or two sessions look comparable when they
+    /// are not.
+    var impactCoverage: ImpactCoverage {
+        var missing: [ImpactCoverage.Gap] = []
+        var counted = 0
+
+        for def in activityMetricDefs {
+            let during = self[keyPath: def.duringKey].map(Double.init)
+            let before = self[keyPath: def.beforeKey].map(Double.init)
+            if def.benefitDelta(current: during, base: before) != nil {
+                counted += 1
+                continue
+            }
+            missing.append(ImpactCoverage.Gap(label: def.label,
+                                              reason: Self.gapReason(def, during: during, before: before)))
+        }
+        return ImpactCoverage(counted: counted,
+                              total: activityMetricDefs.count,
+                              missing: missing)
+    }
+
+    private static func gapReason(_ def: ActivityMetricDef,
+                                  during: Double?, before: Double?) -> String {
+        let warmUp = def.warmUp.map { " It needs \($0) of steady signal before it can be computed at all." } ?? ""
+        switch (before, during) {
+        case (nil, nil):
+            return "No reading either before or during the session.\(warmUp)"
+        case (nil, _):
+            return "No baseline in the five minutes before you started, so there is nothing to compare against.\(warmUp)"
+        case (_, nil):
+            return "No reading during the session itself."
+        default:
+            // Both present, so benefitDelta bailed on a zero baseline: the
+            // percentage would be a division by zero.
+            return "The baseline was zero, so a percentage change is undefined."
+        }
     }
 
     init(activityType:    String,
