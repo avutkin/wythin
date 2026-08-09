@@ -127,10 +127,12 @@ struct ActivityDetailView: View {
                         // Overall practice impact — same value the row badge
                         // shows: the mean before→during benefit-signed delta,
                         // literally the average of the rows below.
-                        let uplifts = metrics.map { $0.stats.avgUpliftPct }
-                        let counts  = RestorativeScore.improvedCount(uplifts: uplifts)
+                        let uplifts      = metrics.map { $0.stats.avgUpliftPct }
+                        let afterUplifts = metrics.map { $0.stats.afterUpliftPct }
+                        let counts       = RestorativeScore.improvedCount(uplifts: uplifts + afterUplifts)
 
-                        if let score = RestorativeScore.score(uplifts: uplifts) {
+                        if let score = RestorativeScore.score(during: uplifts,
+                                                              after: afterUplifts) {
                             VStack(spacing: 12) {
                                 Text("PRACTICE SCORE")
                                     .font(Theme.monoLabel)
@@ -146,12 +148,13 @@ struct ActivityDetailView: View {
                                 // the improvements, so it says so and shows the
                                 // average it came from.
                                 VStack(spacing: 3) {
-                                    if let mean = RestorativeScore.meanImprovement(uplifts: uplifts) {
-                                        Text(String(format: "Average improvement %+.0f%% — full marks is +%.0f%% on a metric.",
+                                    if let mean = RestorativeScore.meanImprovement(during: uplifts,
+                                                                                   after: afterUplifts) {
+                                        Text(String(format: "Average improvement %+.0f%% across both phases — full marks is +%.0f%% on a metric.",
                                                     mean, RestorativeScore.fullMarks))
                                             .foregroundStyle(Theme.text.opacity(0.75))
                                     }
-                                    Text("\(counts.improved) of \(counts.measured) metrics moved the right way\(RestorativeScore.cappedCount(uplifts: uplifts) > 0 ? ", \(RestorativeScore.cappedCount(uplifts: uplifts)) already at full marks" : "").")
+                                    Text("\(counts.improved) of \(counts.measured) readings moved the right way, counting during and after separately.")
                                         .foregroundStyle(Theme.dim)
                                 }
                                 .font(.system(size: 10, design: .monospaced))

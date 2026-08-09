@@ -109,3 +109,55 @@ extension RestorativeScoreTests {
                        15, accuracy: 0.001)
     }
 }
+
+// MARK: - Both phases count
+
+extension RestorativeScoreTests {
+
+    private func nils(_ n: Int) -> [Double?] { Array(repeating: nil, count: n) }
+
+    func testAShiftThatHeldOutscoresOneThatEvaporated() {
+        // The reason for the change: scoring only the during-window rewarded a
+        // session whose gains vanished the moment it ended exactly as much as
+        // one that lasted.
+        let held      = RestorativeScore.score(during: nine(20), after: nine(20))!
+        let evaporated = RestorativeScore.score(during: nine(20), after: nine(0))!
+        XCTAssertEqual(held, 100)
+        XCTAssertEqual(evaporated, 50)
+        XCTAssertGreaterThan(held, evaporated)
+    }
+
+    func testGainsArrivingOnlyAfterStillCount() {
+        // Common in meditation: little shows during, the settling comes later.
+        let late = RestorativeScore.score(during: nine(0), after: nine(20))!
+        XCTAssertEqual(late, 50)
+    }
+
+    func testAMetricMeasuredInOnePhaseIsNotHalfWeighted() {
+        // Pooling all eighteen numbers would let missing data quietly halve a
+        // metric's influence. Each metric is averaged first, then the metrics.
+        let during: [Double?] = [20, 20, 20]
+        let after:  [Double?] = [20, nil, nil]
+        XCTAssertEqual(RestorativeScore.score(during: during, after: after), 100)
+    }
+
+    func testAMetricWithNoReadingInEitherPhaseIsExcluded() {
+        let during: [Double?] = [20, 20, 20, nil]
+        let after:  [Double?] = [20, 20, 20, nil]
+        XCTAssertEqual(RestorativeScore.score(during: during, after: after), 100)
+    }
+
+    func testTooFewMeasuredMetricsStillYieldsNoScore() {
+        XCTAssertNil(RestorativeScore.score(during: [20, nil, nil], after: [nil, nil, nil]))
+    }
+
+    func testTheDuringOnlyEntryPointStillWorks() {
+        // Kept so callers without an after-window are unchanged.
+        XCTAssertEqual(RestorativeScore.score(uplifts: nine(20)), 100)
+    }
+
+    func testMeanImprovementSpansBothPhases() {
+        XCTAssertEqual(RestorativeScore.meanImprovement(during: nine(20), after: nine(10))!,
+                       15, accuracy: 0.001)
+    }
+}
