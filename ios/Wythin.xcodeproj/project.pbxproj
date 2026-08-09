@@ -186,6 +186,7 @@
 		AT48 /* ConsistencySummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT48 /* ConsistencySummaryTests.swift */; };
 		AT40 /* RSAComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT40 /* RSAComputeTests.swift */; };
 		AT41 /* WelchPSDParsevalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT41 /* WelchPSDParsevalTests.swift */; };
+		AT72 /* AdvancedHRVComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT72 /* AdvancedHRVComputeTests.swift */; };
 		AT42 /* MetricsQualityFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT42 /* MetricsQualityFilterTests.swift */; };
 		ATCS /* ChartSegmenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FTCS /* ChartSegmenterTests.swift */; };
 		AT49 /* ConsistencyCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT49 /* ConsistencyCardTests.swift */; };
@@ -422,6 +423,7 @@
 		FT48 /* ConsistencySummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencySummaryTests.swift; sourceTree = "<group>"; };
 		FT40 /* RSAComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSAComputeTests.swift; sourceTree = "<group>"; };
 		FT41 /* WelchPSDParsevalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelchPSDParsevalTests.swift; sourceTree = "<group>"; };
+		FT72 /* AdvancedHRVComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedHRVComputeTests.swift; sourceTree = "<group>"; };
 		FT42 /* MetricsQualityFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsQualityFilterTests.swift; sourceTree = "<group>"; };
 		FTCS /* ChartSegmenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartSegmenterTests.swift; sourceTree = "<group>"; };
 		FT49 /* ConsistencyCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencyCardTests.swift; sourceTree = "<group>"; };
@@ -836,6 +838,7 @@
 				FT49 /* ConsistencyCardTests.swift */,
 				FT40 /* RSAComputeTests.swift */,
 				FT41 /* WelchPSDParsevalTests.swift */,
+				FT72 /* AdvancedHRVComputeTests.swift */,
 				FT42 /* MetricsQualityFilterTests.swift */,
 				FTCS /* ChartSegmenterTests.swift */,
 				FT51 /* LiveMetricTests.swift */,
@@ -1155,6 +1158,7 @@
 				AT12 /* MotionComputeTests.swift in Sources */,
 				AT40 /* RSAComputeTests.swift in Sources */,
 				AT41 /* WelchPSDParsevalTests.swift in Sources */,
+				AT72 /* AdvancedHRVComputeTests.swift in Sources */,
 				AT42 /* MetricsQualityFilterTests.swift in Sources */,
 				ATCS /* ChartSegmenterTests.swift in Sources */,
 				AT51 /* LiveMetricTests.swift in Sources */,

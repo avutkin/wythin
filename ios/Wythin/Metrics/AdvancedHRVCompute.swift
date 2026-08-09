@@ -124,7 +124,16 @@ enum AdvancedHRVCompute {
     /// L parameter — validated for 5-min recordings (Bauer 2006, PMC11659320).
     private static let prsa_L = 64
 
-    static let dcMinIntervals = 150   // 2*L + safety margin
+    /// Smallest series that can actually yield a value, not merely survive the
+    /// first `guard`. PRSA only takes anchors from `L ..< n - L`, so a series
+    /// of length n offers `n - 2L` interior positions, split between
+    /// deceleration and acceleration anchors — and `computeDC` needs 20 of
+    /// each. The old value of 150 left 22 interior positions and so ~11
+    /// anchors per direction: it promised a value it could never deliver, and
+    /// returned nil at every length between 150 and roughly 190 while looking
+    /// like the minimum had been met. 2L + 64 leaves 64 interior positions, so
+    /// even a lopsided split clears 20 either way.
+    static let dcMinIntervals = 2 * prsa_L + 64   // 192
 
     /// Deceleration and Acceleration Capacity via Phase-Rectified Signal Averaging
     /// (Bauer et al. 2006, Lancet).
@@ -168,15 +177,28 @@ enum AdvancedHRVCompute {
     /// accel/decel anchor), unlike the time/frequency-domain metrics, which
     /// need to see genuine large RSA swings during paced breathing — so this
     /// stricter filter is intentionally NOT part of the shared `HRVCompute.cleanRR`.
-    private static func cleanRRForPRSA(_ rrMs: [Int]) -> [Double] {
-        var clean = [Double]()
-        for v in rrMs {
-            let d = Double(v)
-            guard d >= 300, d <= 2500 else { continue }
-            if let prev = clean.last, abs(d - prev) / prev > 0.20 { continue }
-            clean.append(d)
-        }
-        return clean
+    /// PRSA's input cleaning — the same pass every other metric uses.
+    ///
+    /// This used to be a Malik-style successive-difference filter: drop any
+    /// beat more than 20 % from the previous *accepted* one. It had two
+    /// problems, and together they were keeping DC off the Live chart for
+    /// about sixteen minutes at a stretch.
+    ///
+    /// It deadlocked. The anchor it compared against was the last beat it had
+    /// accepted, and a rejection left that anchor untouched — so once the true
+    /// RR level moved further than the threshold from it (standing up, a sigh,
+    /// a run of ectopy), every following beat was rejected too and the anchor
+    /// never advanced to catch up. The series died at the shift and stayed
+    /// dead until that segment aged out of the 1200-beat ring buffer.
+    ///
+    /// And the threshold was wrong for this signal anyway: `HRVCompute.cleanRR`
+    /// documents why the app does not use a successive-difference rule — real
+    /// RSA during paced breathing routinely swings ±20–30 %, so a 20 % rule
+    /// discards physiology, not artifacts. PRSA averages over hundreds of
+    /// anchors and is robust to the residual noise that pass leaves behind;
+    /// what it cannot survive is having most of its beats thrown away.
+    static func cleanRRForPRSA(_ rrMs: [Int]) -> [Double] {
+        HRVCompute.cleanRR(rrMs).map(Double.init)
     }
 
     /// Create k-th coarse-grained series at scale τ (1-indexed offset k, 1…τ).
