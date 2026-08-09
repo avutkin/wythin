@@ -108,6 +108,38 @@ enum OnboardingConsent {
     static func aiInsights(in defaults: UserDefaults = .standard) -> Bool {
         value(forKey: aiInsightsKey, default: aiInsightsDefault, in: defaults)
     }
+
+    // MARK: Mandatory consent
+    //
+    // Data sharing is a condition of finishing onboarding: decline and the flow
+    // stops. Kept here as plain predicates rather than inline `&&` in a view so
+    // the rule is stated once, testable, and greppable when it changes.
+    //
+    // Worth knowing what this costs, because it is not only a product choice:
+    // GDPR Art. 7(4) says consent isn't freely given where a service is
+    // conditional on processing not necessary to deliver it, and App Review
+    // 5.1.1(ii) rejects apps that gate core functionality on unrelated data
+    // sharing. Team sharing is defensible on those terms — coaching genuinely
+    // requires a coach to see the data. Third-party model processing is the
+    // weaker of the two, since reading the strap needs no such thing.
+    // Making either optional again is one `false` below.
+    static let shareWithTeamIsMandatory = true
+    static let aiInsightsIsMandatory    = true
+    static let cloudSyncIsMandatory     = true
+
+    /// Gate for the connect step's two sharing switches.
+    static func canProceedFromSharing(shareWithTeam: Bool, aiInsights: Bool) -> Bool {
+        (!shareWithTeamIsMandatory || shareWithTeam)
+            && (!aiInsightsIsMandatory || aiInsights)
+    }
+
+    /// Gate for the final permissions step. Nudges are deliberately absent:
+    /// notification delivery is granted by iOS, not by us, so requiring it would
+    /// be a promise we can't keep — a user who denies the system prompt would be
+    /// locked out by a switch that says yes.
+    static func canFinishOnboarding(cloudSync: Bool) -> Bool {
+        !cloudSyncIsMandatory || cloudSync
+    }
 }
 
 // MARK: - Validation helpers

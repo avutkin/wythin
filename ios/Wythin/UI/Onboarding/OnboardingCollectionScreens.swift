@@ -183,8 +183,8 @@ struct OnboardingPermissionsScreen: View {
         OnboardingScaffold(
             progress: progress,
             question: "Two last choices.",
-            subtitle: "Both can be changed any time in Settings.",
-            canContinue: true,
+            subtitle: "Nudges are yours to pick. Sync is how the programme works.",
+            canContinue: OnboardingConsent.canFinishOnboarding(cloudSync: cloudSync),
             continueTitle: "Finish",
             onBack: onBack,
             onContinue: onFinish
@@ -193,7 +193,8 @@ struct OnboardingPermissionsScreen: View {
                 OnboardingToggleCard(
                     icon: "icloud",
                     title: "Sync to your account",
-                    detail: "Keeps your history if you lose the phone, and lets your coach see it. Off means everything stays on this device.",
+                    detail: "Keeps your history if you lose the phone, and lets your coach see it.",
+                    isRequired: OnboardingConsent.cloudSyncIsMandatory,
                     isOn: $cloudSync)
 
                 OnboardingToggleCard(
@@ -201,6 +202,11 @@ struct OnboardingPermissionsScreen: View {
                     title: "Nudges",
                     detail: "A quiet notification when your state shifts and a short practice would help.",
                     isOn: $notifications)
+
+                if !OnboardingConsent.canFinishOnboarding(cloudSync: cloudSync) {
+                    OnboardingConsentBlockedNote(
+                        message: "Your sessions have to reach your coach for any of this to work. Without sync there's nothing for them to read.")
+                }
 
                 Text("We never sell your data, and we don't share it with anyone you haven't chosen.")
                     .font(Theme.monoLabel)
@@ -230,19 +236,33 @@ struct OnboardingPermissionsScreen: View {
 struct OnboardingConsentRow: View {
     let icon:  String
     let title: String
+    /// Required consents block Continue when off. The switch still moves — a
+    /// control that can't be operated would hide the choice rather than present
+    /// it, and the user is entitled to see what they're declining before the
+    /// screen tells them what declining costs.
+    var isRequired: Bool = false
     @Binding var isOn: Bool
+
+    private var blocking: Bool { isRequired && !isOn }
 
     var body: some View {
         HStack(spacing: 11) {
             Image(systemName: icon)
                 .font(.system(size: 14))
-                .foregroundStyle(Theme.text)
+                .foregroundStyle(blocking ? Theme.warn : Theme.text)
                 .frame(width: 20)
 
-            Text(title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Theme.text)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Theme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                if isRequired {
+                    Text("REQUIRED")
+                        .font(Theme.monoLabel)
+                        .foregroundStyle(blocking ? Theme.warn : Theme.dim)
+                }
+            }
 
             Spacer(minLength: 6)
 
@@ -252,10 +272,36 @@ struct OnboardingConsentRow: View {
                 .scaleEffect(0.85)
         }
         .padding(.horizontal, 13)
+        .padding(.vertical, 9)
         .frame(minHeight: 50)
         .background(Theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border, lineWidth: 0.5))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(blocking ? Theme.warn.opacity(0.55) : Theme.border,
+                              lineWidth: blocking ? 1 : 0.5)
+        )
+        .animation(.easeInOut(duration: 0.2), value: blocking)
+    }
+}
+
+/// Shown under the consent rows once a required one is off, so the block is
+/// explained where it happens rather than by a Continue button that silently
+/// stops working.
+struct OnboardingConsentBlockedNote: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.circle")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.warn)
+            Text(message)
+                .font(Theme.monoLabel)
+                .foregroundStyle(Theme.warn)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 2)
     }
 }
 
@@ -289,8 +335,12 @@ struct DataSharingDetailSheet: View {
                         body: "Your name, phone number and email address. Your raw ECG. Anything from a session you deleted.")
 
                     section(
+                        title: "Why these aren't optional",
+                        body: "Wythin is a coached programme, not a solo tracker. Without your sessions reaching a coach, and without the guidance that's written from them, there is no programme to give you — so we ask you to agree rather than pretend it's a preference.")
+
+                    section(
                         title: "Changing your mind",
-                        body: "Both switches live in Settings and take effect immediately. Turning one off stops future sharing; ask us and we'll delete what was already sent.")
+                        body: "Both switches stay in Settings. Turning one off stops future sharing immediately, and ask us and we'll delete what was already sent — but it also turns off the coaching those switches pay for.")
                 }
                 .padding(.top, 22)
                 .padding(.bottom, 24)
@@ -329,20 +379,30 @@ struct OnboardingToggleCard: View {
     let icon:   String
     let title:  String
     let detail: String
+    var isRequired: Bool = false
     @Binding var isOn: Bool
+
+    private var blocking: Bool { isRequired && !isOn }
 
     var body: some View {
         HStack(alignment: .top, spacing: 13) {
             Image(systemName: icon)
                 .font(.system(size: 17))
-                .foregroundStyle(Theme.text)
+                .foregroundStyle(blocking ? Theme.warn : Theme.text)
                 .frame(width: 26)
                 .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 5) {
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Theme.text)
+                HStack(spacing: 7) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.text)
+                    if isRequired {
+                        Text("REQUIRED")
+                            .font(Theme.monoLabel)
+                            .foregroundStyle(blocking ? Theme.warn : Theme.dim)
+                    }
+                }
                 Text(detail)
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
@@ -358,6 +418,11 @@ struct OnboardingToggleCard: View {
         .padding(16)
         .background(Theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.border, lineWidth: 0.5))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(blocking ? Theme.warn.opacity(0.55) : Theme.border,
+                              lineWidth: blocking ? 1 : 0.5)
+        )
+        .animation(.easeInOut(duration: 0.2), value: blocking)
     }
 }
