@@ -52,31 +52,54 @@ struct TrackView: View {
             ZStack {
                 Theme.bg.ignoresSafeArea()
 
-                ScrollView {
-                    VStack(spacing: 12) {
-                        TrackPeriodBar(period: $period, offset: $offset, label: range.label)
-
-                        if isLoading {
-                            ProgressView()
-                                .tint(Theme.accent)
-                                .padding(.vertical, 60)
-                        } else {
-                            MacroReadCard(text: macroText, isLoading: macroLoading)
-
-                            ForEach(seriesList, id: \.spec.id) { pair in
-                                TrackMetricChartCard(spec: pair.spec, series: pair.series,
-                                                     period: period, selectedBucket: $selectedBucket)
-                            }
-
-                            ConsistencyCard(summary: consistency, period: period)
+                // The period bar sits *outside* the ScrollView, so W/M/6M and
+                // the date range stay reachable however far down the page you
+                // are. Inside it, they scrolled away with the first card —
+                // which on a page seven charts tall meant scrolling back to
+                // the top to change period or step to the previous week.
+                VStack(spacing: 0) {
+                    TrackPeriodBar(period: $period, offset: $offset, label: range.label)
+                        .padding(.top, 8)
+                        .padding(.bottom, 10)
+                        // Opaque, and with a hairline foot: cards passing
+                        // underneath must disappear behind the bar rather
+                        // than show through it or appear to touch it.
+                        .background(Theme.bg)
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(Theme.border)
+                                .frame(height: 0.5)
                         }
 
-                        Spacer(minLength: 20)
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            if isLoading {
+                                ProgressView()
+                                    .tint(Theme.accent)
+                                    .padding(.vertical, 60)
+                            } else {
+                                MacroReadCard(text: macroText, isLoading: macroLoading)
+
+                                ForEach(seriesList, id: \.spec.id) { pair in
+                                    TrackMetricChartCard(spec: pair.spec, series: pair.series,
+                                                         period: period, selectedBucket: $selectedBucket)
+                                }
+
+                                ConsistencyCard(summary: consistency, period: period)
+                            }
+
+                            Spacer(minLength: 20)
+                        }
+                        .padding(.top, 12)
                     }
-                    .padding(.top, 8)
                 }
                 // Swiping pages periods; the current page is the newest, so a
-                // leftward swipe past it does nothing.
+                // leftward swipe past it does nothing. On the whole column
+                // rather than the ScrollView alone, so a swipe that starts on
+                // the now-pinned bar pages too instead of landing on a dead
+                // strip. `minimumDistance` plus the horizontal-dominance
+                // guard keep it clear of both vertical scrolling and the
+                // bar's own buttons.
                 .gesture(DragGesture(minimumDistance: 40)
                     .onEnded { g in
                         guard abs(g.translation.width) > abs(g.translation.height) else { return }
