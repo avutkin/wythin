@@ -8,9 +8,6 @@ struct ActivityLogRow: View {
 
     @State private var showCoverage = false
 
-    // 3×3 grid of the nine metrics grouped under the row header.
-    private let metricCols = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
-
     private var timeStr: String {
         let fmt = DateFormatter()
         fmt.dateFormat = "HH:mm"
@@ -80,28 +77,28 @@ struct ActivityLogRow: View {
                     Button { showCoverage = true } label: {
                         VStack(alignment: .trailing, spacing: 1) {
                             Text(String(format: "%+.0f%%", delta))
-                                .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                                .font(.system(size: 17, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(deltaColor(delta))
-                            // The denominator, always. This number is the mean of
-                            // the tiles below, and which tiles it could use varies
-                            // session to session.
-                            HStack(spacing: 3) {
-                                Text(coverage.summary)
-                                    .font(.system(size: 8, design: .monospaced))
-                                    .foregroundStyle(coverage.isComplete ? Theme.dim : Theme.warn.opacity(0.9))
-                                if !coverage.isComplete {
-                                    Image(systemName: "info.circle")
-                                        .font(.system(size: 7))
-                                        .foregroundStyle(Theme.warn.opacity(0.9))
-                                }
-                            }
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
+                            // Verdict first, then the qualifier — the plain-English
+                            // read is what the number is for; the denominator is
+                            // what keeps it honest.
                             Text(ActivityImpact.caption(for: delta))
-                                .font(.system(size: 8, design: .monospaced))
+                                .font(.system(size: 9, design: .monospaced))
                                 .foregroundStyle(Theme.dim)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.75)
+                            HStack(spacing: 3) {
+                                Text("\(coverage.counted) of \(coverage.total) metrics")
+                                    .font(.system(size: 8, design: .monospaced))
+                                    .foregroundStyle(coverage.isComplete ? Theme.dim.opacity(0.7)
+                                                                         : Theme.warn.opacity(0.9))
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 7))
+                                    .foregroundStyle(coverage.isComplete ? Theme.dim.opacity(0.7)
+                                                                         : Theme.warn.opacity(0.9))
+                            }
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                         }
                         .contentShape(Rectangle())
                     }
@@ -118,70 +115,145 @@ struct ActivityLogRow: View {
                     .foregroundStyle(Theme.dim.opacity(0.4))
             }
 
-            // All nine metrics — during value + benefit-signed difference.
-            LazyVGrid(columns: metricCols, spacing: 6) {
-                ForEach(activityMetricDefs) { def in
-                    LogMetricCell(def: def, entry: entry)
-                }
-            }
+            MetricRail(entry: entry)
         }
         .padding(.vertical, 7)
     }
 }
 
-/// One metric mini-cell in a log row: consumer-friendly name, the % change
-/// from the before-average to the during-average (the hero number), and the
-/// during value shown small underneath. The % is colored green when the
-/// change is a benefit for that metric, red when it isn't.
-struct LogMetricCell: View {
-    let def:   ActivityMetricDef
+// MARK: - Metric rail
+
+/// The nine metrics as bars diverging from one shared zero line.
+///
+/// The previous grid printed a percentage *and* an absolute value per metric,
+/// with no common axis — eighteen numbers, and comparing any two of them was an
+/// act of arithmetic. Here length carries the magnitude and side carries the
+/// direction, so the session has a readable shape before a single number is
+/// read. Absolute values are gone; they live in the detail view this row opens.
+///
+/// Metric order is fixed, never sorted by size: a row that moves between
+/// sessions can't be found by muscle memory, and these cards are meant to be
+/// compared to each other.
+private struct MetricRail: View {
     let entry: ActivityLog
 
-    private var during: Double? { entry[keyPath: def.duringKey].map(Double.init) }
-    private var before: Double? { entry[keyPath: def.beforeKey].map(Double.init) }
+    /// The scale runs to ±50%. Beyond that a bar is capped and marked, which
+    /// also flags the readings worth least trust — `benefitDelta` clamps at
+    /// ±100, so anything out there is a lower bound rather than a measurement.
+    private let fullScale: Double = 50
 
-    /// Benefit-signed change from the before-average to the during-average, so
-    /// this cell's number is directly comparable to the row badge above it —
-    /// the badge is the mean of these. A falling pulse reads +9%, which is why
-    /// the absolute during-value stays printed underneath.
-    private var pctChange: Double? {
-        def.benefitDelta(current: during, base: before)
-    }
-
-    private var deltaColor: Color {
-        guard let p = pctChange else { return Theme.dim.opacity(0.4) }
-        if abs(p) < 0.05 { return Theme.dim }
-        return p > 0 ? Theme.accent : Theme.warn
-    }
-
-    private var deltaText: String {
-        guard let p = pctChange else { return "—" }
-        return (p >= 0 ? "+" : "−") + String(format: "%.0f%%", abs(p))
-    }
+    private let labelWidth: CGFloat = 104
+    private let valueWidth: CGFloat = 46
+    private let rowHeight:  CGFloat = 21
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 0) {
+            scaleCaps
+            // No spacing between rows, so each row's rail segment joins the next
+            // into one continuous spine.
+            ForEach(activityMetricDefs) { def in
+                row(def)
+            }
+        }
+    }
+
+    /// The scale, stated once. Without it a long bar is a mood rather than a
+    /// quantity.
+    private var scaleCaps: some View {
+        HStack(spacing: 8) {
+            Spacer().frame(width: labelWidth)
+            HStack {
+                Text("−\(Int(fullScale))%")
+                Spacer()
+                Text("0")
+                Spacer()
+                Text("+\(Int(fullScale))%")
+            }
+            .font(.system(size: 7, design: .monospaced))
+            .foregroundStyle(Theme.dim.opacity(0.55))
+            Spacer().frame(width: valueWidth)
+        }
+        .padding(.bottom, 3)
+    }
+
+    private func row(_ def: ActivityMetricDef) -> some View {
+        let during = entry[keyPath: def.duringKey].map(Double.init)
+        let before = entry[keyPath: def.beforeKey].map(Double.init)
+        let pct    = def.benefitDelta(current: during, base: before)
+
+        return HStack(spacing: 8) {
             Text(def.label)
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(Theme.dim)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.8)
-                .frame(minHeight: 22, alignment: .bottom)
-            Text(deltaText)
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                .foregroundStyle(deltaColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            Text(def.format(during))
                 .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(Theme.text.opacity(0.55))
+                .foregroundStyle(pct == nil ? Theme.dim.opacity(0.5) : Theme.dim)
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
+                .minimumScaleFactor(0.7)
+                .frame(width: labelWidth, alignment: .leading)
+
+            track(pct, gap: pct == nil ? gapTag(during: during, before: before) : nil)
+
+            Text(pct.map { ($0 >= 0 ? "+" : "−") + String(format: "%.0f%%", abs($0)) } ?? "")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(color(pct))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(width: valueWidth, alignment: .trailing)
+        }
+        .frame(height: rowHeight)
+    }
+
+    private func track(_ pct: Double?, gap: String?) -> some View {
+        GeometryReader { geo in
+            let half     = geo.size.width / 2
+            let magnitude = min(abs(pct ?? 0), fullScale) / fullScale
+            let length   = half * magnitude
+            let positive = (pct ?? 0) >= 0
+
+            ZStack {
+                // The spine. Drawn full-height so consecutive rows join up.
+                Rectangle()
+                    .fill(Theme.border)
+                    .frame(width: 1)
+
+                if let gap {
+                    Text(gap)
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundStyle(Theme.dim.opacity(0.6))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, half + 6)
+                } else if pct != nil {
+                    Capsule()
+                        .fill(color(pct))
+                        .frame(width: max(length, 2), height: 7)
+                        .offset(x: positive ? length / 2 : -length / 2)
+
+                    if abs(pct ?? 0) > fullScale {
+                        Image(systemName: positive ? "chevron.right" : "chevron.left")
+                            .font(.system(size: 7, weight: .black))
+                            .foregroundStyle(color(pct))
+                            .offset(x: positive ? half + 5 : -(half + 5))
+                    }
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
-        .background(Theme.surface.opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// Why this metric has no bar, in the two words there is room for. The full
+    /// explanation is behind the header badge.
+    private func gapTag(during: Double?, before: Double?) -> String {
+        switch (before, during) {
+        case (nil, nil): return "no data"
+        case (nil, _):   return "no baseline"
+        case (_, nil):   return "no reading"
+        default:         return "zero baseline"
+        }
+    }
+
+    private func color(_ pct: Double?) -> Color {
+        guard let p = pct else { return Theme.dim.opacity(0.4) }
+        if abs(p) < 2 { return Theme.dim }
+        return p > 0 ? Theme.accent : Theme.warn
     }
 }
