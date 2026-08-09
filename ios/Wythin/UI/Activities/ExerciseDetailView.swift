@@ -15,7 +15,10 @@ struct ExerciseDetailView: View {
     @State private var chartPoints: [MetricsHistoryPoint] = []
     @State private var restingHR: Float = 60
     @State private var ceiling:   Float = 180
-    @State private var showRawMetrics = false
+    /// Open by default. The disclosure was hiding nine charts behind a tap that
+    /// gave no sense of what was under it, so most of the screen's substance was
+    /// invisible unless you already knew to look.
+    @State private var showRawMetrics = true
 
     private var windowEnd: Date { entry.endedAt ?? entry.startedAt }
 
