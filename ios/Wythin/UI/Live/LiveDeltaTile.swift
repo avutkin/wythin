@@ -60,12 +60,15 @@ struct LiveDeltaTile: View {
         // repeated per value, and the absolutes split across two short
         // footer lines instead of one long one.
         VStack(alignment: .leading, spacing: 0) {
+            // Two lines reserved so "Conscious Breathing" wraps instead of
+            // shrinking toward invisibility; the fixed height keeps the nine
+            // tiles' heroes on the same optical row.
             Text(label)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Theme.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-                .truncationMode(.tail)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+                .frame(minHeight: 27, alignment: .topLeading)
             if !techLabel.isEmpty || !unit.isEmpty {
                 Text(techLabel + (unit.isEmpty ? "" : " · \(unit)"))
                     .font(.system(size: 9, design: .monospaced))
@@ -84,8 +87,8 @@ struct LiveDeltaTile: View {
 
             Spacer(minLength: 6)
 
-            // now 32.2 −13%   ← live reading + its % vs today, today only
-            // today 37.0 · 7d 41.2
+            // One short line per value — each fits a phone-width column at
+            // full size, so no number ever scales below readable.
             if todayText != nil {
                 footLine {
                     Text("now ").foregroundStyle(Theme.dim.opacity(0.6))
@@ -97,11 +100,15 @@ struct LiveDeltaTile: View {
             footLine {
                 Text((todayText != nil ? "today " : "avg ")).foregroundStyle(Theme.dim.opacity(0.6))
                 + Text(todayText ?? valueText).foregroundStyle(Theme.dim)
-                + Text(refText.map { _ in " · 7d " } ?? "").foregroundStyle(Theme.dim.opacity(0.6))
-                + Text(refText ?? "").foregroundStyle(Theme.dim)
+            }
+            if let r = refText {
+                footLine {
+                    Text("7d ").foregroundStyle(Theme.dim.opacity(0.6))
+                    + Text(r).foregroundStyle(Theme.dim)
+                }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 122, alignment: .leading)
         .padding(12)
         .background(
             ZStack {
@@ -123,9 +130,9 @@ struct LiveDeltaTile: View {
     /// truncate as a single run instead of wrapping mid-line.
     private func footLine(_ content: () -> Text) -> some View {
         content()
-            .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+            .font(.system(size: 9, weight: .medium, design: .monospaced))
             .lineLimit(1)
-            .minimumScaleFactor(0.75)
+            .minimumScaleFactor(0.9)
             .padding(.top, 2)
     }
 }
