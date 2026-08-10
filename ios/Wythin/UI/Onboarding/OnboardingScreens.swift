@@ -28,9 +28,6 @@ struct OnboardingScaffold<Content: View>: View {
     let continueTitle: String
     let onBack:        (() -> Void)?
     let onContinue:    () -> Void
-    /// Optional escape hatch for steps that ask for personal detail. Steps that
-    /// leave this nil render no skip affordance at all.
-    var onSkip:        (() -> Void)? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -95,18 +92,6 @@ struct OnboardingScaffold<Content: View>: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 .disabled(!canContinue)
-            }
-
-            // Deliberately quiet: a plain text button, no fill, so it reads as
-            // available without competing with Continue.
-            if let onSkip {
-                Button(action: onSkip) {
-                    Text("Skip for now")
-                        .font(Theme.monoBody)
-                        .foregroundStyle(Theme.dim)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 32)
-                }
             }
         }
         .padding(.horizontal, 24)
@@ -233,7 +218,6 @@ struct OnboardingFieldScreen: View {
     let isValid:      Bool
     let onBack:       (() -> Void)?
     let onContinue:   () -> Void
-    var onSkip:       (() -> Void)? = nil
 
     var body: some View {
         OnboardingScaffold(
@@ -243,8 +227,7 @@ struct OnboardingFieldScreen: View {
             canContinue: isValid,
             continueTitle: "Continue",
             onBack: onBack,
-            onContinue: onContinue,
-            onSkip: onSkip
+            onContinue: onContinue
         ) {
             TextField("", text: $text, prompt: Text(placeholder).foregroundColor(Theme.dim))
                 .font(.system(size: 20, weight: .medium))
@@ -271,9 +254,16 @@ struct OnboardingMultiSelectScreen: View {
     let subtitle:  String?
     let options:   [OnboardingOption]
     @Binding var selection: [String]
+    /// Whether an empty selection blocks Continue.
+    ///
+    /// True for goals — a priorities question with no priorities isn't an
+    /// answer. False for the inventory questions: "I don't do a regular
+    /// practice" and "I don't track with anything" are real answers, and with
+    /// the skip affordance gone they'd otherwise be dead ends, especially on
+    /// devices where the "Just this app" escape hatch was removed.
+    var requiresSelection: Bool = true
     let onBack:     () -> Void
     let onContinue: () -> Void
-    var onSkip:     (() -> Void)? = nil
 
     // "Other" free-text: any selection value that isn't a preset option id is
     // treated as the custom entry, so it survives back-navigation.
@@ -288,11 +278,10 @@ struct OnboardingMultiSelectScreen: View {
             progress: progress,
             question: question,
             subtitle: subtitle,
-            canContinue: !selection.isEmpty,
+            canContinue: requiresSelection ? !selection.isEmpty : true,
             continueTitle: "Continue",
             onBack: onBack,
-            onContinue: onContinue,
-            onSkip: onSkip
+            onContinue: onContinue
         ) {
             VStack(spacing: 10) {
                 ForEach(options) { opt in
@@ -369,7 +358,6 @@ struct OnboardingAboutYouScreen: View {
     @Binding var weightKg: Int?
     let onBack:     () -> Void
     let onContinue: () -> Void
-    var onSkip:     (() -> Void)? = nil
 
     private let ages    = ["18–24", "25–34", "35–44", "45–54", "55+"]
     private let genders = ["Female", "Male", "Non-binary", "Prefer not to say"]
@@ -387,8 +375,7 @@ struct OnboardingAboutYouScreen: View {
             canContinue: canContinue,
             continueTitle: "Continue",
             onBack: onBack,
-            onContinue: onContinue,
-            onSkip: onSkip
+            onContinue: onContinue
         ) {
             VStack(alignment: .leading, spacing: 18) {
                 pickerGroup(title: "AGE", options: ages, selection: $ageRange)

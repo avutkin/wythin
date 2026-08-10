@@ -67,8 +67,9 @@ struct OnboardingFlow: View {
         .init("Fitbit",         icon: "square.circle"),
         // No "Just this app" option: at this point in the flow the strap isn't
         // connected and the app measures nothing, so it read as a claim about
-        // the future rather than an answer. Someone tracking with nothing skips
-        // the step — an empty selection already means "none".
+        // the future rather than an answer. Someone tracking with nothing just
+        // continues — `requiresSelection: false` keeps that a valid answer
+        // rather than a dead end.
     ]
 
     var body: some View {
@@ -95,17 +96,16 @@ struct OnboardingFlow: View {
         case .goals:
             OnboardingMultiSelectScreen(
                 progress: step.progress,
-                question: "What matters most right now?",
+                question: "What matters most to you right now?",
                 // Not "pick all that apply" here, unlike the two steps after
                 // it. A priorities question answered with everything isn't a
                 // priorities question, and the goal reels key their cards to
-                // the top three — six ticks would make that ranking arbitrary.
-                subtitle: "Your top two or three.",
+                // the top three.
+                subtitle: "Your top three.",
                 options: goalOptions,
                 selection: $profile.goals,
                 onBack: { go(.welcome) },
-                onContinue: { persist(); go(.currentState) },
-                onSkip: { skip(to: .currentState) }
+                onContinue: { persist(); go(.currentState) }
             )
 
         case .currentState:
@@ -113,8 +113,7 @@ struct OnboardingFlow: View {
                 progress: step.progress,
                 state: $profile.state,
                 onBack: { go(.goals) },
-                onContinue: { persist(); go(.practices) },
-                onSkip: { skip(to: .practices) { profile.state = CurrentState() } }
+                onContinue: { persist(); go(.practices) }
             )
 
         case .practices:
@@ -124,9 +123,9 @@ struct OnboardingFlow: View {
                 subtitle: "Pick all that apply.",
                 options: practiceOptions,
                 selection: $profile.practices,
+                requiresSelection: false,
                 onBack: { go(.currentState) },
-                onContinue: { persist(); go(.devices) },
-                onSkip: { skip(to: .devices) }
+                onContinue: { persist(); go(.devices) }
             )
 
         case .devices:
@@ -136,9 +135,9 @@ struct OnboardingFlow: View {
                 subtitle: "Anything you use to track performance or state.",
                 options: deviceOptions,
                 selection: $profile.devices,
+                requiresSelection: false,
                 onBack: { go(.practices) },
-                onContinue: { persist(); go(.aboutYou) },
-                onSkip: { skip(to: .aboutYou) }
+                onContinue: { persist(); go(.aboutYou) }
             )
 
         case .aboutYou:
@@ -148,9 +147,8 @@ struct OnboardingFlow: View {
                 gender: $profile.gender,
                 heightCm: $profile.heightCm,
                 weightKg: $profile.weightKg,
-                onBack: { go(.currentState) },
-                onContinue: { persist(); go(.connect) },
-                onSkip: { skip(to: .connect) }
+                onBack: { go(.devices) },
+                onContinue: { persist(); go(.connect) }
             )
 
         case .connect:
@@ -173,16 +171,8 @@ struct OnboardingFlow: View {
                 phone: $profile.phone,
                 email: $profile.email,
                 onBack: { go(.connect) },
-                onContinue: { finish() },
-                // Half-typed contact details are worse than none, since skip
-                // bypasses validation and the result would sync as if real.
-                onSkip: {
-                    profile.firstName = ""; profile.lastName = ""
-                    profile.phone = "";     profile.email = ""
-                    finish()
-                }
+                onContinue: { finish() }
             )
-
         }
     }
 

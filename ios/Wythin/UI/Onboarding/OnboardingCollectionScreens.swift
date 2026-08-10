@@ -69,18 +69,16 @@ struct OnboardingCurrentStateScreen: View {
     @Binding var state: CurrentState
     let onBack:     () -> Void
     let onContinue: () -> Void
-    var onSkip:     (() -> Void)? = nil
 
     var body: some View {
         OnboardingScaffold(
             progress: progress,
-            question: "How are you right now?",
+            question: "How are you feeling right now?",
             subtitle: "Drag each one. There are no wrong answers.",
             canContinue: state.isAnswered,
             continueTitle: "Continue",
             onBack: onBack,
-            onContinue: onContinue,
-            onSkip: onSkip
+            onContinue: onContinue
         ) {
             VStack(spacing: 22) {
                 OnboardingStateSlider(title: "Focus", lowLabel: "SCATTERED", highLabel: "SHARP",
@@ -242,7 +240,6 @@ struct OnboardingContactScreen: View {
     @Binding var email:     String
     let onBack:     () -> Void
     let onContinue: () -> Void
-    var onSkip:     (() -> Void)? = nil
 
     private var canContinue: Bool {
         OnboardingValidation.isValidName(firstName)
@@ -254,16 +251,15 @@ struct OnboardingContactScreen: View {
     var body: some View {
         OnboardingScaffold(
             progress: progress,
-            question: "How can we reach you?",
-            subtitle: "So your coach can follow up.",
+            question: "Tell us a bit more about you",
+            subtitle: "So your coach knows who they're working with.",
             canContinue: canContinue,
             // Last step since the permissions screen was removed, so the button
             // has to say so — "Continue" here promises a screen that no longer
             // exists.
             continueTitle: "Finish",
             onBack: onBack,
-            onContinue: onContinue,
-            onSkip: onSkip
+            onContinue: onContinue
         ) {
             VStack(spacing: 10) {
                 OnboardingTextField(placeholder: "First name", keyboard: .default,
