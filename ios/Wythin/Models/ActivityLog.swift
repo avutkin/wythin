@@ -740,9 +740,16 @@ final class ActivityLog {
     /// practice that raised the pulse gets the activation reading and the fuller
     /// recovery analysis whatever tile it was logged under.
     var measuredClass: ActivityClass {
-        ActivityClass.measured(beforeHR: beforeHR.map(Double.init),
-                               duringHR: duringHR.map(Double.init),
-                               fallback: activityTypeEnum.activityClass)
+        // The measurement decides only WITHIN the exercise family. A breathwork
+        // round or a meditation that raises the pulse is still that practice —
+        // promoting it to the load-and-recovery model told people their
+        // breathing exercise was a workout. Exercises go the other way: they
+        // are judged by the measured rise, and one that never lifted the pulse
+        // reads as the restorative session it physiologically was.
+        guard activityTypeEnum.activityClass == .activating else { return .restorative }
+        return ActivityClass.measured(beforeHR: beforeHR.map(Double.init),
+                                      duringHR: duringHR.map(Double.init),
+                                      fallback: .activating)
     }
 
     /// ΔDC per extra bpm — the index in its own units, always available from the

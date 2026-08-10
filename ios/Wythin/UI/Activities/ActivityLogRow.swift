@@ -78,6 +78,15 @@ struct ActivityLogRow: View {
 
     private var crowned: Bool { (score ?? 0) >= 50 }
 
+    private var chipText: String {
+        if let before = entry.beforeHR.map(Double.init),
+           let during = entry.duringHR.map(Double.init),
+           during - before >= ActivityClass.activatingHRRise {
+            return "PULSE ROSE \(Int((during - before).rounded())) BPM"
+        }
+        return "NO PULSE RISE"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
             header
@@ -124,8 +133,10 @@ struct ActivityLogRow: View {
             Spacer()
 
             // The other half of the exercise row's gold chip: which model this
-            // session got, stated rather than implied.
-            Text("NO PULSE RISE")
+            // session got. Violet always — the model is restorative by TYPE
+            // now — but the text stays factual: a breathwork round that raised
+            // the pulse says so rather than wearing a false "no rise".
+            Text(chipText)
                 .font(.system(size: 7, weight: .semibold, design: .monospaced))
                 .tracking(0.7)
                 .foregroundStyle(Theme.hrv)

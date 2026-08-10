@@ -81,3 +81,38 @@ extension ActivityClassTests {
         XCTAssertLessThanOrEqual(ActivityClass.activatingHRRise, 25)
     }
 }
+
+// MARK: - The measurement decides only within the exercise family
+
+extension ActivityClassTests {
+
+    func testAMeditationThatRaisedThePulseIsStillAMeditation() {
+        // Promoting it to the load-and-recovery model told people their
+        // breathing practice was a workout. The measurement classifies
+        // exercises; it never reclassifies a restorative practice.
+        let entry = ActivityLog(activityType: "Meditation")
+        entry.beforeHR = 60; entry.duringHR = 95   // a 35 bpm rise
+        XCTAssertEqual(entry.measuredClass, .restorative)
+    }
+
+    func testBreathworkStaysRestorativeWhateverThePulseDid() {
+        let entry = ActivityLog(activityType: "Breathwork", activitySubtype: "Pranayama")
+        entry.beforeHR = 58; entry.duringHR = 110
+        XCTAssertEqual(entry.measuredClass, .restorative)
+    }
+
+    func testAnExerciseIsJudgedByItsMeasuredRise() {
+        let lifted = ActivityLog(activityType: "Exercise", activitySubtype: "Yoga")
+        lifted.beforeHR = 62; lifted.duringHR = 98
+        XCTAssertEqual(lifted.measuredClass, .activating)
+
+        let gentle = ActivityLog(activityType: "Exercise", activitySubtype: "Yoga")
+        gentle.beforeHR = 62; gentle.duringHR = 66
+        XCTAssertEqual(gentle.measuredClass, .restorative)
+    }
+
+    func testAnExerciseWithNoMeasurementDefaultsToItsLabel() {
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Powerlifting")
+        XCTAssertEqual(entry.measuredClass, .activating)
+    }
+}

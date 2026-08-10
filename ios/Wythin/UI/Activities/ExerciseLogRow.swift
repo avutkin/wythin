@@ -81,9 +81,6 @@ struct ExerciseLogRow: View {
             if !scored.isEmpty {
                 SessionIndexGrid(indices: scored, doses: entry.ungradedDoses)
             }
-            if !entry.zoneSplit.isEmpty {
-                HeartRateZoneBar(split: entry.zoneSplit)
-            }
             if let advice = SessionRecommendation.advice(for: scored) {
                 RecommendationCard(advice: advice)
             }
