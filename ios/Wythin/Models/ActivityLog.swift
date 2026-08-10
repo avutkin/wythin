@@ -175,6 +175,11 @@ final class ActivityLog {
     // the VSI slope needs the whole series to be fitted. All optional, so
     // SwiftData migrates without a schema version bump.
 
+    /// How you arrived, 0–100, against your own recent pre-session windows.
+    /// Stored because the row has no context to fetch peers with.
+    var readinessScore:        Int?
+    /// How many peers that score was drawn from — the caption quotes it.
+    var readinessPeerCount:    Int?
     /// HR-reserve impulse with Banister weighting. Unitless magnitude.
     var exerciseLoad:          Double?
     /// Slope of lnDC against %HRR, per 10 %HRR. Negative = vagal tone falls
@@ -406,7 +411,9 @@ final class ActivityLog {
         // v6  heart-rate zone seconds.
         // v7  classification now follows measured heart-rate rise, so entries
         //     stored under the old label-based rule must be re-evaluated.
-        let currentVersion = 7
+        // v8  readinessScore/readinessPeerCount — how you arrived, scored
+        //     against your own recent pre-session windows.
+        let currentVersion = 8
         let versionKey = "activityBackfillVersion"
         let migrating = UserDefaults.standard.integer(forKey: versionKey) < currentVersion
 
@@ -504,11 +511,50 @@ final class ActivityLog {
     /// A no-op for restorative entries: they keep the nine-metric benefit-delta
     /// model untouched, and must not acquire exercise fields even accidentally.
     /// Call after `computeHRVWindows`, which supplies the DC baseline.
+    /// How you arrived, scored against your own recent pre-session windows.
+    ///
+    /// Peers are the *before* windows of earlier activating sessions, not the
+    /// whole history: the state five minutes before a lift is a different
+    /// population from the state five minutes before a meditation, and mixing
+    /// them would make every workout look under-recovered.
+    func computeReadiness(context: ModelContext) {
+        let start = startedAt
+        let predicate = #Predicate<ActivityLog> { $0.startedAt < start }
+        var desc = FetchDescriptor<ActivityLog>(predicate: predicate,
+                                                sortBy: [SortDescriptor(\.startedAt, order: .reverse)])
+        desc.fetchLimit = 60
+        let peers = ((try? context.fetch(desc)) ?? [])
+            .filter { $0.measuredClass == .activating }
+
+        let components: [ReadinessScore.Component] = [
+            beforeRMSSD.map { today in
+                ReadinessScore.Component(today: Double(today),
+                                         peers: peers.compactMap { $0.beforeRMSSD.map(Double.init) },
+                                         higherIsBetter: true)
+            },
+            beforeHR.map { today in
+                ReadinessScore.Component(today: Double(today),
+                                         peers: peers.compactMap { $0.beforeHR.map(Double.init) },
+                                         higherIsBetter: false)
+            },
+            beforeDC.map { today in
+                ReadinessScore.Component(today: Double(today),
+                                         peers: peers.compactMap { $0.beforeDC.map(Double.init) },
+                                         higherIsBetter: true)
+            },
+        ].compactMap { $0 }
+
+        readinessScore = ReadinessScore.score(components)
+        readinessPeerCount = readinessScore == nil ? nil : peers.count
+    }
+
     func computeExerciseResponse(context: ModelContext) {
         // Computed from the measurement, not the label — but the windows must
         // exist first, so this runs after computeHRVWindows has filled them.
         guard measuredClass == .activating else { return }
         guard let end = endedAt else { return }
+
+        computeReadiness(context: context)
 
         // Same window, quality gate and half-open [startedAt, end) partition as
         // computeHRVWindows, so the two never disagree about which sample is in.

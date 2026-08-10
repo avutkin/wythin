@@ -177,3 +177,60 @@ final class SessionIndicesTests: XCTestCase {
         XCTAssertFalse(advice?.because.contains("Efficiency") == true)
     }
 }
+
+// MARK: - Readiness
+
+final class ReadinessScoreTests: XCTestCase {
+
+    private func peers(_ values: [Double]) -> [Double] { values }
+
+    func testAPercentileNeedsPeersBeforeItMeansAnything() {
+        let c = ReadinessScore.Component(today: 50, peers: [40, 45, 50, 55],
+                                         higherIsBetter: true)
+        XCTAssertNil(ReadinessScore.componentScore(c),
+                     "four peers is noise pretending to be a measurement")
+    }
+
+    func testTodayAtTheTopOfYourOwnRangeScoresHigh() {
+        let c = ReadinessScore.Component(today: 62, peers: [30, 35, 40, 45, 50, 55, 60],
+                                         higherIsBetter: true)
+        XCTAssertEqual(ReadinessScore.componentScore(c), 100)
+    }
+
+    func testDirectionIsPerComponent() {
+        // A low resting pulse is a good morning; a low RMSSD is not.
+        let history: [Double] = [50, 54, 58, 62, 66, 70, 74]
+        let lowIsGood  = ReadinessScore.Component(today: 52, peers: history, higherIsBetter: false)
+        let highIsGood = ReadinessScore.Component(today: 52, peers: history, higherIsBetter: true)
+        XCTAssertGreaterThan(ReadinessScore.componentScore(lowIsGood)!,
+                             ReadinessScore.componentScore(highIsGood)!)
+    }
+
+    func testOneUnusuallyBadDayDoesNotRedefineTheBottomOfTheScale() {
+        // Bounded by the 10th/90th percentile, not min/max, so an outlier
+        // cannot permanently flatten every later score.
+        let withOutlier: [Double] = [2, 40, 42, 44, 46, 48, 50, 52, 54, 56]
+        let c = ReadinessScore.Component(today: 41, peers: withOutlier, higherIsBetter: true)
+        XCTAssertLessThan(ReadinessScore.componentScore(c)!, 40,
+                          "41 is near the bottom of the real spread, outlier aside")
+    }
+
+    func testAFlatHistoryIsMidScaleRatherThanADivideByZero() {
+        let c = ReadinessScore.Component(today: 50, peers: Array(repeating: 50, count: 8),
+                                         higherIsBetter: true)
+        XCTAssertEqual(ReadinessScore.componentScore(c), 50)
+    }
+
+    func testComponentsWithoutEnoughHistoryAreDroppedNotZeroed() {
+        let good = ReadinessScore.Component(today: 60, peers: [30, 35, 40, 45, 50, 55],
+                                            higherIsBetter: true)
+        let thin = ReadinessScore.Component(today: 60, peers: [50], higherIsBetter: true)
+        XCTAssertEqual(ReadinessScore.score([good, thin]),
+                       ReadinessScore.componentScore(good),
+                       "a component with no history must not drag the mean toward zero")
+    }
+
+    func testNoComponentsMeansNoScore() {
+        XCTAssertNil(ReadinessScore.score([]))
+    }
+}
