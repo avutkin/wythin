@@ -311,6 +311,18 @@ struct APIClient {
         return try JSONDecoder().decode(UploadResponse.self, from: data)
     }
 
+    /// Every activity the server holds for this user, newest first.
+    ///
+    /// The counterpart to the upload, and the reason it was added: upload was
+    /// the only direction that existed, so a phone whose local store was gone
+    /// had no way to get its own history back.
+    func fetchActivities(userID: String) async throws -> [ActivityUploadPayload] {
+        var req = request(path: "/activities", method: "GET")
+        req.addValue(userID, forHTTPHeaderField: "X-User-ID")
+        let (data, _) = try await session.data(for: req)
+        return try JSONDecoder().decode([ActivityUploadPayload].self, from: data)
+    }
+
     // MARK: Felt-state check-ins
 
     func uploadFeltStateLog(_ payload: FeltStateUploadPayload, userID: String) async throws {

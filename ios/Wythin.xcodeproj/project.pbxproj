@@ -25,6 +25,7 @@
 		04C27CD78B1B40DBA5522FB9 /* HRCeilingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCEA22F3FB1E016118D8EE01 /* HRCeilingTests.swift */; };
 		04B07817C335F28A352F88E9 /* ActivityClassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20866A7D973F59840EBFADEE /* ActivityClassTests.swift */; };
 		5B535DBF8693DF78AD3B5940 /* SessionIndicesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 878397CB85F30EE4B8F3CE2F /* SessionIndicesTests.swift */; };
+		6453AB78BC08DBB05A7787F6 /* ActivityRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A55922396C435F43D09AA5D3 /* ActivityRestoreTests.swift */; };
 		FD13F4B1CB1B182D4EB3D95D /* ActivityLogIndicesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A051D03CB24885D77C7EE82A /* ActivityLogIndicesTests.swift */; };
 		519BA43B55690D5F8761EBBF /* UsageUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE6F0E9C8772030B86BA730E /* UsageUploader.swift */; };
 		A101 /* WythinApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F101 /* WythinApp.swift */; };
@@ -140,6 +141,7 @@
 		A206 /* ResonanceSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F206 /* ResonanceSessionView.swift */; };
 		A207 /* BiofeedbackSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F207 /* BiofeedbackSessionView.swift */; };
 		A208 /* ActivityUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F208 /* ActivityUploader.swift */; };
+		8347B3DDA06ADC21D3E5F709 /* ActivityRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 069EE46E63C336F2DE95016D /* ActivityRestore.swift */; };
 		A261 /* FeltStateLogUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F261 /* FeltStateLogUploader.swift */; };
 		A209 /* MotionCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F209 /* MotionCompute.swift */; };
 		A210 /* AnchorDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F210 /* AnchorDetector.swift */; };
@@ -266,6 +268,7 @@
 		CCEA22F3FB1E016118D8EE01 /* HRCeilingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HRCeilingTests.swift; sourceTree = "<group>"; };
 		20866A7D973F59840EBFADEE /* ActivityClassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityClassTests.swift; sourceTree = "<group>"; };
 		878397CB85F30EE4B8F3CE2F /* SessionIndicesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndicesTests.swift; sourceTree = "<group>"; };
+		A55922396C435F43D09AA5D3 /* ActivityRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRestoreTests.swift; sourceTree = "<group>"; };
 		A051D03CB24885D77C7EE82A /* ActivityLogIndicesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogIndicesTests.swift; sourceTree = "<group>"; };
 		5157D6102C251A37AF413C96 /* PracticeImpactGauge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PracticeImpactGauge.swift; sourceTree = "<group>"; };
 		C21C1F6442376CD6F03ABFA9 /* ExerciseScoreGauge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExerciseScoreGauge.swift; sourceTree = "<group>"; };
@@ -383,6 +386,7 @@
 		F206 /* ResonanceSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResonanceSessionView.swift; sourceTree = "<group>"; };
 		F207 /* BiofeedbackSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiofeedbackSessionView.swift; sourceTree = "<group>"; };
 		F208 /* ActivityUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityUploader.swift; sourceTree = "<group>"; };
+		069EE46E63C336F2DE95016D /* ActivityRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRestore.swift; sourceTree = "<group>"; };
 		F261 /* FeltStateLogUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeltStateLogUploader.swift; sourceTree = "<group>"; };
 		F209 /* MotionCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionCompute.swift; sourceTree = "<group>"; };
 		F210 /* AnchorDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetector.swift; sourceTree = "<group>"; };
@@ -745,6 +749,7 @@
 				F112 /* APIClient.swift */,
 				F113 /* SessionUploader.swift */,
 				F208 /* ActivityUploader.swift */,
+				069EE46E63C336F2DE95016D /* ActivityRestore.swift */,
 				F261 /* FeltStateLogUploader.swift */,
 				F145 /* InsightGenerator.swift */,
 				FE6F0E9C8772030B86BA730E /* UsageUploader.swift */,
@@ -849,6 +854,7 @@
 				CCEA22F3FB1E016118D8EE01 /* HRCeilingTests.swift */,
 				20866A7D973F59840EBFADEE /* ActivityClassTests.swift */,
 				878397CB85F30EE4B8F3CE2F /* SessionIndicesTests.swift */,
+				A55922396C435F43D09AA5D3 /* ActivityRestoreTests.swift */,
 				A051D03CB24885D77C7EE82A /* ActivityLogIndicesTests.swift */,
 				FT26 /* ImpactDeltaTests.swift */,
 				FT10 /* ClientProfileTests.swift */,
@@ -1000,6 +1006,7 @@
 				A112 /* APIClient.swift in Sources */,
 				A113 /* SessionUploader.swift in Sources */,
 				A208 /* ActivityUploader.swift in Sources */,
+				8347B3DDA06ADC21D3E5F709 /* ActivityRestore.swift in Sources */,
 				A261 /* FeltStateLogUploader.swift in Sources */,
 				A145 /* InsightGenerator.swift in Sources */,
 				A114 /* HRVSession.swift in Sources */,
@@ -1186,6 +1193,7 @@
 				04C27CD78B1B40DBA5522FB9 /* HRCeilingTests.swift in Sources */,
 				04B07817C335F28A352F88E9 /* ActivityClassTests.swift in Sources */,
 				5B535DBF8693DF78AD3B5940 /* SessionIndicesTests.swift in Sources */,
+				6453AB78BC08DBB05A7787F6 /* ActivityRestoreTests.swift in Sources */,
 				FD13F4B1CB1B182D4EB3D95D /* ActivityLogIndicesTests.swift in Sources */,
 				AT26 /* ImpactDeltaTests.swift in Sources */,
 				AT11 /* PracticeCatalogTests.swift in Sources */,
