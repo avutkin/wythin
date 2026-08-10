@@ -45,7 +45,7 @@ extension ActivityLog {
             verdict: value >= IndexBand.keepAbove ? "cheap for the work"
                    : value >= IndexBand.actBelow  ? "fair price"
                                                   : "expensive per beat",
-            detail: brake.map { String(format: "%.2f ms", $0) } ?? "")
+            detail: brake.map { String(format: "%.2f ms/beat", $0) } ?? "")
     }
 
     /// How fast the system came back, from the readings that survived.

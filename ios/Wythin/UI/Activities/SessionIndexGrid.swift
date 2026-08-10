@@ -27,7 +27,7 @@ struct SessionIndexGrid: View {
     /// The bands, in the words they are for. The thresholds come from
     /// `IndexBand` so the legend cannot outlive a change to them.
     private var legend: some View {
-        HStack(spacing: 10) {
+        FlowRow(spacing: 10) {
             ForEach([IndexBand.act, .improve, .keep], id: \.self) { band in
                 HStack(spacing: 4) {
                     RoundedRectangle(cornerRadius: 2)
@@ -39,7 +39,6 @@ struct SessionIndexGrid: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity)
     }
 
     /// Load and peak, kept out of the scored grid and labelled as to why.
