@@ -19,47 +19,18 @@ struct OnboardingFlow: View {
     @State private var profile = ClientProfileStore().load()
     @State private var step: Step = .welcome
     @State private var showBLE = false
-    @State private var showDataDetail = false
 
-    // Consent lives outside the profile: these switches must be readable by the
-    // sync layer and by Settings without loading the profile, and
-    // `cloudSyncEnabled` already exists and is honoured by SyncCoordinator.
-    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
+    // Onboarding no longer asks about sharing, sync or nudges — those live in
+    // Settings. This flag is still set on finish so the separate post-onboarding
+    // cloud-sync sheet stays suppressed: "don't ask proactively" has to mean the
+    // old prompt too, not just the screen that replaced it.
     @AppStorage("didShowCloudSyncNotice") private var didShowCloudSyncNotice = false
-
-    // Data-sharing consents, surfaced on the connect step once data is flowing.
-    //
-    // Both default ON as specified. Flagging the trade-off in one place rather
-    // than arguing with it: GDPR treats health data as special category and
-    // requires opt-in that is unambiguous, and a switch already on is the
-    // textbook example of consent that is not. Flipping either default is the
-    // single word `false` below — no other code changes.
-    @AppStorage(OnboardingConsent.shareWithTeamKey)
-    private var shareWithTeam = OnboardingConsent.shareWithTeamDefault
-    @AppStorage(OnboardingConsent.aiInsightsKey)
-    private var aiInsightsEnabled = OnboardingConsent.aiInsightsDefault
-
-    /// Nudges route through AppEnvironment rather than @AppStorage so this
-    /// screen and Settings read the same value, and so switching it on here
-    /// triggers the same authorization request Settings does. It stays **off by
-    /// default** on purpose — see the note on `AppEnvironment.nudgesEnabled`:
-    /// the thresholds are still first guesses, so being interrupted has to be
-    /// chosen rather than something that starts happening.
-    private var nudgesBinding: Binding<Bool> {
-        Binding(get: { env.nudgesEnabled },
-                set: { on in
-                    env.nudgesEnabled = on
-                    if on {
-                        Task { _ = await env.notifications.requestAuthorization() }
-                    }
-                })
-    }
 
     enum Step: Int, CaseIterable {
         // Current state sits directly after goals: having just named what they
         // want to change, rating where they are now reads as the second half of
         // the same question rather than a survey item three screens later.
-        case welcome, goals, currentState, practices, devices, aboutYou, connect, contact, permissions
+        case welcome, goals, currentState, practices, devices, aboutYou, connect, contact
 
         /// Interactive steps after welcome, for the progress bar.
         static var progressTotal: Double { Double(Step.allCases.count - 1) }
@@ -112,9 +83,6 @@ struct OnboardingFlow: View {
         .animation(.easeInOut(duration: 0.28), value: step)
         .sheet(isPresented: $showBLE) {
             BLEConnectionSheet(ble: env.ble)
-        }
-        .sheet(isPresented: $showDataDetail) {
-            DataSharingDetailSheet(onDone: { showDataDetail = false })
         }
     }
 
@@ -192,9 +160,6 @@ struct OnboardingFlow: View {
                 batteryLevel: env.ble.batteryLevel,
                 ecg: env.waveform.ecg,
                 acc: env.waveform.acc,
-                shareWithTeam: $shareWithTeam,
-                aiInsights: $aiInsightsEnabled,
-                onShowDataDetail: { showDataDetail = true },
                 onOpenBLE: { showBLE = true },
                 onBack: { go(.aboutYou) },
                 onContinue: { go(.contact) }
@@ -208,25 +173,16 @@ struct OnboardingFlow: View {
                 phone: $profile.phone,
                 email: $profile.email,
                 onBack: { go(.connect) },
-                onContinue: { persist(); go(.permissions) },
+                onContinue: { finish() },
                 // Half-typed contact details are worse than none, since skip
                 // bypasses validation and the result would sync as if real.
                 onSkip: {
-                    skip(to: .permissions) {
-                        profile.firstName = ""; profile.lastName = ""
-                        profile.phone = "";     profile.email = ""
-                    }
+                    profile.firstName = ""; profile.lastName = ""
+                    profile.phone = "";     profile.email = ""
+                    finish()
                 }
             )
 
-        case .permissions:
-            OnboardingPermissionsScreen(
-                progress: step.progress,
-                cloudSync: $cloudSyncEnabled,
-                notifications: nudgesBinding,
-                onBack: { go(.contact) },
-                onFinish: { finish() }
-            )
         }
     }
 
@@ -249,9 +205,9 @@ struct OnboardingFlow: View {
         store.save(profile)
     }
 
-    /// The permissions screen is now the explicit, informed choice the separate
-    /// post-onboarding sheet used to provide, so mark that notice as shown and
-    /// let it stay suppressed.
+    /// Suppresses the old post-onboarding cloud-sync sheet on the way out.
+    /// Sharing and sync are Settings decisions now, and a prompt that fires the
+    /// moment onboarding ends would put the question straight back.
     private func finish() {
         persist()
         didShowCloudSyncNotice = true

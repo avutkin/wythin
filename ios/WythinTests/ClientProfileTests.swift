@@ -122,36 +122,6 @@ final class ClientProfileTests: XCTestCase {
         XCTAssertTrue(OnboardingConsent.shareWithTeam(in: defaults))
     }
 
-    // MARK: Mandatory consent gates
-
-    func testSharingGateBlocksWhenARequiredConsentIsOff() {
-        XCTAssertTrue(OnboardingConsent.canProceedFromSharing(shareWithTeam: true, aiInsights: true))
-
-        if OnboardingConsent.shareWithTeamIsMandatory {
-            XCTAssertFalse(OnboardingConsent.canProceedFromSharing(shareWithTeam: false, aiInsights: true))
-        }
-        if OnboardingConsent.aiInsightsIsMandatory {
-            XCTAssertFalse(OnboardingConsent.canProceedFromSharing(shareWithTeam: true, aiInsights: false))
-        }
-        if OnboardingConsent.shareWithTeamIsMandatory || OnboardingConsent.aiInsightsIsMandatory {
-            XCTAssertFalse(OnboardingConsent.canProceedFromSharing(shareWithTeam: false, aiInsights: false))
-        }
-    }
-
-    func testFinishGateFollowsCloudSync() {
-        XCTAssertTrue(OnboardingConsent.canFinishOnboarding(cloudSync: true))
-        XCTAssertEqual(OnboardingConsent.canFinishOnboarding(cloudSync: false),
-                       !OnboardingConsent.cloudSyncIsMandatory)
-    }
-
-    /// Nudges must never gate the flow. iOS owns notification delivery, so a
-    /// user who denies the system prompt would otherwise be locked out of the
-    /// app by a switch that says yes.
-    func testFinishGateIgnoresNudges() {
-        XCTAssertTrue(OnboardingConsent.canFinishOnboarding(cloudSync: true),
-                      "only cloudSync is an input; nudges cannot appear in this signature")
-    }
-
     // MARK: Unit conversion
 
     func testFeetInchesToCentimetres() {

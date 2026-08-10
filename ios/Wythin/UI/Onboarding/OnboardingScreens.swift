@@ -597,12 +597,6 @@ struct OnboardingConnectScreen: View {
     /// thing the app is about.
     let ecg:         [Float]
     let acc:         [Float]
-    /// Data-sharing consents, shown only once a strap is streaming — there is
-    /// nothing to consent to before that. See `OnboardingConsentRow` for why
-    /// the copy names Claude rather than saying "our AI partner".
-    @Binding var shareWithTeam: Bool
-    @Binding var aiInsights:    Bool
-    let onShowDataDetail: () -> Void
     let onOpenBLE:   () -> Void
     let onBack:      () -> Void
     let onContinue:  () -> Void
@@ -613,14 +607,6 @@ struct OnboardingConnectScreen: View {
         case .connected(let name), .standby(let name): return name
         default: return nil
         }
-    }
-
-    /// The consent rows only exist once a strap is paired, so before that there
-    /// is nothing to gate on and Continue must not be blocked by switches the
-    /// user cannot yet see.
-    private var sharingGranted: Bool {
-        OnboardingConsent.canProceedFromSharing(shareWithTeam: shareWithTeam,
-                                                aiInsights: aiInsights)
     }
 
     private var isBusy: Bool {
@@ -637,10 +623,7 @@ struct OnboardingConnectScreen: View {
             subtitle: connectedName == nil
                 ? "Your chest strap streams the heart data behind every reading."
                 : "That's the hard part done.",
-            // Gated only once paired, because that is when the consent rows
-            // appear. Blocking earlier would stop a user on a switch that isn't
-            // on screen yet.
-            canContinue: connectedName == nil || sharingGranted,
+            canContinue: true,
             continueTitle: "Continue",
             onBack: onBack,
             onContinue: onContinue
@@ -724,46 +707,8 @@ struct OnboardingConnectScreen: View {
                 .foregroundStyle(Theme.dim)
                 .frame(maxWidth: .infinity)
                 .padding(.top, 2)
-
-            consentBlock
         }
         .padding(.top, 8)
-    }
-
-    private var consentBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("MAKE IT YOURS")
-                .font(Theme.monoLabel)
-                .foregroundStyle(Theme.dim)
-                .padding(.top, 6)
-
-            OnboardingConsentRow(
-                icon: "person.2",
-                title: "Share with the Wythin team",
-                isRequired: OnboardingConsent.shareWithTeamIsMandatory,
-                isOn: $shareWithTeam)
-
-            OnboardingConsentRow(
-                icon: "sparkles",
-                title: "Share securely with \(AIProvider.name)",
-                isRequired: OnboardingConsent.aiInsightsIsMandatory,
-                isOn: $aiInsights)
-
-            if !sharingGranted {
-                OnboardingConsentBlockedNote(
-                    message: "Wythin is a coached programme — without these we can't read your sessions or support you, so there's no app to give you.")
-            }
-
-            Button(action: onShowDataDetail) {
-                HStack(spacing: 4) {
-                    Text("What's shared?")
-                    Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold))
-                }
-                .font(Theme.monoLabel)
-                .foregroundStyle(Theme.breathe)
-            }
-            .padding(.top, 2)
-        }
     }
 
     /// Waveform with its own caption row, so each strip says what it is and at

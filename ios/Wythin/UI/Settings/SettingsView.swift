@@ -11,6 +11,11 @@ struct SettingsView: View {
     @State private var accessError: String?
 
     @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
+    @AppStorage(OnboardingConsent.shareWithTeamKey)
+    private var shareWithTeam = OnboardingConsent.shareWithTeamDefault
+    @AppStorage(OnboardingConsent.aiInsightsKey)
+    private var aiInsightsEnabled = OnboardingConsent.aiInsightsDefault
+    @State private var showDataDetail = false
     @State private var isDeletingCloudData = false
     @State private var notificationsAuthorized: Bool?
 
@@ -183,6 +188,40 @@ struct SettingsView: View {
                     }
                     .listRowBackground(Theme.card)
 
+                    // ── Data sharing ──────────────────────────────────
+                    //
+                    // Onboarding deliberately doesn't ask about these, so this
+                    // section is the only place they are ever presented. That
+                    // makes the "What's shared" link load-bearing rather than
+                    // decorative: without it nothing in the app ever states
+                    // where the data goes.
+                    Section("DATA SHARING") {
+                        Toggle(isOn: $shareWithTeam) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Share with the Wythin team").font(Theme.monoBody).foregroundStyle(Theme.text)
+                                Text("Lets a coach review your sessions and adjust your guidance.")
+                                    .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+                            }
+                        }
+                        .tint(Theme.accent)
+
+                        Toggle(isOn: $aiInsightsEnabled) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Personalised guidance").font(Theme.monoBody).foregroundStyle(Theme.text)
+                                Text("Sends your metrics to \(AIProvider.name) to write your insights. Off = no AI guidance.")
+                                    .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+                            }
+                        }
+                        .tint(Theme.accent)
+
+                        Button { showDataDetail = true } label: {
+                            Text("What's shared?")
+                                .font(Theme.monoBody)
+                                .foregroundStyle(Theme.breathe)
+                        }
+                    }
+                    .listRowBackground(Theme.card)
+
                     // ── Nudges ────────────────────────────────────────
                     Section("NUDGES") {
                         Toggle(isOn: nudgesBinding) {
@@ -294,6 +333,9 @@ struct SettingsView: View {
             .sheet(item: $newToken) { created in
                 NewTokenSheet(command: MCPSetup.claudeCommand(serverURL: env.serverURL, token: created.token),
                               token: created.token)
+            }
+            .sheet(isPresented: $showDataDetail) {
+                DataSharingDetailSheet(onDone: { showDataDetail = false })
             }
             .task { await loadTokens() }
             .task { await refreshAuthorization() }
