@@ -45,12 +45,44 @@ struct ExerciseLogRow: View {
                                      efficiency: efficiency)
     }
 
-    private var crowned: Bool { ExerciseOverallScore.earnsCrown(overall) }
+    /// Laurels above half marks, not at the crown threshold of 85.
+    ///
+    /// More than half the available improvement is a genuinely good session and
+    /// should feel like one; 85 is a top-sixth day, which would mean the frame
+    /// almost never appears and stops reading as a reward at all. Same rule the
+    /// restorative row uses, so the two celebrate in the same place.
+    static let laurelThreshold = 50
+
+    private var crowned: Bool {
+        if case let .score(value, _) = overall { return value >= Self.laurelThreshold }
+        return false
+    }
+
+
+    /// The measured rise that put this session in the activating model.
+    private var pulseRise: Int? {
+        guard let before = beforeHR, let during = duringHR, during > before else { return nil }
+        return Int((during - before).rounded())
+    }
+
+    private var beforeHR: Double? { entry.beforeHR.map(Double.init) }
+    private var duringHR: Double? { entry.duringHRPeak.map(Double.init) ?? entry.duringHR.map(Double.init) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 11) {
             header
-            chips
+            hero
+            let scored = entry.scoredIndices
+            if !scored.isEmpty {
+                SessionIndexGrid(indices: scored, doses: entry.ungradedDoses)
+            }
+            if !entry.zoneSplit.isEmpty {
+                HeartRateZoneBar(split: entry.zoneSplit)
+            }
+            if let advice = SessionRecommendation.advice(for: scored) {
+                RecommendationCard(advice: advice)
+            }
+            viewFullSession
         }
         .padding(.vertical, 7)
     }
@@ -89,47 +121,71 @@ struct ExerciseLogRow: View {
 
             Spacer()
 
-            if case let .score(score, _) = overall {
-                // Labelled, like everything else on this row. An unlabelled
-                // number beside three labelled ones reads as a fourth unit.
-                VStack(alignment: .trailing, spacing: 0) {
-                    HStack(spacing: 3) {
-                        if crowned {
-                            Image(systemName: "crown.fill")
-                                .font(.system(size: 12))
-                                .foregroundStyle(Color(hex: "#FFC01F"))
-                        }
-                        Text("\(score)")
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                            .foregroundStyle(crowned ? Color(hex: "#FFC01F") : Theme.text)
-                            .monospacedDigit()
-                    }
-                    Text("SCORE / 100")
-                        .font(.system(size: 7.5, design: .monospaced))
-                        .foregroundStyle(Theme.dim)
-                }
+            // Which model this session got, and the measurement that decided it.
+            // Two scoring systems in one list look arbitrary without it.
+            if let rise = pulseRise {
+                Text("PULSE ROSE \(rise) BPM")
+                    .font(.system(size: 7, weight: .semibold, design: .monospaced))
+                    .tracking(0.7)
+                    .foregroundStyle(Color(hex: "#FFC01F"))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color(hex: "#FFC01F").opacity(0.14), in: RoundedRectangle(cornerRadius: 5))
             }
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 11))
-                .foregroundStyle(Theme.dim.opacity(0.4))
         }
     }
 
-    /// The scored grid replaced the chip strip. The chips carried each reading
-    /// in its own unit, so a reader had to already know whether 0.09 ms/beat
-    /// was good; an index on one scale, with a band and a verdict, says so.
+    /// The score gets the room it deserves: centred, large, and framed by
+    /// laurels above the threshold rather than shouted at with a crown.
     @ViewBuilder
-    private var chips: some View {
-        let scored = entry.scoredIndices
-        if !scored.isEmpty {
-            SessionIndexGrid(indices: scored, doses: entry.ungradedDoses)
-            if let advice = SessionRecommendation.advice(for: scored) {
-                RecommendationCard(advice: advice)
+    private var hero: some View {
+        if case let .score(score, word) = overall {
+            VStack(spacing: 3) {
+                HStack(spacing: 10) {
+                    if crowned { laurel("laurel.leading") }
+                    VStack(spacing: 0) {
+                        Text("\(score)")
+                            .font(.system(size: 52, weight: .light, design: .rounded))
+                            .foregroundStyle(crowned ? Theme.accent : Theme.text)
+                            .monospacedDigit()
+                        Text("SCORE / 100")
+                            .font(.system(size: 8, design: .monospaced))
+                            .tracking(1.2)
+                            .foregroundStyle(Theme.dim)
+                    }
+                    if crowned { laurel("laurel.trailing") }
+                }
+                Text(word)
+                    .font(.system(size: 11, design: .monospaced))
+                    .tracking(0.8)
+                    .foregroundStyle(crowned ? Theme.accent : Theme.dim)
             }
+            .frame(maxWidth: .infinity)
         }
+    }
+
+    private func laurel(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 44, weight: .ultraLight))
+            .foregroundStyle(Theme.dim.opacity(0.55))
+    }
+
+    private var viewFullSession: some View {
+        HStack(spacing: 7) {
+            Text("VIEW FULL SESSION")
+                .font(.system(size: 11, design: .monospaced))
+                .tracking(1.2)
+            Image(systemName: "chevron.right").font(.system(size: 9))
+        }
+        .foregroundStyle(Theme.accent)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(Theme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .stroke(Theme.accent.opacity(0.32), lineWidth: 0.5))
     }
 }
+
 
 // MARK: - RecommendationCard
 
