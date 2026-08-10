@@ -56,7 +56,10 @@ struct OnboardingFlow: View {
     }
 
     enum Step: Int, CaseIterable {
-        case welcome, goals, practices, devices, currentState, aboutYou, connect, contact, permissions
+        // Current state sits directly after goals: having just named what they
+        // want to change, rating where they are now reads as the second half of
+        // the same question rather than a survey item three screens later.
+        case welcome, goals, currentState, practices, devices, aboutYou, connect, contact, permissions
 
         /// Interactive steps after welcome, for the progress bar.
         static var progressTotal: Double { Double(Step.allCases.count - 1) }
@@ -91,7 +94,10 @@ struct OnboardingFlow: View {
         .init("Apple Watch",    icon: "applewatch"),
         .init("Garmin",         icon: "location.circle"),
         .init("Fitbit",         icon: "square.circle"),
-        .init("Just this app",  icon: "iphone"),
+        // No "Just this app" option: at this point in the flow the strap isn't
+        // connected and the app measures nothing, so it read as a claim about
+        // the future rather than an answer. Someone tracking with nothing skips
+        // the step — an empty selection already means "none".
     ]
 
     var body: some View {
@@ -121,13 +127,26 @@ struct OnboardingFlow: View {
         case .goals:
             OnboardingMultiSelectScreen(
                 progress: step.progress,
-                question: "What do you want to work on?",
-                subtitle: "Pick all that apply.",
+                question: "What matters most right now?",
+                // Not "pick all that apply" here, unlike the two steps after
+                // it. A priorities question answered with everything isn't a
+                // priorities question, and the goal reels key their cards to
+                // the top three — six ticks would make that ranking arbitrary.
+                subtitle: "Your top two or three.",
                 options: goalOptions,
                 selection: $profile.goals,
                 onBack: { go(.welcome) },
+                onContinue: { persist(); go(.currentState) },
+                onSkip: { skip(to: .currentState) }
+            )
+
+        case .currentState:
+            OnboardingCurrentStateScreen(
+                progress: step.progress,
+                state: $profile.state,
+                onBack: { go(.goals) },
                 onContinue: { persist(); go(.practices) },
-                onSkip: { skip(to: .practices) }
+                onSkip: { skip(to: .practices) { profile.state = CurrentState() } }
             )
 
         case .practices:
@@ -137,7 +156,7 @@ struct OnboardingFlow: View {
                 subtitle: "Pick all that apply.",
                 options: practiceOptions,
                 selection: $profile.practices,
-                onBack: { go(.goals) },
+                onBack: { go(.currentState) },
                 onContinue: { persist(); go(.devices) },
                 onSkip: { skip(to: .devices) }
             )
@@ -145,22 +164,13 @@ struct OnboardingFlow: View {
         case .devices:
             OnboardingMultiSelectScreen(
                 progress: step.progress,
-                question: "What tools do you use now?",
-                subtitle: "Pick all that apply.",
+                question: "What do you measure yourself with?",
+                subtitle: "Anything you use to track performance or state.",
                 options: deviceOptions,
                 selection: $profile.devices,
                 onBack: { go(.practices) },
-                onContinue: { persist(); go(.currentState) },
-                onSkip: { skip(to: .currentState) }
-            )
-
-        case .currentState:
-            OnboardingCurrentStateScreen(
-                progress: step.progress,
-                state: $profile.state,
-                onBack: { go(.devices) },
                 onContinue: { persist(); go(.aboutYou) },
-                onSkip: { skip(to: .aboutYou) { profile.state = CurrentState() } }
+                onSkip: { skip(to: .aboutYou) }
             )
 
         case .aboutYou:

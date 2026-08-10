@@ -152,6 +152,71 @@ final class ClientProfileTests: XCTestCase {
                       "only cloudSync is an input; nudges cannot appear in this signature")
     }
 
+    // MARK: Unit conversion
+
+    func testFeetInchesToCentimetres() {
+        XCTAssertEqual(BodyUnits.cm(feet: 5, inches: 9),  175)   // US male average
+        XCTAssertEqual(BodyUnits.cm(feet: 5, inches: 4),  163)   // US female average
+        XCTAssertEqual(BodyUnits.cm(feet: 6, inches: 0),  183)
+        XCTAssertEqual(BodyUnits.cm(feet: 4, inches: 11), 150)
+    }
+
+    func testCentimetresToFeetInches() {
+        let a = BodyUnits.feetInches(fromCm: 175)
+        XCTAssertEqual(a.feet, 5); XCTAssertEqual(a.inches, 9)
+
+        let b = BodyUnits.feetInches(fromCm: 183)
+        XCTAssertEqual(b.feet, 6); XCTAssertEqual(b.inches, 0)
+    }
+
+    /// 12 inches must roll up into a foot — 5'12" is not a height.
+    func testInchesNeverRenderAsTwelve() {
+        for cm in OnboardingValidation.heightRangeCm {
+            let r = BodyUnits.feetInches(fromCm: cm)
+            XCTAssertLessThan(r.inches, 12, "\(cm)cm rendered as \(r.feet)'\(r.inches)\"")
+            XCTAssertGreaterThanOrEqual(r.inches, 0)
+        }
+    }
+
+    func testPoundsAndKilogramsConvertBothWays() {
+        XCTAssertEqual(BodyUnits.kg(fromPounds: 200), 91)
+        XCTAssertEqual(BodyUnits.kg(fromPounds: 171), 78)
+        XCTAssertEqual(BodyUnits.pounds(fromKg: 90), 198)
+        XCTAssertEqual(BodyUnits.pounds(fromKg: 77), 170)
+    }
+
+    /// Switching units repeatedly must not walk a value away from itself. The
+    /// UI re-renders from the stored metric each time for exactly this reason;
+    /// this pins the property the UI depends on.
+    func testUnitRoundTripIsStableAcrossRepeatedConversions() {
+        for start in stride(from: 45, through: 160, by: 5) {
+            var kg = start
+            for _ in 0..<10 { kg = BodyUnits.kg(fromPounds: BodyUnits.pounds(fromKg: kg)) }
+            XCTAssertEqual(kg, start, "weight drifted from \(start) to \(kg)")
+        }
+        for start in stride(from: 140, through: 210, by: 1) {
+            var cm = start
+            for _ in 0..<10 {
+                let r = BodyUnits.feetInches(fromCm: cm)
+                cm = BodyUnits.cm(feet: r.feet, inches: r.inches)
+            }
+            XCTAssertLessThanOrEqual(abs(cm - start), 1, "height drifted from \(start) to \(cm)")
+        }
+    }
+
+    func testBodyDefaultsAreInsideTheAcceptedRanges() {
+        for g in ["Male", "Female", "Non-binary", "Prefer not to say", nil] {
+            XCTAssertTrue(OnboardingValidation.heightRangeCm.contains(BodyDefaults.heightCm(gender: g)))
+            XCTAssertTrue(OnboardingValidation.weightRangeKg.contains(BodyDefaults.weightKg(gender: g)))
+        }
+    }
+
+    func testUnitSystemDefaultsToUS() {
+        let d = makeDefaults()
+        XCTAssertNil(d.string(forKey: UnitSystem.defaultsKey))
+        XCTAssertEqual(UnitSystem(rawValue: d.string(forKey: UnitSystem.defaultsKey) ?? "us"), .us)
+    }
+
     // MARK: Phone validation
 
     func testPhoneValidation() {

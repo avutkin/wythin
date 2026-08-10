@@ -394,12 +394,7 @@ struct OnboardingAboutYouScreen: View {
                 pickerGroup(title: "AGE", options: ages, selection: $ageRange)
                 pickerGroup(title: "GENDER", options: genders, selection: $gender)
 
-                HStack(spacing: 10) {
-                    OnboardingNumberField(title: "HEIGHT", unit: "cm",
-                                          range: OnboardingValidation.heightRangeCm, value: $heightCm)
-                    OnboardingNumberField(title: "WEIGHT", unit: "kg",
-                                          range: OnboardingValidation.weightRangeKg, value: $weightKg)
-                }
+                OnboardingBodyMetrics(gender: gender, heightCm: $heightCm, weightKg: $weightKg)
             }
             .padding(.top, 4)
         }

@@ -142,6 +142,87 @@ enum OnboardingConsent {
     }
 }
 
+// MARK: - Units
+//
+// Storage is always metric — `height_cm` and `weight_kg` are integers on the
+// server and must not become ambiguous. Imperial exists only at the point of
+// entry and display, so nothing downstream has to ask which system a number is
+// in.
+
+enum UnitSystem: String, CaseIterable, Identifiable {
+    case us, metric
+    var id: String { rawValue }
+
+    var label: String { self == .us ? "ft / lb" : "cm / kg" }
+
+    static let defaultsKey = "unitSystem"
+
+    /// US by default, per product decision. Not locale-derived: a locale guess
+    /// is wrong often enough that a visible, switchable control is honest and a
+    /// silent guess isn't.
+    static var current: UnitSystem {
+        get {
+            UserDefaults.standard.string(forKey: defaultsKey)
+                .flatMap(UnitSystem.init(rawValue:)) ?? .us
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: defaultsKey) }
+    }
+}
+
+enum BodyUnits {
+    static let cmPerInch  = 2.54
+    static let kgPerPound = 0.45359237
+
+    // Height ─────────────────────────────────────────────────────────────
+    static func cm(feet: Int, inches: Int) -> Int {
+        Int((Double(feet * 12 + inches) * cmPerInch).rounded())
+    }
+
+    /// Splits centimetres into whole feet and inches, carrying 12" up to a foot
+    /// so 5'12" can never be displayed.
+    static func feetInches(fromCm cm: Int) -> (feet: Int, inches: Int) {
+        let totalInches = Int((Double(cm) / cmPerInch).rounded())
+        var feet = totalInches / 12
+        var inches = totalInches % 12
+        if inches == 12 { feet += 1; inches = 0 }
+        return (feet, inches)
+    }
+
+    // Weight ─────────────────────────────────────────────────────────────
+    static func kg(fromPounds lb: Int) -> Int {
+        Int((Double(lb) * kgPerPound).rounded())
+    }
+
+    static func pounds(fromKg kg: Int) -> Int {
+        Int((Double(kg) / kgPerPound).rounded())
+    }
+}
+
+/// Starting values so the fields open with something plausible to nudge rather
+/// than an empty box.
+///
+/// US adult averages, rounded — CDC NHANES: men about 5'9" and 200 lb, women
+/// about 5'4" and 171 lb. These are population averages used purely as a
+/// starting position; they describe nobody in particular, which is why the
+/// fields stay editable and skippable.
+enum BodyDefaults {
+    static func heightCm(gender: String?) -> Int {
+        switch gender {
+        case "Male":   return 175
+        case "Female": return 163
+        default:       return 169
+        }
+    }
+
+    static func weightKg(gender: String?) -> Int {
+        switch gender {
+        case "Male":   return 90
+        case "Female": return 77
+        default:       return 84
+        }
+    }
+}
+
 // MARK: - Validation helpers
 
 enum OnboardingValidation {

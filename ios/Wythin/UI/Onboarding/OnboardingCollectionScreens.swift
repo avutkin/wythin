@@ -15,12 +15,15 @@ struct OnboardingStateSlider: View {
     let tint:     Color
     @Binding var value: Int?
 
-    /// Sliders bind to Double; this mirrors the optional into one, defaulting to
-    /// the midpoint so an untouched thumb sits centre while still reading as unset.
-    private var proxy: Binding<Double> {
-        Binding(get: { Double(value ?? 5) },
-                set: { value = Int($0.rounded()) })
-    }
+    /// The thumb tracks this, not the stored `Int`.
+    ///
+    /// Binding straight to the model made the drag feel like it was fighting
+    /// the finger: the setter rounded to an integer and the getter read that
+    /// rounded value straight back, so on a 0-10 range the thumb could only
+    /// occupy eleven positions and kept snapping away mid-gesture. Holding the
+    /// continuous position in local state and rounding only on the way out
+    /// gives a thumb that follows exactly while still storing 0-10.
+    @State private var position: Double = 5
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -32,8 +35,20 @@ struct OnboardingStateSlider: View {
             // ends is the answer, and a 0-10 score invites people to think about
             // the number instead of the feeling. Set-vs-unset is still legible —
             // an untouched slider has no coloured fill behind the thumb.
-            Slider(value: proxy, in: 0...10, step: 1)
+            //
+            // No `step:` either. Stepping quantises the thumb to eleven stops,
+            // which is what made the drag feel like it was catching; the stored
+            // value is rounded on write instead, so the movement stays smooth
+            // and the data stays 0-10.
+            Slider(value: $position, in: 0...10)
                 .tint(value == nil ? Theme.border : tint)
+                .onChange(of: position) { _, new in
+                    value = Int(new.rounded())
+                }
+                .onAppear {
+                    // Restore the thumb when stepping back into the screen.
+                    if let value { position = Double(value) }
+                }
 
             HStack {
                 Text(lowLabel)
@@ -82,6 +97,134 @@ struct OnboardingCurrentStateScreen: View {
             .padding(.top, 4)
             .padding(.bottom, 8)
         }
+    }
+}
+
+// MARK: - Body metrics
+//
+// Height and weight with a unit switch. Entry is imperial or metric; storage is
+// always centimetres and kilograms, converted at the boundary, so no value in
+// the profile or on the server is ever ambiguous about its unit.
+//
+// The fields open pre-filled with US adult averages so the interaction is a
+// nudge rather than a blank box. That does mean an untouched screen records an
+// assumed height and weight as though stated — acceptable for two numbers used
+// to normalise metrics, and the step is still skippable.
+
+struct OnboardingBodyMetrics: View {
+    let gender: String?
+    @Binding var heightCm: Int?
+    @Binding var weightKg: Int?
+
+    @State private var units: UnitSystem = UnitSystem.current
+    @State private var feet   = ""
+    @State private var inches = ""
+    @State private var cm     = ""
+    @State private var pounds = ""
+    @State private var kilos  = ""
+    /// Gender-based seeding runs once. Without this, changing gender after
+    /// editing your own height would quietly overwrite what you typed.
+    @State private var seeded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("HEIGHT & WEIGHT")
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+                Spacer()
+                Picker("", selection: $units) {
+                    ForEach(UnitSystem.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 150)
+            }
+
+            HStack(spacing: 10) {
+                if units == .us {
+                    unitField(text: $feet,   suffix: "ft", width: nil)
+                    unitField(text: $inches, suffix: "in", width: nil)
+                } else {
+                    unitField(text: $cm, suffix: "cm", width: nil)
+                }
+                unitField(text: units == .us ? $pounds : $kilos,
+                          suffix: units == .us ? "lb" : "kg", width: nil)
+            }
+        }
+        .onAppear(perform: seedIfNeeded)
+        .onChange(of: gender) { _, _ in seedIfNeeded() }
+        .onChange(of: units)  { _, new in
+            UnitSystem.current = new
+            renderFields()          // re-render from stored metric, never from the other field
+        }
+        .onChange(of: feet)   { _, _ in commitHeight() }
+        .onChange(of: inches) { _, _ in commitHeight() }
+        .onChange(of: cm)     { _, _ in commitHeight() }
+        .onChange(of: pounds) { _, _ in commitWeight() }
+        .onChange(of: kilos)  { _, _ in commitWeight() }
+    }
+
+    private func unitField(text: Binding<String>, suffix: String, width: CGFloat?) -> some View {
+        HStack(spacing: 5) {
+            TextField("", text: text, prompt: Text("—").foregroundColor(Theme.dim))
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Theme.text)
+                .keyboardType(.numberPad)
+            Text(suffix)
+                .font(Theme.monoLabel)
+                .foregroundStyle(Theme.dim)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 52)
+        .frame(maxWidth: .infinity)
+        .background(Theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.border, lineWidth: 0.5))
+    }
+
+    // MARK: Seeding and rendering
+
+    private func seedIfNeeded() {
+        guard !seeded else { return }
+        seeded = true
+        if heightCm == nil { heightCm = BodyDefaults.heightCm(gender: gender) }
+        if weightKg == nil { weightKg = BodyDefaults.weightKg(gender: gender) }
+        renderFields()
+    }
+
+    /// Text fields are always drawn from the stored metric values, so switching
+    /// units can't accumulate rounding by converting a display string back and
+    /// forth.
+    private func renderFields() {
+        if let h = heightCm {
+            let ft = BodyUnits.feetInches(fromCm: h)
+            feet = String(ft.feet); inches = String(ft.inches); cm = String(h)
+        }
+        if let w = weightKg {
+            pounds = String(BodyUnits.pounds(fromKg: w)); kilos = String(w)
+        }
+    }
+
+    private func commitHeight() {
+        let value: Int?
+        if units == .us {
+            guard let f = Int(feet.filter(\.isNumber)) else { heightCm = nil; return }
+            let i = Int(inches.filter(\.isNumber)) ?? 0
+            value = BodyUnits.cm(feet: f, inches: i)
+        } else {
+            value = Int(cm.filter(\.isNumber))
+        }
+        heightCm = value.flatMap { OnboardingValidation.heightRangeCm.contains($0) ? $0 : nil }
+    }
+
+    private func commitWeight() {
+        let value: Int?
+        if units == .us {
+            value = Int(pounds.filter(\.isNumber)).map(BodyUnits.kg(fromPounds:))
+        } else {
+            value = Int(kilos.filter(\.isNumber))
+        }
+        weightKg = value.flatMap { OnboardingValidation.weightRangeKg.contains($0) ? $0 : nil }
     }
 }
 
