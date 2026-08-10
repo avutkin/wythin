@@ -54,7 +54,12 @@ struct ExerciseLogRow: View {
     static let laurelThreshold = 50
 
     private var crowned: Bool {
-        if case let .score(value, _) = overall { return value >= Self.laurelThreshold }
+        // Laurels need the score to be worth framing AND settled: a single-axis
+        // 100 captioned "based on recovery alone so far" celebrating at full
+        // volume is the row overpromising on one reading.
+        if case let .score(value, word) = overall {
+            return value >= Self.laurelThreshold && !word.contains("alone")
+        }
         return false
     }
 

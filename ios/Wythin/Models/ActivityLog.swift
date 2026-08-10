@@ -762,6 +762,14 @@ final class ActivityLog {
     /// and a comparison cannot be the score when there is nothing to compare to.
     var suppressionAxis: AxisValue {
         if vagalRoseDuring { return .unavailable(reason: "vagal tone rose — nothing suppressed") }
+        // The same case by another route: vagalRoseDuring needs a VSI fit, which
+        // sparse or restored samples may not support — but a non-positive
+        // brake-per-beat says the same thing directly. DC held or rose, nothing
+        // was released, and clamping it to a perfect 100 dressed a gentle yoga
+        // as flawless suppression.
+        if let perBeat = brakePerBeat, perBeat <= 0 {
+            return .unavailable(reason: "vagal tone held — nothing released")
+        }
         guard let score = ExerciseSuppression.economyScore(brakePerBeat: brakePerBeat) else {
             return .unavailable(reason: "not enough heart-rate rise to measure")
         }
