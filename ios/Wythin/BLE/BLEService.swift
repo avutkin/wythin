@@ -1,6 +1,7 @@
 import CoreBluetooth
 import Combine
 import Foundation
+import UserNotifications
 
 // MARK: - BLE Connection State
 
@@ -40,6 +41,69 @@ struct BLEDevice: Identifiable, Equatable {
         case (-75)...: return "Fair"
         default:       return "Weak"
         }
+    }
+}
+
+// MARK: - Device Ranking (pure, testable)
+//
+// The scan list promises "nearest first", but a single advertisement's RSSI
+// jitters ±10 dB packet to packet — sorting on raw readings would make the
+// NEAREST badge flap between straps. An EMA (α = 0.3) damps the jitter while
+// still letting a genuinely approaching device overtake within a few packets.
+// Deliberately free of CoreBluetooth so BLETests can drive it directly;
+// `didDiscover` is the only production caller.
+enum DeviceRanking {
+
+    /// Weight of the newest reading in the moving average.
+    private static let alpha = 0.3
+
+    /// CoreBluetooth delivers 127 when RSSI is unavailable for a packet.
+    private static let invalidRSSI = 127
+
+    /// Folds one advertisement reading into the list and returns it
+    /// re-sorted strongest-first (ties broken by id so order is stable).
+    static func merge(_ devices: [BLEDevice], id: UUID, name: String, rssi: Int) -> [BLEDevice] {
+        var devices = devices
+        if let idx = devices.firstIndex(where: { $0.id == id }) {
+            if rssi != invalidRSSI {
+                let smoothed = Double(devices[idx].rssi) * (1 - alpha) + Double(rssi) * alpha
+                devices[idx].rssi = Int(smoothed.rounded())
+            }
+            devices[idx] = BLEDevice(id: id, name: name, rssi: devices[idx].rssi)
+        } else {
+            guard rssi != invalidRSSI else { return devices }  // can't rank it yet
+            devices.append(BLEDevice(id: id, name: name, rssi: rssi))
+        }
+        return devices.sorted {
+            $0.rssi != $1.rssi ? $0.rssi > $1.rssi : $0.id.uuidString < $1.id.uuidString
+        }
+    }
+}
+
+// MARK: - Battery Alert Policy (pure, testable)
+//
+// The H10 runs on a user-replaceable CR2025 coin cell. Below 5% the strap can
+// die mid-session, so the app warns — but at most once a day: background
+// reconnects re-read the battery characteristic on every cycle, and a dying
+// cell would otherwise ping on each reconnect. The banner on the Live screen
+// (driven by `isCritical`) stays up the whole time; only the push is throttled.
+enum BatteryAlertPolicy {
+
+    /// "Below 5%" — 5% itself is not yet critical.
+    static let criticalThreshold = 5
+
+    /// Minimum gap between two low-battery notifications.
+    static let notifyInterval: TimeInterval = 86_400
+
+    static func isCritical(_ level: Int?) -> Bool {
+        guard let level else { return false }
+        return level < criticalThreshold
+    }
+
+    static func shouldNotify(level: Int, lastNotified: Date?, now: Date) -> Bool {
+        guard isCritical(level) else { return false }
+        guard let lastNotified else { return true }
+        return now.timeIntervalSince(lastNotified) > notifyInterval
     }
 }
 
@@ -229,6 +293,31 @@ final class BLEService: NSObject {
         )
     }
 
+    // MARK: - Battery alert
+
+    private let batteryAlertKey = "wythin.battery.lastAlert"
+
+    /// Posts the once-a-day low-battery push. The Live-screen banner is not
+    /// gated here — it renders directly off `batteryLevel` via
+    /// `BatteryAlertPolicy.isCritical` for as long as the cell stays low.
+    private func alertIfBatteryCritical(_ level: Int) {
+        let lastAlert = UserDefaults.standard.object(forKey: batteryAlertKey) as? Date
+        guard BatteryAlertPolicy.shouldNotify(level: level, lastNotified: lastAlert, now: Date())
+        else { return }
+        UserDefaults.standard.set(Date(), forKey: batteryAlertKey)
+        print("🪫 BLE: battery \(level)% — posting low-battery notification")
+
+        let content = UNMutableNotificationContent()
+        content.title = "Strap battery below 5%"
+        content.body = "Your Polar H10 is at \(level)% — replace the CR2025 coin cell soon so sessions don't cut out."
+        content.sound = .default
+        content.interruptionLevel = .active
+        let request = UNNotificationRequest(identifier: "wythin.battery.low",
+                                            content: content,
+                                            trigger: nil)   // deliver now, we're already awake
+        UNUserNotificationCenter.current().add(request)
+    }
+
     // MARK: - Public API
 
     /// Start scanning for a Polar H10. Cancels any pending reconnect timers.
@@ -282,9 +371,13 @@ final class BLEService: NSObject {
         // We filter for Polar devices by name in didDiscover instead.
         state = .scanning
         print("🔵 BLE: scanning (all devices, Polar name filter in didDiscover)…")
+        // AllowDuplicates keeps didDiscover firing for every advertisement, so
+        // RSSI (and the nearest-first sort) stays live as the phone moves.
+        // Battery cost is fine: the scan is foreground, user-initiated, and
+        // bounded by the 30 s timeout below.
         centralManager.scanForPeripherals(
             withServices: nil,
-            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
         )
 
         scanTimeoutTask = Task { @MainActor in
@@ -758,18 +851,17 @@ extension BLEService: CBCentralManagerDelegate {
         let displayName = name.isEmpty ? "Polar H10" : name
         let rssiVal = RSSI.intValue
         let uuid    = peripheral.identifier
-        print("📡 BLE: found '\(displayName)' RSSI \(rssiVal) dB  \(uuid)")
 
         Task { @MainActor in
+            // With AllowDuplicates on, this fires for every ad packet — log
+            // only the first sighting to keep the console readable.
+            if self.peripheralMap[uuid] == nil {
+                print("📡 BLE: found '\(displayName)' RSSI \(rssiVal) dB  \(uuid)")
+            }
             self.peripheralMap[uuid] = peripheral
 
-            let device = BLEDevice(id: uuid, name: displayName, rssi: rssiVal)
-            if let idx = self.discoveredDevices.firstIndex(where: { $0.id == uuid }) {
-                self.discoveredDevices[idx] = device
-            } else {
-                self.discoveredDevices.append(device)
-                self.discoveredDevices.sort { $0.rssi > $1.rssi }
-            }
+            self.discoveredDevices = DeviceRanking.merge(
+                self.discoveredDevices, id: uuid, name: displayName, rssi: rssiVal)
 
             // Auto-connect when the previously-used device is found
             let savedUUID = UserDefaults.standard.string(forKey: self.savedDeviceKey)
@@ -778,7 +870,7 @@ extension BLEService: CBCentralManagerDelegate {
             print("✅ BLE: saved device found — auto-connecting")
             self.scanTimeoutTask?.cancel()
             self.centralManager.stopScan()
-            self.state = .connecting(name: device.name)
+            self.state = .connecting(name: displayName)
             self.doConnect(peripheral)
         }
     }
@@ -1005,7 +1097,10 @@ extension BLEService: CBPeripheralDelegate {
 
         case PolarH10Profile.batteryLevel:
             let level = Int(data[0])
-            Task { @MainActor in self.batteryLevel = level }
+            Task { @MainActor in
+                self.batteryLevel = level
+                self.alertIfBatteryCritical(level)
+            }
 
         default: break
         }

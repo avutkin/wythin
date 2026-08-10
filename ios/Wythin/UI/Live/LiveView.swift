@@ -578,7 +578,8 @@ struct BLEConnectionSheet: View {
                                 .font(.caption)
                             Text("\(bat)%")
                                 .font(Theme.monoLabel)
-                                .foregroundStyle(Theme.dim)
+                                .foregroundStyle(BatteryAlertPolicy.isCritical(bat)
+                                                 ? Theme.warn : Theme.dim)
                         }
                     }
                 }
@@ -595,8 +596,38 @@ struct BLEConnectionSheet: View {
                             .strokeBorder(Theme.warn.opacity(0.3), lineWidth: 0.5)
                     )
             }
+
+            if BatteryAlertPolicy.isCritical(ble.batteryLevel) {
+                lowBatteryBanner
+            }
         }
         .cardStyle()
+    }
+
+    /// Stays up as long as the cell reads below 5% — the once-a-day push in
+    /// BLEService is the nudge; this is the standing reminder.
+    private var lowBatteryBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "battery.25percent")
+                .foregroundStyle(Theme.warn)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("BATTERY BELOW 5%")
+                    .font(Theme.monoBody)
+                    .foregroundStyle(Theme.warn)
+                Text("Replace the CR2025 coin cell soon — the strap can die mid-session.")
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.warn.opacity(0.09))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Theme.warn.opacity(0.35), lineWidth: 1)
+        )
     }
 
     private var deviceScanSection: some View {

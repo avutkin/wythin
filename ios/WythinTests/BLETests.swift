@@ -166,6 +166,82 @@ final class BLETests: XCTestCase {
         XCTAssertEqual(action, .keepWaiting)
     }
 
+    // MARK: - Device ranking (nearest-first scan list)
+
+    func testDeviceRankingAppendsNewDevicesSortedByRSSI() {
+        let far = UUID(), near = UUID()
+        var list = DeviceRanking.merge([], id: far, name: "Polar H10 A", rssi: -60)
+        list = DeviceRanking.merge(list, id: near, name: "Polar H10 B", rssi: -40)
+        XCTAssertEqual(list.map(\.id), [near, far], "Strongest signal must be first")
+    }
+
+    func testDeviceRankingSmoothsRepeatReadings() {
+        let id = UUID()
+        var list = DeviceRanking.merge([], id: id, name: "Polar H10", rssi: -60)
+        list = DeviceRanking.merge(list, id: id, name: "Polar H10", rssi: -30)
+        // EMA (α = 0.3): -60 × 0.7 + -30 × 0.3 = -51, not a raw jump to -30
+        XCTAssertEqual(list.count, 1)
+        XCTAssertEqual(list[0].rssi, -51)
+    }
+
+    func testDeviceRankingResortsWhenUpdatedDeviceOvertakes() {
+        let stable = UUID(), approaching = UUID()
+        var list = DeviceRanking.merge([], id: stable, name: "A", rssi: -40)
+        list = DeviceRanking.merge(list, id: approaching, name: "B", rssi: -70)
+        XCTAssertEqual(list.first?.id, stable)
+        // The phone moves toward B: strong readings pull its EMA past A's -40.
+        for _ in 0..<4 {
+            list = DeviceRanking.merge(list, id: approaching, name: "B", rssi: -20)
+        }
+        XCTAssertEqual(list.first?.id, approaching,
+                       "List must re-sort when an updated device becomes strongest")
+        XCTAssertEqual(list.count, 2)
+    }
+
+    func testDeviceRankingIgnoresInvalidRSSI() {
+        // CoreBluetooth reports 127 when RSSI is unavailable.
+        let known = UUID(), unknown = UUID()
+        var list = DeviceRanking.merge([], id: known, name: "A", rssi: -50)
+        list = DeviceRanking.merge(list, id: known, name: "A", rssi: 127)
+        XCTAssertEqual(list[0].rssi, -50, "Invalid reading must not disturb the EMA")
+        list = DeviceRanking.merge(list, id: unknown, name: "B", rssi: 127)
+        XCTAssertEqual(list.count, 1, "A device with no valid reading yet cannot be ranked")
+    }
+
+    // MARK: - Battery alert (below 5% → warn once a day)
+
+    func testBatteryAlertFiresBelowThreshold() {
+        XCTAssertTrue(BatteryAlertPolicy.shouldNotify(
+            level: 4, lastNotified: nil, now: Date(timeIntervalSince1970: 1_000_000)))
+    }
+
+    func testBatteryAlertQuietAtOrAboveThreshold() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        XCTAssertFalse(BatteryAlertPolicy.shouldNotify(level: 5, lastNotified: nil, now: now),
+                       "5% is not below 5%")
+        XCTAssertFalse(BatteryAlertPolicy.shouldNotify(level: 80, lastNotified: nil, now: now))
+    }
+
+    func testBatteryAlertThrottledWithinADay() {
+        // Background reconnects re-read the battery char every cycle — without
+        // the throttle a dying cell would ping on every reconnect.
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let anHourAgo = now.addingTimeInterval(-3600)
+        XCTAssertFalse(BatteryAlertPolicy.shouldNotify(level: 3, lastNotified: anHourAgo, now: now))
+    }
+
+    func testBatteryAlertFiresAgainAfterADay() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let overADayAgo = now.addingTimeInterval(-86_401)
+        XCTAssertTrue(BatteryAlertPolicy.shouldNotify(level: 3, lastNotified: overADayAgo, now: now))
+    }
+
+    func testBatteryCriticalClassification() {
+        XCTAssertTrue(BatteryAlertPolicy.isCritical(4))
+        XCTAssertFalse(BatteryAlertPolicy.isCritical(5))
+        XCTAssertFalse(BatteryAlertPolicy.isCritical(nil), "No reading yet is not an alert")
+    }
+
     // MARK: - DataBuffer
 
     @MainActor
