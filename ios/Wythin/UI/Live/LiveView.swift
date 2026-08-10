@@ -141,6 +141,9 @@ private struct DayScrollView: View {
     @State private var chartRaw:      [MetricsHistoryPoint] = []
     @State private var chartFiltered: [MetricsHistoryPoint] = []
     @State private var chartDayAvg:   MetricsTick?          = nil
+    // The last 7 recorded days before this page's day — the metrics grid's
+    // comparison target. Built once per page from cached rollups.
+    @State private var reference:     LiveDayReference?     = nil
     @State private var liveStore      = LiveStateStore()
     @State private var potentialStore = DayPotentialStore()
 
@@ -187,16 +190,17 @@ private struct DayScrollView: View {
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.dim)
                         Spacer()
-                        if isToday && chartDayAvg != nil {
-                            Text("Δ vs today avg")
+                        if reference != nil {
+                            Text(isToday ? "today vs 7-day" : "vs 7-day")
                                 .font(Theme.monoLabel)
                                 .foregroundStyle(Theme.dim.opacity(0.6))
                         }
                     }
                     .padding(.horizontal)
                     MetricsTableView(
-                        tick:       isToday ? env.latestTick : chartDayAvg,
-                        comparison: isToday ? chartDayAvg    : nil
+                        tick:      isToday ? env.latestTick : chartDayAvg,
+                        dayAvg:    isToday ? chartDayAvg    : nil,
+                        reference: reference
                     )
                     .padding(.horizontal)
                 }
@@ -270,6 +274,7 @@ private struct DayScrollView: View {
         chartRaw      = raw
         chartFiltered = filtered
         chartDayAvg   = dayAverageTick(from: filtered)
+        loadReferenceIfNeeded()
     }
 
     /// Loads a past day's history off the main thread. The synchronous 43k-row
@@ -299,6 +304,22 @@ private struct DayScrollView: View {
         chartRaw      = result.0
         chartFiltered = result.1
         chartDayAvg   = dayAverageTick(from: result.1)
+        loadReferenceIfNeeded()
+    }
+
+    /// Builds the 7-recorded-day reference for this page from cached rollups.
+    /// Rollups only change on day boundaries and bulk syncs, so once per page
+    /// is enough — the guard also keeps the 15 s chart cadence off the cache.
+    @MainActor
+    private func loadReferenceIfNeeded() {
+        guard reference == nil else { return }
+        env.trackCache.load()
+        let start  = Calendar.current.startOfDay(for: date)
+        let cutoff = Calendar.current.date(byAdding: .day, value: -180, to: start) ?? .distantPast
+        reference  = LiveDayComparison.reference(
+            rollups: env.trackCache.rollups(in: cutoff...start),
+            before:  start
+        )
     }
 
     private func dayAverageTick(from history: [MetricsHistoryPoint]) -> MetricsTick? {
@@ -853,8 +874,9 @@ private struct DeviceRow: View {
 // MARK: - Metrics Table
 
 private struct MetricsTableView: View {
-    let tick:       MetricsTick?
-    let comparison: MetricsTick?   // day avg (today) or nil
+    let tick:      MetricsTick?       // live tick (today) or the day average (past days)
+    let dayAvg:    MetricsTick?       // today's running average; nil on past days
+    let reference: LiveDayReference?  // last 7 recorded days before the viewed day
 
     private let cols = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
 
@@ -863,23 +885,53 @@ private struct MetricsTableView: View {
         // order, shared with the Track charts and the Live history charts.
         // Calm Power and Pulse have no Track chart, so they follow the rest.
         LazyVGrid(columns: cols, spacing: 10) {
-            MetricTile(label: "Stress Balance",       techLabel: "SNS",     value: stressString,                     unit: "%",   delta: delta(stressBalance(tick), stressBalance(comparison)), higherBetter: false)
-            MetricTile(label: "Conscious Breathing",  techLabel: "RSA",     value: MetricFormat.ms(tick?.rsaMs),    unit: "ms",  delta: delta(tick?.rsaMs,   comparison?.rsaMs),   higherBetter: true)
-            MetricTile(label: "Harmony",              techLabel: "DFA α1",  value: dfa1String,                       unit: "",    delta: delta(tick?.dfa1,    comparison?.dfa1),    higherBetter: false)
-            MetricTile(label: "Vagal Tone",           techLabel: "DC",      value: dcString,                         unit: "ms",  delta: delta(tick?.dc,      comparison?.dc),      higherBetter: true)
-            MetricTile(label: "Energy Reserve",       techLabel: "HRV",     value: MetricFormat.ms(tick?.rmssd),    unit: "ms",  delta: delta(tick?.rmssd,   comparison?.rmssd),   higherBetter: true)
-            MetricTile(label: "Inner Noise",          techLabel: "PIP",     value: pipString,                        unit: "%",   delta: delta(tick?.pip,     comparison?.pip),     higherBetter: false)
-            MetricTile(label: "Adaptive Capacity",    techLabel: "RCMSE",   value: rcmseString,                      unit: "",    delta: delta(tick?.rcmse,   comparison?.rcmse),   higherBetter: true)
-            MetricTile(label: "Calm Power",           techLabel: "VTI",     value: MetricFormat.ratio(tick?.vti),   unit: "",    delta: delta(tick?.vti,     comparison?.vti),     higherBetter: true)
-            MetricTile(label: "Pulse",                techLabel: "HR",      value: MetricFormat.bpm(tick?.meanBPM), unit: "bpm", delta: delta(tick?.meanBPM, comparison?.meanBPM), higherBetter: false)
+            tile("Stress Balance",      "SNS",    "%",   .stressBalance, stressBalance) { String(format: "%.0f", $0) }
+            tile("Conscious Breathing", "RSA",    "ms",  .rsa,           { $0?.rsaMs })  { String(format: "%.1f", $0) }
+            tile("Harmony",             "DFA α1", "",    .dfa1,          { $0?.dfa1 })   { String(format: "%.2f", $0) }
+            tile("Vagal Tone",          "DC",     "ms",  .dc,            { $0?.dc })     { String(format: "%.1f", $0) }
+            tile("Energy Reserve",      "HRV",    "ms",  .rmssd,         { $0?.rmssd })  { String(format: "%.1f", $0) }
+            tile("Inner Noise",         "PIP",    "%",   .pip,           { $0?.pip })    { String(format: "%.1f", $0) }
+            tile("Adaptive Capacity",   "RCMSE",  "",    .rcmse,         { $0?.rcmse })  { String(format: "%.2f", $0) }
+            tile("Calm Power",          "VTI",    "",    .vti,           { $0?.vti })    { String(format: "%.2f", $0) }
+            tile("Pulse",               "HR",     "bpm", .hr,            { $0?.meanBPM }) { String(format: "%.0f", $0) }
         }
     }
 
-    private var dfa1String:  String { tick?.dfa1.map  { String(format: "%.2f", $0) } ?? "—" }
-    private var rcmseString: String { tick?.rcmse.map { String(format: "%.2f", $0) } ?? "—" }
-    private var pipString:   String { tick?.pip.map   { String(format: "%.1f", $0) } ?? "—" }
-    private var dcString:    String { tick?.dc.map    { String(format: "%.1f", $0) } ?? "—" }
-    private var stressString: String { stressBalance(tick).map { String(format: "%.0f", $0) } ?? "—" }
+    /// One tile's plumbing: on today, `tick` is live and `dayAvg` is the day;
+    /// on past days `tick` IS the day and there is no "now".
+    private func tile(_ label: String, _ tech: String, _ unit: String,
+                      _ metric: LiveMetric,
+                      _ value: (MetricsTick?) -> Float?,
+                      _ fmt: (Float) -> String) -> LiveDeltaTile {
+        let current  = value(tick)
+        let dayValue = dayAvg != nil ? value(dayAvg) : current
+
+        let delta = dayValue.flatMap { d in
+            reference.flatMap { LiveDayDelta.compute(value: d, metric: metric, reference: $0) }
+        }
+
+        // Live vs today's average — today only, and only once the day average
+        // is non-degenerate.
+        var nowPercent: Float?    = nil
+        var nowBeneficial: Bool?  = nil
+        if dayAvg != nil, let c = current, let d = dayValue, abs(d) > 1e-6 {
+            nowPercent = (c - d) / abs(d) * 100
+            let dir = LiveDayComparison.direction(for: metric)
+            nowBeneficial = dir.benefit(Double(c)) > dir.benefit(Double(d))
+        }
+
+        return LiveDeltaTile(
+            label:      label,
+            techLabel:  tech,
+            unit:       unit,
+            valueText:  current.map(fmt) ?? "—",
+            todayText:  dayAvg != nil ? dayValue.map(fmt) : nil,
+            refText:    reference?.stat(for: metric).map { fmt($0.mean) },
+            delta:      delta,
+            nowPercent: nowPercent,
+            nowBeneficial: nowBeneficial
+        )
+    }
 
     /// Breathing-robust 0–100 stress dial (SNS %), the same signal the Stress
     /// Balance chart plots — NOT the raw LF/HF ratio, which misleads during
@@ -889,11 +941,6 @@ private struct MetricsTableView: View {
         return AutonomicCompute.balance(rmssd: t.rmssd, lf: t.lfPower, hf: t.hfPower,
                                         breathBPM: t.breathBPM, meanBPM: t.meanBPM,
                                         baselineRmssd: nil).map { $0.sns * 100 }
-    }
-
-    private func delta(_ live: Float?, _ avg: Float?) -> Float? {
-        guard let l = live, let a = avg else { return nil }
-        return l - a
     }
 }
 
