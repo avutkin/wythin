@@ -90,6 +90,9 @@ struct ExerciseDetailView: View {
                     }
                     header
                     overallCard
+                    // The session as five questions in the order they happened,
+                    // above the raw metric cards rather than replacing them.
+                    ExerciseQuestionSections(entry: entry)
                     coachCard
                     sessionCard
                     suppressionCard

@@ -103,6 +103,7 @@
 		D07587900CF0F451D2296B6E /* RecoveryCurveChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FAD5A571618CC30124B0A6D /* RecoveryCurveChart.swift */; };
 		572FE6B7D226F114A58E9495 /* CostScatterChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEE9F1E89C1080D7968C81F /* CostScatterChart.swift */; };
 		18D9F03ADFCE85B5F794E94D /* ExerciseDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAFB2854BF564659AB44437A /* ExerciseDetailView.swift */; };
+		E379677A56EAAB96F64FED45 /* ExerciseQuestionSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C9AF876A96ED32855CF45CA /* ExerciseQuestionSections.swift */; };
 		973C076BBA17753FE1E14F39 /* IntensityDomainBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DB14932B2654296DD711453 /* IntensityDomainBar.swift */; };
 		464AD9DEC520D515A61A3DE7 /* SessionTimelineChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB3DAF0C092FF0CCF91FDF70 /* SessionTimelineChart.swift */; };
 		A151 /* ActivityMetricStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = F151 /* ActivityMetricStats.swift */; };
@@ -348,6 +349,7 @@
 		6FAD5A571618CC30124B0A6D /* RecoveryCurveChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryCurveChart.swift; sourceTree = "<group>"; };
 		BEEE9F1E89C1080D7968C81F /* CostScatterChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CostScatterChart.swift; sourceTree = "<group>"; };
 		EAFB2854BF564659AB44437A /* ExerciseDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseDetailView.swift; sourceTree = "<group>"; };
+		4C9AF876A96ED32855CF45CA /* ExerciseQuestionSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseQuestionSections.swift; sourceTree = "<group>"; };
 		8DB14932B2654296DD711453 /* IntensityDomainBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntensityDomainBar.swift; sourceTree = "<group>"; };
 		EB3DAF0C092FF0CCF91FDF70 /* SessionTimelineChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTimelineChart.swift; sourceTree = "<group>"; };
 		F151 /* ActivityMetricStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricStats.swift; sourceTree = "<group>"; };
@@ -534,6 +536,7 @@
 				6FAD5A571618CC30124B0A6D /* RecoveryCurveChart.swift */,
 				BEEE9F1E89C1080D7968C81F /* CostScatterChart.swift */,
 				EAFB2854BF564659AB44437A /* ExerciseDetailView.swift */,
+				4C9AF876A96ED32855CF45CA /* ExerciseQuestionSections.swift */,
 				8DB14932B2654296DD711453 /* IntensityDomainBar.swift */,
 				EB3DAF0C092FF0CCF91FDF70 /* SessionTimelineChart.swift */,
 				F153 /* PracticeImpactMeter.swift */,
@@ -1075,6 +1078,7 @@
 				D07587900CF0F451D2296B6E /* RecoveryCurveChart.swift in Sources */,
 				572FE6B7D226F114A58E9495 /* CostScatterChart.swift in Sources */,
 				18D9F03ADFCE85B5F794E94D /* ExerciseDetailView.swift in Sources */,
+				E379677A56EAAB96F64FED45 /* ExerciseQuestionSections.swift in Sources */,
 				973C076BBA17753FE1E14F39 /* IntensityDomainBar.swift in Sources */,
 				464AD9DEC520D515A61A3DE7 /* SessionTimelineChart.swift in Sources */,
 				A153 /* PracticeImpactMeter.swift in Sources */,
