@@ -13,7 +13,8 @@ struct PracticeHubView: View {
     @State private var showBLESheet             = false
 
     // 3-up grid of practice tiles.
-    private let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+    // .top so a two-line title doesn't push its neighbour's art down the row.
+    private let gridColumns = Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 3)
 
     /// Practices for the current filter. When unfiltered, Resonance is pulled
     /// out into the featured card so it isn't listed twice.
@@ -129,7 +130,9 @@ private struct PracticeGridTile: View {
             Text(practice.title)
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundStyle(Theme.text)
-                .lineLimit(2)
+                // Both lines always reserved, so the duration under a one-line
+                // title still sits level with its neighbours'.
+                .lineLimit(2, reservesSpace: true)
                 .minimumScaleFactor(0.85)
                 .fixedSize(horizontal: false, vertical: true)
 

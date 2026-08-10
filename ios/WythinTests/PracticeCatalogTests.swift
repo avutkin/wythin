@@ -54,8 +54,16 @@ final class PracticeCatalogTests: XCTestCase {
     /// reminder to restore the real invariant above it.
     func testCatalogIsTemporarilyThePacersOnly() {
         XCTAssertEqual(PracticeCatalog.practices.map(\.id),
-                       ["box-breathing", "resonance-breathing"],
+                       ["box-breathing", "resonance-breathing", "coherent-breathing"],
                        "catalog changed — restore the per-category and per-state coverage tests")
+    }
+
+    /// One art token across the catalog. If a practice ever needs its own again,
+    /// this is the test that should be deleted deliberately rather than the
+    /// consistency drifting away unnoticed.
+    func testEveryPracticeSharesTheSameArt() {
+        let arts = Set(PracticeCatalog.practices.map(\.art))
+        XCTAssertEqual(arts.count, 1, "practices are meant to share one art token")
     }
 
     func testTheOnlyPopulatedCategoryIsBreathwork() {
@@ -111,6 +119,39 @@ final class PracticeCatalogTests: XCTestCase {
     }
 
     // MARK: Pacer practices
+
+    /// 5.5 seconds a phase is only expressible as whole beats on a half-second
+    /// beat, so this practice's tempo is load-bearing, not a preference.
+    func testCoherentBreathingIsExactlyFiveAndAHalfSecondsEachWay() {
+        guard let coherent = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing" }),
+              let pattern  = coherent.breathPattern else {
+            return XCTFail("coherent-breathing missing from the catalog")
+        }
+        XCTAssertEqual(coherent.defaultBPM, 120)
+        XCTAssertEqual(pattern.inhale, 11)
+        XCTAssertFalse(pattern.hasHolds)
+
+        let beatSeconds  = 60.0 / Double(coherent.defaultBPM)
+        let phaseSeconds = Double(pattern.inhale) * beatSeconds
+        XCTAssertEqual(phaseSeconds, 5.5, accuracy: 0.0001)
+        XCTAssertEqual(pattern.cycleSeconds(bpm: coherent.defaultBPM), 11.0, accuracy: 0.0001)
+        XCTAssertEqual(pattern.breathsPerMinute(bpm: coherent.defaultBPM), 60.0 / 11.0, accuracy: 0.0001)
+        XCTAssertEqual(coherent.subtype, "Coherent Breathing")
+    }
+
+    /// The session's pace stepper has to be able to reach every shipped pattern,
+    /// or a practice opens on a setting its own controls can't express.
+    func testEveryPacerPatternIsReachableFromTheSessionControls() {
+        for practice in PracticeCatalog.practices {
+            guard let pattern = practice.breathPattern else { continue }
+            XCTAssertTrue((2...12).contains(pattern.inhale),
+                          "\(practice.id): \(pattern.inhale) beats is outside the pace stepper's range")
+            XCTAssertTrue((40...120).contains(practice.defaultBPM),
+                          "\(practice.id): \(practice.defaultBPM) BPM is outside the tempo stepper's range")
+            XCTAssertEqual(practice.defaultBPM % 5, 0,
+                           "\(practice.id): the tempo stepper moves in fives, so \(practice.defaultBPM) is unreachable")
+        }
+    }
 
     func testResonanceBreathingIsAHoldFreePacer() {
         guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }) else {

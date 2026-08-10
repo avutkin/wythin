@@ -122,6 +122,10 @@ struct Practice: Identifiable, Hashable {
     let activityType:        ActivityType   // reuse the logging enum
     let subtype:             String?        // must be a member of activityType.subtypes
     let defaultDurationMins: Int
+    /// Metronome tempo this practice ships with. Pace is counted in beats, so the
+    /// tempo is what fixes a phase in seconds — a 5.5-second phase is only
+    /// reachable as 11 beats at 120 BPM.
+    let defaultBPM:          Int
     let description:         String
     /// Two or three plain sentences on the mechanism — what the practice does to
     /// the body, and why the shape of it matters.

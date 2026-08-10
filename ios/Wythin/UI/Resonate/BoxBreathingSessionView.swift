@@ -35,7 +35,8 @@ struct BoxBreathingSessionView: View {
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private let minuteRange = 1...60
-    private let beatRange   = 2...10
+    // Up to 12 so a 5.5-second phase is reachable: 11 beats at 120 BPM.
+    private let beatRange   = 2...12
     private let bpmRange    = 40...120
     private let bpmStep     = 5
 
@@ -45,8 +46,8 @@ struct BoxBreathingSessionView: View {
         let defaults = practice.id
         _minutes = AppStorage(wrappedValue: practice.defaultDurationMins, "pacer.\(defaults).minutes")
         _beats   = AppStorage(wrappedValue: base.inhale,                  "pacer.\(defaults).beats")
-        _bpm     = AppStorage(wrappedValue: 60,                           "pacer.\(defaults).bpm")
-        _engine  = State(initialValue: BoxBreathEngine(pattern: base))
+        _bpm     = AppStorage(wrappedValue: practice.defaultBPM,          "pacer.\(defaults).bpm")
+        _engine  = State(initialValue: BoxBreathEngine(pattern: base, bpm: practice.defaultBPM))
     }
 
     /// The pattern the controls describe — the practice's own shape, resized to
