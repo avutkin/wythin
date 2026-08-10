@@ -91,6 +91,7 @@
 		A145 /* InsightGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F145 /* InsightGenerator.swift */; };
 		A146 /* LiveStateTrendCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F146 /* LiveStateTrendCompute.swift */; };
 		A147 /* LiveStateWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F147 /* LiveStateWidget.swift */; };
+		A991 /* LiveDeltaTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = F991 /* LiveDeltaTile.swift */; };
 		A148 /* MetricTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = F148 /* MetricTile.swift */; };
 		A149 /* ActivityMetricsGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = F149 /* ActivityMetricsGrid.swift */; };
 		A150 /* ActivityWindowChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = F150 /* ActivityWindowChart.swift */; };
@@ -179,6 +180,7 @@
 		AT13 /* AnchorDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT13 /* AnchorDetectorTests.swift */; };
 		AT43 /* AnchorBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT43 /* AnchorBackfillTests.swift */; };
 		AT14 /* AnchorBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT14 /* AnchorBaselineTests.swift */; };
+		AT90 /* LiveDayComparisonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT90 /* LiveDayComparisonTests.swift */; };
 		AT15 /* PotentialScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT15 /* PotentialScoreTests.swift */; };
 		AT16 /* StreakComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT16 /* StreakComputeTests.swift */; };
 		AT44 /* TrackCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT44 /* TrackCacheTests.swift */; };
@@ -195,6 +197,7 @@
 		A50 /* LiveMetric.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50 /* LiveMetric.swift */; };
 		AT51 /* LiveMetricTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT51 /* LiveMetricTests.swift */; };
 		A51 /* LiveBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51 /* LiveBaseline.swift */; };
+		A990 /* LiveDayComparison.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990 /* LiveDayComparison.swift */; };
 		AT52 /* LiveBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT52 /* LiveBaselineTests.swift */; };
 		ATCC /* CurrentStateCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FTCC /* CurrentStateCardTests.swift */; };
 		A54 /* LiveReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = F54 /* LiveReading.swift */; };
@@ -327,6 +330,7 @@
 		F145 /* InsightGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightGenerator.swift; sourceTree = "<group>"; };
 		F146 /* LiveStateTrendCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateTrendCompute.swift; sourceTree = "<group>"; };
 		F147 /* LiveStateWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateWidget.swift; sourceTree = "<group>"; };
+		F991 /* LiveDeltaTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDeltaTile.swift; sourceTree = "<group>"; };
 		F148 /* MetricTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricTile.swift; sourceTree = "<group>"; };
 		F149 /* ActivityMetricsGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricsGrid.swift; sourceTree = "<group>"; };
 		F150 /* ActivityWindowChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityWindowChart.swift; sourceTree = "<group>"; };
@@ -418,6 +422,7 @@
 		FT13 /* AnchorDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetectorTests.swift; sourceTree = "<group>"; };
 		FT43 /* AnchorBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBackfillTests.swift; sourceTree = "<group>"; };
 		FT14 /* AnchorBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaselineTests.swift; sourceTree = "<group>"; };
+		FT90 /* LiveDayComparisonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDayComparisonTests.swift; sourceTree = "<group>"; };
 		FT15 /* PotentialScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScoreTests.swift; sourceTree = "<group>"; };
 		FT16 /* StreakComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakComputeTests.swift; sourceTree = "<group>"; };
 		FT44 /* TrackCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackCacheTests.swift; sourceTree = "<group>"; };
@@ -455,6 +460,7 @@
 		F50 /* LiveMetric.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveMetric.swift; sourceTree = "<group>"; };
 		FT51 /* LiveMetricTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveMetricTests.swift; sourceTree = "<group>"; };
 		F51 /* LiveBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveBaseline.swift; sourceTree = "<group>"; };
+		F990 /* LiveDayComparison.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDayComparison.swift; sourceTree = "<group>"; };
 		FT52 /* LiveBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveBaselineTests.swift; sourceTree = "<group>"; };
 		FTCC /* CurrentStateCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentStateCardTests.swift; sourceTree = "<group>"; };
 		F54 /* LiveReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReading.swift; sourceTree = "<group>"; };
@@ -597,6 +603,7 @@
 				F139 /* CurrentStateCard.swift */,
 				F140 /* RecommendedActionCard.swift */,
 				F147 /* LiveStateWidget.swift */,
+				F991 /* LiveDeltaTile.swift */,
 			);
 			path = Live;
 			sourceTree = "<group>";
@@ -658,6 +665,7 @@
 				F255 /* ConsistencySummary.swift */,
 				F50 /* LiveMetric.swift */,
 				F51 /* LiveBaseline.swift */,
+				F990 /* LiveDayComparison.swift */,
 				F54 /* LiveReading.swift */,
 				F56 /* LiveStateClassifier.swift */,
 				F57 /* LiveStateCopy.swift */,
@@ -802,6 +810,7 @@
 				FT16 /* StreakComputeTests.swift */,
 				FT15 /* PotentialScoreTests.swift */,
 				FT14 /* AnchorBaselineTests.swift */,
+				FT90 /* LiveDayComparisonTests.swift */,
 				FT13 /* AnchorDetectorTests.swift */,
 				FT43 /* AnchorBackfillTests.swift */,
 				FT01 /* MetricsTests.swift */,
@@ -1031,6 +1040,7 @@
 				A139 /* CurrentStateCard.swift in Sources */,
 				A140 /* RecommendedActionCard.swift in Sources */,
 				A147 /* LiveStateWidget.swift in Sources */,
+				A991 /* LiveDeltaTile.swift in Sources */,
 				A141 /* DFACompute.swift in Sources */,
 				A142 /* AdvancedHRVCompute.swift in Sources */,
 				A143 /* ECGQualityCompute.swift in Sources */,
@@ -1093,6 +1103,7 @@
 				A6E1AF270813ABED5CDABAE7 /* ExerciseScoreGauge.swift in Sources */,
 				A50 /* LiveMetric.swift in Sources */,
 				A51 /* LiveBaseline.swift in Sources */,
+				A990 /* LiveDayComparison.swift in Sources */,
 				A54 /* LiveReading.swift in Sources */,
 				A56 /* LiveStateClassifier.swift in Sources */,
 				A57 /* LiveStateCopy.swift in Sources */,
@@ -1131,6 +1142,7 @@
 				AT49 /* ConsistencyCardTests.swift in Sources */,
 				AT15 /* PotentialScoreTests.swift in Sources */,
 				AT14 /* AnchorBaselineTests.swift in Sources */,
+				AT90 /* LiveDayComparisonTests.swift in Sources */,
 				AT13 /* AnchorDetectorTests.swift in Sources */,
 				AT43 /* AnchorBackfillTests.swift in Sources */,
 				AT01 /* MetricsTests.swift in Sources */,
