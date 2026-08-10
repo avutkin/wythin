@@ -7,18 +7,21 @@ import Foundation
 /// replaces printed three dashes and a "1 of 7", which told its reader nothing
 /// except that the app was unsure of itself.
 ///
-/// Warm-up speed, Steadiness and Readiness are absent from this list on
-/// purpose: they need a time-to-half-range, a second-half drift and a
-/// pre-session anchor read, none of which is stored yet. They arrive with the
-/// field that feeds them, not before.
+
 extension ActivityLog {
 
     var scoredIndices: [ScoredIndex] {
         [
+            readinessIndex,
             brakeReleaseIndex,
             efficiencyIndex,
             bounceBackIndex,
         ].compactMap { $0 }
+    }
+
+    /// How you arrived — the only reading here you could still have acted on.
+    var readinessIndex: ScoredIndex? {
+        ReadinessScore.index(value: readinessScore, peerCount: readinessPeerCount ?? 0)
     }
 
     /// How far the calm brake came off for the work that was done.
@@ -54,13 +57,34 @@ extension ActivityLog {
     /// keeps it out of the mean rather than letting an unscored construct
     /// silently weight the result.
     var bounceBackIndex: ScoredIndex? {
-        let value = BounceBackIndex.score(hrr60Bpm: hrr60Bpm,
-                                          halfRecoveryMinutes: halfRecoveryMinutes,
-                                          decoupling: nil,
-                                          decouplingMean: nil,
-                                          decouplingHistoryCount: 0)
-        return BounceBackIndex.index(value: value,
-                                     halfRecoveryMinutes: halfRecoveryMinutes)
+        let fromParts = BounceBackIndex.score(hrr60Bpm: hrr60Bpm,
+                                              halfRecoveryMinutes: halfRecoveryMinutes,
+                                              decoupling: nil,
+                                              decouplingMean: nil,
+                                              decouplingHistoryCount: 0)
+        // Fall back to the recovery axis. It also scores a session where the
+        // brake never reached halfway inside the recording — `.notReached` —
+        // which the three-part mean has no input for. Without this the index is
+        // stricter than the chip it replaced, and a real session that had a
+        // recovery reading shows an empty grid.
+        let value = fromParts ?? {
+            if case let .score(v, _) = recoveryAxis { return v }
+            return nil
+        }()
+        guard let value else { return nil }
+
+        let detail: String
+        switch recoveryOutcome {
+        case let .reached(minutes):    detail = String(format: "halfway in %.1f min", minutes)
+        case let .notReached(observed): detail = "not halfway in \(Int(observed.rounded())) min"
+        case .notObserved:              detail = hrr60Bpm.map { "\(Int($0.rounded())) bpm shed" } ?? ""
+        }
+        return ScoredIndex(name: BounceBackIndex.displayName,
+                           value: value,
+                           verdict: value >= IndexBand.keepAbove ? "came back fast"
+                                  : value >= IndexBand.actBelow  ? "came back slowly"
+                                                                 : "still not back",
+                           detail: detail)
     }
 
     /// The quantities with no good or bad direction.

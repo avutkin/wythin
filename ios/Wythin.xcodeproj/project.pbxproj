@@ -25,6 +25,7 @@
 		04C27CD78B1B40DBA5522FB9 /* HRCeilingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCEA22F3FB1E016118D8EE01 /* HRCeilingTests.swift */; };
 		04B07817C335F28A352F88E9 /* ActivityClassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20866A7D973F59840EBFADEE /* ActivityClassTests.swift */; };
 		5B535DBF8693DF78AD3B5940 /* SessionIndicesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 878397CB85F30EE4B8F3CE2F /* SessionIndicesTests.swift */; };
+		6453AB78BC08DBB05A7787F6 /* ActivityRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A55922396C435F43D09AA5D3 /* ActivityRestoreTests.swift */; };
 		FD13F4B1CB1B182D4EB3D95D /* ActivityLogIndicesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A051D03CB24885D77C7EE82A /* ActivityLogIndicesTests.swift */; };
 		519BA43B55690D5F8761EBBF /* UsageUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE6F0E9C8772030B86BA730E /* UsageUploader.swift */; };
 		A101 /* WythinApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F101 /* WythinApp.swift */; };
@@ -102,6 +103,7 @@
 		D07587900CF0F451D2296B6E /* RecoveryCurveChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FAD5A571618CC30124B0A6D /* RecoveryCurveChart.swift */; };
 		572FE6B7D226F114A58E9495 /* CostScatterChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEE9F1E89C1080D7968C81F /* CostScatterChart.swift */; };
 		18D9F03ADFCE85B5F794E94D /* ExerciseDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAFB2854BF564659AB44437A /* ExerciseDetailView.swift */; };
+		E379677A56EAAB96F64FED45 /* ExerciseQuestionSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C9AF876A96ED32855CF45CA /* ExerciseQuestionSections.swift */; };
 		973C076BBA17753FE1E14F39 /* IntensityDomainBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DB14932B2654296DD711453 /* IntensityDomainBar.swift */; };
 		464AD9DEC520D515A61A3DE7 /* SessionTimelineChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB3DAF0C092FF0CCF91FDF70 /* SessionTimelineChart.swift */; };
 		A151 /* ActivityMetricStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = F151 /* ActivityMetricStats.swift */; };
@@ -111,6 +113,7 @@
 		3847A43031559CCBE6AA9DEE /* RestorativeScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 041B40C3B9505CB3B72A1174 /* RestorativeScore.swift */; };
 		14A847C99DDFBB4855D108FF /* RecoveryTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8425FF74AF41CA2DD465510 /* RecoveryTiming.swift */; };
 		FDFB9967A3DA1A59C2615AE3 /* SessionIndices.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFD9E87E71DB9497147BAF96 /* SessionIndices.swift */; };
+		B68190250A9646581B5373E1 /* ReadinessScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A01641D9220B788C75A190B3 /* ReadinessScore.swift */; };
 		D4C636AAB38591F026C89F7A /* ActivityLogIndices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CD333D2D7656492FE92D40 /* ActivityLogIndices.swift */; };
 		0494739CC2085FEDCA412073 /* ReserveSpan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D2DA763415A735C4235EAC3 /* ReserveSpan.swift */; };
 		4B4B9AEF69C85FFFB3320D8E /* SessionCoachSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D12AFB7E233F1788DF1389B /* SessionCoachSummary.swift */; };
@@ -140,6 +143,7 @@
 		A207 /* BiofeedbackSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F207 /* BiofeedbackSessionView.swift */; };
 		A208 /* ActivityUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F208 /* ActivityUploader.swift */; };
 		A992 /* CloudRestoreService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F992 /* CloudRestoreService.swift */; };
+		8347B3DDA06ADC21D3E5F709 /* ActivityRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 069EE46E63C336F2DE95016D /* ActivityRestore.swift */; };
 		A261 /* FeltStateLogUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F261 /* FeltStateLogUploader.swift */; };
 		A209 /* MotionCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F209 /* MotionCompute.swift */; };
 		A210 /* AnchorDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F210 /* AnchorDetector.swift */; };
@@ -267,6 +271,7 @@
 		CCEA22F3FB1E016118D8EE01 /* HRCeilingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HRCeilingTests.swift; sourceTree = "<group>"; };
 		20866A7D973F59840EBFADEE /* ActivityClassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityClassTests.swift; sourceTree = "<group>"; };
 		878397CB85F30EE4B8F3CE2F /* SessionIndicesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndicesTests.swift; sourceTree = "<group>"; };
+		A55922396C435F43D09AA5D3 /* ActivityRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRestoreTests.swift; sourceTree = "<group>"; };
 		A051D03CB24885D77C7EE82A /* ActivityLogIndicesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogIndicesTests.swift; sourceTree = "<group>"; };
 		5157D6102C251A37AF413C96 /* PracticeImpactGauge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PracticeImpactGauge.swift; sourceTree = "<group>"; };
 		C21C1F6442376CD6F03ABFA9 /* ExerciseScoreGauge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExerciseScoreGauge.swift; sourceTree = "<group>"; };
@@ -346,6 +351,7 @@
 		6FAD5A571618CC30124B0A6D /* RecoveryCurveChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryCurveChart.swift; sourceTree = "<group>"; };
 		BEEE9F1E89C1080D7968C81F /* CostScatterChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CostScatterChart.swift; sourceTree = "<group>"; };
 		EAFB2854BF564659AB44437A /* ExerciseDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseDetailView.swift; sourceTree = "<group>"; };
+		4C9AF876A96ED32855CF45CA /* ExerciseQuestionSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExerciseQuestionSections.swift; sourceTree = "<group>"; };
 		8DB14932B2654296DD711453 /* IntensityDomainBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntensityDomainBar.swift; sourceTree = "<group>"; };
 		EB3DAF0C092FF0CCF91FDF70 /* SessionTimelineChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTimelineChart.swift; sourceTree = "<group>"; };
 		F151 /* ActivityMetricStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricStats.swift; sourceTree = "<group>"; };
@@ -355,6 +361,7 @@
 		041B40C3B9505CB3B72A1174 /* RestorativeScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorativeScore.swift; sourceTree = "<group>"; };
 		F8425FF74AF41CA2DD465510 /* RecoveryTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryTiming.swift; sourceTree = "<group>"; };
 		BFD9E87E71DB9497147BAF96 /* SessionIndices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndices.swift; sourceTree = "<group>"; };
+		A01641D9220B788C75A190B3 /* ReadinessScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadinessScore.swift; sourceTree = "<group>"; };
 		33CD333D2D7656492FE92D40 /* ActivityLogIndices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogIndices.swift; sourceTree = "<group>"; };
 		1D2DA763415A735C4235EAC3 /* ReserveSpan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReserveSpan.swift; sourceTree = "<group>"; };
 		0D12AFB7E233F1788DF1389B /* SessionCoachSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCoachSummary.swift; sourceTree = "<group>"; };
@@ -384,6 +391,7 @@
 		F207 /* BiofeedbackSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiofeedbackSessionView.swift; sourceTree = "<group>"; };
 		F208 /* ActivityUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityUploader.swift; sourceTree = "<group>"; };
 		F992 /* CloudRestoreService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRestoreService.swift; sourceTree = "<group>"; };
+		069EE46E63C336F2DE95016D /* ActivityRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRestore.swift; sourceTree = "<group>"; };
 		F261 /* FeltStateLogUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeltStateLogUploader.swift; sourceTree = "<group>"; };
 		F209 /* MotionCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionCompute.swift; sourceTree = "<group>"; };
 		F210 /* AnchorDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetector.swift; sourceTree = "<group>"; };
@@ -532,6 +540,7 @@
 				6FAD5A571618CC30124B0A6D /* RecoveryCurveChart.swift */,
 				BEEE9F1E89C1080D7968C81F /* CostScatterChart.swift */,
 				EAFB2854BF564659AB44437A /* ExerciseDetailView.swift */,
+				4C9AF876A96ED32855CF45CA /* ExerciseQuestionSections.swift */,
 				8DB14932B2654296DD711453 /* IntensityDomainBar.swift */,
 				EB3DAF0C092FF0CCF91FDF70 /* SessionTimelineChart.swift */,
 				F153 /* PracticeImpactMeter.swift */,
@@ -647,6 +656,7 @@
 				041B40C3B9505CB3B72A1174 /* RestorativeScore.swift */,
 				F8425FF74AF41CA2DD465510 /* RecoveryTiming.swift */,
 				BFD9E87E71DB9497147BAF96 /* SessionIndices.swift */,
+				A01641D9220B788C75A190B3 /* ReadinessScore.swift */,
 				33CD333D2D7656492FE92D40 /* ActivityLogIndices.swift */,
 				1D2DA763415A735C4235EAC3 /* ReserveSpan.swift */,
 				0D12AFB7E233F1788DF1389B /* SessionCoachSummary.swift */,
@@ -747,6 +757,7 @@
 				F113 /* SessionUploader.swift */,
 				F208 /* ActivityUploader.swift */,
 				F992 /* CloudRestoreService.swift */,
+				069EE46E63C336F2DE95016D /* ActivityRestore.swift */,
 				F261 /* FeltStateLogUploader.swift */,
 				F145 /* InsightGenerator.swift */,
 				FE6F0E9C8772030B86BA730E /* UsageUploader.swift */,
@@ -852,6 +863,7 @@
 				CCEA22F3FB1E016118D8EE01 /* HRCeilingTests.swift */,
 				20866A7D973F59840EBFADEE /* ActivityClassTests.swift */,
 				878397CB85F30EE4B8F3CE2F /* SessionIndicesTests.swift */,
+				A55922396C435F43D09AA5D3 /* ActivityRestoreTests.swift */,
 				A051D03CB24885D77C7EE82A /* ActivityLogIndicesTests.swift */,
 				FT26 /* ImpactDeltaTests.swift */,
 				FT10 /* ClientProfileTests.swift */,
@@ -1004,6 +1016,7 @@
 				A113 /* SessionUploader.swift in Sources */,
 				A208 /* ActivityUploader.swift in Sources */,
 				A992 /* CloudRestoreService.swift in Sources */,
+				8347B3DDA06ADC21D3E5F709 /* ActivityRestore.swift in Sources */,
 				A261 /* FeltStateLogUploader.swift in Sources */,
 				A145 /* InsightGenerator.swift in Sources */,
 				A114 /* HRVSession.swift in Sources */,
@@ -1072,6 +1085,7 @@
 				D07587900CF0F451D2296B6E /* RecoveryCurveChart.swift in Sources */,
 				572FE6B7D226F114A58E9495 /* CostScatterChart.swift in Sources */,
 				18D9F03ADFCE85B5F794E94D /* ExerciseDetailView.swift in Sources */,
+				E379677A56EAAB96F64FED45 /* ExerciseQuestionSections.swift in Sources */,
 				973C076BBA17753FE1E14F39 /* IntensityDomainBar.swift in Sources */,
 				464AD9DEC520D515A61A3DE7 /* SessionTimelineChart.swift in Sources */,
 				A153 /* PracticeImpactMeter.swift in Sources */,
@@ -1085,6 +1099,7 @@
 				3847A43031559CCBE6AA9DEE /* RestorativeScore.swift in Sources */,
 				14A847C99DDFBB4855D108FF /* RecoveryTiming.swift in Sources */,
 				FDFB9967A3DA1A59C2615AE3 /* SessionIndices.swift in Sources */,
+				B68190250A9646581B5373E1 /* ReadinessScore.swift in Sources */,
 				D4C636AAB38591F026C89F7A /* ActivityLogIndices.swift in Sources */,
 				0494739CC2085FEDCA412073 /* ReserveSpan.swift in Sources */,
 				4B4B9AEF69C85FFFB3320D8E /* SessionCoachSummary.swift in Sources */,
@@ -1190,6 +1205,7 @@
 				04C27CD78B1B40DBA5522FB9 /* HRCeilingTests.swift in Sources */,
 				04B07817C335F28A352F88E9 /* ActivityClassTests.swift in Sources */,
 				5B535DBF8693DF78AD3B5940 /* SessionIndicesTests.swift in Sources */,
+				6453AB78BC08DBB05A7787F6 /* ActivityRestoreTests.swift in Sources */,
 				FD13F4B1CB1B182D4EB3D95D /* ActivityLogIndicesTests.swift in Sources */,
 				AT26 /* ImpactDeltaTests.swift in Sources */,
 				AT11 /* PracticeCatalogTests.swift in Sources */,

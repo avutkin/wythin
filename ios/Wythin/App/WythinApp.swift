@@ -116,6 +116,14 @@ struct ContentView: View {
                 .contains(where: { $0.isActive }) != true {
                 LiveSessionController.shared.endAnyOrphaned()
             }
+            // Before the backfill, not after: a store restored from the server
+            // arrives with window averages and nothing derived, and the
+            // backfill is what computes the rest.
+            if cloudSyncEnabled {
+                await ActivityRestore.restoreIfEmpty(context: modelContext,
+                                                     client: APIClient(baseURL: env.serverURL),
+                                                     userID: env.userID)
+            }
             ActivityLog.backfillMissingWindows(context: modelContext)
             didRunActivityBackfill = true
         }

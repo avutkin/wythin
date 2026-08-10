@@ -101,3 +101,39 @@ final class ActivityLogIndicesTests: XCTestCase {
                       "advice must speak about a metric the reader can see")
     }
 }
+
+// MARK: - The index must not be stricter than the chip it replaced
+
+extension ActivityLogIndicesTests {
+
+    func testASessionThatNeverReachedHalfwayStillScores() {
+        // The commonest real case on a short session: nothing got halfway back
+        // inside the recording, but the recovery axis scores it anyway. Reading
+        // only halfRecoveryMinutes dropped it and left the grid empty.
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Yoga")
+        entry.recoveryObservedMinutes = 10
+        XCTAssertNotNil(entry.recoveryAxis.scoreValue,
+                        "precondition: the axis scores this session")
+        XCTAssertNotNil(entry.bounceBackIndex,
+                        "the index must score every session the axis does")
+    }
+
+    func testTheDetailSaysHalfwayWasNotReachedRatherThanInventingATime() {
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Yoga")
+        entry.recoveryObservedMinutes = 10
+        XCTAssertEqual(entry.bounceBackIndex?.detail, "not halfway in 10 min")
+    }
+
+    func testReachingHalfwayStillReportsTheTime() {
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Yoga")
+        entry.halfRecoveryMinutes = 9
+        XCTAssertEqual(entry.bounceBackIndex?.detail, "halfway in 9.0 min")
+    }
+}
+
+private extension AxisValue {
+    var scoreValue: Int? {
+        if case let .score(v, _) = self { return v }
+        return nil
+    }
+}
