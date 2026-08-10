@@ -21,54 +21,6 @@ struct ExerciseLogRow: View {
         return start
     }
 
-    /// The three axes, read entirely from values stored at session end.
-    ///
-    /// Nothing is computed here and nothing is fetched: the scores are
-    /// percentiles against same-subtype history, which was resolved once when
-    /// the session ended rather than once per row on every scroll.
-    /// Only axes that actually have something to report.
-    ///
-    /// Two dashes out of three told the reader nothing except that the app was
-    /// unsure, so an axis with no value is now left out rather than displayed
-    /// empty. Every surviving chip carries its unit: a bare "30" beside a bare
-    /// "58" is unreadable when one is a percentage and the other is not.
-    private var axes: [(title: String, value: String, unit: String, tint: Color)] {
-        var out: [(String, String, String, Color)] = []
-
-        if let brake = brakePerBeat {
-            out.append(("AUTONOMIC COST", String(format: "%.2f", brake),
-                        "ms per extra bpm", Theme.hrv))
-        }
-        // Heart-rate recovery first: it is the one that survives sessions where
-        // DC cannot be computed, so on lifting days it is often the only
-        // recovery number there is.
-        if let hrr = entry.hrr60Bpm {
-            out.append(("HEART RATE DROP", "\(Int(hrr.rounded()))", "bpm in first minute", Theme.rsa))
-        }
-        switch entry.recoveryOutcome {
-        case let .reached(minutes):
-            out.append(("VAGAL REBOUND", "\(Int(minutes.rounded()))", "min after stopping", Theme.accent))
-        case let .notReached(observed):
-            out.append(("VAGAL REBOUND", ">\(Int(observed.rounded()))", "min — not yet clear", Theme.domainHeavy))
-        case .notObserved:
-            break
-        }
-        if let load = entry.exerciseLoad {
-            out.append(("LOAD", "\(Int(load.rounded()))", "effort × time", Theme.rsa))
-        }
-        return out.map { ($0.0, $0.1, $0.2, $0.3) }
-    }
-
-    /// ΔDC per extra bpm — the index itself, in units, rather than a percentile.
-    private var brakePerBeat: Double? {
-        ExerciseSuppression.brakePerBeat(dcPre: entry.beforeDC.map(Double.init),
-                                         dcDuring: entry.duringDC.map(Double.init),
-                                         hrPre: entry.beforeHR.map(Double.init),
-                                         hrDuring: entry.duringHR.map(Double.init))
-    }
-
-
-
     private var suppression: AxisValue { entry.suppressionAxis }
 
     private var efficiency: AxisValue {
@@ -164,55 +116,48 @@ struct ExerciseLogRow: View {
         }
     }
 
+    /// The scored grid replaced the chip strip. The chips carried each reading
+    /// in its own unit, so a reader had to already know whether 0.09 ms/beat
+    /// was good; an index on one scale, with a band and a verdict, says so.
     @ViewBuilder
     private var chips: some View {
-        let items = axes
-        if !items.isEmpty {
-            HStack(spacing: 6) {
-                ForEach(items, id: \.title) { item in
-                    AxisChip(name: item.title, value: item.value,
-                             unit: item.unit, tint: item.tint)
-                }
+        let scored = entry.scoredIndices
+        if !scored.isEmpty {
+            SessionIndexGrid(indices: scored, doses: entry.ungradedDoses)
+            if let advice = SessionRecommendation.advice(for: scored) {
+                RecommendationCard(advice: advice)
             }
         }
     }
 }
 
-// MARK: - AxisChip
+// MARK: - RecommendationCard
 
-/// One axis in the row. An unavailable axis shows an em dash and its reason —
-/// never a zero, which would be indistinguishable from a real result.
-struct AxisChip: View {
-    let name:  String
-    let value: String
-    let unit:  String
-    let tint:  Color
+/// One thing to do next time, derived from the weakest index.
+///
+/// The action leads and the reasoning follows. The coach card this replaces
+/// opened with a diagnosis and buried the instruction — and, being generated,
+/// could contradict the score printed beside it. This cannot: it is a pure
+/// function of the numbers above it.
+struct RecommendationCard: View {
+
+    let advice: SessionRecommendation.Advice
 
     var body: some View {
-        VStack(spacing: 3) {
-            Text(name)
-                .font(.system(size: 8.5, design: .monospaced))
-                .foregroundStyle(Theme.dim)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-
-            Text(value)
-                .font(.system(size: 17, weight: .semibold, design: .monospaced))
-                .foregroundStyle(tint)
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-
-            Text(unit)
-                .font(.system(size: 8, design: .monospaced))
-                .foregroundStyle(Theme.dim)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.7)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(advice.action)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Theme.accent)
+            Text(advice.because)
+                .font(.system(size: 9.5, design: .monospaced))
+                .foregroundStyle(Theme.text.opacity(0.9))
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .background(Theme.surface.opacity(0.55))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Theme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .stroke(Theme.accent.opacity(0.2), lineWidth: 0.5))
     }
 }
+
