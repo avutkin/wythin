@@ -80,15 +80,15 @@ final class ImpactDeltaTests: XCTestCase {
         XCTAssertEqual(ActivityImpact.caption(for: 2),   "settling")
         XCTAssertEqual(ActivityImpact.caption(for: 1.9), "steady")
         XCTAssertEqual(ActivityImpact.caption(for: -2),  "steady")
-        XCTAssertEqual(ActivityImpact.caption(for: -2.1), "activating")
-        XCTAssertEqual(ActivityImpact.caption(for: -10), "activating")
-        XCTAssertEqual(ActivityImpact.caption(for: -10.1), "strongly activating")
+        XCTAssertEqual(ActivityImpact.caption(for: -2.1), "stirred")
+        XCTAssertEqual(ActivityImpact.caption(for: -10), "stirred")
+        XCTAssertEqual(ActivityImpact.caption(for: -10.1), "strongly stirred")
     }
 
     func testHardEffortIsNotCalledALightSession() {
         // A run legitimately posts a large negative delta. It must read as
         // effort, not as a poor session.
-        XCTAssertEqual(ActivityImpact.caption(for: -35), "strongly activating")
+        XCTAssertEqual(ActivityImpact.caption(for: -35), "strongly stirred")
     }
 
     // MARK: trend line
@@ -218,5 +218,28 @@ extension ImpactDeltaTests {
             return XCTFail("a zero baseline should be reported missing")
         }
         XCTAssertTrue(gap.reason.lowercased().contains("zero"), gap.reason)
+    }
+}
+
+// MARK: - The caption must not collide with the session class
+
+extension ImpactDeltaTests {
+
+    func testNoCaptionReusesAWordThatNamesASessionClass() {
+        // "activating" and "restorative" name which scoring model a session
+        // gets. The impact caption describes how a practice left you. A yoga
+        // session whose pulse rose 1% is correctly classed restorative and was
+        // still captioned "activating", which reads as the app contradicting
+        // itself on one row.
+        let deltas: [Double] = [30, 12, 8, 4, 0, -5, -20, -40]
+        for delta in deltas {
+            XCTAssertFalse(ActivityImpact.caption(for: delta).contains("activating"),
+                           "caption for \(delta) collides with the class name")
+        }
+    }
+
+    func testTheStirredCaptionsCoverTheNegativeRange() {
+        XCTAssertEqual(ActivityImpact.caption(for: -5), "stirred")
+        XCTAssertEqual(ActivityImpact.caption(for: -25), "strongly stirred")
     }
 }

@@ -16,8 +16,13 @@ enum ActivityImpact {
         case 6..<12:       return "restorative"
         case 2..<6:        return "settling"
         case -2...2:       return "steady"
-        case -10 ..< -2:   return "activating"
-        default:           return "strongly activating"
+        // Not "activating": that word already names a session CLASS on the same
+        // screen — the model a session gets when its pulse rose 15 bpm or more.
+        // A yoga session that lifted the pulse by 1% is correctly restorative
+        // and was still captioned "activating", which reads as the app
+        // contradicting itself.
+        case -10 ..< -2:   return "stirred"
+        default:           return "strongly stirred"
         }
     }
 
