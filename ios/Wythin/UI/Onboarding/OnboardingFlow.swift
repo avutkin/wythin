@@ -96,7 +96,7 @@ struct OnboardingFlow: View {
         case .goals:
             OnboardingMultiSelectScreen(
                 progress: step.progress,
-                question: "What matters most to you right now?",
+                question: "What matters to you most right now?",
                 // Not "pick all that apply" here, unlike the two steps after
                 // it. A priorities question answered with everything isn't a
                 // priorities question, and the goal reels key their cards to
