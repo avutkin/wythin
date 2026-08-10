@@ -257,7 +257,10 @@ struct OnboardingContactScreen: View {
             question: "How can we reach you?",
             subtitle: "So your coach can follow up.",
             canContinue: canContinue,
-            continueTitle: "Continue",
+            // Last step since the permissions screen was removed, so the button
+            // has to say so — "Continue" here promises a screen that no longer
+            // exists.
+            continueTitle: "Finish",
             onBack: onBack,
             onContinue: onContinue,
             onSkip: onSkip
