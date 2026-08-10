@@ -54,36 +54,24 @@ struct LiveDeltaTile: View {
     }
 
     var body: some View {
+        // A tile is ~90 pt of content on a phone, so every row must survive
+        // that width: the name gets the full first line (scaling down before
+        // truncating), the unit rides with the tech label instead of being
+        // repeated per value, and the absolutes split across two short
+        // footer lines instead of one long one.
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 6) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(label)
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Theme.text)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if !techLabel.isEmpty {
-                        Text(techLabel)
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(Theme.dim)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 0)
-                if let p = nowPercent {
-                    HStack(spacing: 3) {
-                        Text("now")
-                            .font(.system(size: 8, design: .monospaced))
-                            .foregroundStyle(Theme.dim)
-                        Text(String(format: "%+.0f%%", p))
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            .foregroundStyle(chipColor)
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Color.white.opacity(0.05))
-                    .clipShape(Capsule())
-                }
+            Text(label)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+                .truncationMode(.tail)
+            if !techLabel.isEmpty || !unit.isEmpty {
+                Text(techLabel + (unit.isEmpty ? "" : " · \(unit)"))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(Theme.dim)
+                    .lineLimit(1)
+                    .padding(.top, 2)
             }
 
             Text(heroText)
@@ -96,17 +84,21 @@ struct LiveDeltaTile: View {
 
             Spacer(minLength: 6)
 
-            // now 32.2 · today 37.0 · 7d 41.2 — whatever exists, spread wide.
-            HStack(spacing: 0) {
-                footValue(todayText != nil ? "now" : "avg", valueText)
-                if let t = todayText {
-                    Spacer(minLength: 4)
-                    footValue("today", t)
+            // now 32.2 −13%   ← live reading + its % vs today, today only
+            // today 37.0 · 7d 41.2
+            if todayText != nil {
+                footLine {
+                    Text("now ").foregroundStyle(Theme.dim.opacity(0.6))
+                    + Text(valueText).foregroundStyle(Theme.dim)
+                    + Text(nowPercent.map { String(format: "  %+.0f%%", $0) } ?? "")
+                        .foregroundStyle(chipColor)
                 }
-                if let r = refText {
-                    Spacer(minLength: 4)
-                    footValue("7d", r)
-                }
+            }
+            footLine {
+                Text((todayText != nil ? "today " : "avg ")).foregroundStyle(Theme.dim.opacity(0.6))
+                + Text(todayText ?? valueText).foregroundStyle(Theme.dim)
+                + Text(refText.map { _ in " · 7d " } ?? "").foregroundStyle(Theme.dim.opacity(0.6))
+                + Text(refText ?? "").foregroundStyle(Theme.dim)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
@@ -127,17 +119,13 @@ struct LiveDeltaTile: View {
         )
     }
 
-    @ViewBuilder
-    private func footValue(_ tag: String, _ value: String) -> some View {
-        HStack(spacing: 3) {
-            Text(tag)
-                .font(.system(size: 7, design: .monospaced))
-                .foregroundStyle(Theme.dim.opacity(0.6))
-            Text(value + (unit.isEmpty ? "" : " \(unit)"))
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                .foregroundStyle(Theme.dim)
-        }
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
+    /// One footer line: concatenated `Text`s so mixed colors still scale and
+    /// truncate as a single run instead of wrapping mid-line.
+    private func footLine(_ content: () -> Text) -> some View {
+        content()
+            .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .padding(.top, 2)
     }
 }
