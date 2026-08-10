@@ -79,6 +79,27 @@ final class CloudRestoreService {
                 return n
             }.value
 
+            // Samples and windows are back, but everything DERIVED from them —
+            // zones, heart-rate recovery, the exercise indices — is not stored
+            // server-side, and the launch backfill skips entries whose windows
+            // are already filled. Recompute here, where the restored samples
+            // exist to compute from. Only entries with samples in their span:
+            // recomputing an activity whose samples never uploaded would wipe
+            // the server-provided windows with nils.
+            try await Task.detached {
+                let ctx = ModelContext(container)
+                let logs = try ctx.fetch(FetchDescriptor<ActivityLog>())
+                for entry in logs where entry.endedAt != nil {
+                    let start = entry.startedAt, end = entry.endedAt!
+                    let inSpan = FetchDescriptor<HRVSample>(
+                        predicate: #Predicate { $0.timestamp >= start && $0.timestamp < end })
+                    guard ((try? ctx.fetchCount(inSpan)) ?? 0) > 0 else { continue }
+                    entry.computeHRVWindows(context: ctx)
+                    entry.computeExerciseResponse(context: ctx)
+                }
+                try ctx.save()
+            }.value
+
             UserDefaults.standard.removeObject(forKey: Self.cursorKey)
             // Tonight's launch warm-up may have branded the restored days
             // "no data" — a sticky negative verdict — so derived caches must
