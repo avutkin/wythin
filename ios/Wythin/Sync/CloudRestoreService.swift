@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import UIKit
 
 /// One-shot recovery of this user's cloud copy back into the local store.
 ///
@@ -27,29 +28,58 @@ final class CloudRestoreService {
         return false
     }
 
+    /// Cursor of the last fully-imported page, persisted so an interrupted
+    /// restore (backgrounding kills the in-flight request — the first real
+    /// attempt died exactly that way) resumes where it stopped instead of
+    /// re-fetching from 1970.
+    static let cursorKey = "cloudRestoreCursor"
+
     func run(env: AppEnvironment, context: ModelContext) async {
         guard !isRunning else { return }
         phase = .restoring(samples: 0)
 
-        let client = env.sync.client
-        let userID = env.userID
+        let client    = env.sync.client
+        let userID    = env.userID
+        let container = env.modelContainer
         var samplesImported = 0
 
+        // Buys ~30 s of survival if the user leaves the app mid-restore; the
+        // cursor makes anything beyond that resumable rather than fatal.
+        let bgTask = UIApplication.shared.beginBackgroundTask(withName: "cloud-restore")
+        defer {
+            if bgTask != .invalid { UIApplication.shared.endBackgroundTask(bgTask) }
+        }
+
         do {
-            var cursor: String? = nil
+            var cursor: String? = UserDefaults.standard.string(forKey: Self.cursorKey)
             repeat {
                 let page = try await client.exportMetrics(cursor: cursor, userID: userID)
                 guard !page.samples.isEmpty else { break }
-                samplesImported += Self.insert(page.samples, into: context)
-                try context.save()
+                // Insert on a background context — 5000 @Model inserts per
+                // page on the main actor froze the UI for the whole restore.
+                let samples = page.samples
+                samplesImported += try await Task.detached {
+                    let ctx = ModelContext(container)
+                    let n = CloudRestoreService.insert(samples, into: ctx)
+                    try ctx.save()
+                    return n
+                }.value
                 phase  = .restoring(samples: samplesImported)
                 cursor = page.next_cursor
+                if let done = cursor {
+                    UserDefaults.standard.set(done, forKey: Self.cursorKey)
+                }
             } while cursor != nil
 
-            let activitiesImported = Self.insert(
-                try await client.fetchActivities(userID: userID), into: context)
-            try context.save()
+            let payloads = try await client.fetchActivities(userID: userID)
+            let activitiesImported = try await Task.detached {
+                let ctx = ModelContext(container)
+                let n = CloudRestoreService.insert(payloads, into: ctx)
+                try ctx.save()
+                return n
+            }.value
 
+            UserDefaults.standard.removeObject(forKey: Self.cursorKey)
             // Tonight's launch warm-up may have branded the restored days
             // "no data" — a sticky negative verdict — so derived caches must
             // be rebuilt from the store, not trusted.

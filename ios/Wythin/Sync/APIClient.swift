@@ -462,7 +462,7 @@ struct APIClient {
         req.addValue("application/json", forHTTPHeaderField: "Content-Type")
         req.addValue(APIConfig.apiKey, forHTTPHeaderField: "X-API-Key")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
-        req.timeoutInterval = 30
+        req.timeoutInterval = 60
         let (data, resp) = try await session.data(for: req)
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)

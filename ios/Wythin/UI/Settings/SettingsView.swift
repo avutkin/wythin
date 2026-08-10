@@ -21,10 +21,12 @@ struct SettingsView: View {
 
     private var restoreLabel: String {
         switch restore.phase {
-        case .idle, .failed:
+        case .idle:
             return "Restore history from cloud"
+        case .failed:
+            return "Resume restore from cloud"
         case .restoring(let n):
-            return "Restoring… \(n) samples"
+            return "Restoring… \(n) samples — keep the app open"
         case .done(let s, let a):
             return "Restored \(s) samples, \(a) activities"
         }
