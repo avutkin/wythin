@@ -493,6 +493,18 @@ final class AppEnvironment {
     /// finished rollups are published back to the main actor, via
     /// `TrackCache.mergeComputed` (see `trackCache`'s doc for why that method
     /// exists instead of `refresh`).
+    /// After a cloud restore: every derived verdict in the rollup cache was
+    /// reached against the wiped store — including the sticky `noDataDays`
+    /// brand on days that now hold restored samples — so drop them all and
+    /// run the launch warm-up again as if this were a fresh start. The
+    /// `historyRevision` bump tells open views their fetches are stale.
+    func rewarmAfterRestore() {
+        trackCache.resetDerived()
+        didWarmLiveBaseline = false
+        warmLiveBaseline()
+        historyRevision += 1
+    }
+
     private func warmLiveBaseline() {
         guard !didWarmLiveBaseline else { return }
         didWarmLiveBaseline = true

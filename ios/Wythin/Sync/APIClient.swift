@@ -244,6 +244,19 @@ struct MetricSamplePayload: Codable {
     let coherence, cbi, breath_bpm, dfa1, rcmse, pip, dc, vti: Float?
 }
 struct MetricsUploadPayload: Codable { let samples: [MetricSamplePayload] }
+
+// Read-back of the same fourteen columns `/v1/metrics` stores, for restoring
+// a wiped local store from the cloud copy.
+struct MetricExportSample: Codable {
+    let ts: String
+    let mean_bpm, rmssd, sdnn, pnn50, lf_hf, rsa_ms: Float?
+    let coherence, cbi, breath_bpm, dfa1, rcmse, pip, dc, vti: Float?
+}
+
+struct MetricExportPage: Codable {
+    let samples: [MetricExportSample]
+    let next_cursor: String?
+}
 struct MetricsUploadResponse: Codable { let stored: Int }
 
 /// Onboarding profile sent to the server (keys match the server's ProfileUpload).
@@ -428,6 +441,46 @@ struct APIClient {
     }
 
     // MARK: Helpers
+
+    // MARK: Cloud restore
+
+    /// One page of this user's own samples, oldest first. `cursor` is the
+    /// previous page's `next_cursor`, an ISO timestamp whose "+00:00" offset
+    /// must be percent-encoded by hand — URLQueryItem leaves "+" bare, and
+    /// the server would read it back as a space.
+    func exportMetrics(cursor: String?, userID: String) async throws -> MetricExportPage {
+        var comps = URLComponents(url: baseURL.appendingPathComponent("/v1/metrics/export"),
+                                  resolvingAgainstBaseURL: false)!
+        var query = "limit=5000"
+        if let cursor,
+           let enc = cursor.addingPercentEncoding(withAllowedCharacters: .alphanumerics) {
+            query += "&cursor=\(enc)"
+        }
+        comps.percentEncodedQuery = query
+        var req = URLRequest(url: comps.url!)
+        req.httpMethod = "GET"
+        req.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.addValue(APIConfig.apiKey, forHTTPHeaderField: "X-API-Key")
+        req.addValue(userID, forHTTPHeaderField: "X-User-ID")
+        req.timeoutInterval = 30
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(MetricExportPage.self, from: data)
+    }
+
+    /// Every activity this user has uploaded. Same payload shape as the
+    /// upload direction, so restore round-trips through one struct.
+    func fetchActivities(userID: String) async throws -> [ActivityUploadPayload] {
+        var req = request(path: "/activities", method: "GET")
+        req.addValue(userID, forHTTPHeaderField: "X-User-ID")
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode([ActivityUploadPayload].self, from: data)
+    }
 
     private func request(path: String, method: String) -> URLRequest {
         var r = URLRequest(url: baseURL.appendingPathComponent(path))

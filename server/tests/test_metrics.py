@@ -73,3 +73,31 @@ async def test_valueless_samples_are_not_stored():
             {"ts": "2026-07-27T11:00:08Z", "coherence": 0.5},
         ]})
     assert r.json()["stored"] == 1
+
+
+@pytest.mark.asyncio
+async def test_export_pages_in_order_and_is_scoped():
+    """Read-back for a wiped phone: oldest first, cursor-paged, and never
+    anyone else's rows."""
+    import uuid
+    dev   = f"ms-exp-{uuid.uuid4().hex[:8]}"
+    other = f"ms-exp-{uuid.uuid4().hex[:8]}"
+    async with _client() as c:
+        await c.post("/v1/metrics", headers={"X-User-ID": dev}, json={"samples": [
+            _sample(f"2026-07-27T10:00:0{i}Z", 30 + i) for i in range(3)]})
+        await c.post("/v1/metrics", headers={"X-User-ID": other}, json={"samples": [
+            _sample("2026-07-27T10:00:00Z", 99)]})
+
+        r1 = await c.get("/v1/metrics/export", params={"limit": 2},
+                         headers={"X-User-ID": dev})
+        assert r1.status_code == 200, r1.text
+        p1 = r1.json()
+        assert [s["pip"] for s in p1["samples"]] == [30.0, 31.0]
+        assert p1["next_cursor"] is not None
+
+        r2 = await c.get("/v1/metrics/export",
+                         params={"limit": 2, "cursor": p1["next_cursor"]},
+                         headers={"X-User-ID": dev})
+        p2 = r2.json()
+        assert [s["pip"] for s in p2["samples"]] == [32.0]
+        assert p2["next_cursor"] is None
