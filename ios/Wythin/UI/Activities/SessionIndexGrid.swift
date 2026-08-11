@@ -139,3 +139,77 @@ extension IndexBand {
 }
 
 extension IndexBand: Hashable {}
+
+// MARK: - SessionIndexSlotGrid
+
+/// The fixed slots, two across: a reading when there is one, the reason when
+/// there is not. Four cells in a three-wide grid left a hole that read as a
+/// defect, and a metric that silently vanishes reads as one too.
+struct SessionIndexSlotGrid: View {
+
+    let slots: [(name: String, index: ScoredIndex?, whenEmpty: String)]
+    let doses: [UngradedDose]
+
+    private let columns = [GridItem(.flexible(), spacing: 6),
+                           GridItem(.flexible(), spacing: 6)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            LazyVGrid(columns: columns, spacing: 6) {
+                ForEach(slots, id: \.name) { slot in
+                    if let index = slot.index {
+                        SlotCell(name: slot.name, value: "\(index.value)",
+                                 tint: index.band.tint, verdict: index.verdict,
+                                 detail: index.detail, fill: index.value)
+                    } else {
+                        SlotCell(name: slot.name, value: "—", tint: Theme.dim,
+                                 verdict: slot.whenEmpty, detail: "", fill: 0)
+                    }
+                }
+            }
+            SessionIndexGrid(indices: [], doses: doses)
+        }
+    }
+}
+
+private struct SlotCell: View {
+    let name: String
+    let value: String
+    let tint: Color
+    let verdict: String
+    let detail: String
+    let fill: Int
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(name)
+                .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                .foregroundStyle(Theme.text.opacity(0.9))
+                .lineLimit(1).minimumScaleFactor(0.8)
+            Text(value)
+                .font(.system(size: 22, weight: .bold, design: .monospaced))
+                .foregroundStyle(tint).monospacedDigit()
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Theme.text.opacity(0.09))
+                    Capsule().fill(tint)
+                        .frame(width: geo.size.width * CGFloat(fill) / 100)
+                }
+            }
+            .frame(height: 3)
+            Text(verdict)
+                .font(.system(size: 7.5, weight: .semibold, design: .monospaced))
+                .foregroundStyle(tint)
+                .multilineTextAlignment(.center).lineLimit(2)
+            if !detail.isEmpty {
+                Text(detail)
+                    .font(.system(size: 7, design: .monospaced))
+                    .foregroundStyle(Theme.dim)
+                    .lineLimit(1).minimumScaleFactor(0.75)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 6).padding(.vertical, 9)
+        .background(Theme.surface.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+    }
+}

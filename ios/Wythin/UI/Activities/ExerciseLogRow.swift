@@ -77,11 +77,8 @@ struct ExerciseLogRow: View {
         VStack(alignment: .leading, spacing: 11) {
             header
             hero
-            let scored = entry.scoredIndices
-            if !scored.isEmpty {
-                SessionIndexGrid(indices: scored, doses: entry.ungradedDoses)
-            }
-            if let advice = SessionRecommendation.advice(for: scored) {
+            SessionIndexSlotGrid(slots: entry.indexSlots, doses: entry.ungradedDoses)
+            if let advice = SessionRecommendation.advice(for: entry.scoredIndices) {
                 RecommendationCard(advice: advice)
             }
             viewFullSession

@@ -91,6 +91,23 @@ extension ActivityLog {
                            detail: detail)
     }
 
+
+    /// The four implemented index slots, every one always present: a slot with
+    /// no reading carries the reason instead of vanishing. Asked for twice —
+    /// a two-cell grid read as "metrics look off", not as honest absence.
+    var indexSlots: [(name: String, index: ScoredIndex?, whenEmpty: String)] {
+        [
+            (ReadinessScore.displayName, readinessIndex,
+             "needs \(ReadinessScore.minimumPeers) sessions"),
+            (BrakeReleaseIndex.displayName, brakeReleaseIndex,
+             (brakePerBeat.map { $0 <= 0 } ?? false) || vagalRoseDuring
+                ? "vagal tone held" : "no reading"),
+            ("Efficiency", efficiencyIndex,
+             hasExternalWorkSignal ? "no reading" : "no motion signal"),
+            (BounceBackIndex.displayName, bounceBackIndex, "no after-window"),
+        ]
+    }
+
     /// The quantities with no good or bad direction.
     ///
     /// Kept apart from the scored grid so the screen never implies a verdict on
