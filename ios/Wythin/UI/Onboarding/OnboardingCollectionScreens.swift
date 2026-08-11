@@ -73,7 +73,10 @@ struct OnboardingCurrentStateScreen: View {
     var body: some View {
         OnboardingScaffold(
             progress: progress,
-            question: "How are you feeling right now?",
+            // Not "right now" — the previous screen already ends on it, and two
+            // consecutive questions with the same tail read as one question
+            // asked twice.
+            question: "How are you feeling today?",
             subtitle: "Drag each one. There are no wrong answers.",
             canContinue: state.isAnswered,
             continueTitle: "Continue",
