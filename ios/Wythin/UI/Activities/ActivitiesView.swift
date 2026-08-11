@@ -154,7 +154,9 @@ struct ActivitiesView: View {
                             case .activating:  ExerciseLogRow(entry: entry,
                                                               onEdit: { activeSheet = .edit(entry) },
                                                               onDelete: { deleteEntry(entry) })
-                            case .restorative: ActivityLogRow(entry: entry)
+                            case .restorative: ActivityLogRow(entry: entry,
+                                                              onEdit: { activeSheet = .edit(entry) },
+                                                              onDelete: { deleteEntry(entry) })
                             }
                         }
                             .contentShape(Rectangle())

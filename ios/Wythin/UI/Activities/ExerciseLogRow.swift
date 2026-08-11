@@ -82,7 +82,9 @@ struct ExerciseLogRow: View {
             SessionIndexSlotGrid(slots: entry.indexSlots, doses: entry.ungradedDoses)
             viewFullSession
         }
-        .padding(.vertical, 7)
+        .padding(12)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
+        .padding(.vertical, 5)
     }
 
     private var header: some View {

@@ -12,6 +12,8 @@ import SwiftUI
 /// the thing a single delta could not say at all.
 struct ActivityLogRow: View {
     let entry: ActivityLog
+    var onEdit: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
 
     private var timeStr: String {
         let fmt = DateFormatter()
@@ -95,7 +97,9 @@ struct ActivityLogRow: View {
             legend
             viewFullSession
         }
-        .padding(.vertical, 7)
+        .padding(12)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
+        .padding(.vertical, 5)
     }
 
     private var header: some View {
@@ -110,10 +114,19 @@ struct ActivityLogRow: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.displayName)
-                    .font(.system(size: 14, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Theme.text)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(entry.displayName)
+                        .font(.system(size: 14, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1)
+                    Text(chipText)
+                        .font(.system(size: 7, weight: .semibold, design: .monospaced))
+                        .tracking(0.7)
+                        .foregroundStyle(Theme.hrv)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Theme.hrv.opacity(0.14), in: RoundedRectangle(cornerRadius: 5))
+                }
                 HStack(spacing: 4) {
                     Text(timeStr)
                         .font(.system(size: 10, design: .monospaced))
@@ -132,17 +145,26 @@ struct ActivityLogRow: View {
 
             Spacer()
 
-            // The other half of the exercise row's gold chip: which model this
-            // session got. Violet always — the model is restorative by TYPE
-            // now — but the text stays factual: a breathwork round that raised
-            // the pulse says so rather than wearing a false "no rise".
-            Text(chipText)
-                .font(.system(size: 7, weight: .semibold, design: .monospaced))
-                .tracking(0.7)
-                .foregroundStyle(Theme.hrv)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Theme.hrv.opacity(0.14), in: RoundedRectangle(cornerRadius: 5))
+            if let onEdit {
+                Button(action: onEdit) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.dim)
+                        .frame(width: 30, height: 30)
+                        .background(Theme.surface.opacity(0.5), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            if let onDelete {
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.warn.opacity(0.8))
+                        .frame(width: 30, height: 30)
+                        .background(Theme.surface.opacity(0.5), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
