@@ -151,7 +151,9 @@ struct ActivitiesView: View {
                     ForEach(group.entries) { entry in
                         Group {
                             switch entry.measuredClass {
-                            case .activating:  ExerciseLogRow(entry: entry)
+                            case .activating:  ExerciseLogRow(entry: entry,
+                                                              onEdit: { activeSheet = .edit(entry) },
+                                                              onDelete: { deleteEntry(entry) })
                             case .restorative: ActivityLogRow(entry: entry)
                             }
                         }

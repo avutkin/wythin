@@ -746,10 +746,11 @@ final class ActivityLog {
         // breathing exercise was a workout. Exercises go the other way: they
         // are judged by the measured rise, and one that never lifted the pulse
         // reads as the restorative session it physiologically was.
-        guard activityTypeEnum.activityClass == .activating else { return .restorative }
-        return ActivityClass.measured(beforeHR: beforeHR.map(Double.init),
-                                      duringHR: duringHR.map(Double.init),
-                                      fallback: .activating)
+        // By type, both ways: exercises are always the pulse-rose category —
+        // a gentle session still gets the load-and-recovery read, with the
+        // measured rise stated on the chip — and restorative practices never
+        // are. The measurement informs; the label decides.
+        activityTypeEnum.activityClass
     }
 
     /// ΔDC per extra bpm — the index in its own units, always available from the

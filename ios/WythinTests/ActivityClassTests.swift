@@ -101,14 +101,17 @@ extension ActivityClassTests {
         XCTAssertEqual(entry.measuredClass, .restorative)
     }
 
-    func testAnExerciseIsJudgedByItsMeasuredRise() {
+    func testEveryExerciseIsThePulseRoseCategory() {
+        // By type, both ways: even a gentle exercise keeps the
+        // load-and-recovery read — the chip states the measured rise, the
+        // label decides the model.
         let lifted = ActivityLog(activityType: "Exercise", activitySubtype: "Yoga")
         lifted.beforeHR = 62; lifted.duringHR = 98
         XCTAssertEqual(lifted.measuredClass, .activating)
 
         let gentle = ActivityLog(activityType: "Exercise", activitySubtype: "Yoga")
         gentle.beforeHR = 62; gentle.duringHR = 66
-        XCTAssertEqual(gentle.measuredClass, .restorative)
+        XCTAssertEqual(gentle.measuredClass, .activating)
     }
 
     func testAnExerciseWithNoMeasurementDefaultsToItsLabel() {
