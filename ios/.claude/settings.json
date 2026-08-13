@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcrun simctl *)",
+      "Bash(xcodebuild build *)",
+      "Bash(xcodebuild test *)",
+      "Bash(xcodebuild build-for-testing *)",
+      "Bash(xcodebuild -list *)",
+      "Bash(bash /Users/alexutkin/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/task-brief *)",
+      "Bash(bash /Users/alexutkin/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package *)",
+      "Bash(pwd -P)",
+      "Bash(source .venv/bin/activate)",
+      "Bash(open -a Simulator)"
+    ]
+  }
+}

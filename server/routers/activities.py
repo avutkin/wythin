@@ -67,3 +67,48 @@ async def save_activity(
     async with pool.acquire() as conn:
         row = await conn.fetchrow(sql, *vals)
     return UploadResponse(id=str(row["id"]))
+
+
+@router.get("", response_model=list[ActivitySchema])
+async def list_activities(
+    x_user_id: str = Header(..., alias="X-User-ID"),
+    limit: int = 500,
+):
+    """Every activity this user has uploaded, newest first.
+
+    The counterpart to the POST, and the reason it exists: a phone whose local
+    store is gone — reinstalled, restored to a new device, or wiped — had no way
+    to get its own history back, because upload was the only direction that
+    existed. Reads are scoped to the caller's user row, so a token can only ever
+    see its owner's activities.
+    """
+    user_db_id = await get_or_create_user(x_user_id)
+    cols = ["client_activity_id", "activity_type", "activity_subtype",
+            "custom_name", "started_at", "ended_at", "is_manual",
+            "impact_score", "impact_delta_pct", "notes"] + _METRIC_COLS
+
+    pool = await get_pool()
+    rows = await pool.fetch(
+        f"SELECT {', '.join(cols)} FROM activities WHERE user_id = $1 "
+        "ORDER BY started_at DESC LIMIT $2",
+        user_db_id, min(max(limit, 1), 2000))
+
+    def iso(v):
+        return v.isoformat() if v is not None else None
+
+    return [
+        ActivitySchema(
+            id=r["client_activity_id"],
+            activity_type=r["activity_type"],
+            activity_subtype=r["activity_subtype"],
+            custom_name=r["custom_name"],
+            started_at=iso(r["started_at"]),
+            ended_at=iso(r["ended_at"]),
+            is_manual=r["is_manual"],
+            impact_score=r["impact_score"],
+            impact_delta_pct=r["impact_delta_pct"],
+            notes=r["notes"],
+            **{c: r[c] for c in _METRIC_COLS},
+        )
+        for r in rows
+    ]

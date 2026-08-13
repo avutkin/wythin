@@ -62,6 +62,37 @@ final class HRVSample {
         self.hfPower    = tick.hfPower
     }
 
+    /// Restore initializer: exactly the fourteen fields continuous sync
+    /// uploads, so a cloud read-back round-trips to the same shape it left in.
+    /// Everything sync never carried (powers, quality, motion…) stays nil —
+    /// restored history is chart-and-baseline grade, not raw-signal grade.
+    init(cloudTs: Date,
+         meanBPM: Float?, rmssd: Float?, sdnn: Float?, pnn50: Float?,
+         lfHF: Float?, rsaMs: Float?, coherence: Float?, cbi: Float?,
+         breathBPM: Float?, dfa1: Float?, rcmse: Float?, pip: Float?,
+         dc: Float?, vti: Float?) {
+        self.timestamp = cloudTs
+        self.meanBPM   = meanBPM
+        self.rmssd     = rmssd
+        self.sdnn      = sdnn
+        self.pnn50     = pnn50
+        self.lfHF      = lfHF
+        self.rsaMs     = rsaMs
+        self.coherence = coherence
+        self.cbi       = cbi
+        self.breathBPM = breathBPM
+        self.dfa1      = dfa1
+        self.rcmse     = rcmse
+        self.pip       = pip
+        self.dc        = dc
+        self.vti       = vti
+
+        self.rsaIdx = nil; self.ieRatio = nil; self.signalQuality = nil
+        self.rrInvalidRate = nil; self.rrCorrectedRate = nil; self.ecgQualityTier = nil
+        self.ials = nil; self.motion = nil
+        self.ulfPower = nil; self.vlfPower = nil; self.lfPower = nil; self.hfPower = nil
+    }
+
     /// Convenience initializer covering the fields the anchor pipeline reads,
     /// mirroring `MetricsHistoryPoint.init(anchorTestTimestamp:)` — so
     /// `AnchorBackfill` can be exercised against a real store without standing

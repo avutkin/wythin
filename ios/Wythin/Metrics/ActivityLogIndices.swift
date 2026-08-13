@@ -76,7 +76,11 @@ extension ActivityLog {
         let detail: String
         switch recoveryOutcome {
         case let .reached(minutes):    detail = String(format: "halfway in %.1f min", minutes)
-        case let .notReached(observed): detail = "not halfway in \(Int(observed.rounded())) min"
+        case let .notReached(observed):
+            // Restored days can carry hours of samples after a session; quoting
+            // "not halfway in 240 min" reads as an alarm rather than a bound.
+            detail = observed > 30 ? "not halfway while recorded"
+                                   : "not halfway in \(Int(observed.rounded())) min"
         case .notObserved:              detail = hrr60Bpm.map { "\(Int($0.rounded())) bpm shed" } ?? ""
         }
         return ScoredIndex(name: BounceBackIndex.displayName,
@@ -85,6 +89,23 @@ extension ActivityLog {
                                   : value >= IndexBand.actBelow  ? "came back slowly"
                                                                  : "still not back",
                            detail: detail)
+    }
+
+
+    /// The four implemented index slots, every one always present: a slot with
+    /// no reading carries the reason instead of vanishing. Asked for twice —
+    /// a two-cell grid read as "metrics look off", not as honest absence.
+    var indexSlots: [(name: String, index: ScoredIndex?, whenEmpty: String)] {
+        [
+            (ReadinessScore.displayName, readinessIndex,
+             "needs \(ReadinessScore.minimumPeers) sessions"),
+            (BrakeReleaseIndex.displayName, brakeReleaseIndex,
+             (brakePerBeat.map { $0 <= 0 } ?? false) || vagalRoseDuring
+                ? "vagal tone held" : "no reading"),
+            ("Efficiency", efficiencyIndex,
+             hasExternalWorkSignal ? "no reading" : "no motion signal"),
+            (BounceBackIndex.displayName, bounceBackIndex, "no after-window"),
+        ]
     }
 
     /// The quantities with no good or bad direction.

@@ -19,6 +19,24 @@ struct SettingsView: View {
     @State private var isDeletingCloudData = false
     @State private var notificationsAuthorized: Bool?
 
+    // MARK: Cloud restore
+    @Environment(\.modelContext) private var modelContext
+    @State private var restore = CloudRestoreService()
+    @State private var confirmRestore = false
+
+    private var restoreLabel: String {
+        switch restore.phase {
+        case .idle:
+            return "Restore history from cloud"
+        case .failed:
+            return "Resume restore from cloud"
+        case .restoring(let n):
+            return "Restoring… \(n) samples — keep the app open"
+        case .done(let s, let a):
+            return "Restored \(s) samples, \(a) activities"
+        }
+    }
+
     // MARK: Nudges
 
     private var nudgesBinding: Binding<Bool> {
@@ -120,6 +138,37 @@ struct SettingsView: View {
                             Text(env.userID.prefix(8) + "…")
                                 .font(Theme.monoLabel)
                                 .foregroundStyle(Theme.dim)
+                        }
+
+                        // One-shot read-back of the cloud copy. Idempotent —
+                        // it only fills what the local store is missing.
+                        Button {
+                            confirmRestore = true
+                        } label: {
+                            HStack {
+                                Text(restoreLabel)
+                                    .font(Theme.monoBody)
+                                    .foregroundStyle(restore.isRunning ? Theme.dim : Theme.accent)
+                                Spacer()
+                                if restore.isRunning {
+                                    ProgressView().tint(Theme.accent).scaleEffect(0.8)
+                                }
+                            }
+                        }
+                        .disabled(restore.isRunning)
+                        .confirmationDialog(
+                            "Download your synced history from the cloud into this phone? Existing local data is kept; only missing samples and activities are added.",
+                            isPresented: $confirmRestore, titleVisibility: .visible
+                        ) {
+                            Button("Restore history") {
+                                Task { await restore.run(env: env, context: modelContext) }
+                            }
+                            Button("Cancel", role: .cancel) {}
+                        }
+                        if case .failed(let message) = restore.phase {
+                            Text(message)
+                                .font(Theme.monoLabel)
+                                .foregroundStyle(Theme.warn)
                         }
                     }
                     .listRowBackground(Theme.card)

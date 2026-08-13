@@ -251,6 +251,17 @@ final class TrackCache {
 
     // MARK: Rollups
 
+    /// Drops every derived verdict — rollups AND the sticky "no data" day
+    /// list — and persists the empty state. For after a cloud restore: days
+    /// the warm-up branded empty against a wiped store now have samples, and
+    /// `uncachedDays` would otherwise keep skipping them forever. `macroReads`
+    /// survive; they are narrative, not derived from local samples.
+    func resetDerived() {
+        rollupsByDay = [:]
+        noDataDays   = []
+        save()
+    }
+
     func rollups(in range: ClosedRange<Date>) -> [DailyRollup] {
         rollupsByDay.values
             .filter { range.contains($0.day) }

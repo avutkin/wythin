@@ -3,7 +3,7 @@ Shared-key gated; scoped to the caller's user via X-User-ID."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..db import get_pool, get_or_create_user
 from ..models import MetricsUpload
@@ -44,3 +44,33 @@ async def upload_metrics(body: MetricsUpload, x_user_id: str = Header(..., alias
     async with get_pool().acquire() as conn:
         await conn.executemany(sql, rows)
     return {"stored": len(rows), "skipped": skipped}
+
+
+@router.get("/export")
+async def export_metrics(
+    x_user_id: str = Header(..., alias="X-User-ID"),
+    cursor: str | None = None,
+    limit: int = 5000,
+):
+    """Paged read-back of this user's own samples, oldest first.
+
+    The counterpart to the POST above, for a phone whose local store is gone:
+    page with `cursor` = the previous page's `next_cursor` until it comes back
+    null. Scoped to the caller's user row like every other read.
+    """
+    limit = min(max(limit, 1), _MAX_BATCH)
+    user_id = await get_or_create_user(x_user_id)
+    after = _dt(cursor) if cursor else datetime(1970, 1, 1, tzinfo=timezone.utc)
+    pool = await get_pool()
+    rows = await pool.fetch(
+        f"SELECT ts, {', '.join(_COLS)} FROM metric_samples "
+        "WHERE user_id = $1 AND ts > $2 ORDER BY ts LIMIT $3",
+        user_id, after, limit)
+    samples = [
+        {"ts": r["ts"].isoformat(), **{c: r[c] for c in _COLS}}
+        for r in rows
+    ]
+    return {
+        "samples": samples,
+        "next_cursor": samples[-1]["ts"] if len(rows) == limit else None,
+    }

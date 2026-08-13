@@ -740,9 +740,17 @@ final class ActivityLog {
     /// practice that raised the pulse gets the activation reading and the fuller
     /// recovery analysis whatever tile it was logged under.
     var measuredClass: ActivityClass {
-        ActivityClass.measured(beforeHR: beforeHR.map(Double.init),
-                               duringHR: duringHR.map(Double.init),
-                               fallback: activityTypeEnum.activityClass)
+        // The measurement decides only WITHIN the exercise family. A breathwork
+        // round or a meditation that raises the pulse is still that practice —
+        // promoting it to the load-and-recovery model told people their
+        // breathing exercise was a workout. Exercises go the other way: they
+        // are judged by the measured rise, and one that never lifted the pulse
+        // reads as the restorative session it physiologically was.
+        // By type, both ways: exercises are always the pulse-rose category —
+        // a gentle session still gets the load-and-recovery read, with the
+        // measured rise stated on the chip — and restorative practices never
+        // are. The measurement informs; the label decides.
+        activityTypeEnum.activityClass
     }
 
     /// ΔDC per extra bpm — the index in its own units, always available from the
@@ -762,6 +770,14 @@ final class ActivityLog {
     /// and a comparison cannot be the score when there is nothing to compare to.
     var suppressionAxis: AxisValue {
         if vagalRoseDuring { return .unavailable(reason: "vagal tone rose — nothing suppressed") }
+        // The same case by another route: vagalRoseDuring needs a VSI fit, which
+        // sparse or restored samples may not support — but a non-positive
+        // brake-per-beat says the same thing directly. DC held or rose, nothing
+        // was released, and clamping it to a perfect 100 dressed a gentle yoga
+        // as flawless suppression.
+        if let perBeat = brakePerBeat, perBeat <= 0 {
+            return .unavailable(reason: "vagal tone held — nothing released")
+        }
         guard let score = ExerciseSuppression.economyScore(brakePerBeat: brakePerBeat) else {
             return .unavailable(reason: "not enough heart-rate rise to measure")
         }

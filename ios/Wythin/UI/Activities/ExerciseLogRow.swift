@@ -10,6 +10,8 @@ import SwiftUI
 /// exactly what made a hard session read as a bad one.
 struct ExerciseLogRow: View {
     let entry: ActivityLog
+    var onEdit: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
 
     private var timeStr: String {
         let fmt = DateFormatter()
@@ -54,7 +56,12 @@ struct ExerciseLogRow: View {
     static let laurelThreshold = 50
 
     private var crowned: Bool {
-        if case let .score(value, _) = overall { return value >= Self.laurelThreshold }
+        // Laurels need the score to be worth framing AND settled: a single-axis
+        // 100 captioned "based on recovery alone so far" celebrating at full
+        // volume is the row overpromising on one reading.
+        if case let .score(value, word) = overall {
+            return value >= Self.laurelThreshold && !word.contains("alone")
+        }
         return false
     }
 
@@ -72,19 +79,12 @@ struct ExerciseLogRow: View {
         VStack(alignment: .leading, spacing: 11) {
             header
             hero
-            let scored = entry.scoredIndices
-            if !scored.isEmpty {
-                SessionIndexGrid(indices: scored, doses: entry.ungradedDoses)
-            }
-            if !entry.zoneSplit.isEmpty {
-                HeartRateZoneBar(split: entry.zoneSplit)
-            }
-            if let advice = SessionRecommendation.advice(for: scored) {
-                RecommendationCard(advice: advice)
-            }
+            SessionIndexSlotGrid(slots: entry.indexSlots, doses: entry.ungradedDoses)
             viewFullSession
         }
-        .padding(.vertical, 7)
+        .padding(12)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 16))
+        .padding(.vertical, 5)
     }
 
     private var header: some View {
@@ -99,10 +99,22 @@ struct ExerciseLogRow: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.displayName)
-                    .font(.system(size: 14, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Theme.text)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(entry.displayName)
+                        .font(.system(size: 14, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(1)
+                    if let rise = pulseRise {
+                        Text("PULSE ROSE \(rise) BPM")
+                            .font(.system(size: 7, weight: .semibold, design: .monospaced))
+                            .tracking(0.7)
+                            .foregroundStyle(Color(hex: "#FFC01F"))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color(hex: "#FFC01F").opacity(0.14),
+                                        in: RoundedRectangle(cornerRadius: 5))
+                    }
+                }
                 HStack(spacing: 4) {
                     Text(timeStr)
                         .font(.system(size: 10, design: .monospaced))
@@ -121,16 +133,25 @@ struct ExerciseLogRow: View {
 
             Spacer()
 
-            // Which model this session got, and the measurement that decided it.
-            // Two scoring systems in one list look arbitrary without it.
-            if let rise = pulseRise {
-                Text("PULSE ROSE \(rise) BPM")
-                    .font(.system(size: 7, weight: .semibold, design: .monospaced))
-                    .tracking(0.7)
-                    .foregroundStyle(Color(hex: "#FFC01F"))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Color(hex: "#FFC01F").opacity(0.14), in: RoundedRectangle(cornerRadius: 5))
+            if let onEdit {
+                Button(action: onEdit) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.dim)
+                        .frame(width: 30, height: 30)
+                        .background(Theme.surface.opacity(0.5), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            if let onDelete {
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.warn.opacity(0.8))
+                        .frame(width: 30, height: 30)
+                        .background(Theme.surface.opacity(0.5), in: Circle())
+                }
+                .buttonStyle(.plain)
             }
         }
     }

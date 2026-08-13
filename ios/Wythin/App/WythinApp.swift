@@ -17,17 +17,27 @@ struct WythinApp: App {
     init() {
         let schema = Schema([HRVSession.self, HRVSample.self, ResonanceResult.self, TrainSession.self, ActivityLog.self, DailyAnchor.self, UsageEventLog.self, FeltStateLog.self])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-        // Attempt to open the store; if schema has changed delete and recreate so the
-        // app never crashes on launch after adding new optional model fields.
+        // Attempt to open the store; if the schema can't migrate, set the store
+        // ASIDE and recreate so the app still launches — but never delete it.
+        // A sidecar copy can be migrated or mined later; deleted history is
+        // gone. (2026-08-09: the delete-and-recreate that used to live here
+        // erased a phone's entire local history after builds from two branches
+        // left the store on a schema neither could open. Its cleanup also
+        // targeted "default.store.wal" — SQLite's sidecars are "-wal"/"-shm",
+        // not dot extensions, so the real WAL was never removed either.)
         let c: ModelContainer
         do {
             c = try ModelContainer(for: schema, configurations: [config])
         } catch {
-            // Delete stale store and recreate from scratch.
-            let url = config.url
-            try? FileManager.default.removeItem(at: url)
-            try? FileManager.default.removeItem(at: url.appendingPathExtension("wal"))
-            try? FileManager.default.removeItem(at: url.appendingPathExtension("shm"))
+            let fm    = FileManager.default
+            let url   = config.url
+            let stamp = Int(Date.now.timeIntervalSince1970)
+            for suffix in ["", "-wal", "-shm"] {
+                let src = URL(fileURLWithPath: url.path + suffix)
+                guard fm.fileExists(atPath: src.path) else { continue }
+                let dst = URL(fileURLWithPath: url.path + ".incompatible-\(stamp)" + suffix)
+                try? fm.moveItem(at: src, to: dst)
+            }
             c = try! ModelContainer(for: schema, configurations: [config])
         }
         container = c

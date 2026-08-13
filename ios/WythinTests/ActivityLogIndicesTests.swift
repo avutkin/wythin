@@ -137,3 +137,26 @@ private extension AxisValue {
         return nil
     }
 }
+
+// MARK: - A brake that never came off is not a perfect release
+
+extension ActivityLogIndicesTests {
+
+    func testVagalToneThatHeldScoresNothingRatherThanEverything() {
+        // Yoga raises vagal tone as often as not. DC during >= DC before makes
+        // brake-per-beat non-positive, which the ramp used to clamp to a
+        // perfect 100 — "held on well" — and feed a laurelled 100 headline.
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Yoga")
+        entry.beforeDC = 12.0; entry.duringDC = 14.5   // rose
+        entry.beforeHR = 62;   entry.duringHR = 85     // real 23 bpm rise
+        XCTAssertNil(entry.brakeReleaseIndex,
+                     "nothing was released, so there is nothing to score")
+    }
+
+    func testARealReleaseStillScores() {
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Powerlifting")
+        entry.beforeDC = 16.0; entry.duringDC = 3.2
+        entry.beforeHR = 62;   entry.duringHR = 148
+        XCTAssertNotNil(entry.brakeReleaseIndex)
+    }
+}
