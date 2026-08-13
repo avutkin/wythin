@@ -80,6 +80,23 @@ enum DeviceRanking {
     }
 }
 
+// MARK: - Skin Contact Display Policy (pure, testable)
+//
+// Some H10 firmware never sets the sensor-contact-supported flag in the HR
+// measurement, so `sensorContact` stays nil forever on those straps. But a
+// live ECG stream is direct evidence the electrodes are on skin — dead
+// electrodes deliver no usable waveform — so fall back to that instead of
+// showing a permanent "not reported".
+enum SkinContactPolicy {
+    static func label(contact: Bool?, ecgLive: Bool) -> String {
+        switch contact {
+        case .some(true):  return "on skin"
+        case .some(false): return "off-body"
+        case .none:        return ecgLive ? "on skin (ECG)" : "not reported"
+        }
+    }
+}
+
 // MARK: - Battery Alert Policy (pure, testable)
 //
 // The H10 runs on a user-replaceable CR2025 coin cell. Below 5% the strap can
@@ -246,7 +263,13 @@ final class BLEService: NSObject {
     private var accSettings: [UInt8: [UInt16]]?
 
     // ACC watchdog liveness/retry state — see ACCWatchdogPolicy and evaluateACCWatchdog().
-    private var lastECGSampleAt: Date?
+    private(set) var lastECGSampleAt: Date?
+
+    /// ECG frames arrived within the last 5 s — direct evidence the strap is
+    /// worn, used when firmware doesn't report the HR contact flag.
+    var ecgStreamLive: Bool {
+        lastECGSampleAt.map { Date().timeIntervalSince($0) < 5 } ?? false
+    }
     private var lastACCSampleAt: Date?
     private var lastACCRetryAt:  Date?
     private var accRetryCount:   Int = 0

@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import Combine
 
 // MARK: - Live View
 
@@ -431,6 +432,132 @@ private struct DateNavigator: View {
     }
 }
 
+// MARK: - Live Stream Scope
+
+/// Rolling windows of the raw ECG and ACC streams feeding the diagnostics
+/// scope in the Bluetooth sheet. Subscribes for the sheet's lifetime only —
+/// the buffers die with the sheet, nothing accumulates in the background.
+@MainActor
+@Observable
+final class StreamScope {
+    /// Last 4 s of ECG at 130 Hz, in µV.
+    private(set) var ecg: [Float] = []
+    /// Last 4 s of ACC at 200 Hz, one SIMD3 per sample, in mg.
+    private(set) var acc: [SIMD3<Float>] = []
+
+    static let ecgWindow = PolarH10Profile.ecgSampleRate * 4
+    static let accWindow = PolarH10Profile.accSampleRate * 4
+
+    private var bag = Set<AnyCancellable>()
+
+    init(ble: BLEService) {
+        // Both subjects publish from the main actor (BLEService hops before
+        // sending), so mutating here is main-thread safe.
+        ble.ecgSubject
+            .sink { [weak self] samples in
+                guard let self else { return }
+                ecg.append(contentsOf: samples)
+                if ecg.count > Self.ecgWindow { ecg.removeFirst(ecg.count - Self.ecgWindow) }
+            }
+            .store(in: &bag)
+        ble.accSubject
+            .sink { [weak self] xyz in
+                guard let self else { return }
+                acc.append(contentsOf: xyz.map {
+                    SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z))
+                })
+                if acc.count > Self.accWindow { acc.removeFirst(acc.count - Self.accWindow) }
+            }
+            .store(in: &bag)
+    }
+}
+
+/// One oscilloscope strip: right-anchored polylines over a shared auto-scaled
+/// y-range, a recessive midline, and a dot legend when there's more than one
+/// series. Shows a waiting state until the first samples land — which is
+/// itself diagnostic: a strip that never fills means that stream is dead.
+private struct ScopeStrip: View {
+    struct Series {
+        let label:  String?
+        let color:  Color
+        let points: [Float]
+    }
+
+    let title:    String
+    let detail:   String
+    let capacity: Int
+    let series:   [Series]
+
+    private var isEmpty: Bool { series.allSatisfy { $0.points.isEmpty } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+                Spacer()
+                if series.count > 1 {
+                    ForEach(series.indices, id: \.self) { i in
+                        if let label = series[i].label {
+                            HStack(spacing: 4) {
+                                Circle().fill(series[i].color).frame(width: 6, height: 6)
+                                Text(label)
+                                    .font(Theme.monoLabel)
+                                    .foregroundStyle(Theme.dim)
+                            }
+                        }
+                    }
+                }
+                Text(detail)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(Theme.dim.opacity(0.6))
+            }
+
+            ZStack {
+                if isEmpty {
+                    Text("waiting for stream…")
+                        .font(Theme.monoLabel)
+                        .foregroundStyle(Theme.dim.opacity(0.7))
+                } else {
+                    Canvas { ctx, size in
+                        let all = series.flatMap(\.points)
+                        guard let lo = all.min(), let hi = all.max() else { return }
+                        let pad  = max((hi - lo) * 0.08, 1)
+                        let ymin = lo - pad, ymax = hi + pad
+                        let step = size.width / CGFloat(max(capacity - 1, 1))
+
+                        // Recessive midline so flat traces still read as "alive".
+                        let mid = size.height / 2
+                        var grid = Path()
+                        grid.move(to: CGPoint(x: 0, y: mid))
+                        grid.addLine(to: CGPoint(x: size.width, y: mid))
+                        ctx.stroke(grid, with: .color(Theme.border.opacity(0.6)), lineWidth: 1)
+
+                        for s in series where !s.points.isEmpty {
+                            var path = Path()
+                            let x0 = size.width - CGFloat(s.points.count - 1) * step
+                            for (i, v) in s.points.enumerated() {
+                                let x = x0 + CGFloat(i) * step
+                                let y = size.height *
+                                        CGFloat(1 - (v - ymin) / max(ymax - ymin, .leastNonzeroMagnitude))
+                                if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
+                                else      { path.addLine(to: CGPoint(x: x, y: y)) }
+                            }
+                            ctx.stroke(path, with: .color(s.color),
+                                       style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+                        }
+                    }
+                }
+            }
+            .frame(height: 88)
+            .frame(maxWidth: .infinity)
+            .background(Theme.bg.opacity(0.6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+}
+
 // MARK: - BLE Connection Sheet
 
 struct BLEConnectionSheet: View {
@@ -438,6 +565,7 @@ struct BLEConnectionSheet: View {
     let quality: CombinedSignalQuality?
     let motion:  Float?
     @Environment(\.dismiss) private var dismiss
+    @State private var scope: StreamScope? = nil
 
     init(ble: BLEService, quality: CombinedSignalQuality? = nil, motion: Float? = nil) {
         self.ble     = ble
@@ -454,10 +582,14 @@ struct BLEConnectionSheet: View {
                     VStack(spacing: 16) {
                         statusCard
                         if let quality { signalQualityCard(quality) }
+                        if case .connected = ble.state { liveStreamsCard }
                         actionSection
                         if let err = ble.lastError { errorCard(err) }
                     }
                     .padding()
+                }
+                .task {
+                    if scope == nil { scope = StreamScope(ble: ble) }
                 }
             }
             .navigationTitle("BLUETOOTH")
@@ -539,8 +671,8 @@ struct BLEConnectionSheet: View {
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Spacer()
-                Text(ble.sensorContact == nil ? "not reported"
-                     : (ble.sensorContact == true ? "on skin" : "off-body"))
+                Text(SkinContactPolicy.label(contact: ble.sensorContact,
+                                             ecgLive: ble.ecgStreamLive))
                     .font(Theme.monoBody)
                     .foregroundStyle(ble.sensorContact == false ? Theme.warn : Theme.text)
             }
@@ -649,6 +781,32 @@ struct BLEConnectionSheet: View {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Theme.warn.opacity(0.35), lineWidth: 1)
         )
+    }
+
+    /// Raw stream scope — the fastest way to see whether the strap is actually
+    /// delivering ECG and ACC, as opposed to the state label saying so.
+    private var liveStreamsCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let scope {
+                ScopeStrip(
+                    title: "ECG",
+                    detail: "130 Hz · last 4 s · µV",
+                    capacity: StreamScope.ecgWindow,
+                    series: [.init(label: nil, color: Theme.accent, points: scope.ecg)]
+                )
+                ScopeStrip(
+                    title: "ACCELERATION",
+                    detail: "200 Hz · last 4 s · mg",
+                    capacity: StreamScope.accWindow,
+                    series: [
+                        .init(label: "X", color: Theme.rsa,     points: scope.acc.map(\.x)),
+                        .init(label: "Y", color: Theme.breathe, points: scope.acc.map(\.y)),
+                        .init(label: "Z", color: Theme.coh,     points: scope.acc.map(\.z)),
+                    ]
+                )
+            }
+        }
+        .cardStyle()
     }
 
     private var deviceScanSection: some View {
