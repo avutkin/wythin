@@ -204,8 +204,14 @@ extension PolarH10Profile {
 
     /// Parse a GET_MEASUREMENT_SETTINGS response from PMD Control Point.
     ///
-    /// Response format: `[0xF0][opGetSettings][measType][status=0x00]`
+    /// Response format: `[0xF0][opGetSettings][measType][status=0x00][more(1)]`
     /// followed by TLV settings: `[type][count][val_L][val_H]…`
+    ///
+    /// Byte 4 is the "more frames" flag (the official SDK's
+    /// `PmdControlPointResponse` reads payload from offset 5) — H10 settings
+    /// always fit one notification, so it's skipped rather than accumulated.
+    /// Starting the TLVs at byte 4 instead shifts every field by one and
+    /// yields garbage commands the strap rejects with INVALID_PARAMETER.
     ///
     /// - Returns: measurement type + dict of settingType → sorted available values, or nil on failure.
     static func parseAvailableSettings(_ data: Data) -> (measType: UInt8, settings: [UInt8: [UInt16]])? {
@@ -217,7 +223,7 @@ extension PolarH10Profile {
 
         let measType = data[2]
         var settings: [UInt8: [UInt16]] = [:]
-        var i = 4
+        var i = 5
         while i + 1 < data.count {
             let settingType = data[i]
             let count       = Int(data[i + 1])
@@ -234,12 +240,17 @@ extension PolarH10Profile {
         return (measType, settings)
     }
 
+    /// Setting types a START command may carry: SAMPLE_RATE, RESOLUTION, RANGE.
+    /// GET can additionally advertise CHANNELS (0x04) / FACTOR (0x05); echoing
+    /// those back is answered with ERROR_INVALID_PARAMETER by some firmware.
+    private static let startableSettingTypes: ClosedRange<UInt8> = 0x00...0x02
+
     /// Build a START_MEASUREMENT command from available settings, choosing the max value
     /// for each setting type (mirrors `PmdSetting.maxSettings()` in the official SDK).
     static func buildStartCommand(measurementType: UInt8,
                                   from settings: [UInt8: [UInt16]]) -> Data {
         var cmd = Data([opStart, measurementType])
-        for settingType in settings.keys.sorted() {
+        for settingType in settings.keys.sorted() where startableSettingTypes.contains(settingType) {
             guard let maxVal = settings[settingType]?.max() else { continue }
             cmd.append(settingType)
             cmd.append(0x01)                        // 1 selected value
