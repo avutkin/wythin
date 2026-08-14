@@ -442,8 +442,17 @@ private struct DateNavigator: View {
 final class StreamScope {
     /// Last 4 s of ECG at 130 Hz, in µV.
     private(set) var ecg: [Float] = []
-    /// Last 4 s of ACC at 200 Hz, one SIMD3 per sample, in mg.
-    private(set) var acc: [SIMD3<Float>] = []
+    /// Last 4 s of gravity-free ACC residuals at 200 Hz, in mg — what the
+    /// wearer is DOING, with orientation subtracted out so a breath or a
+    /// shrug isn't dwarfed by the ~1000 mg gravity split across axes.
+    private(set) var accHP: [SIMD3<Float>] = []
+    /// Running gravity estimate; seeded from the first sample so the strip
+    /// doesn't open with a full-scale settling transient.
+    private var gravity: SIMD3<Float>? = nil
+
+    var motionState: MotionCompute.MotionState {
+        MotionCompute.state(rms: MotionCompute.residualRMS(accHP.suffix(100)))
+    }
 
     static let ecgWindow = PolarH10Profile.ecgSampleRate * 4
     static let accWindow = PolarH10Profile.accSampleRate * 4
@@ -463,10 +472,13 @@ final class StreamScope {
         ble.accSubject
             .sink { [weak self] xyz in
                 guard let self else { return }
-                acc.append(contentsOf: xyz.map {
-                    SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z))
-                })
-                if acc.count > Self.accWindow { acc.removeFirst(acc.count - Self.accWindow) }
+                for s in xyz {
+                    let f = SIMD3<Float>(Float(s.x), Float(s.y), Float(s.z))
+                    var g = gravity ?? f
+                    accHP.append(MotionCompute.highPassStep(gravity: &g, sample: f))
+                    gravity = g
+                }
+                if accHP.count > Self.accWindow { accHP.removeFirst(accHP.count - Self.accWindow) }
             }
             .store(in: &bag)
     }
@@ -487,6 +499,10 @@ private struct ScopeStrip: View {
     let detail:   String
     let capacity: Int
     let series:   [Series]
+    /// nil → autoscale to the window (right for ECG, which is inherently AC);
+    /// set → a stable scale, so the same movement always looks the same size
+    /// and stillness reads as a genuinely flat line, with the midline at zero.
+    var fixedRange: ClosedRange<Float>? = nil
 
     private var isEmpty: Bool { series.allSatisfy { $0.points.isEmpty } }
 
@@ -521,10 +537,15 @@ private struct ScopeStrip: View {
                         .foregroundStyle(Theme.dim.opacity(0.7))
                 } else {
                     Canvas { ctx, size in
-                        let all = series.flatMap(\.points)
-                        guard let lo = all.min(), let hi = all.max() else { return }
-                        let pad  = max((hi - lo) * 0.08, 1)
-                        let ymin = lo - pad, ymax = hi + pad
+                        let ymin: Float, ymax: Float
+                        if let range = fixedRange {
+                            ymin = range.lowerBound; ymax = range.upperBound
+                        } else {
+                            let all = series.flatMap(\.points)
+                            guard let lo = all.min(), let hi = all.max() else { return }
+                            let pad = max((hi - lo) * 0.08, 1)
+                            ymin = lo - pad; ymax = hi + pad
+                        }
                         let step = size.width / CGFloat(max(capacity - 1, 1))
 
                         // Recessive midline so flat traces still read as "alive".
@@ -537,7 +558,8 @@ private struct ScopeStrip: View {
                         for s in series where !s.points.isEmpty {
                             var path = Path()
                             let x0 = size.width - CGFloat(s.points.count - 1) * step
-                            for (i, v) in s.points.enumerated() {
+                            for (i, raw) in s.points.enumerated() {
+                                let v = min(max(raw, ymin), ymax)
                                 let x = x0 + CGFloat(i) * step
                                 let y = size.height *
                                         CGFloat(1 - (v - ymin) / max(ymax - ymin, .leastNonzeroMagnitude))
@@ -795,18 +817,38 @@ struct BLEConnectionSheet: View {
                     series: [.init(label: nil, color: Theme.accent, points: scope.ecg)]
                 )
                 ScopeStrip(
-                    title: "ACCELERATION",
-                    detail: "200 Hz · last 4 s · mg",
+                    title: "MOVEMENT",
+                    detail: "gravity removed · ±60 mg · last 4 s",
                     capacity: StreamScope.accWindow,
                     series: [
-                        .init(label: "X", color: Theme.rsa,     points: scope.acc.map(\.x)),
-                        .init(label: "Y", color: Theme.breathe, points: scope.acc.map(\.y)),
-                        .init(label: "Z", color: Theme.coh,     points: scope.acc.map(\.z)),
-                    ]
+                        .init(label: "X", color: Theme.rsa,     points: scope.accHP.map(\.x)),
+                        .init(label: "Y", color: Theme.breathe, points: scope.accHP.map(\.y)),
+                        .init(label: "Z", color: Theme.coh,     points: scope.accHP.map(\.z)),
+                    ],
+                    fixedRange: -60...60
                 )
+                if !scope.accHP.isEmpty { motionChip(scope.motionState) }
             }
         }
         .cardStyle()
+    }
+
+    /// The affirmation layer: what the strap thinks you're doing, in words —
+    /// so "did it feel that?" is answered without reading the trace.
+    private func motionChip(_ state: MotionCompute.MotionState) -> some View {
+        let (label, color): (String, Color) = switch state {
+        case .still:  ("STILL",         Theme.accent)
+        case .subtle: ("SUBTLE MOTION", Theme.breathe)
+        case .moving: ("MOVING",        Theme.rsa)
+        }
+        return Text(label)
+            .font(Theme.monoLabel)
+            .foregroundStyle(color)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 5)
+            .background(color.opacity(0.09))
+            .clipShape(Capsule())
+            .overlay(Capsule().strokeBorder(color.opacity(0.35), lineWidth: 0.5))
     }
 
     private var deviceScanSection: some View {
