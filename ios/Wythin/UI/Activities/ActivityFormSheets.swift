@@ -528,6 +528,13 @@ struct EditActivitySheet: View {
 
     private var endDate: Date { startDate.addingTimeInterval(durationMins * 60) }
 
+    /// An end before the start reads as crossing midnight and clamps to a
+    /// minute rather than going negative.
+    private var endBinding: Binding<Date> {
+        Binding(get: { endDate },
+                set: { durationMins = max(1, $0.timeIntervalSince(startDate) / 60) })
+    }
+
     /// Bridges the non-optional slider value to the preset row's optional
     /// binding. Writing nil is a no-op — the duration always has a value here.
     private var presetBinding: Binding<Double?> {
@@ -562,6 +569,11 @@ struct EditActivitySheet: View {
 
                     VStack(spacing: 12) {
                         DatePicker("START TIME", selection: $startDate, displayedComponents: [.date, .hourAndMinute])
+                            .font(Theme.monoLabel)
+                            .foregroundStyle(Theme.dim)
+                            .tint(Theme.accent)
+
+                        DatePicker("END TIME", selection: endBinding, displayedComponents: [.hourAndMinute])
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.dim)
                             .tint(Theme.accent)
