@@ -622,7 +622,10 @@ struct BLEConnectionSheet: View {
                     VStack(spacing: 16) {
                         statusCard
                         if let quality { signalQualityCard(quality) }
-                        if case .connected = ble.state { liveStreamsCard }
+                        // Always present — an empty "waiting for stream…" strip
+                        // when nothing flows IS the diagnostic; hiding the card
+                        // on disconnect/standby just made the charts feel gone.
+                        liveStreamsCard
                         actionSection
                         if let err = ble.lastError { errorCard(err) }
                     }
