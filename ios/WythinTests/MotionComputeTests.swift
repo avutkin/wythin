@@ -61,6 +61,41 @@ final class MotionComputeTests: XCTestCase {
         XCTAssertEqual(MotionCompute.state(rms: 80), .moving)
     }
 
+    // MARK: - Movement event detection (the "did it feel that?" counter)
+
+    func testDetectorCountsOneEventPerExcursion() {
+        var d = MotionEventDetector()
+        // still → burst (3 samples above trigger) → still
+        XCTAssertNil(d.step(magnitude: 5))
+        XCTAssertNil(d.step(magnitude: 50))
+        XCTAssertNil(d.step(magnitude: 90))
+        XCTAssertNil(d.step(magnitude: 40))
+        let event = d.step(magnitude: 5)
+        XCTAssertEqual(event?.peak ?? 0, 90, accuracy: 0.01, "Event reports the excursion's peak")
+        XCTAssertEqual(d.count, 1, "One excursion is one movement, however many samples it lasts")
+    }
+
+    func testDetectorHysteresisDoesNotFlicker() {
+        // Between release (15) and trigger (35) the state must hold, both ways.
+        var d = MotionEventDetector()
+        XCTAssertNil(d.step(magnitude: 25))          // below trigger: still still
+        XCTAssertEqual(d.count, 0)
+        _ = d.step(magnitude: 60)                    // now moving
+        XCTAssertNil(d.step(magnitude: 25), "Mid-band while moving: no event end yet")
+        XCTAssertNil(d.step(magnitude: 60))
+        XCTAssertEqual(d.count, 1, "Dipping into the band and back is still ONE movement")
+        XCTAssertNotNil(d.step(magnitude: 5))
+    }
+
+    func testDetectorCountsSeparateEvents() {
+        var d = MotionEventDetector()
+        _ = d.step(magnitude: 60); _ = d.step(magnitude: 5)   // event 1
+        _ = d.step(magnitude: 80)
+        let second = d.step(magnitude: 5)                      // event 2
+        XCTAssertEqual(d.count, 2)
+        XCTAssertEqual(second?.peak ?? 0, 80, accuracy: 0.01)
+    }
+
     func testResidualRMS() {
         // Constant 30 mg on one axis → RMS 30.
         let hp: [SIMD3<Float>] = Array(repeating: .init(30, 0, 0), count: 100)
