@@ -32,4 +32,43 @@ enum MotionCompute {
 
         return variance.squareRoot()
     }
+
+    // MARK: - Motion scope (gravity-free view of the raw stream)
+
+    /// EMA time constant of the gravity estimate, as the per-sample weight.
+    /// 1/200 at 200 Hz ≈ a 1-second horizon: slow enough that breathing and
+    /// gestures pass through, fast enough to re-settle after a posture change.
+    static let gravityAlpha: Float = 1 / 200
+
+    /// How still is still, in mg RMS of the gravity-free residual. Breathing
+    /// alone reads well under `stillCeiling`; deliberate movement clears
+    /// `subtleCeiling` easily.
+    static let stillCeiling:  Float = 12
+    static let subtleCeiling: Float = 40
+
+    enum MotionState { case still, subtle, moving }
+
+    /// One step of gravity tracking: fold `sample` into the running gravity
+    /// estimate and return the gravity-free residual — the part of the reading
+    /// that is movement, not orientation.
+    static func highPassStep(gravity: inout SIMD3<Float>,
+                             sample: SIMD3<Float>,
+                             alpha: Float = gravityAlpha) -> SIMD3<Float> {
+        gravity += (sample - gravity) * alpha
+        return sample - gravity
+    }
+
+    /// RMS of the residual vector magnitude over a window, in mg.
+    static func residualRMS(_ residuals: ArraySlice<SIMD3<Float>>) -> Float {
+        guard !residuals.isEmpty else { return 0 }
+        var sumSq: Float = 0
+        for r in residuals { sumSq += r.x * r.x + r.y * r.y + r.z * r.z }
+        return (sumSq / Float(residuals.count)).squareRoot()
+    }
+
+    static func state(rms: Float) -> MotionState {
+        if rms <= stillCeiling  { return .still }
+        if rms <= subtleCeiling { return .subtle }
+        return .moving
+    }
 }
