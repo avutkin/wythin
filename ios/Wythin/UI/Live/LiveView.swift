@@ -454,6 +454,11 @@ final class StreamScope {
         MotionCompute.state(rms: MotionCompute.residualRMS(accHP.suffix(100)))
     }
 
+    /// Movements registered since the sheet opened, newest first (last 3 kept).
+    private(set) var movementEvents: [(at: Date, peak: Float)] = []
+    private(set) var movementCount = 0
+    private var detector = MotionEventDetector()
+
     static let ecgWindow = PolarH10Profile.ecgSampleRate * 4
     static let accWindow = PolarH10Profile.accSampleRate * 4
 
@@ -475,8 +480,15 @@ final class StreamScope {
                 for s in xyz {
                     let f = SIMD3<Float>(Float(s.x), Float(s.y), Float(s.z))
                     var g = gravity ?? f
-                    accHP.append(MotionCompute.highPassStep(gravity: &g, sample: f))
+                    let hp = MotionCompute.highPassStep(gravity: &g, sample: f)
                     gravity = g
+                    accHP.append(hp)
+                    let magnitude = (hp.x * hp.x + hp.y * hp.y + hp.z * hp.z).squareRoot()
+                    if let event = detector.step(magnitude: magnitude) {
+                        movementEvents.insert((at: Date(), peak: event.peak), at: 0)
+                        if movementEvents.count > 3 { movementEvents.removeLast() }
+                    }
+                    movementCount = detector.count
                 }
                 if accHP.count > Self.accWindow { accHP.removeFirst(accHP.count - Self.accWindow) }
             }
@@ -588,6 +600,12 @@ struct BLEConnectionSheet: View {
     let motion:  Float?
     @Environment(\.dismiss) private var dismiss
     @State private var scope: StreamScope? = nil
+
+    private static let eventTime: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
 
     init(ble: BLEService, quality: CombinedSignalQuality? = nil, motion: Float? = nil) {
         self.ble     = ble
@@ -827,7 +845,30 @@ struct BLEConnectionSheet: View {
                     ],
                     fixedRange: -60...60
                 )
-                if !scope.accHP.isEmpty { motionChip(scope.motionState) }
+                if !scope.accHP.isEmpty {
+                    HStack(spacing: 10) {
+                        motionChip(scope.motionState)
+                        Spacer()
+                        Text("movements: \(scope.movementCount)")
+                            .font(Theme.monoLabel)
+                            .foregroundStyle(scope.movementCount > 0 ? Theme.text : Theme.dim)
+                            .contentTransition(.numericText())
+                    }
+                    // The receipt: each registered movement, with its size —
+                    // wave your arm, watch the row appear.
+                    ForEach(scope.movementEvents, id: \.at) { event in
+                        HStack(spacing: 8) {
+                            Circle().fill(Theme.rsa).frame(width: 5, height: 5)
+                            Text(Self.eventTime.string(from: event.at))
+                                .font(Theme.monoLabel)
+                                .foregroundStyle(Theme.dim)
+                            Text("movement registered · peak \(Int(event.peak)) mg")
+                                .font(Theme.monoLabel)
+                                .foregroundStyle(Theme.text.opacity(0.85))
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
             }
         }
         .cardStyle()

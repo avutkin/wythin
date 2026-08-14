@@ -72,3 +72,37 @@ enum MotionCompute {
         return .moving
     }
 }
+
+/// Turns the residual-magnitude stream into discrete, countable movements —
+/// the scope's proof that a gesture registered. Hysteresis (enter above
+/// `trigger`, leave below `release`) so one movement is one event, not a
+/// flicker of them.
+struct MotionEventDetector {
+    static let trigger: Float = 35   // mg — well above breathing
+    static let release: Float = 15   // mg — must settle before the next event
+
+    struct Event: Equatable {
+        /// Largest residual magnitude during the excursion, in mg.
+        let peak: Float
+    }
+
+    private(set) var inMotion = false
+    private(set) var count = 0
+    private var peak: Float = 0
+
+    /// Feed one residual magnitude; returns the finished event when a
+    /// movement ends, nil otherwise. `count` increments when one begins.
+    mutating func step(magnitude: Float) -> Event? {
+        if magnitude > Self.trigger {
+            if !inMotion { inMotion = true; count += 1 }
+            peak = max(peak, magnitude)
+        } else if inMotion && magnitude < Self.release {
+            inMotion = false
+            defer { peak = 0 }
+            return Event(peak: peak)
+        } else if inMotion {
+            peak = max(peak, magnitude)
+        }
+        return nil
+    }
+}
