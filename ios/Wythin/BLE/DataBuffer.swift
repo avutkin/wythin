@@ -57,9 +57,16 @@ actor DataBuffer {
     // ECG: 130 Hz × 8 s = 1040 samples for metrics; keep 10 s for display
     private var ecgBuf:  CircularBuffer<Float>        = CircularBuffer(capacity: 1300, defaultValue: 0)
     // ACC Z: 200 Hz × 60 s = 12 000 samples (needed for coherence, phase detection)
-    private var accZBuf: CircularBuffer<Float>        = CircularBuffer(capacity: 12000, defaultValue: 0)
+    // 16384 samples = 81.9 s at 200 Hz. Sized so `welchPSD` at nperseg 8192
+    // still averages 3 half-overlapping segments — at the old 12000 the finer
+    // resolution would have degraded the estimate to a single bare
+    // periodogram, whose variance is what makes a peak jitter between bins.
+    // `CoherenceCompute` deliberately does NOT inherit this wider window: it
+    // pins itself to the last 12000 samples. Any other consumer of the ACC
+    // arrays must make the same choice consciously.
+    private var accZBuf: CircularBuffer<Float>        = CircularBuffer(capacity: 16384, defaultValue: 0)
     // ACC XYZ: keep 60 s for breathing/phase
-    private var accXYZBuf: CircularBuffer<SIMD3<Float>> = CircularBuffer(capacity: 12000, defaultValue: .zero)
+    private var accXYZBuf: CircularBuffer<SIMD3<Float>> = CircularBuffer(capacity: 16384, defaultValue: .zero)
     // RR intervals: last 1200 beats (~20 min at rest).
     // ULF power (0–0.003 Hz) requires fftLen ≥ 2048, which needs ~600 beats; 1200 gives comfortable headroom.
     private var rrBuf:   CircularBuffer<Int>          = CircularBuffer(capacity: 1200, defaultValue: 0)

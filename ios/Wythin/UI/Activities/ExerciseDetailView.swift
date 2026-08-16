@@ -236,10 +236,6 @@ struct ExerciseDetailView: View {
                                  restingHR: restingHR,
                                  ceiling: ceiling,
                                  dcPre: entry.beforeDC)
-            IntensityDomainBar(moderateSec: entry.domainModerateSec ?? 0,
-                               heavySec: entry.domainHeavySec ?? 0,
-                               severeSec: entry.domainSevereSec ?? 0)
-            HeartRateZoneBar(split: entry.zoneSplit)
         }
         .cardStyle()
     }

@@ -31,6 +31,11 @@ final class HRVSample {
     var vlfPower:       Float?   // ms²  (VLF 0.003–0.04 Hz)
     var lfPower:        Float?   // ms²
     var hfPower:        Float?   // ms²
+    /// `BreathSource.rawValue` — which channel produced `breathBPM` (0 = ACC
+    /// measured, 1 = EDR estimated). Optional attribute on a plain @Model, so
+    /// SwiftData migrates existing stores automatically. Deliberately not
+    /// synced to the server yet; can be added later without a migration.
+    var breathSourceRaw: Int?
 
     init(from tick: MetricsTick) {
         self.timestamp  = tick.timestamp
@@ -56,6 +61,7 @@ final class HRVSample {
         self.dc            = tick.dc
         self.motion        = tick.motion
         self.vti        = tick.vti
+        self.breathSourceRaw = tick.breathSource?.rawValue
         self.ulfPower   = tick.ulfPower
         self.vlfPower   = tick.vlfPower
         self.lfPower    = tick.lfPower
@@ -88,6 +94,7 @@ final class HRVSample {
         self.vti       = vti
 
         self.rsaIdx = nil; self.ieRatio = nil; self.signalQuality = nil
+        self.breathSourceRaw = nil
         self.rrInvalidRate = nil; self.rrCorrectedRate = nil; self.ecgQualityTier = nil
         self.ials = nil; self.motion = nil
         self.ulfPower = nil; self.vlfPower = nil; self.lfPower = nil; self.hfPower = nil
@@ -129,6 +136,7 @@ final class HRVSample {
         self.pnn50 = nil; self.lfHF = nil; self.rsaMs = nil; self.rsaIdx = nil
         self.coherence = nil; self.cbi = nil; self.ieRatio = nil
         self.rrCorrectedRate = nil; self.rcmse = nil; self.ials = nil
+        self.breathSourceRaw = nil
         self.ulfPower = nil; self.vlfPower = nil; self.lfPower = nil; self.hfPower = nil
     }
 }
