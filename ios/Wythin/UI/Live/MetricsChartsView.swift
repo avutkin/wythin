@@ -515,14 +515,16 @@ private struct MetricChartCard: View {
         HStack(alignment: .center, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(title)
+                    // One flowing line: marketing name, then the spelled-out
+                    // measure with its abbreviation in brackets — wraps as a
+                    // unit instead of truncating.
+                    (Text(title)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Theme.text)
-                    if !technicalName.isEmpty {
-                        Text(technicalName)
-                            .font(Theme.monoLabel)
-                            .foregroundStyle(Theme.dim)
-                    }
+                     + Text(technicalName.isEmpty ? "" : "  \(technicalName)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Theme.dim))
+                        .lineLimit(2)
                     if info != nil {
                         Button { showInfo = true } label: {
                             Text("?")
@@ -534,11 +536,6 @@ private struct MetricChartCard: View {
                         }
                         .buttonStyle(.plain)
                     }
-                }
-                if !technicalFull.isEmpty {
-                    Text(technicalFull)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(Theme.dim)
                 }
                 if !subtitle.isEmpty {
                     Text(subtitle)
@@ -910,8 +907,7 @@ struct MetricsChartsView: View, Equatable {
     private var signalArtifactsCard: some View {
         MetricChartCard(
             title:    "Signal Artifacts",
-            technicalName: "RR",
-            technicalFull: "share of beats dropped or repaired",
+            technicalName: "dropped + repaired beats (%)",
             subtitle: "% of beats invalid or corrected",
             yLabel:   "%",
             color:    Theme.warn,
@@ -945,8 +941,7 @@ struct MetricsChartsView: View, Equatable {
     private var rrCorrectedCard: some View {
         MetricChartCard(
             title:    "RR Corrected",
-            technicalName: "interpolated",
-            technicalFull: "interpolated beats (missed / doubled)",
+            technicalName: "interpolated beats (%)",
             subtitle: "% of beats replaced (missed / extra beat)",
             yLabel:   "%",
             color:    Theme.rsa,
@@ -974,8 +969,7 @@ struct MetricsChartsView: View, Equatable {
     private var ecgSignalCard: some View {
         MetricChartCard(
             title:    "ECG Signal",
-            technicalName: "waveform",
-            technicalFull: "raw ECG waveform fault (contact & motion)",
+            technicalName: "waveform fault (%)",
             subtitle: "contact & motion  ·  higher = worse",
             yLabel:   "%",
             color:    Theme.breathe,
@@ -1005,8 +999,7 @@ struct MetricsChartsView: View, Equatable {
     private var hrCard: some View {
         MetricChartCard(
             title:    "Pulse",
-            technicalName: "HR",
-            technicalFull: "Heart Rate — beats per minute",
+            technicalName: "Heart Rate (HR)",
             subtitle: "Your heart rate",
             yLabel:   "bpm",
             color:    Theme.warn,
@@ -1037,8 +1030,7 @@ struct MetricsChartsView: View, Equatable {
     private var rrHistoryCard: some View {
         MetricChartCard(
             title:    "RR Interval",
-            technicalName: "RR",
-            technicalFull: "mean beat-to-beat interval (ms)",
+            technicalName: "mean beat-to-beat interval (RR)",
             subtitle: "mean beat-to-beat  ·  60000 / BPM",
             yLabel:   "ms",
             color:    Theme.hrv,
@@ -1071,8 +1063,7 @@ struct MetricsChartsView: View, Equatable {
     private var ieRatioCard: some View {
         MetricChartCard(
             title:   "Breathing I:E Ratio",
-            technicalName: "I:E",
-            technicalFull: "exhale duration ÷ inhale duration",
+            technicalName: "exhale ÷ inhale (I:E)",
             subtitle: "exhale / inhale",
             yLabel:  "I:E ratio",
             color:   Theme.accent,
@@ -1103,7 +1094,6 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:   "Calm Power",
             technicalName: "ln RMSSD",
-            technicalFull: "natural log of RMSSD (a.k.a. Vagal Tone Index)",
             subtitle: "Total strength of your recovery drive",
             yLabel:  "VTI",
             color:   Theme.breathe,
@@ -1139,8 +1129,7 @@ struct MetricsChartsView: View, Equatable {
     private var breathRateCard: some View {
         MetricChartCard(
             title:   "Breath Rate",
-            technicalName: "br/min",
-            technicalFull: "breaths per minute — chest motion, heart-rhythm fallback",
+            technicalName: "breaths per minute (br/min)",
             subtitle: "How fast you're breathing",
             yLabel:  "br/min",
             color:   Theme.breathe,
@@ -1175,8 +1164,7 @@ struct MetricsChartsView: View, Equatable {
     private var rsaCard: some View {
         MetricChartCard(
             title:   "Conscious Breathing",
-            technicalName: "RSA",
-            technicalFull: "Respiratory Sinus Arrhythmia (ms)",
+            technicalName: "Respiratory Sinus Arrhythmia (RSA)",
             subtitle: "How your breath moves your heart rate",
             yLabel:  "ms",
             color:   Theme.rsa,
@@ -1209,8 +1197,7 @@ struct MetricsChartsView: View, Equatable {
     private var hrvCard: some View {
         MetricChartCard(
             title:   "Energy Reserve",
-            technicalName: "RMSSD",
-            technicalFull: "Root Mean Square of Successive Differences (ms)",
+            technicalName: "Root Mean Square of Successive Differences (RMSSD)",
             subtitle: "Your beat-to-beat variability",
             yLabel:  "ms",
             color:   Theme.hrv,
@@ -1240,8 +1227,7 @@ struct MetricsChartsView: View, Equatable {
     private var pnn50Card: some View {
         MetricChartCard(
             title:   "pNN50",
-            technicalName: "NN50",
-            technicalFull: "% successive beat pairs differing > 50 ms",
+            technicalName: "beat pairs differing >50 ms (%)",
             subtitle: "% successive RR diff > 50 ms",
             yLabel:  "%",
             color:   Theme.accent,
@@ -1271,8 +1257,7 @@ struct MetricsChartsView: View, Equatable {
     private var dcCard: some View {
         MetricChartCard(
             title:    "Vagal Tone",
-            technicalName: "DC",
-            technicalFull: "Deceleration Capacity — PRSA (ms)",
+            technicalName: "Deceleration Capacity (DC)",
             subtitle: "Your relaxation and recovery capacity",
             yLabel:   "ms",
             color:    Color(red: 0.4, green: 0.7, blue: 1.0),
@@ -1304,8 +1289,7 @@ struct MetricsChartsView: View, Equatable {
     private var rcmseCard: some View {
         MetricChartCard(
             title:    "Adaptive Capacity",
-            technicalName: "RCMSE",
-            technicalFull: "Refined Composite Multiscale Sample Entropy",
+            technicalName: "Multiscale Sample Entropy (RCMSE)",
             subtitle: "How flexibly your system adapts across timescales",
             yLabel:   "entropy",
             color:    Color(red: 0.8, green: 0.5, blue: 1.0),
@@ -1337,8 +1321,7 @@ struct MetricsChartsView: View, Equatable {
     private var pipCard: some View {
         MetricChartCard(
             title:    "Inner Noise",
-            technicalName: "PIP",
-            technicalFull: "Percentage of Inflection Points — fragmentation",
+            technicalName: "Percentage of Inflection Points (PIP)",
             subtitle: "Beat-to-beat fragmentation — rises with stress and fatigue",
             yLabel:   "%",
             color:    Color(red: 1.0, green: 0.7, blue: 0.3),
@@ -1370,8 +1353,7 @@ struct MetricsChartsView: View, Equatable {
     private var dfa1Card: some View {
         MetricChartCard(
             title:   "Harmony",
-            technicalName: "DFA α1",
-            technicalFull: "Detrended Fluctuation Analysis, short-term α1",
+            technicalName: "Detrended Fluctuation Analysis (DFA α1)",
             subtitle: "How ordered vs random your heart rhythm is",
             yLabel:  "α1",
             color:   Theme.ulf,
@@ -1404,8 +1386,7 @@ struct MetricsChartsView: View, Equatable {
     private var lfhfCard: some View {
         MetricChartCard(
             title:   "Stress Balance",
-            technicalName: "SNS %",
-            technicalFull: "autonomic balance — RMSSD-based dial, not raw LF/HF",
+            technicalName: "100·(1 − RMSSD index) (SNS %)",
             subtitle: "Balance of activation vs rest",
             yLabel:  "%",
             color:   Theme.rsa,
@@ -1419,7 +1400,7 @@ struct MetricsChartsView: View, Equatable {
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
                 "A simple 0–100 stress dial: higher means more revved-up and alert, lower means calmer. It's built so that slow, calming breathing actually reads as calmer.",
-                calculation: "A 0–100 dial driven primarily by RMSSD against your baseline — deliberately not raw LF/HF, which misreads slow calming breathing as stress. LF/HF is consulted only as a fallback at normal breathing rates.",
+                calculation: "Vagal index = RMSSD ÷ (RMSSD + 40), or 0.5 · RMSSD ÷ baseline once your baseline is known. The dial is SNS% = 100 · (1 − vagal index). When RMSSD is unavailable and breathing is at a normal rate, HF ÷ (LF + HF) stands in for the vagal index.",
                 physical:    "It's based on how relaxed your heartbeat is moment to moment — a calm, variable heartbeat reads low, a tense, flat one reads high.",
                 physiology:  "Most stress scores get fooled by slow breathing and spike as if you were stressed. This one is designed to avoid that trap, so paced breathing correctly shows up as calm.",
                 training:    "Watch it fall during slow breathing and recovery, and rise with stress or exercise. A good breathing session should trend it downward.",
@@ -1440,8 +1421,7 @@ struct MetricsChartsView: View, Equatable {
     private var vlfCard: some View {
         MetricChartCard(
             title:   "VLF Power",
-            technicalName: "VLF",
-            technicalFull: "very-low-frequency power, 0.003–0.04 Hz",
+            technicalName: "very-low-frequency power (VLF)",
             subtitle: "very low frequency  ·  0.003–0.04 Hz",
             yLabel:  "ms²",
             color:   Theme.breathe,
@@ -1469,8 +1449,7 @@ struct MetricsChartsView: View, Equatable {
     private var ulfCard: some View {
         MetricChartCard(
             title:   "ULF Power",
-            technicalName: "ULF",
-            technicalFull: "ultra-low-frequency power, < 0.003 Hz",
+            technicalName: "ultra-low-frequency power (ULF)",
             subtitle: "ultra low frequency  ·  < 0.003 Hz  ·  10 min+ sessions",
             yLabel:  "ms²",
             color:   Theme.dim,
@@ -1498,8 +1477,7 @@ struct MetricsChartsView: View, Equatable {
     private var coherenceCard: some View {
         MetricChartCard(
             title:   "Coherence Score",
-            technicalName: "coh",
-            technicalFull: "RR–breathing spectral coherence, 0–1",
+            technicalName: "RR–breathing coherence (0–1)",
             subtitle: "RR–breathing coupling",
             yLabel:  "score",
             color:   Theme.coh,
