@@ -160,7 +160,10 @@ struct ExerciseLogRow: View {
     /// laurels above the threshold rather than shouted at with a crown.
     @ViewBuilder
     private var hero: some View {
-        if case let .score(score, word) = overall {
+        // No headline until at least two axes back it. A giant 0 resting on a
+        // single reading — beside a 92 readiness — was the most confusing
+        // number on the screen, and it was barely a number at all.
+        if case let .score(score, word) = overall, !word.contains("alone") {
             VStack(spacing: 3) {
                 HStack(spacing: 10) {
                     if crowned { laurel("laurel.leading") }
