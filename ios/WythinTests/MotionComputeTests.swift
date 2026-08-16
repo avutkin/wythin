@@ -102,4 +102,14 @@ final class MotionComputeTests: XCTestCase {
         XCTAssertEqual(MotionCompute.residualRMS(hp[...]), 30, accuracy: 0.01)
         XCTAssertEqual(MotionCompute.residualRMS(ArraySlice<SIMD3<Float>>()), 0)
     }
+
+    func testMagnitudeRMSMatchesVectorRMS() {
+        // RMS over pre-computed magnitudes must equal RMS over the vectors —
+        // the scope stores magnitudes only, the state logic must not drift.
+        let vecs: [SIMD3<Float>] = [.init(3, 4, 0), .init(0, 0, 5), .init(6, 8, 0)]
+        let mags = vecs.map { ($0.x * $0.x + $0.y * $0.y + $0.z * $0.z).squareRoot() }
+        XCTAssertEqual(MotionCompute.rms(mags[...]),
+                       MotionCompute.residualRMS(vecs[...]), accuracy: 0.001)
+        XCTAssertEqual(MotionCompute.rms(ArraySlice<Float>()), 0)
+    }
 }
