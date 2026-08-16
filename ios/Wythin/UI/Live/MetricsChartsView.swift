@@ -849,7 +849,6 @@ struct MetricsChartsView: View, Equatable {
             breathRateCard
             rsaCard           // Conscious Breathing
             vtiCard           // Calm Power
-            hrvCard           // Energy Reserve
             hrCard            // Pulse
 
             signalQualitySection
@@ -1093,29 +1092,28 @@ struct MetricsChartsView: View, Equatable {
     private var vtiCard: some View {
         MetricChartCard(
             title:   "Calm Power",
-            technicalName: "ln RMSSD",
+            technicalName: "Root Mean Square of Successive Differences (RMSSD)",
             subtitle: "Total strength of your recovery drive",
-            yLabel:  "VTI",
+            yLabel:  "ms",
             color:   Theme.breathe,
             windows: TimeWindow.allCases,
             refs: [
-                RefLine(value: 3.0, label: "low (≈20ms)",   color: Theme.warn),
-                RefLine(value: 3.9, label: "mod (≈50ms)",   color: Theme.rsa),
-                RefLine(value: 4.6, label: "good (≈100ms)", color: Theme.coh),
+                RefLine(value: 20, label: "low",      color: Theme.warn),
+                RefLine(value: 40, label: "moderate", color: Theme.rsa),
+                RefLine(value: 65, label: "healthy",  color: Theme.coh),
             ],
-            yDomain: 2.0...5.5,
+            yDomain: 0...120,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
-                "The overall strength of your body's calm-and-recover system, on a steady, easy-to-track scale. Higher means a stronger ability to relax and bounce back.",
-                calculation: "The natural logarithm of RMSSD (see Energy Reserve). The log evens out HRV's skewed scale, so changes at low values weigh the same as changes at high ones.",
-                physical:    "It's built from how much your heartbeat naturally varies from beat to beat — a hallmark of a relaxed, well-regulated body — put on a smooth scale that's easy to compare day to day.",
+                "The strength of your body's calm-and-recover system, in raw milliseconds of beat-to-beat variability. Higher means a stronger ability to relax and bounce back.",
+                calculation: "Root Mean Square of Successive Differences (RMSSD): each beat-to-beat change is squared, the squares averaged over the window, and the root taken. Only vagal activity produces large beat-to-beat differences.",
+                physical:    "It's built from how much your heartbeat naturally varies from beat to beat — a hallmark of a relaxed, well-regulated body.",
                 physiology:  "A higher number means your 'brakes' are strong: you handle stress better, recover faster, and tend to sleep and feel better. A low number is a nudge to rest and downshift.",
                 training:    "Check it each morning after a few minutes of rest as a recovery score. A sharp drop means you're not fully recovered. It climbs over months with regular cardio and slow-breathing practice.",
-                sensitivity: "Fairly steady — it smooths out moment-to-moment noise, so it's reliable for day-to-day comparison.",
-                levels:      "Low:      under 3.0\nModerate: 3.0–3.9\nGood:     3.9–4.6\nHigh:     4.6+\nElite:    5.0+\nHigher is better."
+                sensitivity: "Live and personal — big swings within a day are normal; compare against your own usual range, not other people's.",
+                levels:      "Low:      under 20 ms\nModerate: 20–40 ms\nHealthy:  40–65 ms\nHigh:     65+ ms\nHigher is better — against your own baseline."
             ),
-            history: history, rawHistory: rawHistory, date: date,
-            bucketTransform: { v in v > 0 ? log(v) : 0 }
+            history: history, rawHistory: rawHistory, date: date
         ) { $0.rmssd.map(Double.init) }
     }
 
@@ -1192,35 +1190,6 @@ struct MetricsChartsView: View, Equatable {
         ) { $0.rsaMs.map(Double.init) }
     }
 
-    // MARK: HRV (RMSSD)
-
-    private var hrvCard: some View {
-        MetricChartCard(
-            title:   "Energy Reserve",
-            technicalName: "Root Mean Square of Successive Differences (RMSSD)",
-            subtitle: "Your beat-to-beat variability",
-            yLabel:  "ms",
-            color:   Theme.hrv,
-            windows: TimeWindow.allCases,
-            refs: [
-                RefLine(value: 20, label: "unhealthy", color: Theme.warn),
-                RefLine(value: 40, label: "moderate",  color: Theme.rsa),
-                RefLine(value: 65, label: "healthy",   color: Theme.coh),
-            ],
-            yDomain: 0...120,
-            win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
-            info: MetricInfo(
-                "Your core beat-to-beat variability — the headline marker of recovery and vagal (calming) tone. Higher signals a rested, adaptable system.",
-                calculation: "Root Mean Square of Successive Differences (RMSSD): each beat-to-beat change is squared, the squares averaged over the window, and the root taken. Only vagal activity produces large beat-to-beat differences.",
-                physical:    "It measures how much the gap between consecutive heartbeats changes from one beat to the next — the fast, breathing-driven variation (RMSSD).",
-                physiology:  "Driven mainly by your calming (vagal / parasympathetic) system. It rises with rest, slow breathing and good recovery; it drops under stress, exertion and fatigue.",
-                training:    "Responsive within a session — expect it to climb during restful, slow-breathing practice. Also worth tracking day to day as a recovery gauge.",
-                sensitivity: "Responsive — moves with your breathing and your recovery state.",
-                levels:      "Low:           under 20 ms\nBelow average: 20–40 ms\nModerate:      40–65 ms\nStrong:        65–100 ms\nAthletic:      100+ ms"
-            ),
-            history: history, rawHistory: rawHistory, date: date
-        ) { $0.rmssd.map(Double.init) }
-    }
 
     // MARK: pNN50
 

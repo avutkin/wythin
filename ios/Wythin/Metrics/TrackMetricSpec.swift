@@ -63,6 +63,21 @@ enum TrackMetrics {
         .init(def: def("Energy Reserve"),      rollup: { $0.rmssd },
               color: Theme.hrv,     zeroBased: true,  fallbackReference: 40.0, trendKey: "rmssd",
               trendWhy: "Energy Reserve (HRV · RMSSD) is your core beat-to-beat variability — the headline marker of recovery and vagal tone. A trend climbing over days points to a system that's recovering well; a sustained dip is a cue to prioritise rest."),
+        // Overall Variability rides Track only: its def is built inline
+        // rather than added to `activityMetricDefs`, so the Activities grid
+        // keeps its nine slots. Averaged over a full day of wear, daily SDNN
+        // approximates the classic 24-hour clinical measure — which is why it
+        // lives here as a day-level trend and not on the Live screen.
+        .init(def: ActivityMetricDef(
+                  label: "Overall Variability", techLabel: "SDNN", unit: "ms",
+                  direction: .higher,
+                  extract: { $0.sdnn.map(Double.init) },
+                  format: { $0.map { String(format: "%.1f", $0) } ?? "—" },
+                  beforeKey: \.beforeSDNN, duringKey: \.duringSDNN,
+                  why: "Overall Variability (SDNN) is the total spread of your beat-to-beat intervals — every rhythm, fast and slow, folded into one number."),
+              rollup: { $0.mean[LiveMetric.sdnn.rawValue] },
+              color: Theme.ulf, zeroBased: true, fallbackReference: 50.0, trendKey: "sdnn",
+              trendWhy: "Overall Variability (SDNN) is the day's total beat-to-beat spread — the classic 24-hour HRV measure, meaningful precisely because it is averaged over the whole day rather than a moment. A rising trend across weeks means broader autonomic range; a sustained fall under steady routine is worth a lighter week."),
     ]
 
     /// Labels, units, direction and copy are single-sourced from

@@ -18,6 +18,7 @@ final class TrackMetricSpecTests: XCTestCase {
         XCTAssertEqual(TrackMetrics.all.map(\.def.label), [
             "Vagal Tone", "Adaptive Capacity", "Inner Noise", "Harmony",
             "Stress Balance", "Conscious Breathing", "Energy Reserve",
+            "Overall Variability",
         ])
     }
 
@@ -36,7 +37,7 @@ final class TrackMetricSpecTests: XCTestCase {
         let liveCase: [String: LiveMetric] = [
             "Vagal Tone": .dc, "Energy Reserve": .rmssd, "Conscious Breathing": .rsa,
             "Adaptive Capacity": .rcmse, "Harmony": .dfa1, "Inner Noise": .pip,
-            "Stress Balance": .stressBalance,
+            "Stress Balance": .stressBalance, "Overall Variability": .sdnn,
         ]
         let liveOrder = LiveMetric.allCases
         let trackIndicesInLiveOrder = TrackMetrics.all.map { spec -> Int in
@@ -60,7 +61,8 @@ final class TrackMetricSpecTests: XCTestCase {
         // dc, rcmse, pip, dfa1, stressBalance, rsaMs, rmssd — the fixture's
         // fields read in display order.
         let values = TrackMetrics.all.map { $0.rollup(rollup) }
-        XCTAssertEqual(values, [8, 1.4, 55, 1.0, 45, 30, 40])
+        // SDNN reads the keyed mean dictionary, which the fixture leaves empty.
+        XCTAssertEqual(values, [8, 1.4, 55, 1.0, 45, 30, 40, nil])
     }
 
     func testTrendKeysAreUniqueAndStressBalanceIsNotLfHf() {
@@ -95,8 +97,13 @@ final class TrackMetricSpecTests: XCTestCase {
 
     func testWhyCopyIsInheritedNotRetyped() {
         for spec in TrackMetrics.all {
-            let shared = activityMetricDefs.first { $0.label == spec.def.label }
-            XCTAssertEqual(spec.def.why, shared?.why)
+            guard let shared = activityMetricDefs.first(where: { $0.label == spec.def.label }) else {
+                // Track-only metrics (Overall Variability) have no Activities
+                // surface, so they own their copy instead of inheriting it.
+                XCTAssertFalse(spec.def.why.isEmpty)
+                continue
+            }
+            XCTAssertEqual(spec.def.why, shared.why)
             XCTAssertFalse(spec.def.why.isEmpty)
         }
     }
