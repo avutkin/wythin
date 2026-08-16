@@ -66,6 +66,15 @@ enum MotionCompute {
         return (sumSq / Float(residuals.count)).squareRoot()
     }
 
+    /// RMS over pre-computed residual magnitudes — same value as
+    /// `residualRMS` over the vectors they came from.
+    static func rms(_ magnitudes: ArraySlice<Float>) -> Float {
+        guard !magnitudes.isEmpty else { return 0 }
+        var sumSq: Float = 0
+        for m in magnitudes { sumSq += m * m }
+        return (sumSq / Float(magnitudes.count)).squareRoot()
+    }
+
     static func state(rms: Float) -> MotionState {
         if rms <= stillCeiling  { return .still }
         if rms <= subtleCeiling { return .subtle }
