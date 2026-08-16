@@ -28,6 +28,14 @@ struct MetricsTick {
     let breathBPM:    Float?
     let breathHz:     Float?
     let regularity:   Float?
+    /// Which channel produced `breathBPM`. `breathBPM` non-nil while
+    /// `breathHz` is nil is a deliberate asymmetry, not an oversight: when
+    /// the source is `.heart` (EDR), `breathHz` and `regularity` stay nil so
+    /// RSA's bandpass, coherence and CBI never consume a breathing signal
+    /// derived from the heart itself — coherence would become the heart
+    /// correlated with itself and read artificially high. Do not "fix" this
+    /// by forwarding the EDR frequency into `breathHz`.
+    var breathSource: BreathSource? = nil
 
     // Coherence & CBI
     let coherenceScore: Float?
@@ -70,6 +78,12 @@ struct MetricsTick {
     let coherenceValues: [Float]?
 }
 
+/// Which channel a breathing-rate reading came from.
+enum BreathSource: Int, Codable {
+    case accelerometer = 0   // measured — chest expansion via ACC
+    case heart         = 1   // estimated — ECG-derived respiration (EDR)
+}
+
 // MARK: - MetricsEngine
 
 /// Coordinates all metric computation from a DataSnapshot.
@@ -100,8 +114,12 @@ enum MetricsEngine {
         let hrfResult   = AdvancedHRVCompute.computeHRF(rrMs: rrMs)
         let dcResult    = AdvancedHRVCompute.computeDC(rrMs: rrMs)
 
-        // --- Breathing from ACC Z ---
-        let breathing = BreathingCompute.computeRate(accZ: snapshot.accZ)
+        // --- Breathing: accelerometer first (all three axes), EDR fallback ---
+        // RR arrives on the heart-rate characteristic, so the fallback
+        // survives a total PMD stall; it is consulted only when ACC yields
+        // nothing (see `MetricsTick.breathSource` for the circularity rule).
+        let breathing = BreathingCompute.computeRate(accXYZ: snapshot.accXYZ)
+        let edrBPM: Float? = breathing == nil ? EDRCompute.computeRate(rrMs: rrMs) : nil
         let phases    = BreathingCompute.computePhases(accZ: snapshot.accZ)
 
         // --- RSA ---
@@ -139,9 +157,11 @@ enum MetricsEngine {
             lfHF:           hrv?.lfHF,
             rsaMs:          rsa?.rsaMs,
             rsaIdx:         rsa?.rsaIdx,
-            breathBPM:      breathing?.bpm,
-            breathHz:       breathing?.peakHz,
-            regularity:     breathing?.regularity,
+            breathBPM:      breathing?.bpm ?? edrBPM,
+            breathHz:       breathing?.peakHz,       // never EDR — circularity rule
+            regularity:     breathing?.regularity,   // never EDR
+            breathSource:   breathing != nil ? .accelerometer
+                                             : (edrBPM != nil ? .heart : nil),
             coherenceScore: coherence?.score,
             cbi:            cbi,
             dfa1:           dfa?.alpha1,

@@ -189,6 +189,9 @@
 		AT43 /* AnchorBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT43 /* AnchorBackfillTests.swift */; };
 		AT14 /* AnchorBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT14 /* AnchorBaselineTests.swift */; };
 		AT90 /* LiveDayComparisonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT90 /* LiveDayComparisonTests.swift */; };
+		AT92 /* SpectralPeakTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT92 /* SpectralPeakTests.swift */; };
+		AT93 /* EDRComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT93 /* EDRComputeTests.swift */; };
+		AT94 /* WelchPSDSegmentCountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT94 /* WelchPSDSegmentCountTests.swift */; };
 		AT91 /* CloudRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT91 /* CloudRestoreTests.swift */; };
 		AT15 /* PotentialScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT15 /* PotentialScoreTests.swift */; };
 		AT16 /* StreakComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT16 /* StreakComputeTests.swift */; };
@@ -207,6 +210,8 @@
 		AT51 /* LiveMetricTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT51 /* LiveMetricTests.swift */; };
 		A51 /* LiveBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51 /* LiveBaseline.swift */; };
 		A990 /* LiveDayComparison.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990 /* LiveDayComparison.swift */; };
+		A993 /* SpectralPeak.swift in Sources */ = {isa = PBXBuildFile; fileRef = F993 /* SpectralPeak.swift */; };
+		A994 /* EDRCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F994 /* EDRCompute.swift */; };
 		AT52 /* LiveBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT52 /* LiveBaselineTests.swift */; };
 		ATCC /* CurrentStateCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FTCC /* CurrentStateCardTests.swift */; };
 		A54 /* LiveReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = F54 /* LiveReading.swift */; };
@@ -440,6 +445,9 @@
 		FT43 /* AnchorBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBackfillTests.swift; sourceTree = "<group>"; };
 		FT14 /* AnchorBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaselineTests.swift; sourceTree = "<group>"; };
 		FT90 /* LiveDayComparisonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDayComparisonTests.swift; sourceTree = "<group>"; };
+		FT92 /* SpectralPeakTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectralPeakTests.swift; sourceTree = "<group>"; };
+		FT93 /* EDRComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EDRComputeTests.swift; sourceTree = "<group>"; };
+		FT94 /* WelchPSDSegmentCountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelchPSDSegmentCountTests.swift; sourceTree = "<group>"; };
 		FT91 /* CloudRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRestoreTests.swift; sourceTree = "<group>"; };
 		FT15 /* PotentialScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScoreTests.swift; sourceTree = "<group>"; };
 		FT16 /* StreakComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakComputeTests.swift; sourceTree = "<group>"; };
@@ -479,6 +487,8 @@
 		FT51 /* LiveMetricTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveMetricTests.swift; sourceTree = "<group>"; };
 		F51 /* LiveBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveBaseline.swift; sourceTree = "<group>"; };
 		F990 /* LiveDayComparison.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDayComparison.swift; sourceTree = "<group>"; };
+		F993 /* SpectralPeak.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectralPeak.swift; sourceTree = "<group>"; };
+		F994 /* EDRCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EDRCompute.swift; sourceTree = "<group>"; };
 		FT52 /* LiveBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveBaselineTests.swift; sourceTree = "<group>"; };
 		FTCC /* CurrentStateCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentStateCardTests.swift; sourceTree = "<group>"; };
 		F54 /* LiveReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReading.swift; sourceTree = "<group>"; };
@@ -688,6 +698,8 @@
 				F50 /* LiveMetric.swift */,
 				F51 /* LiveBaseline.swift */,
 				F990 /* LiveDayComparison.swift */,
+				F993 /* SpectralPeak.swift */,
+				F994 /* EDRCompute.swift */,
 				F54 /* LiveReading.swift */,
 				F56 /* LiveStateClassifier.swift */,
 				F57 /* LiveStateCopy.swift */,
@@ -835,6 +847,9 @@
 				FT15 /* PotentialScoreTests.swift */,
 				FT14 /* AnchorBaselineTests.swift */,
 				FT90 /* LiveDayComparisonTests.swift */,
+				FT92 /* SpectralPeakTests.swift */,
+				FT93 /* EDRComputeTests.swift */,
+				FT94 /* WelchPSDSegmentCountTests.swift */,
 				FT91 /* CloudRestoreTests.swift */,
 				FT13 /* AnchorDetectorTests.swift */,
 				FT43 /* AnchorBackfillTests.swift */,
@@ -1137,6 +1152,8 @@
 				A50 /* LiveMetric.swift in Sources */,
 				A51 /* LiveBaseline.swift in Sources */,
 				A990 /* LiveDayComparison.swift in Sources */,
+				A993 /* SpectralPeak.swift in Sources */,
+				A994 /* EDRCompute.swift in Sources */,
 				A54 /* LiveReading.swift in Sources */,
 				A56 /* LiveStateClassifier.swift in Sources */,
 				A57 /* LiveStateCopy.swift in Sources */,
@@ -1176,6 +1193,9 @@
 				AT15 /* PotentialScoreTests.swift in Sources */,
 				AT14 /* AnchorBaselineTests.swift in Sources */,
 				AT90 /* LiveDayComparisonTests.swift in Sources */,
+				AT92 /* SpectralPeakTests.swift in Sources */,
+				AT93 /* EDRComputeTests.swift in Sources */,
+				AT94 /* WelchPSDSegmentCountTests.swift in Sources */,
 				AT91 /* CloudRestoreTests.swift in Sources */,
 				AT13 /* AnchorDetectorTests.swift in Sources */,
 				AT43 /* AnchorBackfillTests.swift in Sources */,

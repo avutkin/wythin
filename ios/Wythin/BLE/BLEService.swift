@@ -122,7 +122,7 @@ enum BatteryAlertPolicy {
 // decision, so BLETests can exercise every branch without a real peripheral.
 // `BLEService.evaluateACCWatchdog` is the only caller — it samples state, calls
 // `decide`, and acts on the result.
-enum ACCWatchdogPolicy {
+enum PMDWatchdogPolicy {
 
     enum Action: Equatable {
         /// Nothing wrong (or a retry was just issued) — check again next tick.
@@ -131,10 +131,17 @@ enum ACCWatchdogPolicy {
         /// remains, and enough time has passed since the last retry — reissue
         /// the ACC start command.
         case retryACCStart
-        /// Retry budget exhausted with ACC still silent — stop trying until the
-        /// next full stream restart (reconnect or standby/resume cycle), which
-        /// rearms the watchdog with a fresh budget.
-        case giveUp
+        /// ECG **and** ACC silent while RR still flows: the link is alive but
+        /// the PMD subsystem as a whole has stalled — reissue both start
+        /// commands. This is the branch the 2026-08-07 outage needed: RR
+        /// proves the connection, so the reconnect watchdog rightly stays
+        /// quiet, and someone still has to retry.
+        case retryBothPMD
+        /// Retry budget exhausted with the stall persisting. NOT terminal:
+        /// the watchdog stays alive for the session and reissues the start
+        /// command(s) on a slow cadence — a session should never end with
+        /// the app having permanently stopped trying.
+        case slowRetry(both: Bool)
     }
 
     /// - Parameters:
@@ -160,21 +167,31 @@ enum ACCWatchdogPolicy {
         isConnected: Bool,
         inStandby: Bool,
         ecgFlowing: Bool,
+        rrFlowing: Bool,
         timeSinceLastACCSample: TimeInterval,
         timeSinceLastRetry: TimeInterval?,
         retriesUsed: Int,
         stallThreshold: TimeInterval,
         retryGap: TimeInterval,
-        maxRetries: Int
+        maxRetries: Int,
+        slowRetryGap: TimeInterval
     ) -> Action {
         guard isConnected, !inStandby else { return .keepWaiting }
-        // Both streams silent → the connection is the problem, not a lost ACC
-        // start. Stay quiet and let the reconnect/standby machinery handle it.
-        guard ecgFlowing else { return .keepWaiting }
+        // RR is the liveness oracle, NOT ECG: RR rides the heart-rate
+        // characteristic while ECG and ACC are both PMD streams. When RR has
+        // also stopped the link itself is down and reconnect owns it — but
+        // ECG-silent with RR flowing is a PMD-level stall this watchdog must
+        // act on, which is exactly the case the old ecgFlowing guard vetoed.
+        guard rrFlowing else { return .keepWaiting }
         guard timeSinceLastACCSample >= stallThreshold else { return .keepWaiting }
-        guard retriesUsed < maxRetries else { return .giveUp }
-        if let timeSinceLastRetry, timeSinceLastRetry < retryGap { return .keepWaiting }
-        return .retryACCStart
+        let both = !ecgFlowing
+        if retriesUsed < maxRetries {
+            if let timeSinceLastRetry, timeSinceLastRetry < retryGap { return .keepWaiting }
+            return both ? .retryBothPMD : .retryACCStart
+        }
+        // Budget exhausted: drop to a slow cadence instead of giving up.
+        if let timeSinceLastRetry, timeSinceLastRetry < slowRetryGap { return .keepWaiting }
+        return .slowRetry(both: both)
     }
 }
 
@@ -248,6 +265,11 @@ final class BLEService: NSObject {
     // ACC watchdog liveness/retry state — see ACCWatchdogPolicy and evaluateACCWatchdog().
     private var lastECGSampleAt: Date?
     private var lastACCSampleAt: Date?
+    private var lastRRSampleAt:  Date?
+    private var lastECGStartCmd: Data?
+    /// True once the fast budget has been spent and `lastError` surfaced —
+    /// so the slow-retry loop doesn't rewrite it every minute.
+    private var inSlowRetry = false
     private var lastACCRetryAt:  Date?
     private var accRetryCount:   Int = 0
     private var lastACCStartCmd: Data?
@@ -261,6 +283,10 @@ final class BLEService: NSObject {
     // giving a genuinely broken strap a few honest tries before giving up.
     private static let accStallThreshold:      TimeInterval = 5.0
     private static let accRetryGap:            TimeInterval = 5.0
+    /// Cadence of the post-budget slow retries. The stall persisting past the
+    /// fast budget means something is genuinely wedged; once a minute keeps
+    /// pressure on it for the whole session without spamming the control point.
+    private static let accSlowRetryGap:        TimeInterval = 60.0
     private static let accWatchdogMaxRetries:  Int          = 3
     private static let accWatchdogPollInterval: TimeInterval = 2.0
 
@@ -587,6 +613,7 @@ final class BLEService: NSObject {
 
     private func launchStreams(ecg: Data, acc: Data) {
         guard let ctrl = pmdControl, let p = peripheral else { return }
+        lastECGStartCmd = ecg
         print("🔵 BLE: starting ECG — \(ecg.hexLog)")
         p.writeValue(ecg, for: ctrl, type: .withResponse)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
@@ -675,7 +702,9 @@ final class BLEService: NSObject {
         lastACCStartCmd = accCmd
         lastACCSampleAt = Date()
         lastECGSampleAt = Date()
-        print("🔵 BLE: ACC watchdog armed — stall threshold \(Int(Self.accStallThreshold))s, max \(Self.accWatchdogMaxRetries) retries")
+        lastRRSampleAt  = Date()
+        inSlowRetry     = false
+        print("🔵 BLE: PMD watchdog armed — stall threshold \(Int(Self.accStallThreshold))s, max \(Self.accWatchdogMaxRetries) retries")
 
         accWatchdogTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -699,19 +728,22 @@ final class BLEService: NSObject {
         // "not flowing" is generous, not tight — it only opens up when ECG has
         // genuinely stopped too, at which point this is a connection problem.
         let ecgFlowing = lastECGSampleAt.map { now.timeIntervalSince($0) < Self.accStallThreshold } ?? false
+        let rrFlowing  = lastRRSampleAt.map  { now.timeIntervalSince($0) < Self.accStallThreshold } ?? false
         let timeSinceACC = lastACCSampleAt.map { now.timeIntervalSince($0) } ?? .infinity
         let timeSinceRetry = lastACCRetryAt.map { now.timeIntervalSince($0) }
 
-        let action = ACCWatchdogPolicy.decide(
+        let action = PMDWatchdogPolicy.decide(
             isConnected: true,
             inStandby: inStandby,
             ecgFlowing: ecgFlowing,
+            rrFlowing: rrFlowing,
             timeSinceLastACCSample: timeSinceACC,
             timeSinceLastRetry: timeSinceRetry,
             retriesUsed: accRetryCount,
             stallThreshold: Self.accStallThreshold,
             retryGap: Self.accRetryGap,
-            maxRetries: Self.accWatchdogMaxRetries
+            maxRetries: Self.accWatchdogMaxRetries,
+            slowRetryGap: Self.accSlowRetryGap
         )
 
         switch action {
@@ -721,14 +753,41 @@ final class BLEService: NSObject {
         case .retryACCStart:
             accRetryCount += 1
             lastACCRetryAt = now
-            print("🟡 BLE: ACC watchdog — no ACC samples for \(Int(timeSinceACC))s while ECG flowing — stall detected")
-            print("🔵 BLE: ACC watchdog — reissuing ACC start (attempt \(accRetryCount)/\(Self.accWatchdogMaxRetries))")
+            print("🟡 BLE: PMD watchdog — no ACC for \(Int(timeSinceACC))s while ECG flows — reissuing ACC start (\(accRetryCount)/\(Self.accWatchdogMaxRetries))")
             p.writeValue(accCmd, for: ctrl, type: .withResponse)
 
-        case .giveUp:
-            print("🔴 BLE: ACC watchdog — retry budget exhausted (\(Self.accWatchdogMaxRetries)/\(Self.accWatchdogMaxRetries)) — giving up until next reconnect/standby cycle")
-            lastError = "ACC stream stalled — breathing metrics unavailable until reconnect"
-            accWatchdogTask?.cancel()
+        case .retryBothPMD:
+            accRetryCount += 1
+            lastACCRetryAt = now
+            print("🟡 BLE: PMD watchdog — ECG and ACC both silent while RR flows — PMD stall, reissuing both starts (\(accRetryCount)/\(Self.accWatchdogMaxRetries))")
+            reissuePMDStarts(acc: accCmd, ctrl: ctrl, p: p)
+
+        case .slowRetry(let both):
+            accRetryCount += 1
+            lastACCRetryAt = now
+            if !inSlowRetry {
+                inSlowRetry = true
+                lastError = "Breathing sensor stream stalled — still retrying in the background"
+                print("🔴 BLE: PMD watchdog — fast budget exhausted, dropping to \(Int(Self.accSlowRetryGap))s retries for the rest of the session")
+            }
+            if both { reissuePMDStarts(acc: accCmd, ctrl: ctrl, p: p) }
+            else    { p.writeValue(accCmd, for: ctrl, type: .withResponse) }
+        }
+    }
+
+    /// Reissues ECG then ACC, serialised the same 250 ms apart as
+    /// `launchStreams` — without going through `launchStreams` itself, which
+    /// would re-arm the watchdog and hand the stall a fresh fast budget
+    /// forever.
+    private func reissuePMDStarts(acc: Data, ctrl: CBCharacteristic, p: CBPeripheral) {
+        if let ecg = lastECGStartCmd {
+            p.writeValue(ecg, for: ctrl, type: .withResponse)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                guard let self, let ctrl = self.pmdControl, let p = self.peripheral else { return }
+                p.writeValue(acc, for: ctrl, type: .withResponse)
+            }
+        } else {
+            p.writeValue(acc, for: ctrl, type: .withResponse)
         }
     }
 
@@ -738,7 +797,11 @@ final class BLEService: NSObject {
     private func noteACCSampleReceived() {
         lastACCSampleAt = Date()
         if accRetryCount > 0 {
-            print("✅ BLE: ACC watchdog — ACC stream recovered after \(accRetryCount) retry attempt(s)")
+            print("✅ BLE: PMD watchdog — ACC stream recovered after \(accRetryCount) retry attempt(s)")
+        }
+        if inSlowRetry {
+            inSlowRetry = false
+            lastError   = nil
         }
         accRetryCount  = 0
         lastACCRetryAt = nil
@@ -1074,6 +1137,10 @@ extension BLEService: CBPeripheralDelegate {
             if let frame = PolarH10Profile.parseHRFrame(data) {
                 let name = peripheral.name ?? "Polar H10"
                 Task { @MainActor in
+                    // RR liveness for the PMD watchdog: this characteristic is
+                    // independent of both PMD streams, so it can prove the
+                    // link is alive while ECG and ACC are both stalled.
+                    self.lastRRSampleAt = Date()
                     self.sensorContact = frame.contact
                     // Paused for off-body: keep watching the contact bit over the
                     // lightweight HR link and resume the moment the strap is worn

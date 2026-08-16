@@ -98,6 +98,10 @@ private struct ChartPoint: Identifiable {
     let val:     Double
     let quality: Float? // average signal quality in this bucket (nil = no quality data)
     let segment: Int    // contiguous-run id; increments across data gaps so the line breaks
+    /// More than half this bucket's samples were estimated (EDR) rather than
+    /// measured. Folded into `segment`, so a source change starts a new line
+    /// series and the dashed style cannot bleed across the boundary.
+    var estimated: Bool = false
 }
 
 // MARK: - Anomaly Band
@@ -220,6 +224,10 @@ private struct MetricChartCard: View {
     /// charts themselves (they must stay fully visible when artifacts are high).
     let flagUnreliable: Bool
     let info:       MetricInfo?
+    /// Marks a sample as estimated rather than measured (dashed rendering +
+    /// caption). Only Breath Rate passes this; default nil leaves the other
+    /// cards untouched.
+    let isEstimated: ((MetricsHistoryPoint) -> Bool)?
     let extract:          (MetricsHistoryPoint) -> Double?
     /// Optional transform applied to each bucket mean after averaging.
     /// Used for metrics like VTI where ln() must be applied AFTER averaging
@@ -241,6 +249,7 @@ private struct MetricChartCard: View {
          dynamicY: Bool = false,
          flagUnreliable: Bool = true,
          info: MetricInfo? = nil,
+         isEstimated: ((MetricsHistoryPoint) -> Bool)? = nil,
          history: [MetricsHistoryPoint],
          rawHistory: [MetricsHistoryPoint] = [],
          date: Date,
@@ -258,6 +267,7 @@ private struct MetricChartCard: View {
         self.dynamicY        = dynamicY
         self.flagUnreliable  = flagUnreliable
         self.info            = info
+        self.isEstimated     = isEstimated
         self.history         = history
         self.rawHistory      = rawHistory
         self.date            = date
@@ -407,6 +417,7 @@ private struct MetricChartCard: View {
         var counts:  [Int: Int]    = [:]
         var qualSum: [Int: Float]  = [:]
         var qualCnt: [Int: Int]    = [:]
+        var estCnt:  [Int: Int]    = [:]
         var presentKeys = Set<Int>()   // buckets with ANY valid sample (sensor on)
         for pt in history where pt.timestamp >= start && pt.timestamp < end {
             let key = Int(pt.timestamp.timeIntervalSince1970 / bucket)
@@ -414,6 +425,7 @@ private struct MetricChartCard: View {
             guard let v = extract(pt) else { continue }
             sums[key]   = (sums[key]   ?? 0) + v
             counts[key] = (counts[key] ?? 0) + 1
+            if isEstimated?(pt) == true { estCnt[key] = (estCnt[key] ?? 0) + 1 }
             if let q = pt.signalQuality {
                 qualSum[key] = (qualSum[key] ?? 0) + q
                 qualCnt[key] = (qualCnt[key] ?? 0) + 1
@@ -437,10 +449,26 @@ private struct MetricChartCard: View {
             var val = sums[key]! / Double(counts[key]!)
             if let transform = bucketTransform { val = transform(val) }
             let q: Float? = qualCnt[key].map { (qualSum[key] ?? 0) / Float($0) }
+            // A bucket is estimated when STRICTLY more than half its samples
+            // are — an even split resolves to measured.
+            let est = (estCnt[key] ?? 0) * 2 > counts[key]!
             result.append(ChartPoint(id: key, date: Date(timeIntervalSince1970: mid),
-                                     val: val, quality: q, segment: segs[i]))
+                                     val: val, quality: q, segment: segs[i],
+                                     estimated: est))
         }
-        return result
+        // A change of source starts a new series: renumber segments so an
+        // estimated run never shares a LineMark series with a measured one —
+        // otherwise the dashed style would bleed across the boundary, or two
+        // estimated runs would be bridged across the measured run between.
+        guard isEstimated != nil else { return result }
+        var runId = 0
+        return result.enumerated().map { i, pt in
+            if i > 0, result[i - 1].segment != pt.segment
+                   || result[i - 1].estimated != pt.estimated { runId += 1 }
+            return ChartPoint(id: pt.id, date: pt.date, val: pt.val,
+                              quality: pt.quality, segment: runId,
+                              estimated: pt.estimated)
+        }
     }
 
     /// Minimum gap between two dots before the connecting line breaks. Dots
@@ -508,6 +536,11 @@ private struct MetricChartCard: View {
                     Text(subtitle)
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim.opacity(0.7))
+                    if isEstimated != nil, points.contains(where: \.estimated) {
+                        Text("estimated from heart rhythm — the strap couldn't see your breathing")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(color.opacity(0.7))
+                    }
                 }
             }
             Spacer()
@@ -619,7 +652,8 @@ private struct MetricChartCard: View {
                     )
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [color.opacity(0.22), color.opacity(0.02)],
+                            colors: [color.opacity(pt.estimated ? 0.08 : 0.22),
+                                     color.opacity(0.02)],
                             startPoint: .top, endPoint: .bottom
                         )
                     )
@@ -647,7 +681,8 @@ private struct MetricChartCard: View {
                     )
                     .foregroundStyle(markColor(pt))
                     .interpolationMethod(.monotone)
-                    .lineStyle(StrokeStyle(lineWidth: 1.5))
+                    .lineStyle(StrokeStyle(lineWidth: 1.5,
+                                           dash: pt.estimated ? [4, 3] : []))
                 }
 
                 ForEach(pts) { pt in
@@ -655,8 +690,8 @@ private struct MetricChartCard: View {
                         x: .value("time", pt.date),
                         y: .value(yLabel, pt.val)
                     )
-                    .foregroundStyle(markColor(pt))
-                    .symbolSize(18)
+                    .foregroundStyle(markColor(pt).opacity(pt.estimated ? 0.45 : 1))
+                    .symbolSize(pt.estimated ? 12 : 18)
                 }
             }
             .chartXScale(domain: start...end)
@@ -1114,6 +1149,7 @@ struct MetricsChartsView: View, Equatable {
                 levels:      "Resonance: around 6 br/min\nRestful:   6–12 br/min\nTypical:   12–16 br/min\nFast:      20+ br/min",
                 notes:       "Measured from body movement, so walking, driving, or fidgeting can be mistaken for breathing. Trust it most when you're still."
             ),
+            isEstimated: { $0.breathSource == .heart },
             history: history, rawHistory: rawHistory, date: date
         ) { $0.breathBPM.map(Double.init) }
     }

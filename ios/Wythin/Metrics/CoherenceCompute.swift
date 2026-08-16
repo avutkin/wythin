@@ -24,7 +24,12 @@ enum CoherenceCompute {
     ///   - rrMs:    RR intervals in milliseconds.
     ///   - accZ:    ACC Z-axis samples at 200 Hz.
     ///   - peakHz:  Breathing frequency from BreathingCompute (for precise peak coherence).
-    static func compute(rrMs: [Int], accZ: [Float], peakHz: Float? = nil) -> CoherenceMetrics? {
+    static func compute(rrMs: [Int], accZ rawAccZ: [Float], peakHz: Float? = nil) -> CoherenceMetrics? {
+        // Pinned to the last 12000 samples (60 s at 200 Hz): the ACC buffers
+        // grew to 16384 for Breath Rate's finer spectral resolution, and
+        // inheriting that wider window here would silently change coherence's
+        // analysis span. This keeps its behaviour exactly as before.
+        let accZ = rawAccZ.count > 12000 ? Array(rawAccZ.suffix(12000)) : rawAccZ
         guard rrMs.count >= 20, accZ.count >= Int(accFS * 15) else { return nil }
 
         let rr = HRVCompute.cleanRR(rrMs)
