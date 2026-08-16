@@ -903,6 +903,10 @@ extension BLEService: CBCentralManagerDelegate {
         print("✅ BLE: connected to '\(peripheral.name ?? "?")'")
         Task { @MainActor in
             self.connectionTimeoutTask?.cancel()
+            // A live connection outdates any earlier failure — most visibly the
+            // "No Polar H10 found (30 s)" scan timeout, which otherwise stays
+            // on screen under a green connected card.
+            self.lastError = nil
             self.inStandby = false      // worn again — leaving off-body standby
             UserDefaults.standard.set(peripheral.identifier.uuidString,
                                        forKey: self.savedDeviceKey)
