@@ -41,19 +41,25 @@ enum ExerciseOverallScore {
             return nil
         }
 
-        let parts: [(Int?, Double)] = [
-            (value(recovery),    recoveryWeight),
-            (value(suppression), suppressionWeight),
-            (value(efficiency),  efficiencyWeight),
+        let parts: [(Int?, Double, String)] = [
+            (value(recovery),    recoveryWeight,    "bounce-back"),
+            (value(suppression), suppressionWeight, "brake release"),
+            (value(efficiency),  efficiencyWeight,  "efficiency"),
         ]
-        let present = parts.compactMap { v, w in v.map { (Double($0), w) } }
+        let present = parts.compactMap { v, w, n in v.map { (Double($0), w, n) } }
         guard !present.isEmpty else { return .unavailable(reason: "not enough signal") }
 
         let totalWeight = present.reduce(0) { $0 + $1.1 }
         let weighted    = present.reduce(0) { $0 + $1.0 * $1.1 }
         let score       = Int((weighted / totalWeight).rounded())
 
-        return .score(score, word: caption(for: score, components: present.count))
+        // A single-axis caption names the axis it rests on. It used to say
+        // "recovery alone" whichever axis survived, so a 0 from brake release
+        // sat beside a 92 readiness captioned as a recovery problem.
+        let word = present.count >= firmComponents
+            ? caption(for: score, components: present.count)
+            : "based on \(present[0].2) alone so far"
+        return .score(score, word: word)
     }
 
     /// Whether a score earns the crown. Provisional scores do not — a crown
