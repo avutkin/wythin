@@ -442,16 +442,17 @@ private struct DateNavigator: View {
 final class StreamScope {
     /// Last 4 s of ECG at 130 Hz, in µV.
     private(set) var ecg: [Float] = []
-    /// Last 4 s of gravity-free ACC residuals at 200 Hz, in mg — what the
-    /// wearer is DOING, with orientation subtracted out so a breath or a
-    /// shrug isn't dwarfed by the ~1000 mg gravity split across axes.
-    private(set) var accHP: [SIMD3<Float>] = []
+    /// Last 4 s of movement intensity at 200 Hz: the magnitude of the
+    /// gravity-free ACC residual, in mg. One line instead of three axes —
+    /// "how much am I moving" is the question this strip answers; which
+    /// direction is a debugging concern the sheet doesn't need.
+    private(set) var accMag: [Float] = []
     /// Running gravity estimate; seeded from the first sample so the strip
     /// doesn't open with a full-scale settling transient.
     private var gravity: SIMD3<Float>? = nil
 
     var motionState: MotionCompute.MotionState {
-        MotionCompute.state(rms: MotionCompute.residualRMS(accHP.suffix(100)))
+        MotionCompute.state(rms: MotionCompute.rms(accMag.suffix(100)))
     }
 
     /// Movements registered since the sheet opened, newest first (last 3 kept).
@@ -482,15 +483,15 @@ final class StreamScope {
                     var g = gravity ?? f
                     let hp = MotionCompute.highPassStep(gravity: &g, sample: f)
                     gravity = g
-                    accHP.append(hp)
                     let magnitude = (hp.x * hp.x + hp.y * hp.y + hp.z * hp.z).squareRoot()
+                    accMag.append(magnitude)
                     if let event = detector.step(magnitude: magnitude) {
                         movementEvents.insert((at: Date(), peak: event.peak), at: 0)
                         if movementEvents.count > 3 { movementEvents.removeLast() }
                     }
                     movementCount = detector.count
                 }
-                if accHP.count > Self.accWindow { accHP.removeFirst(accHP.count - Self.accWindow) }
+                if accMag.count > Self.accWindow { accMag.removeFirst(accMag.count - Self.accWindow) }
             }
             .store(in: &bag)
     }
@@ -515,6 +516,9 @@ private struct ScopeStrip: View {
     /// set → a stable scale, so the same movement always looks the same size
     /// and stillness reads as a genuinely flat line, with the midline at zero.
     var fixedRange: ClosedRange<Float>? = nil
+    /// Soft area fill under the trace — for single-series intensity strips
+    /// where "amount" reads better as a filled shape than a bare line.
+    var filled: Bool = false
 
     private var isEmpty: Bool { series.allSatisfy { $0.points.isEmpty } }
 
@@ -560,11 +564,13 @@ private struct ScopeStrip: View {
                         }
                         let step = size.width / CGFloat(max(capacity - 1, 1))
 
-                        // Recessive midline so flat traces still read as "alive".
-                        let mid = size.height / 2
+                        // Recessive guide: midline for centered traces, the
+                        // baseline itself for bottom-anchored intensity strips.
+                        let guideY = (fixedRange?.lowerBound == 0) ? size.height - 0.5
+                                                                   : size.height / 2
                         var grid = Path()
-                        grid.move(to: CGPoint(x: 0, y: mid))
-                        grid.addLine(to: CGPoint(x: size.width, y: mid))
+                        grid.move(to: CGPoint(x: 0, y: guideY))
+                        grid.addLine(to: CGPoint(x: size.width, y: guideY))
                         ctx.stroke(grid, with: .color(Theme.border.opacity(0.6)), lineWidth: 1)
 
                         for s in series where !s.points.isEmpty {
@@ -577,6 +583,14 @@ private struct ScopeStrip: View {
                                         CGFloat(1 - (v - ymin) / max(ymax - ymin, .leastNonzeroMagnitude))
                                 if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
                                 else      { path.addLine(to: CGPoint(x: x, y: y)) }
+                            }
+                            if filled {
+                                var area = path
+                                let lastX = x0 + CGFloat(s.points.count - 1) * step
+                                area.addLine(to: CGPoint(x: lastX, y: size.height))
+                                area.addLine(to: CGPoint(x: x0, y: size.height))
+                                area.closeSubpath()
+                                ctx.fill(area, with: .color(s.color.opacity(0.13)))
                             }
                             ctx.stroke(path, with: .color(s.color),
                                        style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
@@ -839,16 +853,13 @@ struct BLEConnectionSheet: View {
                 )
                 ScopeStrip(
                     title: "MOVEMENT",
-                    detail: "gravity removed · ±60 mg · last 4 s",
+                    detail: "all axes combined · 0–60 mg · last 4 s",
                     capacity: StreamScope.accWindow,
-                    series: [
-                        .init(label: "X", color: Theme.rsa,     points: scope.accHP.map(\.x)),
-                        .init(label: "Y", color: Theme.breathe, points: scope.accHP.map(\.y)),
-                        .init(label: "Z", color: Theme.coh,     points: scope.accHP.map(\.z)),
-                    ],
-                    fixedRange: -60...60
+                    series: [.init(label: nil, color: Theme.rsa, points: scope.accMag)],
+                    fixedRange: 0...60,
+                    filled: true
                 )
-                if !scope.accHP.isEmpty {
+                if !scope.accMag.isEmpty {
                     HStack(spacing: 10) {
                         motionChip(scope.motionState)
                         Spacer()
