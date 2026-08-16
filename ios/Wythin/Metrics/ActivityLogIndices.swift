@@ -96,7 +96,19 @@ extension ActivityLog {
     /// no reading carries the reason instead of vanishing. Asked for twice —
     /// a two-cell grid read as "metrics look off", not as honest absence.
     var indexSlots: [(name: String, index: ScoredIndex?, whenEmpty: String)] {
-        [
+        // The yoga rule (research §4): a mind-body session that MEASURES
+        // restorative or mixed is scored on the regulation channel — the vagal
+        // rebound it exists to produce — never on suppression or HRR framing,
+        // whose expectations invert here. One that measures as a workout
+        // (power vinyasa) earns the exercise read below.
+        if let mb = mindBodyClass, mb != .workout {
+            return [
+                (ReadinessScore.displayName, readinessIndex,
+                 "needs \(ReadinessScore.minimumPeers) sessions"),
+                ("Regulation", regulationIndex, "no after-window"),
+            ]
+        }
+        return [
             (ReadinessScore.displayName, readinessIndex,
              "needs \(ReadinessScore.minimumPeers) sessions"),
             (BrakeReleaseIndex.displayName, brakeReleaseIndex,
