@@ -891,8 +891,8 @@ private struct MetricsTableView: View {
             tile("Harmony",             "DFA α1", "",    .dfa1,          { $0?.dfa1 })   { String(format: "%.2f", $0) }
             tile("Stress Balance",      "SNS",    "%",   .stressBalance, stressBalance) { String(format: "%.0f", $0) }
             tile("Conscious Breathing", "RSA",    "ms",  .rsa,           { $0?.rsaMs })  { String(format: "%.1f", $0) }
-            tile("Calm Power",          "VTI",    "",    .vti,           { $0?.vti })    { String(format: "%.2f", $0) }
-            tile("Energy Reserve",      "HRV",    "ms",  .rmssd,         { $0?.rmssd })  { String(format: "%.1f", $0) }
+            tile("Calm Power",          "ln RMSSD", "",  .vti,           { $0?.vti })    { String(format: "%.2f", $0) }
+            tile("Energy Reserve",      "RMSSD",  "ms",  .rmssd,         { $0?.rmssd })  { String(format: "%.1f", $0) }
             tile("Pulse",               "HR",     "bpm", .hr,            { $0?.meanBPM }) { String(format: "%.0f", $0) }
         }
     }

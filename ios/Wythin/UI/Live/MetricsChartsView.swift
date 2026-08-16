@@ -207,7 +207,8 @@ private struct MetricInfoSheet: View {
 
 private struct MetricChartCard: View {
     let title:         String   // consumer name — shown in white
-    let technicalName: String   // technical name — shown in gray after title
+    let technicalName: String   // short technical name — shown in gray after title
+    let technicalFull: String   // spelled-out technical name — its own line under the title
     let subtitle:      String   // description — shown on second line
     let yLabel:        String
     let color:      Color
@@ -239,7 +240,8 @@ private struct MetricChartCard: View {
     @Binding var panOffset: TimeInterval   // seconds the window is panned from its newest edge (≤ 0)
     @State private var showInfo = false
 
-    init(title: String, technicalName: String = "", subtitle: String, yLabel: String,
+    init(title: String, technicalName: String = "", technicalFull: String = "",
+         subtitle: String, yLabel: String,
          color: Color, windows: [TimeWindow], refs: [RefLine],
          yDomain: ClosedRange<Double>,
          win: TimeWindow,
@@ -257,6 +259,7 @@ private struct MetricChartCard: View {
          extract: @escaping (MetricsHistoryPoint) -> Double?) {
         self.title           = title
         self.technicalName   = technicalName
+        self.technicalFull   = technicalFull
         self.subtitle        = subtitle
         self.yLabel          = yLabel
         self.color           = color
@@ -531,6 +534,11 @@ private struct MetricChartCard: View {
                         }
                         .buttonStyle(.plain)
                     }
+                }
+                if !technicalFull.isEmpty {
+                    Text(technicalFull)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Theme.dim)
                 }
                 if !subtitle.isEmpty {
                     Text(subtitle)
@@ -903,6 +911,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:    "Signal Artifacts",
             technicalName: "RR",
+            technicalFull: "share of beats dropped or repaired",
             subtitle: "% of beats invalid or corrected",
             yLabel:   "%",
             color:    Theme.warn,
@@ -937,6 +946,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:    "RR Corrected",
             technicalName: "interpolated",
+            technicalFull: "interpolated beats (missed / doubled)",
             subtitle: "% of beats replaced (missed / extra beat)",
             yLabel:   "%",
             color:    Theme.rsa,
@@ -965,6 +975,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:    "ECG Signal",
             technicalName: "waveform",
+            technicalFull: "raw ECG waveform fault (contact & motion)",
             subtitle: "contact & motion  ·  higher = worse",
             yLabel:   "%",
             color:    Theme.breathe,
@@ -995,6 +1006,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:    "Pulse",
             technicalName: "HR",
+            technicalFull: "Heart Rate — beats per minute",
             subtitle: "Your heart rate",
             yLabel:   "bpm",
             color:    Theme.warn,
@@ -1026,6 +1038,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:    "RR Interval",
             technicalName: "RR",
+            technicalFull: "mean beat-to-beat interval (ms)",
             subtitle: "mean beat-to-beat  ·  60000 / BPM",
             yLabel:   "ms",
             color:    Theme.hrv,
@@ -1059,6 +1072,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:   "Breathing I:E Ratio",
             technicalName: "I:E",
+            technicalFull: "exhale duration ÷ inhale duration",
             subtitle: "exhale / inhale",
             yLabel:  "I:E ratio",
             color:   Theme.accent,
@@ -1088,7 +1102,8 @@ struct MetricsChartsView: View, Equatable {
     private var vtiCard: some View {
         MetricChartCard(
             title:   "Calm Power",
-            technicalName: "VTI",
+            technicalName: "ln RMSSD",
+            technicalFull: "natural log of RMSSD (a.k.a. Vagal Tone Index)",
             subtitle: "Total strength of your recovery drive",
             yLabel:  "VTI",
             color:   Theme.breathe,
@@ -1125,6 +1140,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:   "Breath Rate",
             technicalName: "br/min",
+            technicalFull: "breaths per minute — chest motion, heart-rhythm fallback",
             subtitle: "How fast you're breathing",
             yLabel:  "br/min",
             color:   Theme.breathe,
@@ -1160,6 +1176,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:   "Conscious Breathing",
             technicalName: "RSA",
+            technicalFull: "Respiratory Sinus Arrhythmia (ms)",
             subtitle: "How your breath moves your heart rate",
             yLabel:  "ms",
             color:   Theme.rsa,
@@ -1192,7 +1209,8 @@ struct MetricsChartsView: View, Equatable {
     private var hrvCard: some View {
         MetricChartCard(
             title:   "Energy Reserve",
-            technicalName: "HRV",
+            technicalName: "RMSSD",
+            technicalFull: "Root Mean Square of Successive Differences (ms)",
             subtitle: "Your beat-to-beat variability",
             yLabel:  "ms",
             color:   Theme.hrv,
@@ -1223,6 +1241,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:   "pNN50",
             technicalName: "NN50",
+            technicalFull: "% successive beat pairs differing > 50 ms",
             subtitle: "% successive RR diff > 50 ms",
             yLabel:  "%",
             color:   Theme.accent,
@@ -1253,6 +1272,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:    "Vagal Tone",
             technicalName: "DC",
+            technicalFull: "Deceleration Capacity — PRSA (ms)",
             subtitle: "Your relaxation and recovery capacity",
             yLabel:   "ms",
             color:    Color(red: 0.4, green: 0.7, blue: 1.0),
@@ -1285,6 +1305,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:    "Adaptive Capacity",
             technicalName: "RCMSE",
+            technicalFull: "Refined Composite Multiscale Sample Entropy",
             subtitle: "How flexibly your system adapts across timescales",
             yLabel:   "entropy",
             color:    Color(red: 0.8, green: 0.5, blue: 1.0),
@@ -1317,6 +1338,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:    "Inner Noise",
             technicalName: "PIP",
+            technicalFull: "Percentage of Inflection Points — fragmentation",
             subtitle: "Beat-to-beat fragmentation — rises with stress and fatigue",
             yLabel:   "%",
             color:    Color(red: 1.0, green: 0.7, blue: 0.3),
@@ -1349,6 +1371,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:   "Harmony",
             technicalName: "DFA α1",
+            technicalFull: "Detrended Fluctuation Analysis, short-term α1",
             subtitle: "How ordered vs random your heart rhythm is",
             yLabel:  "α1",
             color:   Theme.ulf,
@@ -1381,7 +1404,8 @@ struct MetricsChartsView: View, Equatable {
     private var lfhfCard: some View {
         MetricChartCard(
             title:   "Stress Balance",
-            technicalName: "SNS",
+            technicalName: "SNS %",
+            technicalFull: "autonomic balance — RMSSD-based dial, not raw LF/HF",
             subtitle: "Balance of activation vs rest",
             yLabel:  "%",
             color:   Theme.rsa,
@@ -1417,6 +1441,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:   "VLF Power",
             technicalName: "VLF",
+            technicalFull: "very-low-frequency power, 0.003–0.04 Hz",
             subtitle: "very low frequency  ·  0.003–0.04 Hz",
             yLabel:  "ms²",
             color:   Theme.breathe,
@@ -1445,6 +1470,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:   "ULF Power",
             technicalName: "ULF",
+            technicalFull: "ultra-low-frequency power, < 0.003 Hz",
             subtitle: "ultra low frequency  ·  < 0.003 Hz  ·  10 min+ sessions",
             yLabel:  "ms²",
             color:   Theme.dim,
@@ -1473,6 +1499,7 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:   "Coherence Score",
             technicalName: "coh",
+            technicalFull: "RR–breathing spectral coherence, 0–1",
             subtitle: "RR–breathing coupling",
             yLabel:  "score",
             color:   Theme.coh,
