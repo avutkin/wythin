@@ -197,6 +197,75 @@ final class BLETests: XCTestCase {
         XCTAssertEqual(action, .keepWaiting)
     }
 
+    // MARK: - PMD settings parsing (control-point GET response)
+    //
+    // Canonical H10 responses from the Polar Measurement Data spec. Byte 4 is
+    // the "more frames" flag — the TLV payload starts at byte 5, and reading it
+    // one byte early produced garbage start commands the strap rejected with
+    // ERROR_INVALID_PARAMETER (the "PMD start error type=0x2 status=0x5" bug).
+
+    private static let ecgSettingsResponse = Data([
+        0xF0, 0x03, 0x00, 0x00, 0x00,              // CP resp, GET, ECG, SUCCESS, more=0
+        0x00, 0x01, 0x82, 0x00,                    // SAMPLE_RATE: [130]
+        0x01, 0x01, 0x0E, 0x00,                    // RESOLUTION:  [14]
+    ])
+
+    private static let accSettingsResponse = Data([
+        0xF0, 0x03, 0x02, 0x00, 0x00,              // CP resp, GET, ACC, SUCCESS, more=0
+        0x00, 0x04, 0x19, 0x00, 0x32, 0x00, 0x64, 0x00, 0xC8, 0x00,  // RATE: [25,50,100,200]
+        0x01, 0x01, 0x10, 0x00,                    // RESOLUTION: [16]
+        0x02, 0x03, 0x02, 0x00, 0x04, 0x00, 0x08, 0x00,              // RANGE: [2,4,8]
+    ])
+
+    func testParseECGSettingsSkipsMoreByte() {
+        let parsed = PolarH10Profile.parseAvailableSettings(Self.ecgSettingsResponse)
+        XCTAssertEqual(parsed?.measType, PolarH10Profile.typeECGMeas)
+        XCTAssertEqual(parsed?.settings[0x00], [130])
+        XCTAssertEqual(parsed?.settings[0x01], [14])
+    }
+
+    func testParseACCSettingsSkipsMoreByte() {
+        let parsed = PolarH10Profile.parseAvailableSettings(Self.accSettingsResponse)
+        XCTAssertEqual(parsed?.measType, PolarH10Profile.typeACCMeas)
+        XCTAssertEqual(parsed?.settings[0x00], [25, 50, 100, 200])
+        XCTAssertEqual(parsed?.settings[0x01], [16])
+        XCTAssertEqual(parsed?.settings[0x02], [2, 4, 8])
+    }
+
+    func testParseSettingsRejectsErrorStatus() {
+        var bad = Self.accSettingsResponse
+        bad[3] = 0x03   // ERROR_NOT_SUPPORTED
+        XCTAssertNil(PolarH10Profile.parseAvailableSettings(bad))
+    }
+
+    func testBuiltACCStartMatchesCanonicalCommand() {
+        // Max of each queried setting must reproduce the documented start
+        // command byte-for-byte — the same bytes as the hardcoded fallback.
+        let parsed = PolarH10Profile.parseAvailableSettings(Self.accSettingsResponse)!
+        let cmd = PolarH10Profile.buildStartCommand(
+            measurementType: PolarH10Profile.typeACCMeas, from: parsed.settings)
+        XCTAssertEqual(cmd, PolarH10Profile.cmdACCStart)
+    }
+
+    func testBuiltStartCommandIgnoresNonStartableTypes() {
+        // Some firmware advertises CHANNELS (0x04) / FACTOR (0x05) in GET —
+        // echoing those into START is rejected as an invalid parameter.
+        let settings: [UInt8: [UInt16]] = [0x00: [200], 0x01: [16], 0x02: [8],
+                                           0x04: [3], 0x05: [1]]
+        let cmd = PolarH10Profile.buildStartCommand(
+            measurementType: PolarH10Profile.typeACCMeas, from: settings)
+        XCTAssertEqual(cmd, PolarH10Profile.cmdACCStart)
+    }
+
+    // MARK: - Skin contact display (strap may not report the flag)
+
+    func testSkinContactLabels() {
+        XCTAssertEqual(SkinContactPolicy.label(contact: true,  ecgLive: false), "on skin")
+        XCTAssertEqual(SkinContactPolicy.label(contact: false, ecgLive: true),  "off-body")
+        XCTAssertEqual(SkinContactPolicy.label(contact: nil,   ecgLive: true),  "on skin (ECG)")
+        XCTAssertEqual(SkinContactPolicy.label(contact: nil,   ecgLive: false), "not reported")
+    }
+
     // MARK: - Device ranking (nearest-first scan list)
 
     func testDeviceRankingAppendsNewDevicesSortedByRSSI() {
