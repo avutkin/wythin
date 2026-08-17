@@ -70,9 +70,10 @@ struct ActivityWindowChart: View {
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Theme.text)
                 if !def.techLabel.isEmpty {
-                    Text(def.techLabel)
+                    Text(def.techFull.isEmpty ? def.techLabel : def.techFull)
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(Theme.dim)
+                        .lineLimit(2)
                 }
                 Spacer()
                 if !def.unit.isEmpty {

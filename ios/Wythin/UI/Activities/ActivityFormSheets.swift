@@ -150,6 +150,13 @@ struct LogPastSheet: View {
 
     private var endDate: Date { startDate.addingTimeInterval(durationMins * 60) }
 
+    /// An end before the start reads as crossing midnight and clamps to a
+    /// minute rather than going negative.
+    private var endBinding: Binding<Date> {
+        Binding(get: { endDate },
+                set: { durationMins = max(1, $0.timeIntervalSince(startDate) / 60) })
+    }
+
     /// Bridges the non-optional slider value to the preset row's optional
     /// binding. Writing nil is a no-op — the duration always has a value here.
     private var presetBinding: Binding<Double?> {
@@ -169,6 +176,13 @@ struct LogPastSheet: View {
 
                     VStack(spacing: 12) {
                         DatePicker("START TIME", selection: $startDate, displayedComponents: [.date, .hourAndMinute])
+                            .font(Theme.monoLabel)
+                            .foregroundStyle(Theme.dim)
+                            .tint(Theme.accent)
+
+                        // Time only — the date is the start's job. Setting an
+                        // end writes the duration, so the two never disagree.
+                        DatePicker("END TIME", selection: endBinding, displayedComponents: [.hourAndMinute])
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.dim)
                             .tint(Theme.accent)
@@ -311,36 +325,16 @@ struct ActivityPickerSection: View {
             // Nine tiles, exactly three rows — the grid and the action button
             // both fit on one screen without scrolling.
             LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(ActivityType.pickerCases, id: \.self) { type in
+                // Custom is the ninth tile — a full-width bar below the grid
+                // spent a whole row on the least-used choice.
+                ForEach(ActivityType.pickerCases + [.custom], id: \.self) { type in
                     ActivityTypeCell(type: type, isSelected: selected == type) {
                         selected = type
                         selectedSubtype = nil
-                        showCustom = false
+                        showCustom = (type == .custom)
                     }
                 }
             }
-            .padding(.horizontal)
-
-            // Custom sits below the grid rather than spending a tile.
-            Button {
-                selected = .custom
-                selectedSubtype = nil
-                showCustom = true
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                    Text("CUSTOM")
-                }
-                .font(Theme.monoLabel)
-                .foregroundStyle(selected == .custom ? Theme.bg : Theme.dim)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity)
-                .background(selected == .custom ? Theme.accent : Theme.card)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(selected == .custom ? .clear : Theme.border, lineWidth: 0.5))
-            }
-            .buttonStyle(.plain)
             .padding(.horizontal)
 
             SubtypePicker(type: selected, selected: $selectedSubtype)
@@ -534,6 +528,13 @@ struct EditActivitySheet: View {
 
     private var endDate: Date { startDate.addingTimeInterval(durationMins * 60) }
 
+    /// An end before the start reads as crossing midnight and clamps to a
+    /// minute rather than going negative.
+    private var endBinding: Binding<Date> {
+        Binding(get: { endDate },
+                set: { durationMins = max(1, $0.timeIntervalSince(startDate) / 60) })
+    }
+
     /// Bridges the non-optional slider value to the preset row's optional
     /// binding. Writing nil is a no-op — the duration always has a value here.
     private var presetBinding: Binding<Double?> {
@@ -568,6 +569,11 @@ struct EditActivitySheet: View {
 
                     VStack(spacing: 12) {
                         DatePicker("START TIME", selection: $startDate, displayedComponents: [.date, .hourAndMinute])
+                            .font(Theme.monoLabel)
+                            .foregroundStyle(Theme.dim)
+                            .tint(Theme.accent)
+
+                        DatePicker("END TIME", selection: endBinding, displayedComponents: [.hourAndMinute])
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.dim)
                             .tint(Theme.accent)

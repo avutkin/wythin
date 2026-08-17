@@ -25,6 +25,7 @@
 		04C27CD78B1B40DBA5522FB9 /* HRCeilingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCEA22F3FB1E016118D8EE01 /* HRCeilingTests.swift */; };
 		04B07817C335F28A352F88E9 /* ActivityClassTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20866A7D973F59840EBFADEE /* ActivityClassTests.swift */; };
 		5B535DBF8693DF78AD3B5940 /* SessionIndicesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 878397CB85F30EE4B8F3CE2F /* SessionIndicesTests.swift */; };
+		E5891BA88562E52722D1FE34 /* MindBodyResponseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C39B87D7051504D2AC3764EB /* MindBodyResponseTests.swift */; };
 		6453AB78BC08DBB05A7787F6 /* ActivityRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A55922396C435F43D09AA5D3 /* ActivityRestoreTests.swift */; };
 		FD13F4B1CB1B182D4EB3D95D /* ActivityLogIndicesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A051D03CB24885D77C7EE82A /* ActivityLogIndicesTests.swift */; };
 		519BA43B55690D5F8761EBBF /* UsageUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE6F0E9C8772030B86BA730E /* UsageUploader.swift */; };
@@ -116,6 +117,7 @@
 		3847A43031559CCBE6AA9DEE /* RestorativeScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 041B40C3B9505CB3B72A1174 /* RestorativeScore.swift */; };
 		14A847C99DDFBB4855D108FF /* RecoveryTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8425FF74AF41CA2DD465510 /* RecoveryTiming.swift */; };
 		FDFB9967A3DA1A59C2615AE3 /* SessionIndices.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFD9E87E71DB9497147BAF96 /* SessionIndices.swift */; };
+		15006AAAD61A04875478B45B /* MindBodyResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FD725B3D556348FC05AB8CD /* MindBodyResponse.swift */; };
 		B68190250A9646581B5373E1 /* ReadinessScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A01641D9220B788C75A190B3 /* ReadinessScore.swift */; };
 		D4C636AAB38591F026C89F7A /* ActivityLogIndices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CD333D2D7656492FE92D40 /* ActivityLogIndices.swift */; };
 		0494739CC2085FEDCA412073 /* ReserveSpan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D2DA763415A735C4235EAC3 /* ReserveSpan.swift */; };
@@ -193,6 +195,10 @@
 		AT43 /* AnchorBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT43 /* AnchorBackfillTests.swift */; };
 		AT14 /* AnchorBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT14 /* AnchorBaselineTests.swift */; };
 		AT90 /* LiveDayComparisonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT90 /* LiveDayComparisonTests.swift */; };
+		AT92 /* SpectralPeakTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT92 /* SpectralPeakTests.swift */; };
+		AT93 /* EDRComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT93 /* EDRComputeTests.swift */; };
+		AT95 /* BreathRateTrackerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT95 /* BreathRateTrackerTests.swift */; };
+		AT94 /* WelchPSDSegmentCountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT94 /* WelchPSDSegmentCountTests.swift */; };
 		AT91 /* CloudRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT91 /* CloudRestoreTests.swift */; };
 		AT15 /* PotentialScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT15 /* PotentialScoreTests.swift */; };
 		AT16 /* StreakComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT16 /* StreakComputeTests.swift */; };
@@ -211,6 +217,9 @@
 		AT51 /* LiveMetricTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT51 /* LiveMetricTests.swift */; };
 		A51 /* LiveBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51 /* LiveBaseline.swift */; };
 		A990 /* LiveDayComparison.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990 /* LiveDayComparison.swift */; };
+		A993 /* SpectralPeak.swift in Sources */ = {isa = PBXBuildFile; fileRef = F993 /* SpectralPeak.swift */; };
+		A994 /* EDRCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F994 /* EDRCompute.swift */; };
+		A995 /* BreathRateTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F995 /* BreathRateTracker.swift */; };
 		AT52 /* LiveBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT52 /* LiveBaselineTests.swift */; };
 		ATCC /* CurrentStateCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FTCC /* CurrentStateCardTests.swift */; };
 		A54 /* LiveReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = F54 /* LiveReading.swift */; };
@@ -275,6 +284,7 @@
 		CCEA22F3FB1E016118D8EE01 /* HRCeilingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HRCeilingTests.swift; sourceTree = "<group>"; };
 		20866A7D973F59840EBFADEE /* ActivityClassTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityClassTests.swift; sourceTree = "<group>"; };
 		878397CB85F30EE4B8F3CE2F /* SessionIndicesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndicesTests.swift; sourceTree = "<group>"; };
+		C39B87D7051504D2AC3764EB /* MindBodyResponseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MindBodyResponseTests.swift; sourceTree = "<group>"; };
 		A55922396C435F43D09AA5D3 /* ActivityRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRestoreTests.swift; sourceTree = "<group>"; };
 		A051D03CB24885D77C7EE82A /* ActivityLogIndicesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogIndicesTests.swift; sourceTree = "<group>"; };
 		5157D6102C251A37AF413C96 /* PracticeImpactGauge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PracticeImpactGauge.swift; sourceTree = "<group>"; };
@@ -368,6 +378,7 @@
 		041B40C3B9505CB3B72A1174 /* RestorativeScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorativeScore.swift; sourceTree = "<group>"; };
 		F8425FF74AF41CA2DD465510 /* RecoveryTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryTiming.swift; sourceTree = "<group>"; };
 		BFD9E87E71DB9497147BAF96 /* SessionIndices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndices.swift; sourceTree = "<group>"; };
+		8FD725B3D556348FC05AB8CD /* MindBodyResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MindBodyResponse.swift; sourceTree = "<group>"; };
 		A01641D9220B788C75A190B3 /* ReadinessScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadinessScore.swift; sourceTree = "<group>"; };
 		33CD333D2D7656492FE92D40 /* ActivityLogIndices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogIndices.swift; sourceTree = "<group>"; };
 		1D2DA763415A735C4235EAC3 /* ReserveSpan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReserveSpan.swift; sourceTree = "<group>"; };
@@ -448,6 +459,10 @@
 		FT43 /* AnchorBackfillTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBackfillTests.swift; sourceTree = "<group>"; };
 		FT14 /* AnchorBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaselineTests.swift; sourceTree = "<group>"; };
 		FT90 /* LiveDayComparisonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDayComparisonTests.swift; sourceTree = "<group>"; };
+		FT92 /* SpectralPeakTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectralPeakTests.swift; sourceTree = "<group>"; };
+		FT93 /* EDRComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EDRComputeTests.swift; sourceTree = "<group>"; };
+		FT95 /* BreathRateTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathRateTrackerTests.swift; sourceTree = "<group>"; };
+		FT94 /* WelchPSDSegmentCountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelchPSDSegmentCountTests.swift; sourceTree = "<group>"; };
 		FT91 /* CloudRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRestoreTests.swift; sourceTree = "<group>"; };
 		FT15 /* PotentialScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScoreTests.swift; sourceTree = "<group>"; };
 		FT16 /* StreakComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakComputeTests.swift; sourceTree = "<group>"; };
@@ -487,6 +502,9 @@
 		FT51 /* LiveMetricTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveMetricTests.swift; sourceTree = "<group>"; };
 		F51 /* LiveBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveBaseline.swift; sourceTree = "<group>"; };
 		F990 /* LiveDayComparison.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDayComparison.swift; sourceTree = "<group>"; };
+		F993 /* SpectralPeak.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectralPeak.swift; sourceTree = "<group>"; };
+		F994 /* EDRCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EDRCompute.swift; sourceTree = "<group>"; };
+		F995 /* BreathRateTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathRateTracker.swift; sourceTree = "<group>"; };
 		FT52 /* LiveBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveBaselineTests.swift; sourceTree = "<group>"; };
 		FTCC /* CurrentStateCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentStateCardTests.swift; sourceTree = "<group>"; };
 		F54 /* LiveReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReading.swift; sourceTree = "<group>"; };
@@ -664,6 +682,7 @@
 				041B40C3B9505CB3B72A1174 /* RestorativeScore.swift */,
 				F8425FF74AF41CA2DD465510 /* RecoveryTiming.swift */,
 				BFD9E87E71DB9497147BAF96 /* SessionIndices.swift */,
+				8FD725B3D556348FC05AB8CD /* MindBodyResponse.swift */,
 				A01641D9220B788C75A190B3 /* ReadinessScore.swift */,
 				33CD333D2D7656492FE92D40 /* ActivityLogIndices.swift */,
 				1D2DA763415A735C4235EAC3 /* ReserveSpan.swift */,
@@ -696,6 +715,9 @@
 				F50 /* LiveMetric.swift */,
 				F51 /* LiveBaseline.swift */,
 				F990 /* LiveDayComparison.swift */,
+				F993 /* SpectralPeak.swift */,
+				F994 /* EDRCompute.swift */,
+				F995 /* BreathRateTracker.swift */,
 				F54 /* LiveReading.swift */,
 				F56 /* LiveStateClassifier.swift */,
 				F57 /* LiveStateCopy.swift */,
@@ -846,6 +868,10 @@
 				FT15 /* PotentialScoreTests.swift */,
 				FT14 /* AnchorBaselineTests.swift */,
 				FT90 /* LiveDayComparisonTests.swift */,
+				FT92 /* SpectralPeakTests.swift */,
+				FT93 /* EDRComputeTests.swift */,
+				FT95 /* BreathRateTrackerTests.swift */,
+				FT94 /* WelchPSDSegmentCountTests.swift */,
 				FT91 /* CloudRestoreTests.swift */,
 				FT13 /* AnchorDetectorTests.swift */,
 				FT43 /* AnchorBackfillTests.swift */,
@@ -874,6 +900,7 @@
 				CCEA22F3FB1E016118D8EE01 /* HRCeilingTests.swift */,
 				20866A7D973F59840EBFADEE /* ActivityClassTests.swift */,
 				878397CB85F30EE4B8F3CE2F /* SessionIndicesTests.swift */,
+				C39B87D7051504D2AC3764EB /* MindBodyResponseTests.swift */,
 				A55922396C435F43D09AA5D3 /* ActivityRestoreTests.swift */,
 				A051D03CB24885D77C7EE82A /* ActivityLogIndicesTests.swift */,
 				FT26 /* ImpactDeltaTests.swift */,
@@ -1111,6 +1138,7 @@
 				3847A43031559CCBE6AA9DEE /* RestorativeScore.swift in Sources */,
 				14A847C99DDFBB4855D108FF /* RecoveryTiming.swift in Sources */,
 				FDFB9967A3DA1A59C2615AE3 /* SessionIndices.swift in Sources */,
+				15006AAAD61A04875478B45B /* MindBodyResponse.swift in Sources */,
 				B68190250A9646581B5373E1 /* ReadinessScore.swift in Sources */,
 				D4C636AAB38591F026C89F7A /* ActivityLogIndices.swift in Sources */,
 				0494739CC2085FEDCA412073 /* ReserveSpan.swift in Sources */,
@@ -1152,6 +1180,9 @@
 				A50 /* LiveMetric.swift in Sources */,
 				A51 /* LiveBaseline.swift in Sources */,
 				A990 /* LiveDayComparison.swift in Sources */,
+				A993 /* SpectralPeak.swift in Sources */,
+				A994 /* EDRCompute.swift in Sources */,
+				A995 /* BreathRateTracker.swift in Sources */,
 				A54 /* LiveReading.swift in Sources */,
 				A56 /* LiveStateClassifier.swift in Sources */,
 				A57 /* LiveStateCopy.swift in Sources */,
@@ -1191,6 +1222,10 @@
 				AT15 /* PotentialScoreTests.swift in Sources */,
 				AT14 /* AnchorBaselineTests.swift in Sources */,
 				AT90 /* LiveDayComparisonTests.swift in Sources */,
+				AT92 /* SpectralPeakTests.swift in Sources */,
+				AT93 /* EDRComputeTests.swift in Sources */,
+				AT95 /* BreathRateTrackerTests.swift in Sources */,
+				AT94 /* WelchPSDSegmentCountTests.swift in Sources */,
 				AT91 /* CloudRestoreTests.swift in Sources */,
 				AT13 /* AnchorDetectorTests.swift in Sources */,
 				AT43 /* AnchorBackfillTests.swift in Sources */,
@@ -1220,6 +1255,7 @@
 				04C27CD78B1B40DBA5522FB9 /* HRCeilingTests.swift in Sources */,
 				04B07817C335F28A352F88E9 /* ActivityClassTests.swift in Sources */,
 				5B535DBF8693DF78AD3B5940 /* SessionIndicesTests.swift in Sources */,
+				E5891BA88562E52722D1FE34 /* MindBodyResponseTests.swift in Sources */,
 				6453AB78BC08DBB05A7787F6 /* ActivityRestoreTests.swift in Sources */,
 				FD13F4B1CB1B182D4EB3D95D /* ActivityLogIndicesTests.swift in Sources */,
 				AT26 /* ImpactDeltaTests.swift in Sources */,
@@ -1260,7 +1296,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 47;
 				DEVELOPMENT_TEAM = FHUVQ8JNXD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
@@ -1271,7 +1307,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.alexutkin.wythin;
 				PRODUCT_NAME = Wythin;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1349,11 +1385,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 47;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.alexutkin.wythin.tests;
 				PRODUCT_NAME = WythinTests;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -1368,7 +1404,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 47;
 				DEVELOPMENT_TEAM = FHUVQ8JNXD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
@@ -1379,7 +1415,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.alexutkin.wythin;
 				PRODUCT_NAME = Wythin;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -1450,11 +1486,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 47;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.alexutkin.wythin.tests;
 				PRODUCT_NAME = WythinTests;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";

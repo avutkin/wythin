@@ -96,16 +96,65 @@ extension ActivityLog {
     /// no reading carries the reason instead of vanishing. Asked for twice —
     /// a two-cell grid read as "metrics look off", not as honest absence.
     var indexSlots: [(name: String, index: ScoredIndex?, whenEmpty: String)] {
-        [
+        // The yoga rule (research §4): a mind-body session that MEASURES
+        // restorative or mixed is scored on the regulation channel — the vagal
+        // rebound it exists to produce — never on suppression or HRR framing,
+        // whose expectations invert here. One that measures as a workout
+        // (power vinyasa) earns the exercise read below.
+        if let mb = mindBodyClass, mb != .workout {
+            return [
+                (ReadinessScore.displayName, readinessIndex,
+                 "needs \(ReadinessScore.minimumPeers) sessions"),
+                ("Regulation", regulationIndex, "no after-window"),
+            ]
+        }
+        return [
             (ReadinessScore.displayName, readinessIndex,
              "needs \(ReadinessScore.minimumPeers) sessions"),
-            (BrakeReleaseIndex.displayName, brakeReleaseIndex,
+            (MobilizedIndex.displayName, mobilizedIndex, "no pulse rise measured"),
+            (SustainedIndex.displayName, sustainedIndex, "no intensity data"),
+            ("Cost", costIndex,
              (brakePerBeat.map { $0 <= 0 } ?? false) || vagalRoseDuring
                 ? "vagal tone held" : "no reading"),
-            ("Efficiency", efficiencyIndex,
-             hasExternalWorkSignal ? "no reading" : "no motion signal"),
-            (BounceBackIndex.displayName, bounceBackIndex, "no after-window"),
+            ("Recovery", recoveryIndex, "no after-window"),
         ]
+    }
+
+    var mobilizedIndex: ScoredIndex? {
+        guard let before = beforeHR.map(Double.init) else { return nil }
+        let peak = duringHRPeak.map(Double.init) ?? duringHR.map(Double.init)
+        return MobilizedIndex.index(pulseRise: peak.map { $0 - before })
+    }
+
+    var sustainedIndex: ScoredIndex? {
+        SustainedIndex.index(value: SustainedIndex.score(
+            zoneModerate: [zone1Sec, zone2Sec, zone3Sec].compactMap { $0 }.reduce(0, +),
+            zoneHeavy: zone4Sec ?? 0, zoneSevere: zone5Sec ?? 0,
+            domModerate: domainModerateSec ?? 0, domHeavy: domainHeavySec ?? 0,
+            domSevere: domainSevereSec ?? 0))
+    }
+
+    /// The Cost section is the economy score under its section name.
+    var costIndex: ScoredIndex? {
+        brakeReleaseIndex.map {
+            ScoredIndex(name: "Cost", value: $0.value, verdict: $0.verdict, detail: $0.detail)
+        }
+    }
+
+    /// The Recovery section: bounce-back under its section name; the
+    /// morning-anchor calm-return sub joins when its stored field lands.
+    var recoveryIndex: ScoredIndex? {
+        bounceBackIndex.map {
+            ScoredIndex(name: "Recovery", value: $0.value, verdict: $0.verdict, detail: $0.detail)
+        }
+    }
+
+    /// The transparent overall, from the four performance sections.
+    var sectionOverall: AxisValue {
+        ExerciseOverallScore.composeSections(recovery: recoveryIndex?.value,
+                                             sustained: sustainedIndex?.value,
+                                             cost: costIndex?.value,
+                                             mobilized: mobilizedIndex?.value)
     }
 
     /// The quantities with no good or bad direction.

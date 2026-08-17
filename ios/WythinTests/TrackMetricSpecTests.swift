@@ -11,13 +11,14 @@ final class TrackMetricSpecTests: XCTestCase {
 
     func testHasExactlySevenMetricsInOrder() {
         // Matches `LiveMetric`'s declaration order for the cases the two
-        // screens share (stressBalance, rsa, dfa1, dc, rmssd, pip, rcmse) —
+        // screens share (dc, rcmse, pip, dfa1, stressBalance, rsa, rmssd) —
         // see `testOrderMatchesLiveMetricDeclarationOrder` below, which pins
         // that relationship directly rather than duplicating it as a literal
         // label list that could drift out of sync with `LiveMetric` unnoticed.
         XCTAssertEqual(TrackMetrics.all.map(\.def.label), [
-            "Stress Balance", "Conscious Breathing", "Harmony",
-            "Vagal Tone", "Energy Reserve", "Inner Noise", "Adaptive Capacity",
+            "Vagal Tone", "Adaptive Capacity", "Inner Noise", "Harmony",
+            "Stress Balance", "Conscious Breathing", "Energy Reserve",
+            "Overall Variability",
         ])
     }
 
@@ -36,7 +37,7 @@ final class TrackMetricSpecTests: XCTestCase {
         let liveCase: [String: LiveMetric] = [
             "Vagal Tone": .dc, "Energy Reserve": .rmssd, "Conscious Breathing": .rsa,
             "Adaptive Capacity": .rcmse, "Harmony": .dfa1, "Inner Noise": .pip,
-            "Stress Balance": .stressBalance,
+            "Stress Balance": .stressBalance, "Overall Variability": .sdnn,
         ]
         let liveOrder = LiveMetric.allCases
         let trackIndicesInLiveOrder = TrackMetrics.all.map { spec -> Int in
@@ -57,10 +58,11 @@ final class TrackMetricSpecTests: XCTestCase {
     }
 
     func testEveryExtractorReadsItsField() {
-        // stressBalance, rsaMs, dfa1, dc, rmssd, pip, rcmse — the fixture's
+        // dc, rcmse, pip, dfa1, stressBalance, rsaMs, rmssd — the fixture's
         // fields read in display order.
         let values = TrackMetrics.all.map { $0.rollup(rollup) }
-        XCTAssertEqual(values, [45, 30, 1.0, 8, 40, 55, 1.4])
+        // SDNN reads the keyed mean dictionary, which the fixture leaves empty.
+        XCTAssertEqual(values, [8, 1.4, 55, 1.0, 45, 30, 40, nil])
     }
 
     func testTrendKeysAreUniqueAndStressBalanceIsNotLfHf() {
@@ -95,8 +97,13 @@ final class TrackMetricSpecTests: XCTestCase {
 
     func testWhyCopyIsInheritedNotRetyped() {
         for spec in TrackMetrics.all {
-            let shared = activityMetricDefs.first { $0.label == spec.def.label }
-            XCTAssertEqual(spec.def.why, shared?.why)
+            guard let shared = activityMetricDefs.first(where: { $0.label == spec.def.label }) else {
+                // Track-only metrics (Overall Variability) have no Activities
+                // surface, so they own their copy instead of inheriting it.
+                XCTAssertFalse(spec.def.why.isEmpty)
+                continue
+            }
+            XCTAssertEqual(spec.def.why, shared.why)
             XCTAssertFalse(spec.def.why.isEmpty)
         }
     }
@@ -128,4 +135,28 @@ final class TrackMetricSpecTests: XCTestCase {
             XCTAssertNotEqual(spec.trendWhy, spec.def.why, "\(spec.def.label) trendWhy was not rewritten")
         }
     }
+
+    /// Names the measure, not a family or a stale alias. Each of these was
+    /// wrong on screen at some point: Energy Reserve said "HRV" (a family,
+    /// not a measure), Calm Power said "VTI" (a historical alias for ln
+    /// RMSSD), and Stress Balance said "LF/HF" — which it has never plotted.
+    func testTechLabelsNameTheActualMeasure() {
+        func def(_ label: String) -> ActivityMetricDef {
+            activityMetricDefs.first { $0.label == label }!
+        }
+        XCTAssertEqual(def("Energy Reserve").techLabel, "RMSSD")
+        XCTAssertEqual(def("Calm Power").techLabel, "ln RMSSD")
+        XCTAssertNotEqual(def("Stress Balance").techLabel, "LF/HF")
+
+        // And every metric spells its measure out somewhere, so an
+        // abbreviation is never the only thing naming it.
+        for d in activityMetricDefs {
+            XCTAssertFalse(d.techFull.isEmpty, "\(d.label) has no spelled-out technical name")
+            XCTAssertTrue(d.techFull.contains("("), "\(d.label) techFull should carry (abbreviation)")
+        }
+        for spec in TrackMetrics.all {
+            XCTAssertFalse(spec.def.techFull.isEmpty, "\(spec.def.label) has no spelled-out name")
+        }
+    }
+
 }

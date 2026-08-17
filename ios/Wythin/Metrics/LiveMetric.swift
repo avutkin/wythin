@@ -23,19 +23,20 @@ import Foundation
 /// `allCases` builds a dictionary — so it is safe to re-sequence for
 /// presentation reasons.
 ///
-/// The first five lead deliberately: stress balance and conscious breathing are
-/// the two a person can act on directly, then harmony, vagal tone and energy
-/// reserve. The rest follow in supporting order.
+/// The sequence is the Live charts' original stack, restored by request after
+/// a 2026-08-06 re-ordering: Vagal Tone, Adaptive Capacity, Inner Noise,
+/// Harmony, Stress Balance, then Breath Rate, Conscious Breathing, Calm
+/// Power, Energy Reserve, Pulse. The cases no surface charts trail at the end.
 enum LiveMetric: String, CaseIterable {
-    case stressBalance = "stress_balance"
-    case rsa        = "rsa"
-    case dfa1       = "dfa1"
     case dc         = "dc"
-    case rmssd      = "rmssd"
-    case pip        = "pip"
     case rcmse      = "rcmse"
+    case pip        = "pip"
+    case dfa1       = "dfa1"
+    case stressBalance = "stress_balance"
     case breathBPM  = "breath_bpm"
+    case rsa        = "rsa"
     case vti        = "vti"
+    case rmssd      = "rmssd"
     case hr         = "hr"
     case sdnn       = "sdnn"
     case coherence  = "coherence"

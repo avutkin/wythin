@@ -73,6 +73,9 @@ struct ExerciseQuestionSections: View {
     private var sustained: some View {
         if !entry.zoneSplit.isEmpty || entry.duringDFA1 != nil {
             QuestionCard(number: "2", title: "SUSTAINED", subtitle: "where the work sat") {
+                Text("NOT GRADED — INTENSITY IS A DOSE, NOT A VERDICT")
+                    .font(.system(size: 7.5, design: .monospaced)).tracking(0.8)
+                    .foregroundStyle(Theme.dim)
                 if !entry.zoneSplit.isEmpty {
                     HeartRateZoneBar(split: entry.zoneSplit)
                 }
@@ -132,6 +135,9 @@ struct ExerciseQuestionSections: View {
     private var cost: some View {
         if entry.exerciseLoad != nil || entry.brakeReleaseIndex != nil {
             QuestionCard(number: "4", title: "COST", subtitle: "what you paid for it") {
+                if case let .score(value, _) = entry.suppressionAxis {
+                    IndexHeadline(value: value, label: "economy", tint: Color(hex: "#FFC01F"))
+                }
                 Tiles(costTiles)
                 Logic("""
                 Load is how big the session was; brake release is what it cost your calming \

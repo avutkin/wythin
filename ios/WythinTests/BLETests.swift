@@ -80,78 +80,109 @@ final class BLETests: XCTestCase {
 
     // MARK: - ACC watchdog retry policy (pure, no CoreBluetooth)
     //
-    // ACCWatchdogPolicy.decide is the retry policy extracted from the ACC
+    // PMDWatchdogPolicy.decide is the retry policy extracted from the ACC
     // watchdog so it can be tested without a real peripheral — see BLEService's
-    // ACCWatchdogPolicy and evaluateACCWatchdog for the CoreBluetooth plumbing
+    // PMDWatchdogPolicy and evaluateACCWatchdog for the CoreBluetooth plumbing
     // that samples state and acts on this decision.
 
     func testACCWatchdogFiresWhenECGFlowsButACCSilent() {
-        let action = ACCWatchdogPolicy.decide(
-            isConnected: true, inStandby: false, ecgFlowing: true,
+        let action = PMDWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: true, rrFlowing: true,
             timeSinceLastACCSample: 6, timeSinceLastRetry: nil,
-            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3, slowRetryGap: 60)
         XCTAssertEqual(action, .retryACCStart)
     }
 
     func testACCWatchdogStaysQuietWhenBothStreamsSilent() {
         // Both ECG and ACC dead is a connection problem — owned by the
         // existing reconnect/standby machinery, not this watchdog.
-        let action = ACCWatchdogPolicy.decide(
-            isConnected: true, inStandby: false, ecgFlowing: false,
+        let action = PMDWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: false, rrFlowing: false,
             timeSinceLastACCSample: 30, timeSinceLastRetry: nil,
-            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3, slowRetryGap: 60)
         XCTAssertEqual(action, .keepWaiting)
     }
 
     func testACCWatchdogStaysQuietInStandby() {
-        let action = ACCWatchdogPolicy.decide(
-            isConnected: true, inStandby: true, ecgFlowing: true,
+        let action = PMDWatchdogPolicy.decide(
+            isConnected: true, inStandby: true, ecgFlowing: true, rrFlowing: true,
             timeSinceLastACCSample: 30, timeSinceLastRetry: nil,
-            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3, slowRetryGap: 60)
         XCTAssertEqual(action, .keepWaiting)
     }
 
     func testACCWatchdogStaysQuietWhenDisconnected() {
-        let action = ACCWatchdogPolicy.decide(
-            isConnected: false, inStandby: false, ecgFlowing: true,
+        let action = PMDWatchdogPolicy.decide(
+            isConnected: false, inStandby: false, ecgFlowing: true, rrFlowing: true,
             timeSinceLastACCSample: 30, timeSinceLastRetry: nil,
-            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3, slowRetryGap: 60)
         XCTAssertEqual(action, .keepWaiting)
     }
 
     func testACCWatchdogWaitsBelowStallThreshold() {
         // Below the threshold is normal jitter or a brief hiccup, not a stall.
-        let action = ACCWatchdogPolicy.decide(
-            isConnected: true, inStandby: false, ecgFlowing: true,
+        let action = PMDWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: true, rrFlowing: true,
             timeSinceLastACCSample: 3, timeSinceLastRetry: nil,
-            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3, slowRetryGap: 60)
         XCTAssertEqual(action, .keepWaiting)
     }
 
     func testACCWatchdogRespectsRetryGap() {
         // Just retried a second ago — give it time to take effect before
         // trying again, even though ACC is still silent.
-        let action = ACCWatchdogPolicy.decide(
-            isConnected: true, inStandby: false, ecgFlowing: true,
+        let action = PMDWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: true, rrFlowing: true,
             timeSinceLastACCSample: 20, timeSinceLastRetry: 1,
-            retriesUsed: 1, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+            retriesUsed: 1, stallThreshold: 5, retryGap: 5, maxRetries: 3, slowRetryGap: 60)
         XCTAssertEqual(action, .keepWaiting)
     }
 
     func testACCWatchdogRetriesAgainAfterGapElapses() {
-        let action = ACCWatchdogPolicy.decide(
-            isConnected: true, inStandby: false, ecgFlowing: true,
+        let action = PMDWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: true, rrFlowing: true,
             timeSinceLastACCSample: 20, timeSinceLastRetry: 6,
-            retriesUsed: 1, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+            retriesUsed: 1, stallThreshold: 5, retryGap: 5, maxRetries: 3, slowRetryGap: 60)
         XCTAssertEqual(action, .retryACCStart)
     }
 
     func testACCWatchdogRespectsRetryBudget() {
-        let action = ACCWatchdogPolicy.decide(
-            isConnected: true, inStandby: false, ecgFlowing: true,
+        let action = PMDWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: true, rrFlowing: true,
             timeSinceLastACCSample: 20, timeSinceLastRetry: 6,
-            retriesUsed: 3, stallThreshold: 5, retryGap: 5, maxRetries: 3)
-        XCTAssertEqual(action, .giveUp)
+            retriesUsed: 3, stallThreshold: 5, retryGap: 5, maxRetries: 3, slowRetryGap: 60)
+        // Budget spent, last retry only 6 s ago: too soon for the slow lane.
+        XCTAssertEqual(action, .keepWaiting)
+    }
+
+    func testExhaustedBudgetDropsToSlowRetryInsteadOfGivingUp() {
+        // The 2026-08-07 outage: after ~20 s of fast retries the old policy
+        // cancelled itself for the rest of the session. Now the stall keeps
+        // being retried on a slow cadence indefinitely.
+        let action = PMDWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: true, rrFlowing: true,
+            timeSinceLastACCSample: 200, timeSinceLastRetry: 61,
+            retriesUsed: 3, stallThreshold: 5, retryGap: 5, maxRetries: 3, slowRetryGap: 60)
+        XCTAssertEqual(action, .slowRetry(both: false))
+    }
+
+    func testPMDStallWithLiveRRRetriesBothStreams() {
+        // ECG and ACC both silent while RR still flows: the link is provably
+        // alive, so this is a PMD-level stall — the branch the old ecgFlowing
+        // guard vetoed, leaving nobody retrying. Both starts get reissued.
+        let action = PMDWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: false, rrFlowing: true,
+            timeSinceLastACCSample: 30, timeSinceLastRetry: nil,
+            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3, slowRetryGap: 60)
+        XCTAssertEqual(action, .retryBothPMD)
+    }
+
+    func testExhaustedPMDStallSlowRetriesBoth() {
+        let action = PMDWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: false, rrFlowing: true,
+            timeSinceLastACCSample: 300, timeSinceLastRetry: 120,
+            retriesUsed: 3, stallThreshold: 5, retryGap: 5, maxRetries: 3, slowRetryGap: 60)
+        XCTAssertEqual(action, .slowRetry(both: true))
     }
 
     func testACCWatchdogNoStallImmediatelyAfterRecovery() {
@@ -159,10 +190,10 @@ final class BLETests: XCTestCase {
         // retry history. BLEService.noteACCSampleReceived is what actually
         // resets retriesUsed to 0 on real recovery; this only checks the
         // policy doesn't fire while ACC is freshly live.
-        let action = ACCWatchdogPolicy.decide(
-            isConnected: true, inStandby: false, ecgFlowing: true,
+        let action = PMDWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: true, rrFlowing: true,
             timeSinceLastACCSample: 0, timeSinceLastRetry: 6,
-            retriesUsed: 2, stallThreshold: 5, retryGap: 5, maxRetries: 3)
+            retriesUsed: 2, stallThreshold: 5, retryGap: 5, maxRetries: 3, slowRetryGap: 60)
         XCTAssertEqual(action, .keepWaiting)
     }
 

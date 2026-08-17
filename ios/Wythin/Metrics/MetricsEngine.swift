@@ -25,9 +25,24 @@ struct MetricsTick {
     let rsaIdx: Float?
 
     // Breathing
-    let breathBPM:    Float?
+    /// Fused breathing rate. `var` because `AppEnvironment` runs the temporal
+    /// tracker (`BreathRateTracker`) over consecutive ticks and writes the
+    /// tracked value back — the per-tick spectral pick is an observation, not
+    /// the final answer.
+    var breathBPM:    Float?
     let breathHz:     Float?
     let regularity:   Float?
+    /// Which channel produced `breathBPM`. `breathBPM` non-nil while
+    /// `breathHz` is nil is a deliberate asymmetry, not an oversight: when
+    /// the source is `.heart` (EDR), `breathHz` and `regularity` stay nil so
+    /// RSA's bandpass, coherence and CBI never consume a breathing signal
+    /// derived from the heart itself — coherence would become the heart
+    /// correlated with itself and read artificially high. Do not "fix" this
+    /// by forwarding the EDR frequency into `breathHz`.
+    var breathSource: BreathSource? = nil
+    /// Peak prominence behind `breathBPM`, for the tracker's weighting.
+    /// Transient — never persisted, never synced.
+    var breathConfidence: Float? = nil
 
     // Coherence & CBI
     let coherenceScore: Float?
@@ -70,6 +85,12 @@ struct MetricsTick {
     let coherenceValues: [Float]?
 }
 
+/// Which channel a breathing-rate reading came from.
+enum BreathSource: Int, Codable {
+    case accelerometer = 0   // measured — chest expansion via ACC
+    case heart         = 1   // estimated — ECG-derived respiration (EDR)
+}
+
 // MARK: - MetricsEngine
 
 /// Coordinates all metric computation from a DataSnapshot.
@@ -100,8 +121,20 @@ enum MetricsEngine {
         let hrfResult   = AdvancedHRVCompute.computeHRF(rrMs: rrMs)
         let dcResult    = AdvancedHRVCompute.computeDC(rrMs: rrMs)
 
-        // --- Breathing from ACC Z ---
-        let breathing = BreathingCompute.computeRate(accZ: snapshot.accZ)
+        // --- Breathing: accelerometer first (all three axes), EDR fallback ---
+        // RR arrives on the heart-rate characteristic, so the fallback
+        // survives a total PMD stall; it is consulted only when ACC yields
+        // nothing (see `MetricsTick.breathSource` for the circularity rule).
+        // Both estimators run every tick and are fused by prominence: two
+        // independent channels agreeing on a rate is stronger evidence than
+        // either alone, and when they disagree the more dominant peak wins
+        // rather than being averaged into a rate nobody measured.
+        let breathing = BreathingCompute.computeRate(accXYZ: snapshot.accXYZ)
+        let edr       = EDRCompute.estimate(rrMs: rrMs)
+        var candidates: [BreathRateTracker.Estimate] = []
+        if let b = breathing { candidates.append(.init(bpm: b.bpm, confidence: b.confidence)) }
+        if let e = edr       { candidates.append(.init(bpm: e.bpm, confidence: e.confidence)) }
+        let fusedBreath = BreathRateTracker.fuse(candidates)
         let phases    = BreathingCompute.computePhases(accZ: snapshot.accZ)
 
         // --- RSA ---
@@ -139,9 +172,18 @@ enum MetricsEngine {
             lfHF:           hrv?.lfHF,
             rsaMs:          rsa?.rsaMs,
             rsaIdx:         rsa?.rsaIdx,
-            breathBPM:      breathing?.bpm,
-            breathHz:       breathing?.peakHz,
-            regularity:     breathing?.regularity,
+            breathBPM:      fusedBreath?.bpm,
+            breathHz:       breathing?.peakHz,       // never EDR — circularity rule
+            regularity:     breathing?.regularity,   // never EDR
+            // Names the channel that actually produced the answer: when the
+            // two disagree, the arbitration above picks one, and labelling it
+            // .accelerometer merely because ACC computed *something* would
+            // mark an estimated reading as measured.
+            breathSource:   fusedBreath.map { fused in
+                                breathing.map { abs($0.bpm - fused.bpm) <= 2 } == true
+                                    ? .accelerometer : .heart
+                            },
+            breathConfidence: fusedBreath?.confidence,
             coherenceScore: coherence?.score,
             cbi:            cbi,
             dfa1:           dfa?.alpha1,

@@ -98,6 +98,10 @@ private struct ChartPoint: Identifiable {
     let val:     Double
     let quality: Float? // average signal quality in this bucket (nil = no quality data)
     let segment: Int    // contiguous-run id; increments across data gaps so the line breaks
+    /// More than half this bucket's samples were estimated (EDR) rather than
+    /// measured. Folded into `segment`, so a source change starts a new line
+    /// series and the dashed style cannot bleed across the boundary.
+    var estimated: Bool = false
 }
 
 // MARK: - Anomaly Band
@@ -114,6 +118,7 @@ private struct AnomalyBand: Identifiable {
 
 private struct MetricInfo {
     let description: String
+    let calculation: String?   // the actual method, in plain words
     let physical:    String
     let physiology:  String
     let training:    String
@@ -121,9 +126,11 @@ private struct MetricInfo {
     let levels:      String
     let notes:       String?
 
-    init(_ description: String, physical: String, physiology: String,
-         training: String, sensitivity: String, levels: String, notes: String? = nil) {
+    init(_ description: String, calculation: String? = nil, physical: String,
+         physiology: String, training: String, sensitivity: String,
+         levels: String, notes: String? = nil) {
         self.description = description
+        self.calculation = calculation
         self.physical    = physical
         self.physiology  = physiology
         self.training    = training
@@ -148,6 +155,9 @@ private struct MetricInfoSheet: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
                         row("DESCRIPTION",             info.description)
+                        if let c = info.calculation {
+                            row("HOW IT'S CALCULATED", c)
+                        }
                         row("PHYSICAL MEANING",        info.physical)
                         row("PHYSIOLOGICAL MEANING",   info.physiology)
                         row("TRAINING ASPECTS",        info.training)
@@ -197,7 +207,8 @@ private struct MetricInfoSheet: View {
 
 private struct MetricChartCard: View {
     let title:         String   // consumer name — shown in white
-    let technicalName: String   // technical name — shown in gray after title
+    let technicalName: String   // short technical name — shown in gray after title
+    let technicalFull: String   // spelled-out technical name — its own line under the title
     let subtitle:      String   // description — shown on second line
     let yLabel:        String
     let color:      Color
@@ -214,6 +225,10 @@ private struct MetricChartCard: View {
     /// charts themselves (they must stay fully visible when artifacts are high).
     let flagUnreliable: Bool
     let info:       MetricInfo?
+    /// Marks a sample as estimated rather than measured (dashed rendering +
+    /// caption). Only Breath Rate passes this; default nil leaves the other
+    /// cards untouched.
+    let isEstimated: ((MetricsHistoryPoint) -> Bool)?
     let extract:          (MetricsHistoryPoint) -> Double?
     /// Optional transform applied to each bucket mean after averaging.
     /// Used for metrics like VTI where ln() must be applied AFTER averaging
@@ -225,7 +240,8 @@ private struct MetricChartCard: View {
     @Binding var panOffset: TimeInterval   // seconds the window is panned from its newest edge (≤ 0)
     @State private var showInfo = false
 
-    init(title: String, technicalName: String = "", subtitle: String, yLabel: String,
+    init(title: String, technicalName: String = "", technicalFull: String = "",
+         subtitle: String, yLabel: String,
          color: Color, windows: [TimeWindow], refs: [RefLine],
          yDomain: ClosedRange<Double>,
          win: TimeWindow,
@@ -235,6 +251,7 @@ private struct MetricChartCard: View {
          dynamicY: Bool = false,
          flagUnreliable: Bool = true,
          info: MetricInfo? = nil,
+         isEstimated: ((MetricsHistoryPoint) -> Bool)? = nil,
          history: [MetricsHistoryPoint],
          rawHistory: [MetricsHistoryPoint] = [],
          date: Date,
@@ -242,6 +259,7 @@ private struct MetricChartCard: View {
          extract: @escaping (MetricsHistoryPoint) -> Double?) {
         self.title           = title
         self.technicalName   = technicalName
+        self.technicalFull   = technicalFull
         self.subtitle        = subtitle
         self.yLabel          = yLabel
         self.color           = color
@@ -252,6 +270,7 @@ private struct MetricChartCard: View {
         self.dynamicY        = dynamicY
         self.flagUnreliable  = flagUnreliable
         self.info            = info
+        self.isEstimated     = isEstimated
         self.history         = history
         self.rawHistory      = rawHistory
         self.date            = date
@@ -401,6 +420,7 @@ private struct MetricChartCard: View {
         var counts:  [Int: Int]    = [:]
         var qualSum: [Int: Float]  = [:]
         var qualCnt: [Int: Int]    = [:]
+        var estCnt:  [Int: Int]    = [:]
         var presentKeys = Set<Int>()   // buckets with ANY valid sample (sensor on)
         for pt in history where pt.timestamp >= start && pt.timestamp < end {
             let key = Int(pt.timestamp.timeIntervalSince1970 / bucket)
@@ -408,6 +428,7 @@ private struct MetricChartCard: View {
             guard let v = extract(pt) else { continue }
             sums[key]   = (sums[key]   ?? 0) + v
             counts[key] = (counts[key] ?? 0) + 1
+            if isEstimated?(pt) == true { estCnt[key] = (estCnt[key] ?? 0) + 1 }
             if let q = pt.signalQuality {
                 qualSum[key] = (qualSum[key] ?? 0) + q
                 qualCnt[key] = (qualCnt[key] ?? 0) + 1
@@ -431,10 +452,26 @@ private struct MetricChartCard: View {
             var val = sums[key]! / Double(counts[key]!)
             if let transform = bucketTransform { val = transform(val) }
             let q: Float? = qualCnt[key].map { (qualSum[key] ?? 0) / Float($0) }
+            // A bucket is estimated when STRICTLY more than half its samples
+            // are — an even split resolves to measured.
+            let est = (estCnt[key] ?? 0) * 2 > counts[key]!
             result.append(ChartPoint(id: key, date: Date(timeIntervalSince1970: mid),
-                                     val: val, quality: q, segment: segs[i]))
+                                     val: val, quality: q, segment: segs[i],
+                                     estimated: est))
         }
-        return result
+        // A change of source starts a new series: renumber segments so an
+        // estimated run never shares a LineMark series with a measured one —
+        // otherwise the dashed style would bleed across the boundary, or two
+        // estimated runs would be bridged across the measured run between.
+        guard isEstimated != nil else { return result }
+        var runId = 0
+        return result.enumerated().map { i, pt in
+            if i > 0, result[i - 1].segment != pt.segment
+                   || result[i - 1].estimated != pt.estimated { runId += 1 }
+            return ChartPoint(id: pt.id, date: pt.date, val: pt.val,
+                              quality: pt.quality, segment: runId,
+                              estimated: pt.estimated)
+        }
     }
 
     /// Minimum gap between two dots before the connecting line breaks. Dots
@@ -478,14 +515,16 @@ private struct MetricChartCard: View {
         HStack(alignment: .center, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(title)
+                    // One flowing line: marketing name, then the spelled-out
+                    // measure with its abbreviation in brackets — wraps as a
+                    // unit instead of truncating.
+                    (Text(title)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Theme.text)
-                    if !technicalName.isEmpty {
-                        Text(technicalName)
-                            .font(Theme.monoLabel)
-                            .foregroundStyle(Theme.dim)
-                    }
+                     + Text(technicalName.isEmpty ? "" : "  \(technicalName)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Theme.dim))
+                        .lineLimit(2)
                     if info != nil {
                         Button { showInfo = true } label: {
                             Text("?")
@@ -613,7 +652,8 @@ private struct MetricChartCard: View {
                     )
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [color.opacity(0.22), color.opacity(0.02)],
+                            colors: [color.opacity(pt.estimated ? 0.08 : 0.22),
+                                     color.opacity(0.02)],
                             startPoint: .top, endPoint: .bottom
                         )
                     )
@@ -641,7 +681,8 @@ private struct MetricChartCard: View {
                     )
                     .foregroundStyle(markColor(pt))
                     .interpolationMethod(.monotone)
-                    .lineStyle(StrokeStyle(lineWidth: 1.5))
+                    .lineStyle(StrokeStyle(lineWidth: 1.5,
+                                           dash: pt.estimated ? [4, 3] : []))
                 }
 
                 ForEach(pts) { pt in
@@ -649,8 +690,8 @@ private struct MetricChartCard: View {
                         x: .value("time", pt.date),
                         y: .value(yLabel, pt.val)
                     )
-                    .foregroundStyle(markColor(pt))
-                    .symbolSize(18)
+                    .foregroundStyle(markColor(pt).opacity(pt.estimated ? 0.45 : 1))
+                    .symbolSize(pt.estimated ? 12 : 18)
                 }
             }
             .chartXScale(domain: start...end)
@@ -793,19 +834,17 @@ struct MetricsChartsView: View, Equatable {
     var body: some View {
         // `LiveMetric`'s declaration order — the app's canonical display
         // order, shared with the Track charts and the Live metric tiles.
-        // Breath Rate, Calm Power and Pulse have no Track chart, so they
-        // follow the seven that do.
+        // This is the charts' original stack, restored by request.
         VStack(spacing: 10) {
-            lfhfCard          // Stress Balance
-            rsaCard           // Conscious Breathing
-            dfa1Card          // Harmony
             dcCard            // Vagal Tone
-            hrvCard           // Energy Reserve
-            pipCard           // Inner Noise
             rcmseCard         // Adaptive Capacity
+            pipCard           // Inner Noise
+            dfa1Card          // Harmony
+            lfhfCard          // Stress Balance
             breathRateCard
-            vtiCard
-            hrCard
+            rsaCard           // Conscious Breathing
+            vtiCard           // Calm Power
+            hrCard            // Pulse
 
             signalQualitySection
         }
@@ -862,7 +901,7 @@ struct MetricsChartsView: View, Equatable {
     private var signalArtifactsCard: some View {
         MetricChartCard(
             title:    "Signal Artifacts",
-            technicalName: "RR",
+            technicalName: "dropped + repaired beats (%)",
             subtitle: "% of beats invalid or corrected",
             yLabel:   "%",
             color:    Theme.warn,
@@ -877,6 +916,7 @@ struct MetricsChartsView: View, Equatable {
             flagUnreliable: false,
             info: MetricInfo(
                 "How much of the heartbeat signal was messy and had to be cleaned up. Think of it as a static meter for your recording — lower means a cleaner, more trustworthy reading.",
+                calculation: "Every RR interval is screened for plausibility — impossibly short or long beats, or jumps too far from their neighbours. This is the share of beats in the window that failed: dropped plus repaired.",
                 physical:    "Your chest strap catches each heartbeat. If it slips, dries out, or you move a lot, it can miss a beat or catch a false one — and those bad beats show up here.",
                 physiology:  "This one isn't about your body — it's about signal quality. When it's high, the other numbers on this screen can't be trusted, because they're built on a shaky signal.",
                 training:    "If it creeps up, it's almost always the strap. Dampen the electrode pads, snug the strap just under your chest muscles, and stay still. That drives it back toward 0%.",
@@ -895,7 +935,7 @@ struct MetricsChartsView: View, Equatable {
     private var rrCorrectedCard: some View {
         MetricChartCard(
             title:    "RR Corrected",
-            technicalName: "interpolated",
+            technicalName: "interpolated beats (%)",
             subtitle: "% of beats replaced (missed / extra beat)",
             yLabel:   "%",
             color:    Theme.rsa,
@@ -905,6 +945,15 @@ struct MetricsChartsView: View, Equatable {
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             dynamicY: true,
             flagUnreliable: false,
+            info: MetricInfo(
+                "The share of heartbeats that were repaired rather than dropped — a missed or double-counted beat rebuilt from its neighbours.",
+                calculation: "The repairable slice of Signal Artifacts: a missed or doubled beat is rebuilt by interpolating its neighbours instead of being thrown away. Signal Artifacts minus this line is what was dropped outright.",
+                physical:    "The strap occasionally misses a beat or counts one twice — usually from a moment of poor contact. Those beats are reconstructed so one glitch doesn't poison the metrics built on the series.",
+                physiology:  "About the recording, not your body. A small repaired share is routine; a large one means the metrics are leaning on reconstructed beats.",
+                training:    "Nothing to train — if it climbs, treat it like Signal Artifacts: dampen the pads and snug the strap.",
+                sensitivity: "Tracks strap contact moment to moment, like the other signal-quality charts.",
+                levels:      "Routine: under 2%\nWatch: 2–5%\nShaky: over 5% (fix the strap)"
+            ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.rrCorrectedRate.map { Double($0) * 100 } }
     }
@@ -914,7 +963,7 @@ struct MetricsChartsView: View, Equatable {
     private var ecgSignalCard: some View {
         MetricChartCard(
             title:    "ECG Signal",
-            technicalName: "waveform",
+            technicalName: "waveform fault (%)",
             subtitle: "contact & motion  ·  higher = worse",
             yLabel:   "%",
             color:    Theme.breathe,
@@ -928,6 +977,7 @@ struct MetricsChartsView: View, Equatable {
             flagUnreliable: false,
             info: MetricInfo(
                 "A second signal-quality check that looks at the raw heartbeat waveform itself. 0% is clean; 100% means the strap has lost contact with your skin.",
+                calculation: "Electrode contact and movement are graded each tick from the raw ECG waveform's noise floor and the accelerometer: good, fair or poor. It grades the recording, not your body.",
                 physical:    "A flat line means an electrode isn't touching your skin. A spiky, maxed-out line means you were moving. Either way, the strap needs attention.",
                 physiology:  "This is about the sensor, not you. A strap that's lost contact can look 'quiet' while actually being unusable — that's what this catches.",
                 training:    "If it's high, fix the hardware: dampen the electrode pads, tighten and reposition the strap just under your chest muscles, and move less. It falls to 0% once contact is solid.",
@@ -943,7 +993,7 @@ struct MetricsChartsView: View, Equatable {
     private var hrCard: some View {
         MetricChartCard(
             title:    "Pulse",
-            technicalName: "HR",
+            technicalName: "Heart Rate (HR)",
             subtitle: "Your heart rate",
             yLabel:   "bpm",
             color:    Theme.warn,
@@ -958,6 +1008,7 @@ struct MetricsChartsView: View, Equatable {
             dynamicY: true,
             info: MetricInfo(
                 "Your heart rate — how many times your heart beats per minute, averaged over the time window you're viewing.",
+                calculation: "60,000 divided by the average RR interval (in ms) across the current window, recomputed every ~2 seconds.",
                 physical:    "Each beat pushes blood around your body. At rest, a lower number usually means your heart is working efficiently.",
                 physiology:  "Your heart speeds up under stress, caffeine, or effort, and slows when you're calm and rested. Over time, a lower resting pulse is a good sign of fitness and recovery.",
                 training:    "Check it first thing after waking as a recovery gauge. If it's 5+ beats above your usual, your body may still be recovering, run-down, or fighting something off. Regular cardio lowers it over weeks.",
@@ -973,6 +1024,7 @@ struct MetricsChartsView: View, Equatable {
     private var rrHistoryCard: some View {
         MetricChartCard(
             title:    "RR Interval",
+            technicalName: "mean beat-to-beat interval (RR)",
             subtitle: "mean beat-to-beat  ·  60000 / BPM",
             yLabel:   "ms",
             color:    Theme.hrv,
@@ -986,6 +1038,7 @@ struct MetricsChartsView: View, Equatable {
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
                 "The exact gap between two heartbeats, in milliseconds. It's just your pulse viewed up close — one beat at a time instead of an average.",
+                calculation: "The mean time between consecutive heartbeats in the window, in milliseconds — the same number Pulse shows, seen from the other side (60,000 ÷ BPM).",
                 physical:    "Your heart never beats like a metronome; the tiny gaps between beats constantly shift. Those shifts are the raw material behind every other number here.",
                 physiology:  "Longer, freely-changing gaps at rest are a sign of a calm, adaptable nervous system. Short, rigid, unchanging gaps point to stress or strain.",
                 training:    "A great live signal while breathing: watch the gap stretch on each exhale and shrink on each inhale. Big, smooth waves mean you've found your rhythm.",
@@ -1004,6 +1057,7 @@ struct MetricsChartsView: View, Equatable {
     private var ieRatioCard: some View {
         MetricChartCard(
             title:   "Breathing I:E Ratio",
+            technicalName: "exhale ÷ inhale (I:E)",
             subtitle: "exhale / inhale",
             yLabel:  "I:E ratio",
             color:   Theme.accent,
@@ -1017,6 +1071,7 @@ struct MetricsChartsView: View, Equatable {
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
                 "How long your exhale is compared with your inhale. A longer out-breath is the simplest lever you have for calming your body down.",
+                calculation: "The chest accelerometer traces each breath; every cycle is split into inhale and exhale, and this is mean exhale time divided by mean inhale time.",
                 physical:    "Breathing in gently speeds the heart; breathing out slows it. So the longer your exhale, the more you engage your body's natural brake.",
                 physiology:  "When your exhale is longer than your inhale, your nervous system shifts toward 'rest and recover' — heart rate drops and stress eases.",
                 training:    "Aim for an exhale about 1.5–2× your inhale. Try 4 seconds in and 6 out (that's 1.5), or 4 in and 8 out (that's 2.0). Ease into it — don't strain for a long exhale.",
@@ -1032,28 +1087,28 @@ struct MetricsChartsView: View, Equatable {
     private var vtiCard: some View {
         MetricChartCard(
             title:   "Calm Power",
-            technicalName: "VTI",
+            technicalName: "Root Mean Square of Successive Differences (RMSSD)",
             subtitle: "Total strength of your recovery drive",
-            yLabel:  "VTI",
+            yLabel:  "ms",
             color:   Theme.breathe,
             windows: TimeWindow.allCases,
             refs: [
-                RefLine(value: 3.0, label: "low (≈20ms)",   color: Theme.warn),
-                RefLine(value: 3.9, label: "mod (≈50ms)",   color: Theme.rsa),
-                RefLine(value: 4.6, label: "good (≈100ms)", color: Theme.coh),
+                RefLine(value: 20, label: "low",      color: Theme.warn),
+                RefLine(value: 40, label: "moderate", color: Theme.rsa),
+                RefLine(value: 65, label: "healthy",  color: Theme.coh),
             ],
-            yDomain: 2.0...5.5,
+            yDomain: 0...120,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
-                "The overall strength of your body's calm-and-recover system, on a steady, easy-to-track scale. Higher means a stronger ability to relax and bounce back.",
-                physical:    "It's built from how much your heartbeat naturally varies from beat to beat — a hallmark of a relaxed, well-regulated body — put on a smooth scale that's easy to compare day to day.",
+                "The strength of your body's calm-and-recover system, in raw milliseconds of beat-to-beat variability. Higher means a stronger ability to relax and bounce back.",
+                calculation: "Root Mean Square of Successive Differences (RMSSD): each beat-to-beat change is squared, the squares averaged over the window, and the root taken. Only vagal activity produces large beat-to-beat differences.",
+                physical:    "It's built from how much your heartbeat naturally varies from beat to beat — a hallmark of a relaxed, well-regulated body.",
                 physiology:  "A higher number means your 'brakes' are strong: you handle stress better, recover faster, and tend to sleep and feel better. A low number is a nudge to rest and downshift.",
                 training:    "Check it each morning after a few minutes of rest as a recovery score. A sharp drop means you're not fully recovered. It climbs over months with regular cardio and slow-breathing practice.",
-                sensitivity: "Fairly steady — it smooths out moment-to-moment noise, so it's reliable for day-to-day comparison.",
-                levels:      "Low:      under 3.0\nModerate: 3.0–3.9\nGood:     3.9–4.6\nHigh:     4.6+\nElite:    5.0+\nHigher is better."
+                sensitivity: "Live and personal — big swings within a day are normal; compare against your own usual range, not other people's.",
+                levels:      "Low:      under 20 ms\nModerate: 20–40 ms\nHealthy:  40–65 ms\nHigh:     65+ ms\nHigher is better — against your own baseline."
             ),
-            history: history, rawHistory: rawHistory, date: date,
-            bucketTransform: { v in v > 0 ? log(v) : 0 }
+            history: history, rawHistory: rawHistory, date: date
         ) { $0.rmssd.map(Double.init) }
     }
 
@@ -1067,7 +1122,7 @@ struct MetricsChartsView: View, Equatable {
     private var breathRateCard: some View {
         MetricChartCard(
             title:   "Breath Rate",
-            technicalName: "br/min",
+            technicalName: "breaths per minute (br/min)",
             subtitle: "How fast you're breathing",
             yLabel:  "br/min",
             color:   Theme.breathe,
@@ -1084,6 +1139,7 @@ struct MetricsChartsView: View, Equatable {
             smooth:  true,
             info: MetricInfo(
                 "How many breaths you take per minute. It's the one signal on this screen you can change on purpose, right now, just by breathing differently.",
+                calculation: "A Welch power spectrum of the chest accelerometer's Z axis. The dominant peak in the breathing band is your rate, refined between bins by parabolic interpolation; a peak must clearly rise above the band's average power — otherwise no value is shown rather than a guess.",
                 physical:    "Your chest rises and falls with each breath, and the strap's motion sensor picks that up. Counting those rises gives your breathing rate.",
                 physiology:  "Slower breathing gives your body's brake more time to act on each out-breath. Fast, shallow breathing does the opposite — it keeps you revved up, and it's often the first thing to change when you're stressed.",
                 training:    "This is your steering wheel. Most people find their sweet spot near 6 breaths per minute — try settling there and watch Conscious Breathing rise underneath it.",
@@ -1091,6 +1147,7 @@ struct MetricsChartsView: View, Equatable {
                 levels:      "Resonance: around 6 br/min\nRestful:   6–12 br/min\nTypical:   12–16 br/min\nFast:      20+ br/min",
                 notes:       "Measured from body movement, so walking, driving, or fidgeting can be mistaken for breathing. Trust it most when you're still."
             ),
+            isEstimated: { $0.breathSource == .heart },
             history: history, rawHistory: rawHistory, date: date
         ) { $0.breathBPM.map(Double.init) }
     }
@@ -1100,7 +1157,7 @@ struct MetricsChartsView: View, Equatable {
     private var rsaCard: some View {
         MetricChartCard(
             title:   "Conscious Breathing",
-            technicalName: "RSA",
+            technicalName: "Respiratory Sinus Arrhythmia (RSA)",
             subtitle: "How your breath moves your heart rate",
             yLabel:  "ms",
             color:   Theme.rsa,
@@ -1116,6 +1173,7 @@ struct MetricsChartsView: View, Equatable {
             smooth:  true,
             info: MetricInfo(
                 "How much your heart rate rises and falls with each breath. It's the live signature of your breathing actually reaching your nervous system.",
+                calculation: "The heart-rate swing at your detected breathing frequency: the RR series' power in a narrow band around the breath peak, expressed as a peak-to-trough amplitude in ms. With no clean breath peak, the standard HF band (0.15–0.40 Hz) stands in.",
                 physical:    "Breathe in and your heart speeds up a little; breathe out and it slows. This measures the size of that wave — bigger waves mean your breath is having a bigger calming effect.",
                 physiology:  "It's the most direct real-time sign that your calming system is engaged. Big, steady waves are linked to better emotional control and faster recovery.",
                 training:    "This is your main feedback signal during slow breathing. Around 6 breaths per minute most people see it peak. Watch it grow as you settle into a rhythm — and it strengthens over weeks of practice.",
@@ -1127,40 +1185,13 @@ struct MetricsChartsView: View, Equatable {
         ) { $0.rsaMs.map(Double.init) }
     }
 
-    // MARK: HRV (RMSSD)
-
-    private var hrvCard: some View {
-        MetricChartCard(
-            title:   "Energy Reserve",
-            technicalName: "HRV",
-            subtitle: "Your beat-to-beat variability",
-            yLabel:  "ms",
-            color:   Theme.hrv,
-            windows: TimeWindow.allCases,
-            refs: [
-                RefLine(value: 20, label: "unhealthy", color: Theme.warn),
-                RefLine(value: 40, label: "moderate",  color: Theme.rsa),
-                RefLine(value: 65, label: "healthy",   color: Theme.coh),
-            ],
-            yDomain: 0...120,
-            win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
-            info: MetricInfo(
-                "Your core beat-to-beat variability — the headline marker of recovery and vagal (calming) tone. Higher signals a rested, adaptable system.",
-                physical:    "It measures how much the gap between consecutive heartbeats changes from one beat to the next — the fast, breathing-driven variation (RMSSD).",
-                physiology:  "Driven mainly by your calming (vagal / parasympathetic) system. It rises with rest, slow breathing and good recovery; it drops under stress, exertion and fatigue.",
-                training:    "Responsive within a session — expect it to climb during restful, slow-breathing practice. Also worth tracking day to day as a recovery gauge.",
-                sensitivity: "Responsive — moves with your breathing and your recovery state.",
-                levels:      "Low:           under 20 ms\nBelow average: 20–40 ms\nModerate:      40–65 ms\nStrong:        65–100 ms\nAthletic:      100+ ms"
-            ),
-            history: history, rawHistory: rawHistory, date: date
-        ) { $0.rmssd.map(Double.init) }
-    }
 
     // MARK: pNN50
 
     private var pnn50Card: some View {
         MetricChartCard(
             title:   "pNN50",
+            technicalName: "beat pairs differing >50 ms (%)",
             subtitle: "% successive RR diff > 50 ms",
             yLabel:  "%",
             color:   Theme.accent,
@@ -1174,6 +1205,7 @@ struct MetricsChartsView: View, Equatable {
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
                 "How often your heartbeat makes a noticeable jump from one beat to the next — a simple, robust sign of an active calming system.",
+                calculation: "The share of consecutive beat pairs whose RR intervals differ by more than 50 ms.",
                 physical:    "It counts the share of back-to-back beats where the timing changed by more than a blink (50 ms). More of these little jumps means a livelier, more relaxed rhythm.",
                 physiology:  "Mostly reflects your calming (vagal) system. It rises during slow breathing, relaxation, and sleep, and falls under stress or exertion.",
                 training:    "A nice, noise-resistant companion to your other calm metrics. It should rise during slow-breathing sessions and improve over weeks of practice.",
@@ -1189,7 +1221,7 @@ struct MetricsChartsView: View, Equatable {
     private var dcCard: some View {
         MetricChartCard(
             title:    "Vagal Tone",
-            technicalName: "DC",
+            technicalName: "Deceleration Capacity (DC)",
             subtitle: "Your relaxation and recovery capacity",
             yLabel:   "ms",
             color:    Color(red: 0.4, green: 0.7, blue: 1.0),
@@ -1205,6 +1237,7 @@ struct MetricsChartsView: View, Equatable {
             dynamicY: true,
             info: MetricInfo(
                 "How strongly your body can hit the brakes and relax — your heart's ability to slow itself down, which is the engine behind calming, recovering, and winding down.",
+                calculation: "Phase-Rectified Signal Averaging (Bauer et al., 2006): every beat where the heart slowed becomes an anchor, the beats around all anchors are averaged into one curve, and a Haar wavelet reads the characteristic deceleration from it, in ms.",
                 physical:    "Every time your heart eases off slightly between beats, that's your rest-and-recover system tapping the brake. This tracks how big and consistent those braking moments are.",
                 physiology:  "A strong brake means you bounce back faster after stress, fall asleep more easily, and stay calmer under pressure. A weak one is a sign you're stuck in 'go mode' too often.",
                 training:    "Slow breathing, good sleep, and regular cardio build it over weeks. Try a few minutes of paced breathing daily and watch it climb.",
@@ -1220,7 +1253,7 @@ struct MetricsChartsView: View, Equatable {
     private var rcmseCard: some View {
         MetricChartCard(
             title:    "Adaptive Capacity",
-            technicalName: "RCMSE",
+            technicalName: "Multiscale Sample Entropy (RCMSE)",
             subtitle: "How flexibly your system adapts across timescales",
             yLabel:   "entropy",
             color:    Color(red: 0.8, green: 0.5, blue: 1.0),
@@ -1236,6 +1269,7 @@ struct MetricsChartsView: View, Equatable {
             dynamicY: false,
             info: MetricInfo(
                 "How rich and flexible your heart rhythm is across many timescales at once. A more intricate, less repetitive pattern is a sign of a healthy, adaptable system.",
+                calculation: "Refined Composite Multiscale Sample Entropy (Wu et al., 2014): the beat series is averaged into coarser and coarser timescales and the pattern-richness of each is combined. Needs at least 100 clean beats — hence the gaps.",
                 physical:    "A healthy heartbeat isn't perfectly regular — it has layered, ever-shifting patterns. This measures how much of that healthy complexity is present.",
                 physiology:  "Higher complexity goes with resilience and good health. When the body is stressed, exhausted, or aging poorly, the rhythm gets simpler and more repetitive — and this drops.",
                 training:    "Builds slowly with steady aerobic training and breathing practice — think weeks to months. Best read as a trend, not a single reading.",
@@ -1251,7 +1285,7 @@ struct MetricsChartsView: View, Equatable {
     private var pipCard: some View {
         MetricChartCard(
             title:    "Inner Noise",
-            technicalName: "PIP",
+            technicalName: "Percentage of Inflection Points (PIP)",
             subtitle: "Beat-to-beat fragmentation — rises with stress and fatigue",
             yLabel:   "%",
             color:    Color(red: 1.0, green: 0.7, blue: 0.3),
@@ -1267,6 +1301,7 @@ struct MetricsChartsView: View, Equatable {
             dynamicY: false,
             info: MetricInfo(
                 "How choppy and jittery your heartbeat pattern is. Some choppiness is normal; a lot of it tends to show up with stress, fatigue, or poor recovery. Lower is calmer.",
+                calculation: "Heart-rate fragmentation (Costa et al., 2017): the percentage of beats where the RR series flips direction. A flowing rhythm has few inflection points; an erratic one flips constantly. Needs at least 30 clean beats.",
                 physical:    "It measures how often your heart keeps flip-flopping between speeding up and slowing down beat to beat. More constant flip-flopping means a more fragmented, less settled rhythm.",
                 physiology:  "A moderate amount is completely normal. High choppiness points to a nervous system that isn't coordinating smoothly — often from stress, poor sleep, or being run-down.",
                 training:    "You don't train this directly, but it eases as your overall health improves. Chronic stress and short sleep push it up; fitness and recovery bring it down over weeks.",
@@ -1282,7 +1317,7 @@ struct MetricsChartsView: View, Equatable {
     private var dfa1Card: some View {
         MetricChartCard(
             title:   "Harmony",
-            technicalName: "DFA α1",
+            technicalName: "Detrended Fluctuation Analysis (DFA α1)",
             subtitle: "How ordered vs random your heart rhythm is",
             yLabel:  "α1",
             color:   Theme.ulf,
@@ -1298,6 +1333,7 @@ struct MetricsChartsView: View, Equatable {
             dynamicY: false,
             info: MetricInfo(
                 "How balanced your heart rhythm is between too-random and too-rigid. Right in the middle — around 1.0 — is the sweet spot of a healthy, adaptable heart.",
+                calculation: "Detrended Fluctuation Analysis (Peng et al., 1995): the RR series is integrated, cut into boxes of 4–16 beats, each box detrended, and α1 is the slope of fluctuation size versus box size on log–log axes.",
                 physical:    "Your heartbeat has a natural 'texture.' Too random (low) or too locked-in (high) both signal strain; a balanced middle is ideal.",
                 physiology:  "The middle zone reflects a flexible, well-regulated system. Drifting low is linked to fatigue and poor recovery; running high can show over-strain.",
                 training:    "Improves with regular cardio and breathing practice — track it over weeks. Heavy exertion or high stress can pull it out of the ideal band for a while.",
@@ -1314,7 +1350,7 @@ struct MetricsChartsView: View, Equatable {
     private var lfhfCard: some View {
         MetricChartCard(
             title:   "Stress Balance",
-            technicalName: "LF/HF",
+            technicalName: "100·(1 − RMSSD index) (SNS %)",
             subtitle: "Balance of activation vs rest",
             yLabel:  "%",
             color:   Theme.rsa,
@@ -1328,6 +1364,7 @@ struct MetricsChartsView: View, Equatable {
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
                 "A simple 0–100 stress dial: higher means more revved-up and alert, lower means calmer. It's built so that slow, calming breathing actually reads as calmer.",
+                calculation: "Vagal index = RMSSD ÷ (RMSSD + 40), or 0.5 · RMSSD ÷ baseline once your baseline is known. The dial is SNS% = 100 · (1 − vagal index). When RMSSD is unavailable and breathing is at a normal rate, HF ÷ (LF + HF) stands in for the vagal index.",
                 physical:    "It's based on how relaxed your heartbeat is moment to moment — a calm, variable heartbeat reads low, a tense, flat one reads high.",
                 physiology:  "Most stress scores get fooled by slow breathing and spike as if you were stressed. This one is designed to avoid that trap, so paced breathing correctly shows up as calm.",
                 training:    "Watch it fall during slow breathing and recovery, and rise with stress or exercise. A good breathing session should trend it downward.",
@@ -1348,6 +1385,7 @@ struct MetricsChartsView: View, Equatable {
     private var vlfCard: some View {
         MetricChartCard(
             title:   "VLF Power",
+            technicalName: "very-low-frequency power (VLF)",
             subtitle: "very low frequency  ·  0.003–0.04 Hz",
             yLabel:  "ms²",
             color:   Theme.breathe,
@@ -1358,6 +1396,7 @@ struct MetricsChartsView: View, Equatable {
             dynamicY: true,
             info: MetricInfo(
                 "A slow, background rhythm in your heartbeat that plays out over minutes. It reflects deep, long-running regulation rather than anything you feel moment to moment.",
+                calculation: "Welch power spectral density of the evenly resampled RR series, integrated over 0.003–0.04 Hz.",
                 physical:    "These are very slow waves — cycles lasting from about half a minute to five minutes — tied to things like your body's internal chemistry and temperature control, not your breathing.",
                 physiology:  "Healthy long-term regulation shows up as solid activity here. Persistently low levels can reflect a run-down, poorly-regulated system. Think of it as a background health marker, not a moment-to-moment one.",
                 training:    "Not something you change in the moment. It improves over months with consistent exercise, good sleep, and lower chronic stress. Needs 5+ minute recordings to mean anything.",
@@ -1374,6 +1413,7 @@ struct MetricsChartsView: View, Equatable {
     private var ulfCard: some View {
         MetricChartCard(
             title:   "ULF Power",
+            technicalName: "ultra-low-frequency power (ULF)",
             subtitle: "ultra low frequency  ·  < 0.003 Hz  ·  10 min+ sessions",
             yLabel:  "ms²",
             color:   Theme.dim,
@@ -1384,6 +1424,7 @@ struct MetricsChartsView: View, Equatable {
             dynamicY: true,
             info: MetricInfo(
                 "The very slowest rhythm in your heartbeat, unfolding over many minutes to hours. It only appears in long recordings and reflects deep daily cycles like your body clock and hormones.",
+                calculation: "The same Welch spectrum integrated below 0.003 Hz — cycles minutes long, which is why it needs 10+ minutes of data.",
                 physical:    "These are ultra-slow waves — one cycle can take from five minutes to a whole day — linked to your sleep-wake cycle, body temperature, and hormone rhythms.",
                 physiology:  "Over full-day recordings this is a powerful long-term health signal, capturing daily rhythms no short measurement can. It isn't meaningful for a quick session.",
                 training:    "Only shows up in long or overnight recordings. If you wear the sensor for hours, its trend over weeks reflects improving sleep and daily-rhythm health.",
@@ -1400,6 +1441,7 @@ struct MetricsChartsView: View, Equatable {
     private var coherenceCard: some View {
         MetricChartCard(
             title:   "Coherence Score",
+            technicalName: "RR–breathing coherence (0–1)",
             subtitle: "RR–breathing coupling",
             yLabel:  "score",
             color:   Theme.coh,
@@ -1413,6 +1455,7 @@ struct MetricsChartsView: View, Equatable {
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
                 "How well your heartbeat and your breathing are moving in sync, from 0 to 1. High sync is the 'in the zone' state of a good breathing session.",
+                calculation: "Spectral coherence between the RR series and the accelerometer's breathing trace at the breathing frequency: 1.0 means heart rhythm and breath rise and fall in perfect lockstep.",
                 physical:    "When your heart rate rises and falls in lockstep with each breath, they're in sync. A score near 1 means they're perfectly in step; near 0 means they're unrelated.",
                 physiology:  "High sync is the sweet spot where slow breathing pays off most — the largest, smoothest heart-rate waves and the strongest relaxation response.",
                 training:    "This is your main target during slow breathing. It jumps up when you find your natural pace (around 6 breaths/min for most people). Try to hold it above 0.6 for most of a session, and notice how fast you can get there — that improves with practice.",

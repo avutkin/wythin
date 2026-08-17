@@ -362,6 +362,10 @@ final class AppEnvironment {
     private let anchorCheckInterval: TimeInterval = 300
     /// Guards `warmLiveBaseline()` to at most once per launch — see its doc.
     private var didWarmLiveBaseline = false
+    /// Temporal filter over the per-tick breathing estimates — see
+    /// `BreathRateTracker`. Lives here because the metrics engine is pure.
+    private var breathTracker = BreathRateTracker()
+    private var lastBreathTickAt: Date?
 
     // MARK: Init
 
@@ -742,6 +746,9 @@ final class AppEnvironment {
                     // The strap is off: stillness and load stretches are broken,
                     // and whatever resumes later is a new run.
                     self.nudges.interrupt()
+                    // Whatever breathing resumes later belongs to a different
+                    // stretch of time — don't drag the old rate across the gap.
+                    self.breathTracker.reset()
                     continue
                 }
 
@@ -759,9 +766,19 @@ final class AppEnvironment {
 
                 // Use lower CPU priority in background so BLE callbacks stay responsive.
                 let priority: TaskPriority = inForeground ? .userInitiated : .utility
-                let tick = await Task.detached(priority: priority) {
+                var tick = await Task.detached(priority: priority) {
                     MetricsEngine.compute(from: snapshot)
                 }.value
+
+                // The spectral pick is an observation, not the answer: track it
+                // over time so the chart shows breathing, not estimator noise.
+                // Held here rather than inside the engine because the engine is
+                // a pure per-snapshot function with no memory of the last tick.
+                let dt = Float(Date().timeIntervalSince(self.lastBreathTickAt ?? Date()))
+                self.lastBreathTickAt = Date()
+                tick.breathBPM = self.breathTracker.update(
+                    tick.breathBPM.map { [.init(bpm: $0, confidence: tick.breathConfidence ?? 3)] } ?? [],
+                    dt: dt)
 
                 // ── Off-body detection → low-power standby ────────────────────
                 // Fuse four cues into a confidence score so no single cue can

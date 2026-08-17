@@ -83,6 +83,9 @@ struct MetricsHistoryPoint {
     let ials:          Float?   // HR Fragmentation: inverse avg segment length
     let dc:            Float?   // Deceleration Capacity (ms)
     let motion:        Float?   // SD of ACC vector magnitude (mg) — stillness
+    /// Which channel produced `breathBPM` — measured (ACC) or estimated (EDR).
+    /// Defaulted so hand-built fixtures compile unchanged.
+    var breathSource:  BreathSource? = nil
 
     init(from tick: MetricsTick) {
         timestamp  = tick.timestamp
@@ -111,6 +114,7 @@ struct MetricsHistoryPoint {
         ials          = tick.ials
         dc            = tick.dc
         motion        = tick.motion
+        breathSource  = tick.breathSource
     }
 
     init(from sample: HRVSample) {
@@ -140,6 +144,7 @@ struct MetricsHistoryPoint {
         ials          = sample.ials
         dc            = sample.dc
         motion        = sample.motion
+        breathSource  = sample.breathSourceRaw.flatMap(BreathSource.init(rawValue:))
     }
 
     /// Convenience initializer for constructing a snapshot directly by field,

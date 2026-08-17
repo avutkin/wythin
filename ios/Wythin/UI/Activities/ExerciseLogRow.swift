@@ -40,12 +40,9 @@ struct ExerciseLogRow: View {
         "\((entry.scoreHistoryCount ?? 0) + 1) of \(ExerciseResponse.minimumHistory)"
     }
 
-    /// The headline score, from the three axes only — never from Load.
-    private var overall: AxisValue {
-        ExerciseOverallScore.compute(suppression: suppression,
-                                     recovery: entry.recoveryAxis,
-                                     efficiency: efficiency)
-    }
+    /// The headline score: the four performance sections, Ready excluded,
+    /// weights fixed and printed in the detail — never from Load.
+    private var overall: AxisValue { entry.sectionOverall }
 
     /// Laurels above half marks, not at the crown threshold of 85.
     ///
@@ -160,7 +157,10 @@ struct ExerciseLogRow: View {
     /// laurels above the threshold rather than shouted at with a crown.
     @ViewBuilder
     private var hero: some View {
-        if case let .score(score, word) = overall {
+        // No headline until at least two axes back it. A giant 0 resting on a
+        // single reading — beside a 92 readiness — was the most confusing
+        // number on the screen, and it was barely a number at all.
+        if case let .score(score, word) = overall, !word.contains("alone") {
             VStack(spacing: 3) {
                 HStack(spacing: 10) {
                     if crowned { laurel("laurel.leading") }

@@ -7,6 +7,10 @@ struct BreathingMetrics {
     let peakHz:     Float   // dominant breathing frequency
     let bpm:        Float   // breaths per minute
     let regularity: Float   // 0–1 (peak prominence ratio / 6)
+    /// Raw peak-to-mean prominence — how far the breathing line stands above
+    /// the rest of the band. Carried unclamped (unlike `regularity`) so the
+    /// fusion and tracking stages can weight estimates against each other.
+    var confidence: Float = 0
     let psdFreqs:   [Float]
     let psdValues:  [Float]
 }
@@ -37,90 +41,141 @@ struct BreathPhases {
 enum BreathingCompute {
 
     private static let accFS:         Float = Float(PolarH10Profile.accSampleRate)  // 200 Hz
-    // 4.8–30 br/min. With fftLen = 4096 the bin width is fs/4096 ≈ 0.04883 Hz, so a
-    // lower edge of 0.10 Hz (the old value) excluded bin 2 (0.09766 Hz) — the bin a
-    // true 6 br/min (0.1 Hz) peak actually lands closest to — leaving bin 3
-    // (0.14648 Hz ≈ 8.79 br/min) as an artificial floor no slower breath could ever
-    // beat. 0.08 Hz admits bin 2 so genuine slow/resonance breathing (~6 br/min) is
-    // reachable; sub-bin precision below that comes from parabolic interpolation
-    // in `computeRate`, not from the band itself.
+    // 4.8–30 br/min. With fftLen = 8192 the bin width is fs/8192 ≈ 0.0244 Hz
+    // (1.46 br/min); 0.08 Hz keeps genuine slow/resonance breathing
+    // (~6 br/min) reachable, with sub-bin precision from parabolic
+    // interpolation in `SpectralPeak`, not from the band itself.
     private static let breathBand:    ClosedRange<Float> = 0.08...0.50
-    // The PSD is *searched* over a wider window than rates are *accepted* from, so
-    // that every candidate inside `breathBand` has a neighbouring bin on each side
-    // to be compared against. Without the margin, a candidate sitting on the band
-    // edge has nothing to compare to, and the argmax of a monotonically decaying
-    // (drift-dominated) spectrum silently becomes the reported rate. That is what
-    // produced the 8.79 br/min floor when the band started at 0.10 Hz, and then
-    // the 5.86 floor once it started at 0.08 — moving the edge only moved the
-    // artefact to the next bin. Requiring a genuine local maximum removes it.
+    // Searched wider than accepted — see `SpectralPeak.dominant`'s doc for
+    // why the two bands must stay separate (the 8.79 / 5.86 br/min artefact
+    // floors both came from collapsing them).
     private static let searchBand:    ClosedRange<Float> = 0.03...0.60
     /// A candidate peak must carry at least this multiple of the mean in-band
     /// power. Broadband noise throws up shallow local maxima all over the band;
     /// a real breath is a narrow, dominant line.
     private static let minPeakToMean: Float = 3.0
-    private static let minAccBreath:  Int   = Int(accFS * 6)    // 6 s of data
+    /// Prominence at which the principal-component estimate is trusted without
+    /// also evaluating the individual axes.
+    private static let confidentPeakToMean: Float = 5.0
+    /// 4096 samples = 20.5 s. `welchPSD` floors the segment to a power of
+    /// two, so shorter buffers collapse silently: at the old 6 s minimum the
+    /// FFT length was 1024 — a bin width of 0.195 Hz, 11.7 br/min, spanning
+    /// the entire accept band in about two bins. Those early readings were
+    /// noise wearing a number. At 4096 the resolution can never fall below
+    /// 2.93 br/min, and reaches 1.46 once 41 s has buffered. The visible
+    /// cost: the first reading appears ~20 s after strap-on instead of 6.
+    private static let minAccBreath:  Int   = 4096
     private static let minAccPhases:  Int   = Int(accFS * 20)   // 20 s
 
     // MARK: Public
 
-    /// Estimate breathing rate from ACC Z-axis via Welch PSD.
+    /// Estimate breathing rate from all three ACC axes.
+    ///
+    /// Chest expansion is a single direction in space, and a strap that has
+    /// rotated on the torso spreads it across all three sensor axes — so the
+    /// primary estimate comes from the **principal component**, the direction
+    /// of greatest breathing-band motion, rather than from whichever axis
+    /// happens to be closest to it. Individual axes are then tried only if the
+    /// projection fails to produce a confident peak, and the most prominent
+    /// candidate wins.
+    static func computeRate(accXYZ: [SIMD3<Float>]) -> BreathingMetrics? {
+        var best: (metrics: BreathingMetrics, peakToMean: Float)?
+
+        if let projected = principalProjection(accXYZ), let r = rate(axis: projected) {
+            // A clearly dominant line needs no second opinion — this is the
+            // common case and costs one transform.
+            if r.peakToMean >= confidentPeakToMean { return r.metrics }
+            best = r
+        }
+        for axis in [accXYZ.map(\.z), accXYZ.map(\.x), accXYZ.map(\.y)] {
+            guard let r = rate(axis: axis) else { continue }
+            if best == nil || r.peakToMean > best!.peakToMean { best = r }
+        }
+        return best?.metrics
+    }
+
+    /// Projects the three axes onto their principal component within the
+    /// breathing band.
+    ///
+    /// Band-limiting first is what makes this find *breathing* rather than
+    /// posture: gravity and gross movement carry far more variance than chest
+    /// expansion, so a PCA of the raw signal would return the direction of
+    /// walking, not of breath.
+    static func principalProjection(_ v: [SIMD3<Float>]) -> [Float]? {
+        guard v.count >= minAccBreath else { return nil }
+        guard let x = bandpassFilter(v.map(\.x), lowHz: 0.08, highHz: 0.6, fs: accFS),
+              let y = bandpassFilter(v.map(\.y), lowHz: 0.08, highHz: 0.6, fs: accFS),
+              let z = bandpassFilter(v.map(\.z), lowHz: 0.08, highHz: 0.6, fs: accFS)
+        else { return nil }
+
+        // 3×3 covariance of the band-limited axes (already ~zero-mean).
+        var c = [[Float]](repeating: [Float](repeating: 0, count: 3), count: 3)
+        let cols = [x, y, z]
+        let n = Float(v.count)
+        for i in 0..<3 {
+            for j in i..<3 {
+                var sum: Float = 0
+                for k in 0..<v.count { sum += cols[i][k] * cols[j][k] }
+                c[i][j] = sum / n
+                c[j][i] = c[i][j]
+            }
+        }
+
+        // Dominant eigenvector by power iteration — 3×3, so this converges in
+        // a handful of passes and needs no linear-algebra dependency.
+        var e: [Float] = [0, 0, 1]   // seeded on Z, the nominal chest normal
+        for _ in 0..<24 {
+            var next = [Float](repeating: 0, count: 3)
+            for i in 0..<3 {
+                for j in 0..<3 { next[i] += c[i][j] * e[j] }
+            }
+            let norm = (next[0] * next[0] + next[1] * next[1] + next[2] * next[2]).squareRoot()
+            guard norm > 1e-12 else { return nil }
+            e = next.map { $0 / norm }
+        }
+        return (0..<v.count).map { k in e[0] * x[k] + e[1] * y[k] + e[2] * z[k] }
+    }
+
+    /// Single-axis entry, retained for tests and callers already holding Z.
     static func computeRate(accZ: [Float]) -> BreathingMetrics? {
-        guard accZ.count >= minAccBreath else { return nil }
+        rate(axis: accZ)?.metrics
+    }
+
+    private static func rate(axis: [Float]) -> (metrics: BreathingMetrics, peakToMean: Float)? {
+        guard axis.count >= minAccBreath else { return nil }
 
         // Normalise
-        let mean  = vDSP.mean(accZ)
-        var z     = vDSP.subtract(accZ, [Float](repeating: mean, count: accZ.count))
+        let mean  = vDSP.mean(axis)
+        var z     = vDSP.subtract(axis, [Float](repeating: mean, count: axis.count))
         let std   = HRVCompute.standardDeviation(z)
         if std > 0 { z = vDSP.divide(z, std) }
 
+        // The finer 8192-bin resolution only engages once the buffer can
+        // feed it 3 half-overlapping segments. In between (a filling buffer,
+        // or a caller still handing over 60 s arrays), 8192 would fit ONE
+        // segment — a bare periodogram whose variance lets broadband-noise
+        // spikes through the prominence gate. 4096 keeps ≥2 segments
+        // averaged all the way down to the minimum buffer.
+        let nperseg = z.count >= 16384 ? 8192 : 4096
         let (freqs, psd) = HRVCompute.welchPSD(
-            signal: z, fs: accFS, nperseg: min(4096, z.count))
+            signal: z, fs: accFS, nperseg: min(nperseg, z.count))
 
-        let search = zip(freqs, psd).filter { searchBand.contains($0.0) }
-        guard search.count >= 3 else { return nil }
+        guard let peak = SpectralPeak.dominant(freqs: freqs, psd: psd,
+                                               searchBand: searchBand,
+                                               acceptBand: breathBand,
+                                               minPeakToMean: minPeakToMean)
+        else { return nil }
 
-        let sFreqs = search.map { $0.0 }
-        let sPSD   = search.map { $0.1 }
-
-        // Take the strongest *strict local maximum* whose frequency falls inside
-        // the physiological band — not the plain argmax. A spectrum with no
-        // breathing in it decays monotonically across this range and so contains
-        // no local maximum at all, which now correctly yields nil ("we cannot see
-        // your breathing") instead of a confident-looking value pinned to the
-        // lowest bin.
-        var best: Int?
-        for i in 1..<(sPSD.count - 1) where breathBand.contains(sFreqs[i]) {
-            guard sPSD[i] > sPSD[i - 1], sPSD[i] >= sPSD[i + 1] else { continue }
-            if best == nil || sPSD[i] > sPSD[best!] { best = i }
-        }
-        guard let peakIdx = best else { return nil }
-
-        let bandPSD = zip(sFreqs, sPSD).filter { breathBand.contains($0.0) }.map { $0.1 }
-        let meanPSD = vDSP.mean(bandPSD)
-        guard meanPSD > 0 else { return nil }
-
-        let ratio = sPSD[peakIdx] / meanPSD
-        guard ratio >= minPeakToMean else { return nil }
-
-        // The FFT bin grid (Δf ≈ 0.0488 Hz here) is coarse relative to breathing
-        // rates, so the raw argmax bin can sit noticeably off the true peak.
-        // Parabolic interpolation over the peak bin and its neighbours recovers
-        // sub-bin precision from information the Welch estimate already contains
-        // (true resolution is bounded by 1/T, not by the bin width). Every
-        // candidate now has both neighbours, so this never degrades to the raw bin
-        // for an edge-of-band peak.
-        let peakHz     = refinePeakHz(freqs: sFreqs, psd: sPSD, peakIdx: peakIdx)
-        let regularity = min(ratio / 6.0, 1.0)
-
-        let bandFreqs = sFreqs.filter { breathBand.contains($0) }
-
-        return BreathingMetrics(
-            peakHz:    peakHz,
-            bpm:       peakHz * 60,
-            regularity: regularity,
-            psdFreqs:  bandFreqs,
-            psdValues: bandPSD
+        let band = zip(freqs, psd).filter { breathBand.contains($0.0) }
+        let metrics = BreathingMetrics(
+            peakHz:     peak.hz,
+            bpm:        peak.hz * 60,
+            regularity: min(peak.peakToMean / 6.0, 1.0),
+            confidence: peak.peakToMean,
+            psdFreqs:   band.map { $0.0 },
+            psdValues:  band.map { $0.1 }
         )
+        return (metrics, peak.peakToMean)
     }
 
     /// Segment breathing into inhale/exhale phases via bandpass + peak detection.
@@ -186,42 +241,6 @@ enum BreathingCompute {
             filtered:   sigSlice,
             filteredT:  tRel
         )
-    }
-
-    // MARK: Peak refinement
-
-    /// Refine a coarse spectral peak to sub-bin precision via quadratic (parabolic)
-    /// interpolation over the peak bin and its immediate neighbours:
-    ///
-    ///   δ = 0.5 · (P[k-1] − P[k+1]) / (P[k-1] − 2·P[k] + P[k+1])
-    ///   refined = (k + δ) · Δf
-    ///
-    /// `freqs`/`psd` are the arrays already restricted to the search band, and
-    /// `peakIdx` is the raw argmax within them — so "edge of the search band"
-    /// and "no neighbour on one side" are the same condition, checked once here.
-    /// Falls back to the raw bin frequency (no NaN, no wild extrapolation) when:
-    ///   - the peak is the first or last element of `psd` (missing a neighbour),
-    ///   - the local spectrum is flat/near-flat (denominator ≈ 0), or
-    ///   - the fit isn't finite.
-    /// `δ` is additionally clamped to ±0.5 bins — a larger value means the
-    /// parabola doesn't fit the local shape and the raw bin is the safer answer.
-    static func refinePeakHz(freqs: [Float], psd: [Float], peakIdx: Int) -> Float {
-        let rawHz = freqs[peakIdx]
-        guard peakIdx > 0, peakIdx < psd.count - 1 else { return rawHz }
-
-        let pPrev = psd[peakIdx - 1]
-        let pPeak = psd[peakIdx]
-        let pNext = psd[peakIdx + 1]
-
-        let denom = pPrev - 2 * pPeak + pNext
-        guard abs(denom) > 1e-12 else { return rawHz }
-
-        var delta = 0.5 * (pPrev - pNext) / denom
-        guard delta.isFinite else { return rawHz }
-        delta = min(max(delta, -0.5), 0.5)
-
-        let binWidth = freqs[peakIdx + 1] - freqs[peakIdx]
-        return rawHz + delta * binWidth
     }
 
     // MARK: DSP helpers

@@ -225,6 +225,84 @@ enum BounceBackIndex {
     }
 }
 
+// MARK: - Mobilized (interim)
+
+/// How far the system rose to meet the load — interim, from window fields.
+/// Upgrades to true onset speed (tHalf) when the session series is stored.
+enum MobilizedIndex {
+    static let displayName = "Mobilized"
+    static let smallRise: Double = 15    // the classification floor → 0
+    static let fullRise:  Double = 60    // a full mobilization → 100
+
+    static func score(pulseRise: Double?) -> Int? {
+        guard let rise = pulseRise, rise > 0 else { return nil }
+        return SessionIndices.ramp(rise, best: fullRise, worst: smallRise)
+    }
+
+    static func index(pulseRise: Double?) -> ScoredIndex? {
+        guard let value = score(pulseRise: pulseRise), let rise = pulseRise else { return nil }
+        return ScoredIndex(name: displayName, value: value,
+            verdict: value >= IndexBand.keepAbove ? "rose to meet it"
+                   : value >= IndexBand.actBelow  ? "partly mobilized"
+                                                  : "barely mobilized",
+            detail: "+\(Int(rise.rounded())) bpm over resting")
+    }
+}
+
+// MARK: - Sustained (interim)
+
+/// Whether the heart's effort and the system it taxed told the same story:
+/// total-variation overlap between the zone and domain time-distributions.
+/// The alpha-1 stability half joins at 60% weight when the series is stored.
+enum SustainedIndex {
+    static let displayName = "Sustained"
+
+    static func score(zoneModerate: Double, zoneHeavy: Double, zoneSevere: Double,
+                      domModerate: Double, domHeavy: Double, domSevere: Double) -> Int? {
+        let zTotal = zoneModerate + zoneHeavy + zoneSevere
+        let dTotal = domModerate + domHeavy + domSevere
+        guard zTotal > 0, dTotal > 0 else { return nil }
+        let z = [zoneModerate/zTotal, zoneHeavy/zTotal, zoneSevere/zTotal]
+        let d = [domModerate/dTotal, domHeavy/dTotal, domSevere/dTotal]
+        let tv = zip(z, d).reduce(0.0) { $0 + abs($1.0 - $1.1) } / 2
+        return Int(((1 - tv) * 100).rounded())
+    }
+
+    static func index(value: Int?) -> ScoredIndex? {
+        guard let value else { return nil }
+        return ScoredIndex(name: displayName, value: value,
+            verdict: value >= IndexBand.keepAbove ? "systems agree"
+                   : value >= IndexBand.actBelow  ? "partly aligned"
+                                                  : "systems disagree",
+            detail: "zones vs taxed system")
+    }
+}
+
+// MARK: - Overall from sections
+
+extension ExerciseOverallScore {
+    /// The five-section composite: performance sections only, Ready excluded,
+    /// weights printed in the detail so the number stays checkable.
+    static let sectionWeights: [(String, Double)] =
+        [("Recovery", 0.40), ("Sustained", 0.30), ("Cost", 0.20), ("Mobilized", 0.10)]
+
+    static func composeSections(recovery: Int?, sustained: Int?,
+                                cost: Int?, mobilized: Int?) -> AxisValue {
+        let parts: [(Int?, Double, String)] = [
+            (recovery, 0.40, "recovery"), (sustained, 0.30, "sustained"),
+            (cost, 0.20, "cost"), (mobilized, 0.10, "mobilized"),
+        ]
+        let present = parts.compactMap { v, w, n in v.map { (Double($0), w, n) } }
+        guard present.count >= firmComponents else {
+            return present.first.map { .score(Int($0.0), word: "based on \($0.2) alone so far") }
+                ?? .unavailable(reason: "not enough signal")
+        }
+        let total = present.reduce(0) { $0 + $1.1 }
+        let score = Int((present.reduce(0) { $0 + $1.0 * $1.1 } / total).rounded())
+        return .score(score, word: caption(for: score, components: present.count))
+    }
+}
+
 // MARK: - What to do next time
 
 /// One action, derived from the weakest scored index.

@@ -287,7 +287,7 @@ final class MetricsTests: XCTestCase {
         // must fall back to the raw bin frequency, never NaN.
         let freqs: [Float] = [0.10, 0.15, 0.20, 0.25, 0.30]
         let psd:   [Float] = [3, 3, 3, 3, 3]
-        let refined = BreathingCompute.refinePeakHz(freqs: freqs, psd: psd, peakIdx: 2)
+        let refined = SpectralPeak.refinePeakHz(freqs: freqs, psd: psd, peakIdx: 2)
         XCTAssertEqual(refined, freqs[2])
         XCTAssertTrue(refined.isFinite)
     }
@@ -297,10 +297,10 @@ final class MetricsTests: XCTestCase {
         // both degenerate edges must fall back to the raw bin centre.
         let freqs: [Float] = [0.10, 0.15, 0.20]
         let psd:   [Float] = [9, 4, 1]
-        XCTAssertEqual(BreathingCompute.refinePeakHz(freqs: freqs, psd: psd, peakIdx: 0), freqs[0])
+        XCTAssertEqual(SpectralPeak.refinePeakHz(freqs: freqs, psd: psd, peakIdx: 0), freqs[0])
 
         let psd2: [Float] = [1, 4, 9]
-        XCTAssertEqual(BreathingCompute.refinePeakHz(freqs: freqs, psd: psd2, peakIdx: 2), freqs[2])
+        XCTAssertEqual(SpectralPeak.refinePeakHz(freqs: freqs, psd: psd2, peakIdx: 2), freqs[2])
     }
 
     func testRefinePeakHzInteriorPeakIsClampedAndFinite() {
@@ -308,7 +308,7 @@ final class MetricsTests: XCTestCase {
         // half a bin of the raw bin centre (the documented ±0.5 clamp).
         let freqs: [Float] = [0.10, 0.15, 0.20, 0.25, 0.30]
         let psd:   [Float] = [1, 8, 10, 6, 1]
-        let refined = BreathingCompute.refinePeakHz(freqs: freqs, psd: psd, peakIdx: 2)
+        let refined = SpectralPeak.refinePeakHz(freqs: freqs, psd: psd, peakIdx: 2)
         XCTAssertTrue(refined.isFinite)
         XCTAssertEqual(refined, freqs[2], accuracy: 0.025 /* ±0.5 bin, binWidth 0.05 */)
     }
@@ -349,4 +349,103 @@ final class MetricsTests: XCTestCase {
         XCTAssertEqual(tick.ecgQuality?.tier, .poor)
         XCTAssertEqual(tick.ecgQuality?.reason, "lead-off")
     }
+
+    // MARK: - Breath rate resilience (EDR fallback + three axes)
+
+    /// 200 Hz accelerometer signal with breathing modulation on one axis.
+    private func accSignal(breathHz: Float, samples: Int = 16384,
+                           amplitude: Float = 30) -> [Float] {
+        var seed: UInt64 = 7
+        func noise() -> Float {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return (Float(seed >> 33) / Float(UInt32.max) - 0.5) * 2
+        }
+        return (0..<samples).map { i in
+            amplitude * sin(2 * .pi * breathHz * Float(i) / 200) + noise()
+        }
+    }
+
+    private func edrTachogram(brPerMin: Float, seconds: Float = 120) -> [Int] {
+        var rr: [Int] = []
+        var t: Float = 0
+        while t < seconds {
+            let ms = 800 + 40 * sin(2 * .pi * (brPerMin / 60) * t)
+            rr.append(Int(ms))
+            t += ms / 1000
+        }
+        return rr
+    }
+
+    /// The anti-circularity invariant: ACC unavailable + healthy RR gives a
+    /// breath rate from the heart (EDR) — but breathHz, coherence and CBI
+    /// must all stay nil, because deriving the breathing signal from the
+    /// heart and correlating the heart against it would read artificially
+    /// high and self-confirm. If a future change wires EDR into coherence,
+    /// this fails.
+    func testEDRFallbackNeverFeedsCoherence() {
+        let snapshot = DataSnapshot(ecg: [], accZ: [], accXYZ: [],
+                                    rr: edrTachogram(brPerMin: 15), bpm: [75])
+        let tick = MetricsEngine.compute(from: snapshot)
+        XCTAssertNotNil(tick.breathBPM, "EDR should have supplied a rate")
+        XCTAssertEqual(tick.breathSource, .heart)
+        XCTAssertEqual(tick.breathBPM ?? 0, 15, accuracy: 1.5)
+        XCTAssertNil(tick.breathHz,       "EDR must not impersonate the ACC frequency")
+        XCTAssertNil(tick.coherenceScore, "coherence needs two independent channels")
+        XCTAssertNil(tick.cbi)
+    }
+
+    /// Agreeing channels fuse, and the reading is labelled measured.
+    func testAgreeingSourcesFuseAndReadAsMeasured() {
+        let z = accSignal(breathHz: 0.25)          // 15 br/min
+        let xyz = z.map { SIMD3<Float>(0, 0, $0) }
+        let snapshot = DataSnapshot(ecg: [], accZ: z, accXYZ: xyz,
+                                    rr: edrTachogram(brPerMin: 15), bpm: [75])
+        let tick = MetricsEngine.compute(from: snapshot)
+        XCTAssertEqual(tick.breathSource, .accelerometer)
+        XCTAssertEqual(tick.breathBPM ?? 0, 15, accuracy: 1.5)
+        XCTAssertNotNil(tick.breathHz)
+    }
+
+    /// When the two channels disagree they cannot both be right: the more
+    /// prominent peak wins, and the label follows the winner rather than
+    /// claiming a measured reading the accelerometer didn't produce.
+    func testDisagreeingSourcesAreLabelledByTheWinner() {
+        let z = accSignal(breathHz: 0.25)          // 15 br/min
+        let xyz = z.map { SIMD3<Float>(0, 0, $0) }
+        let snapshot = DataSnapshot(ecg: [], accZ: z, accXYZ: xyz,
+                                    rr: edrTachogram(brPerMin: 22), bpm: [75])
+        let tick = MetricsEngine.compute(from: snapshot)
+        let bpm = tick.breathBPM ?? 0
+        XCTAssertTrue(abs(bpm - 15) < 1.5 || abs(bpm - 22) < 1.5,
+                      "fusion invented a rate neither channel measured: \(bpm)")
+        XCTAssertEqual(tick.breathSource, abs(bpm - 15) < 1.5 ? .accelerometer : .heart)
+    }
+
+    /// The rotated-strap case: modulation on X only, Z flat — the three-axis
+    /// path recovers what the Z-only path missed.
+    func testRotatedStrapBreathOnXAxisIsRecovered() {
+        let x = accSignal(breathHz: 0.30)
+        let xyz = x.map { SIMD3<Float>($0, 0, 0) }
+        let rate = BreathingCompute.computeRate(accXYZ: xyz)
+        XCTAssertNotNil(rate)
+        XCTAssertEqual(rate?.bpm ?? 0, 18, accuracy: 1.5)
+    }
+
+    /// Z-dominant input returns the same answer through the three-axis entry
+    /// as through the single-axis one.
+    func testThreeAxisMatchesSingleAxisOnZDominantSignal() {
+        let z = accSignal(breathHz: 0.25)
+        let xyz = z.map { SIMD3<Float>(0, 0, $0) }
+        let viaZ   = BreathingCompute.computeRate(accZ: z)
+        let viaXYZ = BreathingCompute.computeRate(accXYZ: xyz)
+        XCTAssertEqual(viaZ?.bpm ?? -1, viaXYZ?.bpm ?? -2, accuracy: 0.001)
+    }
+
+    /// Below the raised minimum buffer (20.5 s) there is no reading at all —
+    /// the old 6 s minimum produced 11.7 br/min bins, noise wearing a number.
+    func testShortBufferYieldsNilNotCoarseGuess() {
+        let short = accSignal(breathHz: 0.25, samples: 4000)
+        XCTAssertNil(BreathingCompute.computeRate(accZ: short))
+    }
+
 }
