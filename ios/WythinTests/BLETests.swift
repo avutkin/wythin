@@ -204,18 +204,47 @@ final class BLETests: XCTestCase {
     // one byte early produced garbage start commands the strap rejected with
     // ERROR_INVALID_PARAMETER (the "PMD start error type=0x2 status=0x5" bug).
 
+    // Captured verbatim from a real H10 (C061602F) on 2026-08-16 — note the
+    // GET op code is 0x01, which the profile had swapped with STOP for the
+    // app's whole life.
     private static let ecgSettingsResponse = Data([
-        0xF0, 0x03, 0x00, 0x00, 0x00,              // CP resp, GET, ECG, SUCCESS, more=0
+        0xF0, 0x01, 0x00, 0x00, 0x00,              // CP resp, GET, ECG, SUCCESS, more=0
         0x00, 0x01, 0x82, 0x00,                    // SAMPLE_RATE: [130]
         0x01, 0x01, 0x0E, 0x00,                    // RESOLUTION:  [14]
     ])
 
     private static let accSettingsResponse = Data([
-        0xF0, 0x03, 0x02, 0x00, 0x00,              // CP resp, GET, ACC, SUCCESS, more=0
+        0xF0, 0x01, 0x02, 0x00, 0x00,              // CP resp, GET, ACC, SUCCESS, more=0
         0x00, 0x04, 0x19, 0x00, 0x32, 0x00, 0x64, 0x00, 0xC8, 0x00,  // RATE: [25,50,100,200]
         0x01, 0x01, 0x10, 0x00,                    // RESOLUTION: [16]
         0x02, 0x03, 0x02, 0x00, 0x04, 0x00, 0x08, 0x00,              // RANGE: [2,4,8]
     ])
+
+    func testOpCodesMatchTheRealProtocol() {
+        // 0x01 GET / 0x02 START / 0x03 STOP — verified on hardware. Swapping
+        // GET and STOP is precisely the bug that stopped live streams and
+        // produced bare STARTs answered with INVALID_PARAMETER.
+        XCTAssertEqual(PolarH10Profile.cmdGetECGSettings, Data([0x01, 0x00]))
+        XCTAssertEqual(PolarH10Profile.cmdGetACCSettings, Data([0x01, 0x02]))
+        XCTAssertEqual(PolarH10Profile.cmdECGStop,        Data([0x03, 0x00]))
+        XCTAssertEqual(PolarH10Profile.cmdACCStop,        Data([0x03, 0x02]))
+    }
+
+    func testStopResponseIsNotMistakenForSettings() {
+        // A successful STOP answers F0 03 <type> 00 00 — with the corrected
+        // op codes this must parse as nil, never as "empty settings" (which
+        // used to cascade into a parameterless START → status 0x5).
+        XCTAssertNil(PolarH10Profile.parseAvailableSettings(Data([0xF0, 0x03, 0x00, 0x00, 0x00])))
+    }
+
+    func testEmptySettingsFallBackToDocumentedDefaults() {
+        XCTAssertEqual(PolarH10Profile.buildStartCommand(
+            measurementType: PolarH10Profile.typeECGMeas, from: [:]),
+            PolarH10Profile.cmdECGStart)
+        XCTAssertEqual(PolarH10Profile.buildStartCommand(
+            measurementType: PolarH10Profile.typeACCMeas, from: [:]),
+            PolarH10Profile.cmdACCStart)
+    }
 
     func testParseECGSettingsSkipsMoreByte() {
         let parsed = PolarH10Profile.parseAvailableSettings(Self.ecgSettingsResponse)

@@ -519,6 +519,10 @@ private struct ScopeStrip: View {
     /// Soft area fill under the trace — for single-series intensity strips
     /// where "amount" reads better as a filled shape than a bare line.
     var filled: Bool = false
+    /// With a fixedRange: let the top stretch when the data exceeds it, so a
+    /// big movement is never clipped flat — the range's upper bound stays the
+    /// FLOOR of the scale (stillness always looks the same), not a ceiling.
+    var expandsToFit: Bool = false
 
     private var isEmpty: Bool { series.allSatisfy { $0.points.isEmpty } }
 
@@ -555,7 +559,14 @@ private struct ScopeStrip: View {
                     Canvas { ctx, size in
                         let ymin: Float, ymax: Float
                         if let range = fixedRange {
-                            ymin = range.lowerBound; ymax = range.upperBound
+                            ymin = range.lowerBound
+                            if expandsToFit,
+                               let peak = series.flatMap(\.points).max(),
+                               peak > range.upperBound {
+                                ymax = peak * 1.05
+                            } else {
+                                ymax = range.upperBound
+                            }
                         } else {
                             let all = series.flatMap(\.points)
                             guard let lo = all.min(), let hi = all.max() else { return }
@@ -853,11 +864,12 @@ struct BLEConnectionSheet: View {
                 )
                 ScopeStrip(
                     title: "MOVEMENT",
-                    detail: "all axes combined · 0–60 mg · last 4 s",
+                    detail: "all axes combined · scale fits peaks · last 4 s",
                     capacity: StreamScope.accWindow,
                     series: [.init(label: nil, color: Theme.rsa, points: scope.accMag)],
                     fixedRange: 0...60,
-                    filled: true
+                    filled: true,
+                    expandsToFit: true
                 )
                 if !scope.accMag.isEmpty {
                     HStack(spacing: 10) {
