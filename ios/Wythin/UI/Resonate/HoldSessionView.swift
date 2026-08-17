@@ -104,8 +104,7 @@ struct HoldSessionView: View {
                     stepperRow(label: "HOLD", value: "\(holdSeconds)s",
                                canLower: holdSeconds > holdRange.lowerBound,
                                canRaise: holdSeconds < holdRange.upperBound,
-                               lower: { holdSeconds = max(holdRange.lowerBound, holdSeconds - 5) },
-                               raise: { holdSeconds = min(holdRange.upperBound, holdSeconds + 5) })
+                               lower: { holdSeconds -= 1 }, raise: { holdSeconds += 1 })
                     Divider().background(Theme.border)
                     stepperRow(label: "SETS", value: "\(sets)",
                                canLower: sets > setRange.lowerBound,
@@ -167,7 +166,7 @@ struct HoldSessionView: View {
     private var running: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
-            HoldDialView(state: engine.state, plan: plan, progress: engine.phaseProgress)
+            HoldDialView(state: engine.state, plan: plan)
             Spacer(minLength: 0)
 
             VStack(spacing: 12) {
@@ -336,23 +335,28 @@ struct HoldSessionView: View {
 
 // MARK: - Hold dial
 
-/// One dial for all three phases. It fills through the breaths and empties
-/// through the hold, so the direction of travel alone says which you are in.
+/// One dial for all three phases: the ring fills through each breath and drains
+/// through the hold, and the circle swells and empties with the lungs.
 ///
-/// Takes the state rather than the engine so any moment of a session can be
-/// rendered on demand — including in a test — without running a clock to reach it.
+/// The dial owns its animation rather than reading a per-second progress value.
+/// Driving it off the tick had two faults. The ring was computed as
+/// `secondsIntoPhase / length`, which for a five-second phase runs 0/5…4/5 — it
+/// stopped at four fifths and jumped, so a breath never visibly finished. And
+/// the circle's target for the inhale was its resting value, so on the very
+/// first breath nothing moved at all: SwiftUI only animates a change, and there
+/// was none. Setting the target once per phase and animating over the phase's
+/// own duration fixes both, and makes the motion continuous instead of stepping
+/// once a second.
 struct HoldDialView: View {
-    let state:    HoldState
-    let plan:     HoldProtocol
-    let progress: Double
+    let state: HoldState
+    let plan:  HoldProtocol
 
     private let size: CGFloat = 268
+    private let empty: CGFloat = 0.45
+    private let full:  CGFloat = 1.0
 
-    /// The hold counts down, so its ring drains; the breaths count up, so theirs
-    /// fill. Drawn from 12 o'clock either way.
-    private var sweep: Double {
-        state.phase == .hold ? 1 - progress : progress
-    }
+    @State private var ring: Double  = 0
+    @State private var lung: CGFloat = 0.45
 
     private var tint: Color {
         state.phase == .hold ? Theme.warn : Theme.breathe
@@ -364,19 +368,15 @@ struct HoldDialView: View {
                 .stroke(Theme.border, lineWidth: 3)
 
             Circle()
-                .trim(from: 0, to: sweep)
+                .trim(from: 0, to: ring)
                 .stroke(tint, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .animation(.linear(duration: 1), value: sweep)
 
-            // Lungs. Big through the inhale, collapsing on the exhale, and held
-            // small through the hold — which is where the hold actually is.
             Circle()
                 .fill(RadialGradient(colors: [tint.opacity(0.26), tint.opacity(0.04)],
                                      center: .center, startRadius: 0, endRadius: size * 0.4))
                 .frame(width: size * 0.78, height: size * 0.78)
-                .scaleEffect(lungScale)
-                .animation(.easeInOut(duration: lungDuration), value: lungScale)
+                .scaleEffect(lung)
 
             VStack(spacing: 6) {
                 Text(state.phase.label)
@@ -391,17 +391,32 @@ struct HoldDialView: View {
             }
         }
         .frame(width: size, height: size)
+        .onAppear { run(state.phase) }
+        .onChange(of: state.phase) { _, phase in run(phase) }
     }
 
-    private var lungScale: CGFloat {
-        switch state.phase {
-        case .inhale: return 1.0
-        case .exhale: return 0.5
-        case .hold:   return 0.5   // empty, and staying that way
+    /// Snap to the phase's starting pose without animating, then travel to its
+    /// end over exactly the phase's length. The snap has to be in a transaction
+    /// with animations disabled or SwiftUI coalesces it with the travel and the
+    /// dial appears to start from wherever the last phase left it.
+    private func run(_ phase: HoldPhase) {
+        let seconds = Double(plan.seconds(phase))
+        var snap = Transaction()
+        snap.disablesAnimations = true
+
+        switch phase {
+        case .inhale:
+            withTransaction(snap) { ring = 0; lung = empty }
+            withAnimation(.linear(duration: seconds))    { ring = 1 }
+            withAnimation(.easeInOut(duration: seconds)) { lung = full }
+        case .exhale:
+            withTransaction(snap) { ring = 0; lung = full }
+            withAnimation(.linear(duration: seconds))    { ring = 1 }
+            withAnimation(.easeInOut(duration: seconds)) { lung = empty }
+        case .hold:
+            // Lungs stay where the exhale left them — empty is the whole point.
+            withTransaction(snap) { ring = 1; lung = empty }
+            withAnimation(.linear(duration: seconds))    { ring = 0 }
         }
-    }
-
-    private var lungDuration: Double {
-        state.phase == .hold ? 0 : Double(plan.breatheSeconds)
     }
 }

@@ -165,9 +165,12 @@ final class HoldCue {
     func prepare(breatheSeconds: Int) {
         guard breatheSeconds != glideSeconds else { return }
         glideSeconds = breatheSeconds
-        inhale = HoldCue.glide(from: 196, to: 392, seconds: Double(breatheSeconds),
+        // A fifth, low in the register: 196 Hz to 294 Hz. The first version swept
+        // a whole octave and was heard as intense — a wide sweep reads as urgency,
+        // which is the opposite of what a breath cue wants to say.
+        inhale = HoldCue.glide(from: 196, to: 294, seconds: Double(breatheSeconds),
                                swell: true, format: format)
-        exhale = HoldCue.glide(from: 392, to: 196, seconds: Double(breatheSeconds),
+        exhale = HoldCue.glide(from: 294, to: 196, seconds: Double(breatheSeconds),
                                swell: false, format: format)
     }
 
@@ -239,19 +242,21 @@ final class HoldCue {
             phase += 2 * .pi * freq / rate
 
             // Swell in for the inhale, ebb out for the exhale, so volume carries
-            // the direction even for someone who can't hear the pitch move.
-            let shape = swell ? (0.35 + 0.65 * u) : (1.0 - 0.65 * u)
+            // the direction even for someone who can't hear the pitch move. The
+            // range is gentle on purpose; a big swing sounds like an alarm.
+            let shape = swell ? (0.55 + 0.45 * u) : (1.0 - 0.45 * u)
 
             // Soft ends so the buffer never starts or stops on a discontinuity.
             let edge = min(1, min(t, seconds - t) / fade)
 
-            channel[i] = Float(sin(phase) * shape * edge * 0.22)
+            channel[i] = Float(sin(phase) * shape * edge * 0.10)
         }
         return buffer
     }
 
-    /// Short, clean and higher than the glides, so it reads as an instruction
-    /// rather than part of the breath.
+    /// Short and above the glides, so it reads as an instruction rather than part
+    /// of the breath — but only just above, and quiet. It marks a boundary; it is
+    /// not trying to startle anyone mid-hold.
     private static func beepTone(format: AVAudioFormat) -> AVAudioPCMBuffer? {
         let rate     = format.sampleRate
         let duration = 0.16
@@ -264,7 +269,7 @@ final class HoldCue {
         for i in 0..<Int(frames) {
             let t = Double(i) / rate
             let envelope = (t < attack ? t / attack : 1) * exp(-14 * t)
-            channel[i] = Float(sin(2 * .pi * 880 * t) * envelope * 0.5)
+            channel[i] = Float(sin(2 * .pi * 587.33 * t) * envelope * 0.26)
         }
         return buffer
     }

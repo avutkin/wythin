@@ -10,8 +10,10 @@ import XCTest
 /// explicitly.
 final class BreathHoldEngineTests: XCTestCase {
 
-    /// 5s in, 5s out, 20s hold, 5 sets → 30s a set, 150s total.
-    private let plan = HoldProtocol.standard
+    /// Fixed here rather than taken from `.standard`: these assertions are about
+    /// the engine's arithmetic, and should not break when the shipped default
+    /// changes. 5s in, 5s out, 20s hold, 5 sets → 30s a set, 150s total.
+    private let plan = HoldProtocol(breatheSeconds: 5, holdSeconds: 20, sets: 5)
 
     // MARK: Phase order within a set
 
@@ -126,5 +128,28 @@ final class BreathHoldEngineTests: XCTestCase {
         XCTAssertEqual(BreathHoldEngine.state(at: 8,  plan: one).phase, .hold)
         XCTAssertEqual(BreathHoldEngine.state(at: 22, plan: one).phase, .hold)
         XCTAssertTrue(BreathHoldEngine.state(at: 23, plan: one).isFinished)
+    }
+
+    // MARK: The shipped default
+
+    /// Pinned separately, so changing it is a deliberate act and not a silent
+    /// side effect of editing a test.
+    func testTheStandardPlanIsTwentySecondsFiveTimes() {
+        let standard = HoldProtocol.standard
+        XCTAssertEqual(standard.holdSeconds, 20)
+        XCTAssertEqual(standard.sets, 5)
+        XCTAssertEqual(standard.breatheSeconds, 6)
+        XCTAssertEqual(standard.setSeconds, 32)
+        XCTAssertEqual(standard.totalHoldSeconds, 100)
+    }
+
+    /// The inhale and the exhale are the same length by construction. The dial
+    /// animates each over `seconds(phase)`, so if these ever diverged the two
+    /// halves of the breath would visibly differ.
+    func testTheBreathsAreSymmetric() {
+        for plan in [HoldProtocol.standard,
+                     HoldProtocol(breatheSeconds: 3, holdSeconds: 45, sets: 2)] {
+            XCTAssertEqual(plan.seconds(.inhale), plan.seconds(.exhale))
+        }
     }
 }
