@@ -1037,6 +1037,10 @@ extension BLEService: CBPeripheralDelegate {
             }
 
         case PolarH10Profile.pmdControl:
+            // Diagnostic: always log the raw response — firmware variants have
+            // disagreed with the documented layout before, and the raw bytes
+            // are the only ground truth when a strap rejects our commands.
+            print("🔬 BLE: PMD CP raw — \(data.hexLog)")
             // PMD CP response format: [0xF0][opCode][measType][status][...payload...]
             guard data.count >= 4, data[0] == 0xF0 else { break }
             let opCode   = data[1]
