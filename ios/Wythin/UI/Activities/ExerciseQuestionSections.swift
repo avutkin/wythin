@@ -52,16 +52,18 @@ struct ExerciseQuestionSections: View {
     private var mobilised: some View {
         if let peak = entry.duringHRPeak, let before = entry.beforeHR {
             QuestionCard(number: "1", title: "MOBILISED", subtitle: "how fast, how far") {
+                if let idx = entry.mobilizedIndex {
+                    IndexHeadline(value: idx.value, label: "mobilization", tint: Theme.accent)
+                }
                 Tiles([
                     ("Pulse rise", "\(Int((Double(peak) - Double(before)).rounded()))", "bpm", "over resting"),
                     ("Peak", "\(Int(Double(peak).rounded()))", "bpm", "highest reached"),
                     ("Resting", "\(Int(Double(before).rounded()))", "bpm", "before you began"),
                 ])
                 Logic("""
-                Your heart rate is lifted mainly by releasing the vagal brake, so how far \
-                it climbed is how much brake came off. **Warm-up speed** — how *quickly* it \
-                let go — needs the beat-by-beat series and is not stored yet, so it is \
-                absent rather than estimated.
+                Scored on how far you rose to meet the load: a 15 bpm rise — the floor for \
+                counting as exercise — is 0, a full 60 bpm mobilization is 100. Upgrades to \
+                true onset SPEED once the beat-by-beat series is stored.
                 """)
             }
         }
@@ -73,8 +75,11 @@ struct ExerciseQuestionSections: View {
     private var sustained: some View {
         if !entry.zoneSplit.isEmpty || entry.duringDFA1 != nil {
             QuestionCard(number: "2", title: "SUSTAINED", subtitle: "where the work sat") {
-                Text("NOT GRADED — INTENSITY IS A DOSE, NOT A VERDICT")
-                    .font(.system(size: 7.5, design: .monospaced)).tracking(0.8)
+                if let idx = entry.sustainedIndex {
+                    IndexHeadline(value: idx.value, label: "sustained — systems agree", tint: Theme.accent)
+                }
+                Text("HOW MUCH you did stays ungraded — this scores how COHERENTLY you held it")
+                    .font(.system(size: 7.5, design: .monospaced)).tracking(0.5)
                     .foregroundStyle(Theme.dim)
                 if !entry.zoneSplit.isEmpty {
                     HeartRateZoneBar(split: entry.zoneSplit)
@@ -97,7 +102,7 @@ struct ExerciseQuestionSections: View {
     private var recovered: some View {
         if let index = entry.bounceBackIndex {
             QuestionCard(number: "3", title: "RECOVERED", subtitle: "how fast it came back") {
-                IndexHeadline(value: index.value, label: "bounce-back", tint: Theme.accent)
+                IndexHeadline(value: index.value, label: "recovery", tint: Theme.accent)
                 Tiles(recoveryTiles)
                 Logic("""
                 Heart rate is routinely home while vagal tone is still well down, so the two \
@@ -136,7 +141,7 @@ struct ExerciseQuestionSections: View {
         if entry.exerciseLoad != nil || entry.brakeReleaseIndex != nil {
             QuestionCard(number: "4", title: "COST", subtitle: "what you paid for it") {
                 if case let .score(value, _) = entry.suppressionAxis {
-                    IndexHeadline(value: value, label: "economy", tint: Color(hex: "#FFC01F"))
+                    IndexHeadline(value: value, label: "cost — economy of effort", tint: Color(hex: "#FFC01F"))
                 }
                 Tiles(costTiles)
                 Logic("""

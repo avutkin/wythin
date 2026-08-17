@@ -161,11 +161,7 @@ struct ExerciseDetailView: View {
 
     /// The headline. Built from the three axes only — Load is displayed beside
     /// it but never feeds it, so the crown cannot be won by going harder.
-    private var overall: AxisValue {
-        ExerciseOverallScore.compute(suppression: suppression,
-                                     recovery: recovery,
-                                     efficiency: efficiency)
-    }
+    private var overall: AxisValue { entry.sectionOverall }
 
     /// Session samples as (work, vagal tone) pairs. Vagal tone is plotted as
     /// lnDC — the same space the slope is fitted in — so the drawn line and the
