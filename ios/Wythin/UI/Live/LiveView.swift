@@ -730,9 +730,11 @@ struct BLEConnectionSheet: View {
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Spacer()
-                Text(q.ecgReason ?? "—")
+                // A verdict is only as fresh as the stream behind it — a dead
+                // stream says so instead of leaving the last "clean" up.
+                Text(ble.ecgStreamLive ? (q.ecgReason ?? "—") : "no stream")
                     .font(Theme.monoBody)
-                    .foregroundStyle(Theme.text)
+                    .foregroundStyle(ble.ecgStreamLive ? Theme.text : Theme.warn)
             }
             HStack {
                 Text("Skin contact")
@@ -749,9 +751,11 @@ struct BLEConnectionSheet: View {
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Spacer()
-                Text(motion.map { String(format: "%.1f", $0) } ?? "—")
+                Text(ble.accStreamLive
+                     ? (motion.map { String(format: "%.1f", $0) } ?? "—")
+                     : "no stream")
                     .font(Theme.monoBody)
-                    .foregroundStyle(Theme.text)
+                    .foregroundStyle(ble.accStreamLive ? Theme.text : Theme.warn)
             }
             if q.tier != .good {
                 Divider().background(Theme.border)

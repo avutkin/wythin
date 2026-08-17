@@ -296,7 +296,13 @@ final class BLEService: NSObject {
     var ecgStreamLive: Bool {
         lastECGSampleAt.map { Date().timeIntervalSince($0) < 5 } ?? false
     }
-    private var lastACCSampleAt: Date?
+
+    /// Same liveness window for the ACC stream — display gates on this so a
+    /// dead stream shows as dead instead of leaving stale numbers up.
+    var accStreamLive: Bool {
+        lastACCSampleAt.map { Date().timeIntervalSince($0) < 5 } ?? false
+    }
+    private(set) var lastACCSampleAt: Date?
     private var lastACCRetryAt:  Date?
     private var accRetryCount:   Int = 0
     private var lastACCStartCmd: Data?
