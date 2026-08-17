@@ -62,7 +62,7 @@ enum TrackMetrics {
               trendWhy: "Conscious Breathing (Respiratory Sinus Arrhythmia) is the swing of heart rate with each breath — the clearest sign of vagal tone. A trend climbing over days suggests your breathing practice is taking hold; a flat line means it hasn't shown up yet in daily life."),
         .init(def: def("Energy Reserve"),      rollup: { $0.rmssd },
               color: Theme.hrv,     zeroBased: true,  fallbackReference: 40.0, trendKey: "rmssd",
-              trendWhy: "Energy Reserve (HRV · RMSSD) is your core beat-to-beat variability — the headline marker of recovery and vagal tone. A trend climbing over days points to a system that's recovering well; a sustained dip is a cue to prioritise rest."),
+              trendWhy: "Energy Reserve (RMSSD) is your core beat-to-beat variability — the headline marker of recovery and vagal tone. A trend climbing over days points to a system that's recovering well; a sustained dip is a cue to prioritise rest."),
         // Overall Variability rides Track only: its def is built inline
         // rather than added to `activityMetricDefs`, so the Activities grid
         // keeps its nine slots. Averaged over a full day of wear, daily SDNN

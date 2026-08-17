@@ -541,11 +541,6 @@ private struct MetricChartCard: View {
                     Text(subtitle)
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim.opacity(0.7))
-                    if isEstimated != nil, points.contains(where: \.estimated) {
-                        Text("estimated from heart rhythm — the strap couldn't see your breathing")
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(color.opacity(0.7))
-                    }
                 }
             }
             Spacer()
