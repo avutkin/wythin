@@ -54,7 +54,7 @@ final class PracticeCatalogTests: XCTestCase {
     /// reminder to restore the real invariant above it.
     func testCatalogIsTemporarilyThePacersOnly() {
         XCTAssertEqual(PracticeCatalog.practices.map(\.id),
-                       ["box-breathing", "resonance-breathing", "coherent-breathing"],
+                       ["box-breathing", "resonance-breathing", "coherent-breathing", "hold-breath"],
                        "catalog changed — restore the per-category and per-state coverage tests")
     }
 
@@ -143,7 +143,7 @@ final class PracticeCatalogTests: XCTestCase {
     /// or a practice opens on a setting its own controls can't express.
     func testEveryPacerPatternIsReachableFromTheSessionControls() {
         for practice in PracticeCatalog.practices {
-            guard let pattern = practice.breathPattern else { continue }
+            guard let pattern = practice.breathPattern else { continue }   // hold trainers have no pace
             XCTAssertTrue((2...12).contains(pattern.inhale),
                           "\(practice.id): \(pattern.inhale) beats is outside the pace stepper's range")
             XCTAssertTrue((40...120).contains(practice.defaultBPM),
@@ -151,6 +151,29 @@ final class PracticeCatalogTests: XCTestCase {
             XCTAssertEqual(practice.defaultBPM % 5, 0,
                            "\(practice.id): the tempo stepper moves in fives, so \(practice.defaultBPM) is unreachable")
         }
+    }
+
+    func testHoldBreathIsASetBasedHoldTrainer() {
+        guard let hold = PracticeCatalog.practices.first(where: { $0.id == "hold-breath" }),
+              let plan = hold.holdProtocol else {
+            return XCTFail("hold-breath missing from the catalog")
+        }
+        XCTAssertEqual(hold.kind, .holdTrainer(.standard))
+        XCTAssertNil(hold.breathPattern, "a hold trainer is not a pacer")
+        XCTAssertEqual(hold.activityType, .breathwork)
+        XCTAssertEqual(hold.subtype, "Breath Hold")
+        XCTAssertGreaterThan(plan.sets, 0)
+        XCTAssertGreaterThan(plan.holdSeconds, 0)
+    }
+
+    /// This practice can make someone faint, so the warning is part of the
+    /// content rather than something the session screen happens to render.
+    func testHoldBreathWarnsAboutWaterInItsDescription() {
+        guard let hold = PracticeCatalog.practices.first(where: { $0.id == "hold-breath" }) else {
+            return XCTFail("hold-breath missing from the catalog")
+        }
+        XCTAssertTrue(hold.description.lowercased().contains("water"),
+                      "the description must carry the water warning")
     }
 
     func testResonanceBreathingIsAHoldFreePacer() {

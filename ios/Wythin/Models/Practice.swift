@@ -62,6 +62,7 @@ enum PracticeKind: Equatable, Hashable {
     case content                        // browse + Log it
     case biofeedback(BiofeedbackMode)   // live session (resonance pacer / workout feedback)
     case pacer(BreathPattern)           // guided breath session on a fixed pattern
+    case holdTrainer(HoldProtocol)      // set-based breath-hold session
 }
 
 /// Local art token — an optional SF Symbol over a two-stop gradient. There is no
@@ -146,6 +147,12 @@ struct Practice: Identifiable, Hashable {
     /// The breath pattern this practice paces, if it is a guided pacer.
     var breathPattern: BreathPattern? {
         if case .pacer(let pattern) = kind { return pattern }
+        return nil
+    }
+
+    /// The hold course this practice runs, if it is a hold trainer.
+    var holdProtocol: HoldProtocol? {
+        if case .holdTrainer(let plan) = kind { return plan }
         return nil
     }
 

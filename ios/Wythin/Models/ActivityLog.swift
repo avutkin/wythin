@@ -89,7 +89,8 @@ enum ActivityType: String, CaseIterable, Codable {
                     "Transcendental", "Zen", "Mantra", "Open Awareness", "Yoga Nidra"]
         case .breathwork:
             return ["Resonance", "Wim Hof", "Box Breathing", "4-7-8", "Holotropic",
-                    "Pranayama", "Coherent Breathing", "Tummo", "Nadi Shodhana"]
+                    "Pranayama", "Coherent Breathing", "Tummo", "Nadi Shodhana",
+                    "Breath Hold"]
         case .meal:
             return ["Breakfast", "Lunch", "Dinner", "Snack", "Fast Breaking"]
         case .nap:

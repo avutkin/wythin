@@ -151,6 +151,8 @@ private struct PracticeGridTile: View {
             badgeIcon("waveform.path.ecg", Theme.breathe)
         } else if practice.breathPattern != nil {
             badgeIcon("metronome", Theme.breathe)
+        } else if practice.holdProtocol != nil {
+            badgeIcon("timer", Theme.warn)
         }
     }
 

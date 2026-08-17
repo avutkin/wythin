@@ -52,6 +52,9 @@
 		A122 /* HeartBeatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F122 /* HeartBeatView.swift */; };
 		A123 /* ResonateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F123 /* ResonateView.swift */; };
 		A124 /* PacerCircleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F124 /* PacerCircleView.swift */; };
+		A280 /* HoldProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = F280 /* HoldProtocol.swift */; };
+		A281 /* BreathHoldEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F281 /* BreathHoldEngine.swift */; };
+		A282 /* HoldSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F282 /* HoldSessionView.swift */; };
 		A270 /* BreathPattern.swift in Sources */ = {isa = PBXBuildFile; fileRef = F270 /* BreathPattern.swift */; };
 		A271 /* BoxBreathEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F271 /* BoxBreathEngine.swift */; };
 		A272 /* MetronomeCue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F272 /* MetronomeCue.swift */; };
@@ -183,6 +186,7 @@
 		AT07 /* ActivityMetricStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT07 /* ActivityMetricStatsTests.swift */; };
 		AT10 /* ClientProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT10 /* ClientProfileTests.swift */; };
 		AT11 /* PracticeCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT11 /* PracticeCatalogTests.swift */; };
+		AT80 /* BreathHoldEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT80 /* BreathHoldEngineTests.swift */; };
 		AT71 /* ActiveActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT71 /* ActiveActivityTests.swift */; };
 		AT12 /* MotionComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT12 /* MotionComputeTests.swift */; };
 		AT13 /* AnchorDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT13 /* AnchorDetectorTests.swift */; };
@@ -300,6 +304,9 @@
 		F122 /* HeartBeatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartBeatView.swift; sourceTree = "<group>"; };
 		F123 /* ResonateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResonateView.swift; sourceTree = "<group>"; };
 		F124 /* PacerCircleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacerCircleView.swift; sourceTree = "<group>"; };
+		F280 /* HoldProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoldProtocol.swift; sourceTree = "<group>"; };
+		F281 /* BreathHoldEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathHoldEngine.swift; sourceTree = "<group>"; };
+		F282 /* HoldSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoldSessionView.swift; sourceTree = "<group>"; };
 		F270 /* BreathPattern.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathPattern.swift; sourceTree = "<group>"; };
 		F271 /* BoxBreathEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoxBreathEngine.swift; sourceTree = "<group>"; };
 		F272 /* MetronomeCue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetronomeCue.swift; sourceTree = "<group>"; };
@@ -434,6 +441,7 @@
 		FT07 /* ActivityMetricStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMetricStatsTests.swift; sourceTree = "<group>"; };
 		FT10 /* ClientProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClientProfileTests.swift; sourceTree = "<group>"; };
 		FT11 /* PracticeCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PracticeCatalogTests.swift; sourceTree = "<group>"; };
+		FT80 /* BreathHoldEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathHoldEngineTests.swift; sourceTree = "<group>"; };
 		FT71 /* ActiveActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveActivityTests.swift; sourceTree = "<group>"; };
 		FT12 /* MotionComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionComputeTests.swift; sourceTree = "<group>"; };
 		FT13 /* AnchorDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetectorTests.swift; sourceTree = "<group>"; };
@@ -709,6 +717,7 @@
 				FB6AD3DD651C17D0DECDF077 /* LiveSessionAttributes.swift */,
 				F200 /* Practice.swift */,
 				F201 /* PracticeCatalog.swift */,
+				F280 /* HoldProtocol.swift */,
 				F270 /* BreathPattern.swift */,
 				F138 /* PolyvagalState.swift */,
 				F160 /* ClientProfile.swift */,
@@ -733,6 +742,8 @@
 				F123 /* ResonateView.swift */,
 				F124 /* PacerCircleView.swift */,
 				F206 /* ResonanceSessionView.swift */,
+				F281 /* BreathHoldEngine.swift */,
+				F282 /* HoldSessionView.swift */,
 				F271 /* BoxBreathEngine.swift */,
 				F272 /* MetronomeCue.swift */,
 				F273 /* BoxPacerView.swift */,
@@ -868,6 +879,7 @@
 				FT26 /* ImpactDeltaTests.swift */,
 				FT10 /* ClientProfileTests.swift */,
 				FT11 /* PracticeCatalogTests.swift */,
+				FT80 /* BreathHoldEngineTests.swift */,
 				FT71 /* ActiveActivityTests.swift */,
 				FT70 /* BoxBreathEngineTests.swift */,
 				FT12 /* MotionComputeTests.swift */,
@@ -1124,6 +1136,9 @@
 				A221 /* NudgeSampleBuffer.swift in Sources */,
 				A123 /* ResonateView.swift in Sources */,
 				A124 /* PacerCircleView.swift in Sources */,
+				A280 /* HoldProtocol.swift in Sources */,
+				A281 /* BreathHoldEngine.swift in Sources */,
+				A282 /* HoldSessionView.swift in Sources */,
 				A270 /* BreathPattern.swift in Sources */,
 				A271 /* BoxBreathEngine.swift in Sources */,
 				A272 /* MetronomeCue.swift in Sources */,
@@ -1209,6 +1224,7 @@
 				FD13F4B1CB1B182D4EB3D95D /* ActivityLogIndicesTests.swift in Sources */,
 				AT26 /* ImpactDeltaTests.swift in Sources */,
 				AT11 /* PracticeCatalogTests.swift in Sources */,
+				AT80 /* BreathHoldEngineTests.swift in Sources */,
 				AT71 /* ActiveActivityTests.swift in Sources */,
 				AT70 /* BoxBreathEngineTests.swift in Sources */,
 				AT12 /* MotionComputeTests.swift in Sources */,

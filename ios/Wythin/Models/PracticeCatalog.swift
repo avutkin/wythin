@@ -42,6 +42,27 @@ enum PracticeCatalog {
         finding: "Deep, slow breathing before a business-case task raised heart rate variability and produced markedly more correct answers than normal breathing. The task measured decision quality, not creativity.",
         mark: "IJP", tint: "#8B5CF6")
 
+    private static let kox2014 = PracticeEvidence(
+        doi: "10.1073/pnas.1322174111",
+        title: "Voluntary activation of the sympathetic nervous system and attenuation of the innate immune response in humans",
+        authors: "Kox et al.", journal: "PNAS", year: 2014,
+        finding: "Trained volunteers using cyclic breathing with breath retention raised their own adrenaline and blunted the inflammatory response to an injected endotoxin — the clearest demonstration that a breathing practice can reach systems long assumed involuntary. The training also included cold exposure and meditation, so the holds cannot be credited alone.",
+        mark: "PNA", tint: "#38BDF8")
+
+    private static let elia2021 = PracticeEvidence(
+        doi: "10.1007/s00421-021-04664-x",
+        title: "Physiology, pathophysiology and (mal)adaptations to chronic apnoeic training: a state-of-the-art review",
+        authors: "Elia et al.", journal: "European Journal of Applied Physiology", year: 2021,
+        finding: "Reviews what repeated breath-hold training does: larger spleen volume, more myoglobin, better tolerance of a rising CO2. It also flags open questions on cognitive, renal and bone health in career divers — worth reading before treating long holds as free.",
+        mark: "EJA", tint: "#F59E0B")
+
+    private static let persson2023 = PracticeEvidence(
+        doi: "10.3389/fphys.2023.1109958",
+        title: "Splenic contraction and cardiovascular responses are augmented during apnea compared to rebreathing in humans",
+        authors: "Persson et al.", journal: "Frontiers in Physiology", year: 2023,
+        finding: "Holding the breath produced a stronger spleen contraction and a stronger cardiovascular diving response than breathing a stale gas mix — so it is the apnoea itself doing the work, not merely the falling oxygen.",
+        mark: "FIP", tint: "#10B981")
+
     private static let you2021 = PracticeEvidence(
         doi: "10.3390/ijerph182312478",
         title: "Single slow-paced breathing session at six cycles per minute: investigation of dose-response relationship on cardiac vagal activity",
@@ -105,6 +126,23 @@ enum PracticeCatalog {
             // whole beats so the accent can never drift off the phase change,
             // and 5.5 s is only reachable on a half-second beat.
             kind: .pacer(.even(beats: 11))),
+
+        Practice(
+            id: "hold-breath", title: "Hold Breath", subtitle: "Holds on empty, in sets",
+            category: .breathwork, states: [.stress, .focus],
+            activityType: .breathwork, subtype: "Breath Hold",
+            defaultDurationMins: 5, defaultBPM: 60,
+            description: "Two paced breaths, then hold with your lungs empty, then do it again. You set the hold and the number of sets; the session counts you in with a rising tone, marks each hold with a beep either end, and shows the clock so you never have to. Sit or lie down on land — never in or near water.",
+            howItWorks: [
+                "Holding on empty lets carbon dioxide climb faster than a hold on full would. The urge to breathe is a response to that CO2, not to running out of oxygen, so this trains the tolerance rather than the supply.",
+                "A hold also triggers the diving response — the heart slows and the spleen squeezes a reserve of red cells into circulation. Repeating it is the stimulus the adaptations are built on.",
+                "The point is the recovery, not the heroics. What you are practising is meeting an uncomfortable signal without panicking and then returning to a normal breath, which is the same move under any other kind of load.",
+                "Honest limits: the training adaptations come from divers holding far longer than this, and the review below raises open questions about very heavy long-term practice. Short sets are where the risk-to-benefit sits well.",
+            ],
+            evidence: [persson2023, elia2021, kox2014],
+            tags: ["CO2 Tolerance", "Diving Response", "Composure"],
+            art: practiceArt,
+            kind: .holdTrainer(.standard)),
     ]
 
     // MARK: Lookups
