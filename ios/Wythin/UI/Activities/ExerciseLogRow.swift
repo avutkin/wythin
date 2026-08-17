@@ -40,12 +40,9 @@ struct ExerciseLogRow: View {
         "\((entry.scoreHistoryCount ?? 0) + 1) of \(ExerciseResponse.minimumHistory)"
     }
 
-    /// The headline score, from the three axes only — never from Load.
-    private var overall: AxisValue {
-        ExerciseOverallScore.compute(suppression: suppression,
-                                     recovery: entry.recoveryAxis,
-                                     efficiency: efficiency)
-    }
+    /// The headline score: the four performance sections, Ready excluded,
+    /// weights fixed and printed in the detail — never from Load.
+    private var overall: AxisValue { entry.sectionOverall }
 
     /// Laurels above half marks, not at the crown threshold of 85.
     ///

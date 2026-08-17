@@ -234,3 +234,38 @@ final class ReadinessScoreTests: XCTestCase {
         XCTAssertNil(ReadinessScore.score([]))
     }
 }
+
+// MARK: - The five sections
+
+final class SectionScoreTests: XCTestCase {
+
+    func testMobilizedAnchorsMatchTheClassificationFloor() {
+        XCTAssertEqual(MobilizedIndex.score(pulseRise: 15), 0)
+        XCTAssertEqual(MobilizedIndex.score(pulseRise: 60), 100)
+        XCTAssertNil(MobilizedIndex.score(pulseRise: nil))
+    }
+
+    func testSustainedIsPerfectWhenDistributionsMatch() {
+        XCTAssertEqual(SustainedIndex.score(zoneModerate: 600, zoneHeavy: 300, zoneSevere: 100,
+                                            domModerate: 1200, domHeavy: 600, domSevere: 200), 100)
+    }
+
+    func testSustainedFallsWithDisagreement() {
+        // All-easy zones vs all-severe domains: total disagreement.
+        XCTAssertEqual(SustainedIndex.score(zoneModerate: 1000, zoneHeavy: 0, zoneSevere: 0,
+                                            domModerate: 0, domHeavy: 0, domSevere: 1000), 0)
+    }
+
+    func testTheOverallPrintsCheckableArithmetic() {
+        // 0.4*80 + 0.3*60 + 0.2*50 + 0.1*90 = 69
+        guard case let .score(v, _) = ExerciseOverallScore.composeSections(
+            recovery: 80, sustained: 60, cost: 50, mobilized: 90) else { return XCTFail() }
+        XCTAssertEqual(v, 69)
+    }
+
+    func testASingleSectionNamesItselfNotRecovery() {
+        guard case let .score(_, word) = ExerciseOverallScore.composeSections(
+            recovery: nil, sustained: 70, cost: nil, mobilized: nil) else { return XCTFail() }
+        XCTAssertTrue(word.contains("sustained"))
+    }
+}

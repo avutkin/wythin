@@ -155,26 +155,19 @@ struct SessionIndexSlotGrid: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            // Cells only for what was measured. A finished session's dash can
-            // never fill in, and a grid of em-dashes read as broken, not as
-            // honest — the absences live in one quiet line instead.
+            // Every section scores 0 to 100 from day one (owner rule): a slot
+            // whose input never existed shows 0 with its reason, not a dash.
             LazyVGrid(columns: columns, spacing: 6) {
-                ForEach(slots.filter { $0.index != nil }, id: \.name) { slot in
+                ForEach(slots, id: \.name) { slot in
                     if let index = slot.index {
                         SlotCell(name: slot.name, value: "\(index.value)",
                                  tint: index.band.tint, verdict: index.verdict,
                                  detail: index.detail, fill: index.value)
+                    } else {
+                        SlotCell(name: slot.name, value: "0", tint: Theme.dim,
+                                 verdict: slot.whenEmpty, detail: "", fill: 0)
                     }
                 }
-            }
-            let missing = slots.filter { $0.index == nil }
-            if !missing.isEmpty {
-                Text("not measured — " + missing.map { "\($0.name.lowercased()): \($0.whenEmpty)" }
-                        .joined(separator: " · "))
-                    .font(.system(size: 8, design: .monospaced))
-                    .foregroundStyle(Theme.dim)
-                    .frame(maxWidth: .infinity)
-                    .multilineTextAlignment(.center)
             }
             SessionIndexGrid(indices: [], doses: doses)
         }
