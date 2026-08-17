@@ -7,6 +7,10 @@ struct BreathingMetrics {
     let peakHz:     Float   // dominant breathing frequency
     let bpm:        Float   // breaths per minute
     let regularity: Float   // 0–1 (peak prominence ratio / 6)
+    /// Raw peak-to-mean prominence — how far the breathing line stands above
+    /// the rest of the band. Carried unclamped (unlike `regularity`) so the
+    /// fusion and tracking stages can weight estimates against each other.
+    var confidence: Float = 0
     let psdFreqs:   [Float]
     let psdValues:  [Float]
 }
@@ -50,6 +54,9 @@ enum BreathingCompute {
     /// power. Broadband noise throws up shallow local maxima all over the band;
     /// a real breath is a narrow, dominant line.
     private static let minPeakToMean: Float = 3.0
+    /// Prominence at which the principal-component estimate is trusted without
+    /// also evaluating the individual axes.
+    private static let confidentPeakToMean: Float = 5.0
     /// 4096 samples = 20.5 s. `welchPSD` floors the segment to a power of
     /// two, so shorter buffers collapse silently: at the old 6 s minimum the
     /// FFT length was 1024 — a bin width of 0.195 Hz, 11.7 br/min, spanning
@@ -64,23 +71,69 @@ enum BreathingCompute {
 
     /// Estimate breathing rate from all three ACC axes.
     ///
-    /// Z is nominally chest-normal and is evaluated first — the common case,
-    /// costing exactly what the single-axis path costs. But a strap that has
-    /// rotated on the torso moves chest expansion into X and Y, shrinking the
-    /// Z projection until the peak-to-mean guard rejects it; only then are X
-    /// and Y evaluated, and the candidate with the highest peak-to-mean wins.
-    /// Worst case is three Welch transforms per tick, incurred only where the
-    /// old path produced nothing at all.
+    /// Chest expansion is a single direction in space, and a strap that has
+    /// rotated on the torso spreads it across all three sensor axes — so the
+    /// primary estimate comes from the **principal component**, the direction
+    /// of greatest breathing-band motion, rather than from whichever axis
+    /// happens to be closest to it. Individual axes are then tried only if the
+    /// projection fails to produce a confident peak, and the most prominent
+    /// candidate wins.
     static func computeRate(accXYZ: [SIMD3<Float>]) -> BreathingMetrics? {
-        if let z = rate(axis: accXYZ.map(\.z)) { return z.metrics }
-        let x = rate(axis: accXYZ.map(\.x))
-        let y = rate(axis: accXYZ.map(\.y))
-        switch (x, y) {
-        case let (x?, y?): return x.peakToMean >= y.peakToMean ? x.metrics : y.metrics
-        case let (x?, nil): return x.metrics
-        case let (nil, y?): return y.metrics
-        case (nil, nil):    return nil
+        var best: (metrics: BreathingMetrics, peakToMean: Float)?
+
+        if let projected = principalProjection(accXYZ), let r = rate(axis: projected) {
+            // A clearly dominant line needs no second opinion — this is the
+            // common case and costs one transform.
+            if r.peakToMean >= confidentPeakToMean { return r.metrics }
+            best = r
         }
+        for axis in [accXYZ.map(\.z), accXYZ.map(\.x), accXYZ.map(\.y)] {
+            guard let r = rate(axis: axis) else { continue }
+            if best == nil || r.peakToMean > best!.peakToMean { best = r }
+        }
+        return best?.metrics
+    }
+
+    /// Projects the three axes onto their principal component within the
+    /// breathing band.
+    ///
+    /// Band-limiting first is what makes this find *breathing* rather than
+    /// posture: gravity and gross movement carry far more variance than chest
+    /// expansion, so a PCA of the raw signal would return the direction of
+    /// walking, not of breath.
+    static func principalProjection(_ v: [SIMD3<Float>]) -> [Float]? {
+        guard v.count >= minAccBreath else { return nil }
+        guard let x = bandpassFilter(v.map(\.x), lowHz: 0.08, highHz: 0.6, fs: accFS),
+              let y = bandpassFilter(v.map(\.y), lowHz: 0.08, highHz: 0.6, fs: accFS),
+              let z = bandpassFilter(v.map(\.z), lowHz: 0.08, highHz: 0.6, fs: accFS)
+        else { return nil }
+
+        // 3×3 covariance of the band-limited axes (already ~zero-mean).
+        var c = [[Float]](repeating: [Float](repeating: 0, count: 3), count: 3)
+        let cols = [x, y, z]
+        let n = Float(v.count)
+        for i in 0..<3 {
+            for j in i..<3 {
+                var sum: Float = 0
+                for k in 0..<v.count { sum += cols[i][k] * cols[j][k] }
+                c[i][j] = sum / n
+                c[j][i] = c[i][j]
+            }
+        }
+
+        // Dominant eigenvector by power iteration — 3×3, so this converges in
+        // a handful of passes and needs no linear-algebra dependency.
+        var e: [Float] = [0, 0, 1]   // seeded on Z, the nominal chest normal
+        for _ in 0..<24 {
+            var next = [Float](repeating: 0, count: 3)
+            for i in 0..<3 {
+                for j in 0..<3 { next[i] += c[i][j] * e[j] }
+            }
+            let norm = (next[0] * next[0] + next[1] * next[1] + next[2] * next[2]).squareRoot()
+            guard norm > 1e-12 else { return nil }
+            e = next.map { $0 / norm }
+        }
+        return (0..<v.count).map { k in e[0] * x[k] + e[1] * y[k] + e[2] * z[k] }
     }
 
     /// Single-axis entry, retained for tests and callers already holding Z.
@@ -118,6 +171,7 @@ enum BreathingCompute {
             peakHz:     peak.hz,
             bpm:        peak.hz * 60,
             regularity: min(peak.peakToMean / 6.0, 1.0),
+            confidence: peak.peakToMean,
             psdFreqs:   band.map { $0.0 },
             psdValues:  band.map { $0.1 }
         )

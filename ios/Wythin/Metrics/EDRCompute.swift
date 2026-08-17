@@ -24,12 +24,17 @@ enum EDRCompute {
     static let minPeakToMean: Float = 3.0
     static let minBeats:      Int   = 60
 
+    struct Estimate {
+        let bpm:        Float
+        let confidence: Float   // peak-to-mean prominence
+    }
+
     /// Breathing rate in br/min from the RR tachogram, or nil.
     ///
     /// At `rrFS` = 4 Hz with `nperseg` = 256 the bin width is 0.0156 Hz —
     /// 0.94 br/min over a 64 s window, roughly three times finer than the
     /// accelerometer path.
-    static func computeRate(rrMs: [Int]) -> Float? {
+    static func estimate(rrMs: [Int]) -> Estimate? {
         let clean = HRVCompute.cleanRR(rrMs)
         guard clean.count >= minBeats,
               let interp = HRVCompute.interpTachogram(clean, fs: HRVCompute.rrFS)
@@ -63,6 +68,9 @@ enum EDRCompute {
             if power(near: halfHz) > power(near: peak.hz) { return nil }
         }
 
-        return peak.hz * 60
+        return Estimate(bpm: peak.hz * 60, confidence: peak.peakToMean)
     }
+
+    /// Rate only — the shape most callers and tests want.
+    static func computeRate(rrMs: [Int]) -> Float? { estimate(rrMs: rrMs)?.bpm }
 }

@@ -25,7 +25,11 @@ struct MetricsTick {
     let rsaIdx: Float?
 
     // Breathing
-    let breathBPM:    Float?
+    /// Fused breathing rate. `var` because `AppEnvironment` runs the temporal
+    /// tracker (`BreathRateTracker`) over consecutive ticks and writes the
+    /// tracked value back — the per-tick spectral pick is an observation, not
+    /// the final answer.
+    var breathBPM:    Float?
     let breathHz:     Float?
     let regularity:   Float?
     /// Which channel produced `breathBPM`. `breathBPM` non-nil while
@@ -36,6 +40,9 @@ struct MetricsTick {
     /// correlated with itself and read artificially high. Do not "fix" this
     /// by forwarding the EDR frequency into `breathHz`.
     var breathSource: BreathSource? = nil
+    /// Peak prominence behind `breathBPM`, for the tracker's weighting.
+    /// Transient — never persisted, never synced.
+    var breathConfidence: Float? = nil
 
     // Coherence & CBI
     let coherenceScore: Float?
@@ -118,8 +125,16 @@ enum MetricsEngine {
         // RR arrives on the heart-rate characteristic, so the fallback
         // survives a total PMD stall; it is consulted only when ACC yields
         // nothing (see `MetricsTick.breathSource` for the circularity rule).
+        // Both estimators run every tick and are fused by prominence: two
+        // independent channels agreeing on a rate is stronger evidence than
+        // either alone, and when they disagree the more dominant peak wins
+        // rather than being averaged into a rate nobody measured.
         let breathing = BreathingCompute.computeRate(accXYZ: snapshot.accXYZ)
-        let edrBPM: Float? = breathing == nil ? EDRCompute.computeRate(rrMs: rrMs) : nil
+        let edr       = EDRCompute.estimate(rrMs: rrMs)
+        var candidates: [BreathRateTracker.Estimate] = []
+        if let b = breathing { candidates.append(.init(bpm: b.bpm, confidence: b.confidence)) }
+        if let e = edr       { candidates.append(.init(bpm: e.bpm, confidence: e.confidence)) }
+        let fusedBreath = BreathRateTracker.fuse(candidates)
         let phases    = BreathingCompute.computePhases(accZ: snapshot.accZ)
 
         // --- RSA ---
@@ -157,11 +172,18 @@ enum MetricsEngine {
             lfHF:           hrv?.lfHF,
             rsaMs:          rsa?.rsaMs,
             rsaIdx:         rsa?.rsaIdx,
-            breathBPM:      breathing?.bpm ?? edrBPM,
+            breathBPM:      fusedBreath?.bpm,
             breathHz:       breathing?.peakHz,       // never EDR — circularity rule
             regularity:     breathing?.regularity,   // never EDR
-            breathSource:   breathing != nil ? .accelerometer
-                                             : (edrBPM != nil ? .heart : nil),
+            // Names the channel that actually produced the answer: when the
+            // two disagree, the arbitration above picks one, and labelling it
+            // .accelerometer merely because ACC computed *something* would
+            // mark an estimated reading as measured.
+            breathSource:   fusedBreath.map { fused in
+                                breathing.map { abs($0.bpm - fused.bpm) <= 2 } == true
+                                    ? .accelerometer : .heart
+                            },
+            breathConfidence: fusedBreath?.confidence,
             coherenceScore: coherence?.score,
             cbi:            cbi,
             dfa1:           dfa?.alpha1,

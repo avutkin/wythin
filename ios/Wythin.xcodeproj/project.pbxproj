@@ -193,6 +193,7 @@
 		AT90 /* LiveDayComparisonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT90 /* LiveDayComparisonTests.swift */; };
 		AT92 /* SpectralPeakTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT92 /* SpectralPeakTests.swift */; };
 		AT93 /* EDRComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT93 /* EDRComputeTests.swift */; };
+		AT95 /* BreathRateTrackerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT95 /* BreathRateTrackerTests.swift */; };
 		AT94 /* WelchPSDSegmentCountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT94 /* WelchPSDSegmentCountTests.swift */; };
 		AT91 /* CloudRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT91 /* CloudRestoreTests.swift */; };
 		AT15 /* PotentialScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT15 /* PotentialScoreTests.swift */; };
@@ -214,6 +215,7 @@
 		A990 /* LiveDayComparison.swift in Sources */ = {isa = PBXBuildFile; fileRef = F990 /* LiveDayComparison.swift */; };
 		A993 /* SpectralPeak.swift in Sources */ = {isa = PBXBuildFile; fileRef = F993 /* SpectralPeak.swift */; };
 		A994 /* EDRCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F994 /* EDRCompute.swift */; };
+		A995 /* BreathRateTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F995 /* BreathRateTracker.swift */; };
 		AT52 /* LiveBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT52 /* LiveBaselineTests.swift */; };
 		ATCC /* CurrentStateCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FTCC /* CurrentStateCardTests.swift */; };
 		A54 /* LiveReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = F54 /* LiveReading.swift */; };
@@ -451,6 +453,7 @@
 		FT90 /* LiveDayComparisonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDayComparisonTests.swift; sourceTree = "<group>"; };
 		FT92 /* SpectralPeakTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectralPeakTests.swift; sourceTree = "<group>"; };
 		FT93 /* EDRComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EDRComputeTests.swift; sourceTree = "<group>"; };
+		FT95 /* BreathRateTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathRateTrackerTests.swift; sourceTree = "<group>"; };
 		FT94 /* WelchPSDSegmentCountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelchPSDSegmentCountTests.swift; sourceTree = "<group>"; };
 		FT91 /* CloudRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRestoreTests.swift; sourceTree = "<group>"; };
 		FT15 /* PotentialScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScoreTests.swift; sourceTree = "<group>"; };
@@ -493,6 +496,7 @@
 		F990 /* LiveDayComparison.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDayComparison.swift; sourceTree = "<group>"; };
 		F993 /* SpectralPeak.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectralPeak.swift; sourceTree = "<group>"; };
 		F994 /* EDRCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EDRCompute.swift; sourceTree = "<group>"; };
+		F995 /* BreathRateTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathRateTracker.swift; sourceTree = "<group>"; };
 		FT52 /* LiveBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveBaselineTests.swift; sourceTree = "<group>"; };
 		FTCC /* CurrentStateCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentStateCardTests.swift; sourceTree = "<group>"; };
 		F54 /* LiveReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReading.swift; sourceTree = "<group>"; };
@@ -705,6 +709,7 @@
 				F990 /* LiveDayComparison.swift */,
 				F993 /* SpectralPeak.swift */,
 				F994 /* EDRCompute.swift */,
+				F995 /* BreathRateTracker.swift */,
 				F54 /* LiveReading.swift */,
 				F56 /* LiveStateClassifier.swift */,
 				F57 /* LiveStateCopy.swift */,
@@ -854,6 +859,7 @@
 				FT90 /* LiveDayComparisonTests.swift */,
 				FT92 /* SpectralPeakTests.swift */,
 				FT93 /* EDRComputeTests.swift */,
+				FT95 /* BreathRateTrackerTests.swift */,
 				FT94 /* WelchPSDSegmentCountTests.swift */,
 				FT91 /* CloudRestoreTests.swift */,
 				FT13 /* AnchorDetectorTests.swift */,
@@ -1161,6 +1167,7 @@
 				A990 /* LiveDayComparison.swift in Sources */,
 				A993 /* SpectralPeak.swift in Sources */,
 				A994 /* EDRCompute.swift in Sources */,
+				A995 /* BreathRateTracker.swift in Sources */,
 				A54 /* LiveReading.swift in Sources */,
 				A56 /* LiveStateClassifier.swift in Sources */,
 				A57 /* LiveStateCopy.swift in Sources */,
@@ -1202,6 +1209,7 @@
 				AT90 /* LiveDayComparisonTests.swift in Sources */,
 				AT92 /* SpectralPeakTests.swift in Sources */,
 				AT93 /* EDRComputeTests.swift in Sources */,
+				AT95 /* BreathRateTrackerTests.swift in Sources */,
 				AT94 /* WelchPSDSegmentCountTests.swift in Sources */,
 				AT91 /* CloudRestoreTests.swift in Sources */,
 				AT13 /* AnchorDetectorTests.swift in Sources */,
@@ -1272,7 +1280,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEVELOPMENT_TEAM = FHUVQ8JNXD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
@@ -1361,7 +1369,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -1380,7 +1388,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEVELOPMENT_TEAM = FHUVQ8JNXD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
@@ -1462,7 +1470,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

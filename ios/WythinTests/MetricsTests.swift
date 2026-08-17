@@ -394,16 +394,31 @@ final class MetricsTests: XCTestCase {
         XCTAssertNil(tick.cbi)
     }
 
-    /// A live ACC reading wins over EDR and is labelled measured.
-    func testACCWinsOverEDRWhenAvailable() {
-        let z = accSignal(breathHz: 0.25)
+    /// Agreeing channels fuse, and the reading is labelled measured.
+    func testAgreeingSourcesFuseAndReadAsMeasured() {
+        let z = accSignal(breathHz: 0.25)          // 15 br/min
         let xyz = z.map { SIMD3<Float>(0, 0, $0) }
         let snapshot = DataSnapshot(ecg: [], accZ: z, accXYZ: xyz,
-                                    rr: edrTachogram(brPerMin: 22), bpm: [75])
+                                    rr: edrTachogram(brPerMin: 15), bpm: [75])
         let tick = MetricsEngine.compute(from: snapshot)
         XCTAssertEqual(tick.breathSource, .accelerometer)
         XCTAssertEqual(tick.breathBPM ?? 0, 15, accuracy: 1.5)
         XCTAssertNotNil(tick.breathHz)
+    }
+
+    /// When the two channels disagree they cannot both be right: the more
+    /// prominent peak wins, and the label follows the winner rather than
+    /// claiming a measured reading the accelerometer didn't produce.
+    func testDisagreeingSourcesAreLabelledByTheWinner() {
+        let z = accSignal(breathHz: 0.25)          // 15 br/min
+        let xyz = z.map { SIMD3<Float>(0, 0, $0) }
+        let snapshot = DataSnapshot(ecg: [], accZ: z, accXYZ: xyz,
+                                    rr: edrTachogram(brPerMin: 22), bpm: [75])
+        let tick = MetricsEngine.compute(from: snapshot)
+        let bpm = tick.breathBPM ?? 0
+        XCTAssertTrue(abs(bpm - 15) < 1.5 || abs(bpm - 22) < 1.5,
+                      "fusion invented a rate neither channel measured: \(bpm)")
+        XCTAssertEqual(tick.breathSource, abs(bpm - 15) < 1.5 ? .accelerometer : .heart)
     }
 
     /// The rotated-strap case: modulation on X only, Z flat — the three-axis
