@@ -80,6 +80,32 @@ enum DeviceRanking {
     }
 }
 
+// MARK: - BLE Diagnostics File
+//
+// Console capture from a devicectl-launched app is unreliable (stdout is
+// block-buffered), so PMD-level diagnostics also land in a file in the app
+// container that can be pulled over the wire:
+//   xcrun devicectl device copy from --domain-type appDataContainer ...
+enum BLEDiag {
+    static let url = FileManager.default.urls(for: .applicationSupportDirectory,
+                                              in: .userDomainMask)[0]
+        .appendingPathComponent("ble-diag.log")
+
+    static func log(_ message: String) {
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        let line = "\(stamp) \(message)\n"
+        if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+           size > 256_000 { try? FileManager.default.removeItem(at: url) }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            try? handle.close()
+        } else {
+            try? line.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+}
+
 // MARK: - Skin Contact Display Policy (pure, testable)
 //
 // Some H10 firmware never sets the sensor-contact-supported flag in the HR
@@ -638,10 +664,12 @@ final class BLEService: NSObject {
         guard let ctrl = pmdControl, let p = peripheral else { return }
         lastECGStartCmd = ecg
         print("🔵 BLE: starting ECG — \(ecg.hexLog)")
+        BLEDiag.log("START ECG \(ecg.hexLog)")
         p.writeValue(ecg, for: ctrl, type: .withResponse)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self, let ctrl = self.pmdControl, let p = self.peripheral else { return }
             print("🔵 BLE: starting ACC — \(acc.hexLog)")
+            BLEDiag.log("START ACC \(acc.hexLog)")
             p.writeValue(acc, for: ctrl, type: .withResponse)
             self.startACCWatchdog(accCmd: acc)
         }
@@ -1104,6 +1132,7 @@ extension BLEService: CBPeripheralDelegate {
             // disagreed with the documented layout before, and the raw bytes
             // are the only ground truth when a strap rejects our commands.
             print("🔬 BLE: PMD CP raw — \(data.hexLog)")
+            BLEDiag.log("CP raw \(data.hexLog)")
             // PMD CP response format: [0xF0][opCode][measType][status][...payload...]
             guard data.count >= 4, data[0] == 0xF0 else { break }
             let opCode   = data[1]
@@ -1152,9 +1181,11 @@ extension BLEService: CBPeripheralDelegate {
                 let mt = String(measType, radix: 16, uppercase: true)
                 if status == 0x00 {
                     print("✅ BLE: stream start type=0x\(mt) OK")
+                    BLEDiag.log("START RESULT type=0x\(mt) OK")
                 } else {
                     let st = String(status, radix: 16, uppercase: true)
                     print("❌ BLE: stream start type=0x\(mt) failed status=0x\(st)")
+                    BLEDiag.log("START RESULT type=0x\(mt) FAILED status=0x\(st)")
                     Task { @MainActor in
                         self.lastError = "PMD start error type=0x\(mt) status=0x\(st)"
                     }
