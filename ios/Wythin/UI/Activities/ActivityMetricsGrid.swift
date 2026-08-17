@@ -5,7 +5,13 @@ import SwiftUI
 struct ActivityMetricDef: Identifiable {
     var id: String { label }
     let label:     String
+    /// Short tag for compact tiles.
     let techLabel: String
+    /// Spelled-out measure with its abbreviation, e.g. "Respiratory Sinus
+    /// Arrhythmia (RSA)". Shown wherever there is room — the Track trend cards
+    /// and the session detail charts — so an abbreviation is never the only
+    /// thing naming a metric. Falls back to `techLabel` when empty.
+    var techFull:  String = ""
     let unit:      String
     let direction: BenefitDirection
     let extract:   (MetricsHistoryPoint) -> Double?
@@ -61,30 +67,30 @@ private func fFloat(_ v: Double?, _ fmt: (Float?) -> String) -> String { fmt(v.m
 /// The 9 metrics, in display order, matching the Live section's charts
 /// (MetricsChartsView): DC, RCMSE, PIP, DFA α1, LF/HF, RSA, VTI, HRV, HR.
 let activityMetricDefs: [ActivityMetricDef] = [
-    .init(label: "Vagal Tone",          techLabel: "DC",     unit: "ms",  direction: .higher,      extract: { $0.dc.map(Double.init) },      format: f1,                                 beforeKey: \.beforeDC,    duringKey: \.duringDC,
+    .init(label: "Vagal Tone",          techLabel: "DC",     techFull: "Deceleration Capacity (DC)", unit: "ms",  direction: .higher,      extract: { $0.dc.map(Double.init) },      format: f1,                                 beforeKey: \.beforeDC,    duringKey: \.duringDC,
           why: "Vagal Tone (Deceleration Capacity) is your relaxation and recovery capacity — your vagal “brake”, how readily the heart slows. Higher means deeper parasympathetic recovery; expect it to climb as you settle.",
           warmUp: "about 2½ minutes"),
-    .init(label: "Adaptive Capacity",   techLabel: "RCMSE",  unit: "",    direction: .higher,      extract: { $0.rcmse.map(Double.init) },   format: f2,                                 beforeKey: \.beforeRCMSE, duringKey: \.duringRCMSE,
+    .init(label: "Adaptive Capacity",   techLabel: "RCMSE",  techFull: "Multiscale Sample Entropy (RCMSE)", unit: "",    direction: .higher,      extract: { $0.rcmse.map(Double.init) },   format: f2,                                 beforeKey: \.beforeRCMSE, duringKey: \.duringRCMSE,
           why: "Adaptive Capacity (Refined Composite Multiscale Entropy) reflects how flexible your system is across timescales. Higher signals a resilient, responsive heart; expect a modest rise with calm focus.",
           warmUp: "about 1½ minutes"),
-    .init(label: "Inner Noise",         techLabel: "PIP",    unit: "%",   direction: .lower,       extract: { $0.pip.map(Double.init) },     format: f1,                                 beforeKey: \.beforePIP,   duringKey: \.duringPIP,
+    .init(label: "Inner Noise",         techLabel: "PIP",    techFull: "Percentage of Inflection Points (PIP)", unit: "%",   direction: .lower,       extract: { $0.pip.map(Double.init) },     format: f1,                                 beforeKey: \.beforePIP,   duringKey: \.duringPIP,
           why: "Inner Noise (Percentage of Inflection Points) captures beat-to-beat jitter — erratic, non-restorative variability. Lower means a cleaner, calmer signal; expect it to fall as you relax.",
           warmUp: "about 30 seconds"),
-    .init(label: "Harmony",             techLabel: "DFA α1", unit: "",    direction: .target(1.0), extract: { $0.dfa1.map(Double.init) },    format: f2,                                 beforeKey: \.beforeDFA1,  duringKey: \.duringDFA1,
+    .init(label: "Harmony",             techLabel: "DFA α1", techFull: "Detrended Fluctuation Analysis (DFA α1)", unit: "",    direction: .target(1.0), extract: { $0.dfa1.map(Double.init) },    format: f2,                                 beforeKey: \.beforeDFA1,  duringKey: \.duringDFA1,
           why: "Harmony (DFA α1) is the fractal balance of your heartbeat, with ~1.0 the healthy sweet spot. Moving toward 1.0 signals well-organised regulation; expect it to approach 1.0 as you relax."),
-    .init(label: "Stress Balance",      techLabel: "LF/HF",  unit: "%",   direction: .lower,       extract: { pt in
+    .init(label: "Stress Balance",      techLabel: "SNS %",  techFull: "100·(1 − RMSSD index) (SNS %)", unit: "%",   direction: .lower,       extract: { pt in
               AutonomicCompute.balance(rmssd: pt.rmssd, lf: pt.lfPower, hf: pt.hfPower,
                                        breathBPM: pt.breathBPM, meanBPM: pt.meanBPM,
                                        baselineRmssd: nil).map { Double($0.sns) * 100 }
           }, format: f1,                                 beforeKey: \.beforeStress, duringKey: \.duringStress,
-          why: "Stress Balance is a breathing-robust 0–100 dial of how revved-up vs calm you are — the same one the Live view shows. Unlike a raw LF/HF ratio it isn’t fooled by slow breathing, so paced breaths correctly read as calmer. Lower means you’re shifting into rest-and-digest; expect it to drop through the session."),
-    .init(label: "Conscious Breathing", techLabel: "RSA",    unit: "ms",  direction: .higher,      extract: { $0.rsaMs.map(Double.init) },   format: { fFloat($0, MetricFormat.ms) },    beforeKey: \.beforeRSA,   duringKey: \.duringRSA,
+          why: "Stress Balance is a breathing-robust 0–100 dial of how revved-up vs calm you are — the same one the Live view shows. It is built from RMSSD against your baseline, so paced breaths correctly read as calmer. Lower means you’re shifting into rest-and-digest; expect it to drop through the session."),
+    .init(label: "Conscious Breathing", techLabel: "RSA",    techFull: "Respiratory Sinus Arrhythmia (RSA)", unit: "ms",  direction: .higher,      extract: { $0.rsaMs.map(Double.init) },   format: { fFloat($0, MetricFormat.ms) },    beforeKey: \.beforeRSA,   duringKey: \.duringRSA,
           why: "Conscious Breathing (Respiratory Sinus Arrhythmia) is the swing of heart rate with each breath — the clearest sign of vagal tone. Higher means slow, deep breathing is landing; expect it to rise with paced diaphragmatic breaths."),
-    .init(label: "Calm Power",          techLabel: "VTI",    unit: "",    direction: .higher,      extract: { $0.vti.map(Double.init) },     format: { fFloat($0, MetricFormat.ratio) }, beforeKey: \.beforeVTI,   duringKey: \.duringVTI,
+    .init(label: "Calm Power",          techLabel: "ln RMSSD", techFull: "natural log of RMSSD (ln RMSSD)", unit: "",    direction: .higher,      extract: { $0.vti.map(Double.init) },     format: { fFloat($0, MetricFormat.ratio) }, beforeKey: \.beforeVTI,   duringKey: \.duringVTI,
           why: "Calm Power (Vagal Tone Index) sums your restorative parasympathetic activity. Higher means a stronger recovery drive; expect it to build as you ease down."),
-    .init(label: "Energy Reserve",      techLabel: "RMSSD",  unit: "ms",  direction: .higher,      extract: { $0.rmssd.map(Double.init) },   format: { fFloat($0, MetricFormat.ms) },    beforeKey: \.beforeRMSSD, duringKey: \.duringRMSSD,
+    .init(label: "Energy Reserve",      techLabel: "RMSSD",  techFull: "Root Mean Square of Successive Differences (RMSSD)", unit: "ms",  direction: .higher,      extract: { $0.rmssd.map(Double.init) },   format: { fFloat($0, MetricFormat.ms) },    beforeKey: \.beforeRMSSD, duringKey: \.duringRMSSD,
           why: "Energy Reserve (RMSSD) is your core beat-to-beat variability — the headline marker of recovery and vagal tone. Higher signals a rested, adaptable system; expect it to rise during restful practice."),
-    .init(label: "Pulse",               techLabel: "HR",     unit: "bpm", direction: .lower,       extract: { $0.meanBPM.map(Double.init) }, format: { fFloat($0, MetricFormat.bpm) },   beforeKey: \.beforeHR,    duringKey: \.duringHR,
+    .init(label: "Pulse",               techLabel: "HR",     techFull: "Heart Rate (HR)", unit: "bpm", direction: .lower,       extract: { $0.meanBPM.map(Double.init) }, format: { fFloat($0, MetricFormat.bpm) },   beforeKey: \.beforeHR,    duringKey: \.duringHR,
           why: "Pulse (Heart Rate) reflects the overall load on your heart. A lower rate during practice means you’re offloading stress and settling; expect it to fall as you relax."),
 ]
 

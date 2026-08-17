@@ -34,9 +34,10 @@ struct TrackMetricChartCard: View {
                     Text(spec.def.label.uppercased())
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.text)
-                    Text(spec.def.techLabel)
+                    Text(spec.def.techFull.isEmpty ? spec.def.techLabel : spec.def.techFull)
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
+                        .lineLimit(2)
                 }
                 deltaChip
                 referenceLegend

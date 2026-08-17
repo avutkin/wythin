@@ -69,7 +69,8 @@ enum TrackMetrics {
         // approximates the classic 24-hour clinical measure — which is why it
         // lives here as a day-level trend and not on the Live screen.
         .init(def: ActivityMetricDef(
-                  label: "Overall Variability", techLabel: "SDNN", unit: "ms",
+                  label: "Overall Variability", techLabel: "SDNN",
+                  techFull: "Standard Deviation of NN intervals (SDNN)", unit: "ms",
                   direction: .higher,
                   extract: { $0.sdnn.map(Double.init) },
                   format: { $0.map { String(format: "%.1f", $0) } ?? "—" },

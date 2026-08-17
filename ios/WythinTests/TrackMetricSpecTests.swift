@@ -135,4 +135,28 @@ final class TrackMetricSpecTests: XCTestCase {
             XCTAssertNotEqual(spec.trendWhy, spec.def.why, "\(spec.def.label) trendWhy was not rewritten")
         }
     }
+
+    /// Names the measure, not a family or a stale alias. Each of these was
+    /// wrong on screen at some point: Energy Reserve said "HRV" (a family,
+    /// not a measure), Calm Power said "VTI" (a historical alias for ln
+    /// RMSSD), and Stress Balance said "LF/HF" — which it has never plotted.
+    func testTechLabelsNameTheActualMeasure() {
+        func def(_ label: String) -> ActivityMetricDef {
+            activityMetricDefs.first { $0.label == label }!
+        }
+        XCTAssertEqual(def("Energy Reserve").techLabel, "RMSSD")
+        XCTAssertEqual(def("Calm Power").techLabel, "ln RMSSD")
+        XCTAssertNotEqual(def("Stress Balance").techLabel, "LF/HF")
+
+        // And every metric spells its measure out somewhere, so an
+        // abbreviation is never the only thing naming it.
+        for d in activityMetricDefs {
+            XCTAssertFalse(d.techFull.isEmpty, "\(d.label) has no spelled-out technical name")
+            XCTAssertTrue(d.techFull.contains("("), "\(d.label) techFull should carry (abbreviation)")
+        }
+        for spec in TrackMetrics.all {
+            XCTAssertFalse(spec.def.techFull.isEmpty, "\(spec.def.label) has no spelled-out name")
+        }
+    }
+
 }
