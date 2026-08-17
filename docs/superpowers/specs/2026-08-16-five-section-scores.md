@@ -10,14 +10,16 @@ How fast the system rose to the load. Basis: HR on-kinetics; trained t½ ≈ 24 
 - `tHalf` = seconds from session start to first sustained crossing of resting + 0.5 × (sessionPeak − resting). Sustained = stays above for ≥60 s.
 - **Score = ramp(tHalf, best 30 s, worst 120 s).**
 - Gates: only workout/mixed class; peak ≥ 40% HRR; a detected monotonic onset ≥2 min (else absent, not estimated).
-- Needs: downsampled HR series stored (`sessionSeriesBlob`, report slice 7). Until then: absent.
+- Needs: downsampled HR series stored (`sessionSeriesBlob`, report slice 7).
+- **Interim 0–100 (ships now, no new fields):** percentile of this session's measured pulse rise (duringHRPeak − beforeHR) against your own workout-class history, same interpolated-percentile machinery as ReadinessScore (≥5 peers). Labeled "how far you mobilized — vs your usual"; upgraded to true speed (tHalf) when the series lands. Below 5 peers: score against the fixed span 15 bpm→0 … 60 bpm→100 so the section is NEVER blank.
 
 ## ② Sustained — NEW score
 How well the body held the work — autonomic stability, not effort volume.
 - **(a) α1 stability (60%)**: compare mean DFA-α1 of the second half vs first half *at matched HR zone minutes*. declinePct = max(0, (α1₁ − α1₂)/α1₁ × 100). Sub = ramp(declinePct, best 0%, worst 25%). Validated: α1 down-drift at constant HR = fatigue/durability marker (EJSS 2024, Gronwald/Rogers 2022). Artifact gate ≥5% suppresses.
 - **(b) Zone–domain agreement (40%)**: fraction of work minutes where the HR zone band and the α1 domain agree (both moderate / both hard). Sub = 100 × fraction. Disagreement = strap, ceiling, or fatigue — a real signal (report §1).
 - **Score = 0.6a + 0.4b**, present only if both computable. Readiness stays OUT (contextualize, don't gate) — shown beside it as "on a 41-readiness day" annotation instead.
-- Needs: series blob + `artifactPct`. Until then: absent.
+- Needs: series blob + `artifactPct` for sub (a).
+- **Interim 0–100 (ships now, no new fields):** sub (b) alone — zone–domain agreement IS computable from stored aggregates: map zones {Z1–3→moderate, Z4→heavy, Z5→severe}, normalize both the zone and domain second-distributions, then agreement = 100 × (1 − ½·Σ|p_zone − p_domain|) (total-variation overlap). Labeled "systems agree"; α1-stability joins at 60% weight when the series lands.
 
 ## ③ Cost — exists, renamed
 `ExerciseSuppression.economyScore`: brakePerBeat anchored 0.04 ms/beat → 100, 0.20 → 0. Non-positive → not scored ("vagal tone held"). No change; the section headline it already has.
@@ -33,6 +35,9 @@ Weighted over PRESENT performance sections only (Ready excluded): **Recovery .40
 
 ## Chart
 SessionTimelineChart gains markers: tHalf point ("mobilized in 41 s"), peak, HRR60 drop bracket at session end, α1 domain band underlay, and the after-window RMSSD vs morning-anchor line.
+
+## Every section always scores
+Owner rule (2026-08-16): each of the five sections carries a 0–100 from day one — no dashes, no "absent until". Interim formulas above guarantee Ready, Mobilized, Sustained, Cost, Recovery all compute from data already on disk; the only remaining blank is a section whose raw inputs truly never existed (no strap), which shows 0 with its reason, not a dash.
 
 ## Order
 1. Recovery rebuild (needs only DailyAnchor join) + overall rewire — ships now.
