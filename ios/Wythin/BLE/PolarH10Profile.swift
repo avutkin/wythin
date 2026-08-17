@@ -26,10 +26,16 @@ enum PolarH10Profile {
     static let batteryLevel  = CBUUID(string: "00002A19-0000-1000-8000-00805F9B34FB")
 
     // MARK: PMD Op Codes
+    //
+    // Verified against a real H10 on 2026-08-16 (raw CP capture in that day's
+    // ble-diag.log): op 0x01 answers with the settings TLVs, op 0x03 on an
+    // idle stream answers ERROR_ALREADY_IN_STATE. These two were swapped for
+    // the app's whole life — every "stop" was a settings query and vice versa,
+    // which is where the intermittent bare-START INVALID_PARAMETER came from.
 
-    static let opStop:       UInt8 = 0x01   // STOP_MEASUREMENT
+    static let opGetSettings:UInt8 = 0x01   // GET_MEASUREMENT_SETTINGS
     static let opStart:      UInt8 = 0x02   // REQUEST_MEASUREMENT_START
-    static let opGetSettings:UInt8 = 0x03   // GET_MEASUREMENT_SETTINGS
+    static let opStop:       UInt8 = 0x03   // STOP_MEASUREMENT
 
     // MARK: PMD Measurement Types
 
@@ -256,6 +262,12 @@ extension PolarH10Profile {
             cmd.append(0x01)                        // 1 selected value
             cmd.append(UInt8(maxVal & 0xFF))
             cmd.append(UInt8(maxVal >> 8))
+        }
+        // A parameterless START is answered with ERROR_INVALID_PARAMETER —
+        // if the settings carried nothing usable, the documented defaults are
+        // the safe command, never the bare opcode.
+        guard cmd.count > 2 else {
+            return measurementType == typeECGMeas ? cmdECGStart : cmdACCStart
         }
         return cmd
     }
