@@ -152,4 +152,59 @@ final class BoxBreathEngineTests: XCTestCase {
         XCTAssertEqual(box.label, "6-6-6-6")
         XCTAssertEqual(BreathPattern.box(beats: 4).label, "4-4-4-4")
     }
+
+    // MARK: Even cadence
+    //
+    // The bridge between the seconds people set and the whole beats the engine
+    // needs. It has to be exact: a cadence that rounds would move the accent off
+    // the phase change, which is the one thing the design guarantees.
+
+    func testAWholeSecondPaceTicksOnceASecond() {
+        let c = EvenCadence(halfSeconds: 12)          // 6 s
+        XCTAssertEqual(c.seconds, 6, accuracy: 0.0001)
+        XCTAssertEqual(c.bpm, 60)
+        XCTAssertEqual(c.beats, 6)
+        XCTAssertEqual(c.label, "6s")
+        XCTAssertEqual(c.breathsPerMinute, 5, accuracy: 0.0001)
+    }
+
+    func testAHalfSecondPaceTicksTwiceASecond() {
+        let c = EvenCadence.resonance                  // 5.5 s
+        XCTAssertEqual(c.seconds, 5.5, accuracy: 0.0001)
+        XCTAssertEqual(c.bpm, 120)
+        XCTAssertEqual(c.beats, 11)
+        XCTAssertEqual(c.label, "5.5s")
+        XCTAssertEqual(c.breathsPerMinute, 60.0 / 11.0, accuracy: 0.0001)
+    }
+
+    /// However the pace is set, beats × beat-length must land exactly on the
+    /// phase, or the accent drifts.
+    func testEveryPaceInRangeResolvesToItsExactPhaseLength() {
+        for half in EvenCadence.range {
+            let c = EvenCadence(halfSeconds: half)
+            let phase = Double(c.beats) * 60.0 / Double(c.bpm)
+            XCTAssertEqual(phase, c.seconds, accuracy: 0.0001,
+                           "\(c.label) resolved to \(c.beats) beats at \(c.bpm) BPM")
+            XCTAssertEqual(c.pattern.inhale, c.pattern.exhale)
+            XCTAssertFalse(c.pattern.hasHolds)
+        }
+    }
+
+    /// The catalog declares beats and a tempo; the pace control needs the
+    /// seconds back out of them. The round trip has to be lossless.
+    func testCadenceRoundTripsThroughBeatsAndTempo() {
+        for half in EvenCadence.range {
+            let c = EvenCadence(halfSeconds: half)
+            XCTAssertEqual(EvenCadence(beats: c.beats, bpm: c.bpm), c)
+        }
+    }
+
+    /// Every pace the control offers must sit inside the engine's own limits.
+    func testThePaceRangeStaysWithinTheEnginesBeatRange() {
+        for half in EvenCadence.range {
+            let c = EvenCadence(halfSeconds: half)
+            XCTAssertTrue((2...16).contains(c.beats), "\(c.label) needs \(c.beats) beats")
+            XCTAssertGreaterThan(c.bpm, 0)
+        }
+    }
 }
