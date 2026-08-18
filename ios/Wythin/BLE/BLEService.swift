@@ -2,6 +2,7 @@ import CoreBluetooth
 import Combine
 import Foundation
 import UserNotifications
+import UIKit
 
 // MARK: - BLE Connection State
 
@@ -102,6 +103,62 @@ enum BLEDiag {
             try? handle.close()
         } else {
             try? line.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+}
+
+// MARK: - Standby Policy (pure, testable)
+//
+// Off-body standby originally leaned on the HR packet's skin-contact bit in
+// both directions — entry got +3 from `contact == false`, exit required
+// `contact == true` outright. Some H10 firmware (C061602F) reports that bit
+// only intermittently, which broke both directions at once: the strap
+// wouldn't pause when taken off and — worse — couldn't wake when put back
+// on. Both gates are now contact-OPTIONAL: the bit remains the authoritative
+// fast path when present, and signal evidence carries the decision when not.
+enum StandbyPolicy {
+    /// Off-body confidence. ≥ 2 ⇒ off-body; ≥ 3 trips the fast (~20 s) path.
+    /// Callers must feed `rrBad`/`ecgPoor` as true for DEAD streams too, not
+    /// only poor-quality ones — no data is worse evidence of wear than bad data.
+    static func offBodyScore(contact: Bool?, ecgPoor: Bool, rrBad: Bool, still: Bool) -> Int {
+        var score = 0
+        if contact == false { score += 3 } else if contact == true { score -= 1 }
+        if ecgPoor { score += 1 }
+        if rrBad   { score += 1 }
+        if still   { score += 1 }
+        return score
+    }
+}
+
+/// Exit gate for standby: worn again? `contact == true` resumes instantly;
+/// with the bit absent, a run of consecutive plausible HR frames (a real BPM
+/// and RR intervals present — off-body beacons deliver neither) is accepted
+/// instead. `contact == false` is authoritative and resets the run.
+struct StandbyResumeGate {
+    /// Consecutive plausible frames required when the contact bit is absent
+    /// (~3 s at the HR characteristic's 1 Hz cadence).
+    static let requiredRun = 3
+    /// Below resting-human range ⇒ off-body beacon frame, not a heartbeat.
+    static let minPlausibleBPM = 30
+
+    private var run = 0
+
+    mutating func step(contact: Bool?, bpm: Int, rrCount: Int) -> Bool {
+        switch contact {
+        case .some(true):
+            run = 0
+            return true
+        case .some(false):
+            run = 0
+            return false
+        case .none:
+            if bpm >= Self.minPlausibleBPM && rrCount > 0 {
+                run += 1
+            } else {
+                run = 0
+            }
+            if run >= Self.requiredRun { run = 0; return true }
+            return false
         }
     }
 }
@@ -321,6 +378,7 @@ final class BLEService: NSObject {
     }
     private(set) var lastACCSampleAt: Date?
     private var lastRRSampleAt:  Date?
+    private var resumeGate = StandbyResumeGate()
     private var lastECGStartCmd: Data?
     /// True once the fast budget has been spent and `lastError` surfaced —
     /// so the slow-retry loop doesn't rewrite it every minute.
@@ -558,6 +616,7 @@ final class BLEService: NSObject {
         guard case .connected = state, let p = peripheral, !inStandby else { return }
         print("🌙 BLE: entering standby — strap off-body (paused in place)")
         inStandby = true
+        resumeGate = StandbyResumeGate()   // fresh run for the wake decision
         connectionTimeoutTask?.cancel()
         reconnectTask?.cancel()
         watchdogTask?.cancel()
@@ -615,6 +674,22 @@ final class BLEService: NSObject {
         connectionTimeoutTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(15))
             guard case .connecting = self.state else { return }
+
+            // In the background a scan is useless — iOS starves filterless
+            // background scans, so the old scan fallback burned its 30 s,
+            // wrote "No Polar H10 found", went idle, and NOTHING was left
+            // armed: the strap could come back all morning and the app never
+            // noticed until foregrounded. Keep the no-timeout pending connect
+            // instead — iOS fulfils it the instant the strap advertises.
+            if UIApplication.shared.applicationState == .background,
+               let p = self.peripheral, !self.userDisconnected {
+                print("⏱️ BLE: connect pending in background — staying armed")
+                BLEDiag.log("CONNECT TIMEOUT bg — pending connect stays armed")
+                self.connectionTimeoutTask = nil
+                self.armPendingConnect(p)
+                return
+            }
+
             print("⏱️ BLE: connection timed out — falling back to scan")
             // Cancel the pending connect without triggering auto-reconnect.
             self.suppressNextDisconnect = true
@@ -1214,7 +1289,13 @@ extension BLEService: CBPeripheralDelegate {
                     // lightweight HR link and resume the moment the strap is worn
                     // again. Don't forward off-body beats into the pipeline.
                     if self.inStandby {
-                        if frame.contact == true { self.resumeFromStandby(name: name) }
+                        // Contact bit when reported; otherwise a run of
+                        // plausible beats — see StandbyResumeGate.
+                        if self.resumeGate.step(contact: frame.contact,
+                                                bpm: frame.bpm,
+                                                rrCount: frame.rrIntervalsMs.count) {
+                            self.resumeFromStandby(name: name)
+                        }
                         return
                     }
                     // Live data means we ARE connected — keep the top-bar indicator

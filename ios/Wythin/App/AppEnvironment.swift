@@ -777,15 +777,15 @@ final class AppEnvironment {
                 // still override a stuck "contact = true" (score reaches 2).
                 accMotion = computeAccMotion()
                 let contact = ble.sensorContact
-                let ecgPoor = tick.ecgQuality?.tier == .poor
-                let rrBad   = (tick.signalQuality ?? 1) < 0.5
+                // DEAD counts as bad, not as absent: when the strap comes off,
+                // quality fields go nil (no data at all), and nil used to read
+                // as "fine" — so an off-body strap with dead streams never
+                // scored a single point and standby never engaged.
+                let ecgPoor = tick.ecgQuality?.tier == .poor || !ble.ecgStreamLive
+                let rrBad   = (tick.signalQuality ?? 0) < 0.5
                 let still   = accMotion.map { $0 < self.accStillnessThreshold } ?? false
-
-                var score = 0
-                if contact == false { score += 3 } else if contact == true { score -= 1 }
-                if ecgPoor { score += 1 }
-                if rrBad   { score += 1 }
-                if still   { score += 1 }
+                let score   = StandbyPolicy.offBodyScore(
+                    contact: contact, ecgPoor: ecgPoor, rrBad: rrBad, still: still)
 
                 if score >= 2 {
                     let since = offBodySince ?? Date()

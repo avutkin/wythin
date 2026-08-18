@@ -286,6 +286,59 @@ final class BLETests: XCTestCase {
         XCTAssertEqual(cmd, PolarH10Profile.cmdACCStart)
     }
 
+    // MARK: - Standby policy (contact bit optional in BOTH directions)
+
+    func testOffBodyScoreContactAuthoritative() {
+        XCTAssertEqual(StandbyPolicy.offBodyScore(
+            contact: false, ecgPoor: false, rrBad: false, still: false), 3,
+            "contact=false alone trips the fast path")
+        XCTAssertEqual(StandbyPolicy.offBodyScore(
+            contact: true, ecgPoor: true, rrBad: true, still: true), 2,
+            "a stuck contact=true dampens but cannot veto three signal cues")
+    }
+
+    func testOffBodyScoreWorksWithoutContactBit() {
+        // The C061602F case: no contact bit ever. Signal cues alone must reach
+        // the threshold, including when streams are DEAD (nil quality), not
+        // merely poor.
+        XCTAssertEqual(StandbyPolicy.offBodyScore(
+            contact: nil, ecgPoor: true, rrBad: true, still: true), 3)
+        XCTAssertEqual(StandbyPolicy.offBodyScore(
+            contact: nil, ecgPoor: false, rrBad: false, still: true), 1,
+            "stillness alone must never trip standby")
+    }
+
+    func testResumeGateContactFastPath() {
+        var gate = StandbyResumeGate()
+        XCTAssertTrue(gate.step(contact: true, bpm: 62, rrCount: 1))
+    }
+
+    func testResumeGateNeedsARunOfPlausibleFramesWithoutContact() {
+        // Contact bit absent: three consecutive plausible HR frames (real bpm
+        // AND RR intervals present) prove the strap is worn.
+        var gate = StandbyResumeGate()
+        XCTAssertFalse(gate.step(contact: nil, bpm: 64, rrCount: 1))
+        XCTAssertFalse(gate.step(contact: nil, bpm: 66, rrCount: 2))
+        XCTAssertTrue (gate.step(contact: nil, bpm: 65, rrCount: 1))
+    }
+
+    func testResumeGateImplausibleFrameResetsTheRun() {
+        var gate = StandbyResumeGate()
+        _ = gate.step(contact: nil, bpm: 64, rrCount: 1)
+        _ = gate.step(contact: nil, bpm: 0,  rrCount: 0)   // off-body beacon frame
+        _ = gate.step(contact: nil, bpm: 64, rrCount: 1)
+        XCTAssertFalse(gate.step(contact: nil, bpm: 65, rrCount: 1),
+                       "run restarted — only two plausible frames since the reset")
+    }
+
+    func testResumeGateExplicitOffBodyNeverResumes() {
+        var gate = StandbyResumeGate()
+        _ = gate.step(contact: false, bpm: 70, rrCount: 2)
+        _ = gate.step(contact: false, bpm: 70, rrCount: 2)
+        XCTAssertFalse(gate.step(contact: false, bpm: 70, rrCount: 2),
+                       "contact=false is authoritative — plausible-looking noise loses")
+    }
+
     // MARK: - Skin contact display (strap may not report the flag)
 
     func testSkinContactLabels() {
