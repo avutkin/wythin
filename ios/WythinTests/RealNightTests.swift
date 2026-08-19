@@ -74,4 +74,51 @@ final class RealNightTests: XCTestCase {
         XCTAssertNotEqual(stage(at: "03:00"), .wake, "mid-night must not read as awake")
         XCTAssertNotEqual(stage(at: "05:45"), .wake, "a brief stir is not a wake bout")
     }
+
+    // MARK: - Onset, breathing, and the duration rule
+
+    func testOnsetIsWhereBreathingSettlesNotWhereHeartRateDips() {
+        // Heart rate alone put onset at 21:25. The trace says otherwise: at
+        // 21:10 motion spikes to 105, at 21:20 heart rate is 118 with breath
+        // at 6.7, and breathing does not settle to a steady 17/min until about
+        // 22:10. Between those, breath swings from 6.7 to 20.1 — the signature
+        // of being awake, which heart rate in the low sixties hides.
+        guard let w = SleepDetector.detect(RealNight.points()) else {
+            return XCTFail("no night found")
+        }
+        XCTAssertGreaterThanOrEqual(hhmm(w.startedAt), "21:55",
+                                    "onset must not land while breathing is still erratic")
+        XCTAssertLessThanOrEqual(hhmm(w.startedAt), "22:30")
+    }
+
+    func testBreathingSteadinessIsMeasuredFromBreathRate() {
+        // "Not measured" was wrong: breath rate has 97% coverage on this
+        // night. What was missing was the derivation, not the signal.
+        guard let w = SleepDetector.detect(RealNight.points()) else { return XCTFail("no night") }
+        let night = RealNight.points().filter { $0.timestamp >= w.startedAt && $0.timestamp <= w.endedAt }
+        let steady = SleepBreathing.steadyFraction(night)
+
+        XCTAssertNotNil(steady, "breath rate is present, so steadiness is computable")
+        XCTAssertGreaterThan(steady ?? 0, 0.5, "a settled night is mostly steady")
+        XCTAssertLessThanOrEqual(steady ?? 2, 1.0)
+    }
+
+    func testLongSleepIsNotPunishedLikeShortSleep() {
+        // 10h 05m against a 7h 45m placeholder scored duration 0 — the same as
+        // sleeping four hours. The research is explicit that short sleep is
+        // causally harmful while long sleep is a marker of illness rather than
+        // a cause, and says in terms: do not tell users that sleeping long is
+        // harmful.
+        var over = SleepScoreInput(regularityIndex: nil, asleepSec: 10.1 * 3600,
+                                   needSec: 7.75 * 3600, wakeBouts: 3,
+                                   longestUnbrokenSec: 3 * 3600, hrNadirDip: 14,
+                                   hrNadirFraction: 0.45, meanRMSSD: 52, steadyFraction: 0.9)
+        let long = SleepScore.compute(over).sections[.duration] ?? 0
+        over.asleepSec = 4 * 3600
+        let short = SleepScore.compute(over).sections[.duration] ?? 100
+
+        XCTAssertGreaterThan(long, 85, "ten hours is not a failure")
+        XCTAssertLessThan(short, 40, "four hours is")
+        XCTAssertGreaterThan(long, short + 40)
+    }
 }

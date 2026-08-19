@@ -54,7 +54,9 @@ enum SleepRecorder {
         log.endedAt = night.endedAt
         log.isManual = false
 
-        apply(stages: SleepStages.classify(nightPoints), to: log, tickSec: tickSeconds(nightPoints))
+        let tick = tickSeconds(nightPoints)
+        apply(stages: SleepStages.classify(nightPoints), to: log, tickSec: tick)
+        apply(detail: SleepStages.detailed(nightPoints), to: log, tickSec: tick)
         let scored = score(night: night, points: nightPoints, existing: existing)
         apply(score: scored, to: log)
         log.sleepRegularity = SleepRegularity.index(of: priorWindows(existing) + [night])
@@ -92,6 +94,17 @@ enum SleepRecorder {
         log.sleepAsleepMinutes = asleep
         log.sleepStageSummary = "\(hm(minutes(.quiet))) quiet · "
             + "\(hm(minutes(.active))) active · \(hm(minutes(.wake))) awake"
+    }
+
+    private static func apply(detail: [SleepStageDetail], to log: ActivityLog, tickSec: Double) {
+        guard !detail.isEmpty else { return }
+        func minutes(_ s: SleepStageDetail) -> Int {
+            Int((Double(detail.filter { $0 == s }.count) * tickSec / 60).rounded())
+        }
+        log.sleepDeepMinutes = minutes(.deep)
+        log.sleepLightMinutes = minutes(.light)
+        log.sleepREMMinutes = minutes(.rem)
+        log.sleepAwakeMinutes = minutes(.wake)
     }
 
     private static func score(night: SleepWindow,
@@ -140,7 +153,7 @@ enum SleepRecorder {
             hrNadirDip: dip,
             hrNadirFraction: nadirAt,
             meanRMSSD: rmssds.isEmpty ? nil : rmssds.reduce(0, +) / Float(rmssds.count),
-            steadyFraction: nil    // needs the respiratory-effort channel — not yet
+            steadyFraction: SleepBreathing.steadyFraction(points)
         )
         return SleepScore.compute(input)
     }

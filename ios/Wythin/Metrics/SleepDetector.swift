@@ -47,6 +47,11 @@ enum SleepThresholds {
     static let nightSearchSpanSec: Double = 11 * 3600
     /// How far the window slides each step.
     static let nightSearchStepSec: Double = 30 * 60
+    /// Breath-rate spread, as a multiple of this recording's own median spread,
+    /// above which breathing reads as unsettled. Awake breathing on a measured
+    /// night swings several times the asleep spread, so the separation is
+    /// generous.
+    static let unsettledBreathMultiple: Float = 2.5
     /// Shortest run that can stand as its own stage. Sleep changes state on
     /// the scale of minutes; anything briefer is a turn or a dropped estimate,
     /// and leaving it in inflates every count derived from the hypnogram.

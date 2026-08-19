@@ -270,6 +270,8 @@
 		A773 /* RealNightFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F773 /* RealNightFixture.swift */; };
 		A774 /* RealNightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F774 /* RealNightTests.swift */; };
 		A775 /* SleepMontageChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = F775 /* SleepMontageChart.swift */; };
+		A776 /* SleepDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F776 /* SleepDetailView.swift */; };
+		A777 /* SleepBreathing.swift in Sources */ = {isa = PBXBuildFile; fileRef = F777 /* SleepBreathing.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -549,6 +551,8 @@
 		F773 /* RealNightFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealNightFixture.swift; sourceTree = "<group>"; };
 		F774 /* RealNightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealNightTests.swift; sourceTree = "<group>"; };
 		F775 /* SleepMontageChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepMontageChart.swift; sourceTree = "<group>"; };
+		F776 /* SleepDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepDetailView.swift; sourceTree = "<group>"; };
+		F777 /* SleepBreathing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepBreathing.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -588,6 +592,7 @@
 		GAPP_ACT /* Activities */ = {
 			isa = PBXGroup;
 			children = (
+				F776 /* SleepDetailView.swift */,
 				F775 /* SleepMontageChart.swift */,
 				F772 /* SleepLogRow.swift */,
 				F137 /* ActivitiesView.swift */,
@@ -693,6 +698,7 @@
 		GAPP_MET /* Metrics */ = {
 			isa = PBXGroup;
 			children = (
+				F777 /* SleepBreathing.swift */,
 				F771 /* SleepRecorder.swift */,
 				F761 /* SleepSessionizer.swift */,
 				F707 /* SleepScore.swift */,
@@ -1077,6 +1083,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A777 /* SleepBreathing.swift in Sources */,
+				A776 /* SleepDetailView.swift in Sources */,
 				A775 /* SleepMontageChart.swift in Sources */,
 				A772 /* SleepLogRow.swift in Sources */,
 				A771 /* SleepRecorder.swift in Sources */,

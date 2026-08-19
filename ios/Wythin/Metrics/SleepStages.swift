@@ -36,9 +36,14 @@ enum SleepStages {
 
     static func classify(_ points: [MetricsHistoryPoint]) -> [SleepStage] {
         let base = Baseline(points)
-        let raw = points.map { p -> SleepStage in
-            if isWake(p, base) { return .wake }
-            return quietVotes(p, base) >= 2 ? .quiet : .active
+        // Unsettled breathing is the third wake cue, and on a real night it is
+        // the decisive one: heart rate sat in the low sixties for three
+        // quarters of an hour after this person stopped being awake, while
+        // breath rate was still swinging between 6.7 and 20.1.
+        let unsettled = SleepBreathing.unsettled(points)
+        let raw = points.indices.map { i -> SleepStage in
+            if isWake(points[i], base) || unsettled[i] { return .wake }
+            return quietVotes(points[i], base) >= 2 ? .quiet : .active
         }
         return smooth(raw, points: points)
     }

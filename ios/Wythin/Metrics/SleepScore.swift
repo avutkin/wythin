@@ -81,8 +81,18 @@ struct SleepScore {
             sections[.timing] = round(ramp(Double(sri), worst: 55, best: 90))
         }
         if let asleep = input.asleepSec {
-            let deficit = abs(asleep - input.needSec)
-            sections[.duration] = round(ramp(-deficit, worst: -(120 * 60), best: 0))
+            // Asymmetric, deliberately. Symmetric scoring punished ten hours
+            // exactly as hard as four, and the evidence does not support that:
+            // short sleep is causally harmful and dose-dependent, while the
+            // long-sleep hazard is not supported by Mendelian randomisation,
+            // largely disappears under accelerometry, and reads as a marker of
+            // illness rather than a cause. The research says it plainly — do
+            // not tell users that sleeping long is harmful.
+            //
+            // So the score climbs to the need and then holds. Sleeping more
+            // than you need is not a failure to report.
+            let shortfall = max(0, input.needSec - asleep)
+            sections[.duration] = round(ramp(-shortfall, worst: -(150 * 60), best: 0))
         }
         if let longest = input.longestUnbrokenSec, let bouts = input.wakeBouts {
             let stretch = ramp(longest, worst: 45 * 60, best: 180 * 60)

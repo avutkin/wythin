@@ -23,12 +23,12 @@ struct SleepMontageChart: View {
 
     private struct StageRun: Identifiable {
         let id = UUID()
-        let stage: SleepStage
+        let stage: SleepStageDetail
         let from: Date
         let to: Date
     }
 
-    private var stages: [SleepStage] { SleepStages.classify(points) }
+    private var stages: [SleepStageDetail] { SleepStages.detailed(points) }
 
     /// Contiguous runs, so the ribbon draws one rectangle per stretch rather
     /// than one per tick.
@@ -50,21 +50,23 @@ struct SleepMontageChart: View {
 
     /// Awake on top, then increasing depth downward — the convention every
     /// hypnogram uses, and the one that makes the staircase readable.
-    private func lane(_ stage: SleepStage) -> Double {
+    private func lane(_ stage: SleepStageDetail) -> Double {
         switch stage {
-        case .wake:   return 2
-        case .active: return 1
-        case .quiet:  return 0
+        case .wake:  return 3
+        case .rem:   return 2
+        case .light: return 1
+        case .deep:  return 0
         }
     }
 
-    private func colour(_ stage: SleepStage) -> Color {
+    private func colour(_ stage: SleepStageDetail) -> Color {
         switch stage {
         // Wake is not a depth, so it takes a neutral rather than a rung on the
-        // same colour ramp as the two sleep states.
-        case .wake:   return Theme.dim.opacity(0.55)
-        case .active: return ActivityType.sleep.color.opacity(0.55)
-        case .quiet:  return ActivityType.sleep.color
+        // same ramp as the three sleep stages.
+        case .wake:  return Theme.dim.opacity(0.55)
+        case .rem:   return ActivityType.sleep.color.opacity(0.35)
+        case .light: return ActivityType.sleep.color.opacity(0.62)
+        case .deep:  return ActivityType.sleep.color
         }
     }
 
@@ -100,12 +102,12 @@ struct SleepMontageChart: View {
                 )
                 .foregroundStyle(colour(run.stage))
             }
-            .chartYScale(domain: 0...3)
+            .chartYScale(domain: 0...4)
             .chartXScale(domain: startedAt...endedAt)
             .chartYAxis {
-                AxisMarks(values: [0.5, 1.5, 2.5]) { v in
+                AxisMarks(values: [0.5, 1.5, 2.5, 3.5]) { v in
                     AxisValueLabel {
-                        Text(["QUIET", "ACTIVE", "AWAKE"][Int((v.as(Double.self) ?? 0.5) - 0.5)])
+                        Text(["DEEP", "LIGHT", "REM", "AWAKE"][Int((v.as(Double.self) ?? 0.5) - 0.5)])
                             .font(.system(size: 8, design: .monospaced))
                             .foregroundStyle(Theme.dim)
                     }
@@ -113,7 +115,7 @@ struct SleepMontageChart: View {
                 }
             }
             .chartXAxis(.hidden)
-            .frame(height: 86)
+            .frame(height: 104)
         }
     }
 
@@ -190,7 +192,7 @@ struct SleepMontageChart: View {
 
     private var legend: some View {
         HStack(spacing: 14) {
-            ForEach([SleepStage.wake, .active, .quiet], id: \.self) { s in
+            ForEach([SleepStageDetail.deep, .light, .rem, .wake], id: \.self) { s in
                 HStack(spacing: 5) {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(colour(s))
