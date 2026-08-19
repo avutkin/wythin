@@ -207,6 +207,14 @@ final class ActivityLog {
     var sleepAutonomic: Int?
     var sleepBreathing: Int?
 
+    /// Four-stage minutes. Stored so the row and detail can show them without
+    /// re-deriving, and kept separate from the coarse three-state summary the
+    /// SCORE is built on — the score does not use these, deliberately.
+    var sleepDeepMinutes: Int?
+    var sleepLightMinutes: Int?
+    var sleepREMMinutes: Int?
+    var sleepAwakeMinutes: Int?
+
     // MARK: Exercise response
     //
     // Written by `computeExerciseResponse` for activating entries only, and

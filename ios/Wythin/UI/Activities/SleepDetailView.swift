@@ -34,7 +34,9 @@ struct SleepDetailView: View {
             VStack(alignment: .leading, spacing: 22) {
                 hero
                 if entry.sleepScore != nil { arithmetic }
+                stageBreakdown
                 sections
+                if !points.isEmpty { nightMetrics }
                 if !points.isEmpty, let end = entry.endedAt {
                     card("THE NIGHT, CHANNEL BY CHANNEL") {
                         SleepMontageChart(points: points,
@@ -85,6 +87,85 @@ struct SleepDetailView: View {
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(Theme.dim)
                     .padding(.top, 2)
+            }
+        }
+    }
+
+    /// Four stages, with the caveat attached rather than in a footnote.
+    private var stageBreakdown: some View {
+        let rows: [(String, Int?)] = [
+            ("Deep", entry.sleepDeepMinutes),
+            ("Light", entry.sleepLightMinutes),
+            ("REM", entry.sleepREMMinutes),
+            ("Awake", entry.sleepAwakeMinutes),
+        ]
+        let asleep = (entry.sleepDeepMinutes ?? 0) + (entry.sleepLightMinutes ?? 0) + (entry.sleepREMMinutes ?? 0)
+        return card("STAGES") {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(rows, id: \.0) { name, mins in
+                    HStack(spacing: 10) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(stageColour(name))
+                            .frame(width: 12, height: 8)
+                        Text(name)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.text)
+                            .frame(width: 52, alignment: .leading)
+                        Text(mins.map(hm) ?? "—")
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(Theme.text)
+                        if let m = mins, asleep > 0, name != "Awake" {
+                            Text("\(Int(round(Double(m) / Double(asleep) * 100)))%")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(Theme.dim)
+                        }
+                        Spacer()
+                    }
+                }
+                Text("Four stages are shown because it is the vocabulary everyone knows, but the score is built on three. Consumer four-stage agreement with sleep-lab scoring runs κ 0.21–0.53, and light-versus-deep is the boundary a chest strap places worst. N1 is folded into light: it is about 5% of a night and human scorers agree on it at κ 0.24. The ordering here is measured; the totals are cut at typical adult shares, so read the shape rather than the minutes.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.dim)
+            }
+        }
+    }
+
+    private func stageColour(_ name: String) -> Color {
+        switch name {
+        case "Deep":  return ActivityType.sleep.color
+        case "Light": return ActivityType.sleep.color.opacity(0.62)
+        case "REM":   return ActivityType.sleep.color.opacity(0.35)
+        default:      return Theme.dim.opacity(0.5)
+        }
+    }
+
+    /// The nine metrics as night averages — the values, without the
+    /// during-versus-before framing that does not apply to a night.
+    private var nightMetrics: some View {
+        card("NIGHT AVERAGES") {
+            VStack(spacing: 0) {
+                ForEach(activityMetricDefs, id: \.id) { def in
+                    let values = points.compactMap { def.extract($0) }
+                    HStack {
+                        Text(def.label)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.text)
+                        Text(def.techLabel)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(Theme.dim)
+                        Spacer()
+                        Text(values.isEmpty
+                             ? "—"
+                             : def.format(values.reduce(0, +) / Double(values.count)) + " " + def.unit)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(Theme.text)
+                    }
+                    .padding(.vertical, 6)
+                    Divider().opacity(0.2)
+                }
+                Text("Averages across the night. No before-versus-during uplift: a night's \"before\" is the five minutes you were still awake, which makes every number look like a triumph.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.dim)
+                    .padding(.top, 8)
             }
         }
     }
@@ -184,10 +265,10 @@ struct SleepDetailView: View {
                 .tracking(0.8)
             Text("Three states, not four. The light/deep boundary is the one a cardiac signal places worst, so it is not claimed. Wake is the least reliable channel any wearable has — treat the awake minutes as approximate.")
                 .font(.system(size: 11))
-            if entry.sleepBreathing == nil {
-                Text("Breathing steadiness needs the respiratory-effort channel from the chest accelerometer, which is not built yet — so that section is absent rather than scored.")
-                    .font(.system(size: 11))
-            }
+            Text("Breathing steadiness comes from how tightly your breath rate holds its own rhythm, measured on a rolling five-minute window. It is not an apnea index and carries no event rate.")
+                .font(.system(size: 11))
+            Text("Body position is not shown. It needs the three accelerometer axes to read the gravity vector, and only a single motion magnitude is stored — so supine-versus-side cannot be recovered from what is on disk. It is a storage change, not a sensor one.")
+                .font(.system(size: 11))
         }
         .foregroundStyle(Theme.dim)
     }

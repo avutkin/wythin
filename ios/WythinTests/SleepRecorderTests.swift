@@ -128,18 +128,40 @@ final class SleepRecorderTests: XCTestCase {
         XCTAssertEqual(names, ["Timing", "Duration", "Continuity", "Autonomic", "Breathing"])
     }
 
-    func testBreathingSectionIsHonestlyAbsentNotZero() {
-        // Steadiness needs the respiratory-effort channel, which is not built.
-        // Reporting 0 would read as "your breathing was terrible" rather than
-        // "we did not measure it".
+    func testBreathingIsMeasuredWhenBreathRateExists() {
+        // This section used to report "not measured" on the grounds that
+        // steadiness needs a respiratory-effort waveform. Breath rate has 97%
+        // coverage on a real night, and its variability is the single best
+        // wake/sleep discriminator in that recording — the signal was there
+        // all along, only the derivation was missing.
         let ctx = ModelContext(container)
         insertNight(into: ctx)
         SleepRecorder.recordIfDue(context: ctx, now: at(21, 8))
         guard let night = sleepLogs(ctx).first else { return XCTFail("no night") }
 
-        let breathing = night.indexSlots.first { $0.name == "Breathing" }
-        XCTAssertNil(breathing?.index, "absent, not zero")
-        XCTAssertNotEqual(night.sleepBreathing, 0)
+        XCTAssertNotNil(night.sleepBreathing, "breath rate was recorded, so steadiness is derivable")
+    }
+
+    func testASectionWithNoInputStaysAbsentRatherThanZero() {
+        // The principle the previous test was protecting, on a case where the
+        // input genuinely is missing. Zero would read as "your breathing was
+        // terrible"; absent reads as "we did not measure it".
+        let ctx = ModelContext(container)
+        let start = at(20, 23, 10)
+        for i in 0..<Int(7.5 * 3600 / 30) {
+            let f = Double(i) / (7.5 * 120)
+            let bowl = exp(-pow(f - 0.45, 2) / (2 * 0.11))
+            ctx.insert(HRVSample(anchorTestTimestamp: start.addingTimeInterval(Double(i) * 30),
+                                 meanBPM: Float(62 - 14 * bowl),
+                                 vti: 3.9, rmssd: 49, sdnn: 58, dc: 8, pip: 45, dfa1: 1.0,
+                                 breathBPM: nil, motion: 6,
+                                 signalQuality: 0.97, rrInvalidRate: 0.01, ecgQualityTier: 2))
+        }
+        SleepRecorder.recordIfDue(context: ctx, now: at(21, 8))
+        guard let night = sleepLogs(ctx).first else { return XCTFail("no night") }
+
+        XCTAssertNil(night.sleepBreathing)
+        XCTAssertNil(night.indexSlots.first { $0.name == "Breathing" }?.index)
     }
 
     func testNightDoesNotGetARestorativePracticeScore() {
