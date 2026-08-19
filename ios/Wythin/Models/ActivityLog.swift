@@ -216,6 +216,8 @@ final class ActivityLog {
     var sleepAwakeMinutes: Int?
     /// N1 — transitional, marked by position beside wake rather than measured.
     var sleepN1Minutes: Int?
+    /// Which version of the sleep pipeline wrote this. Stale rows are rebuilt.
+    var sleepAlgorithmVersion: Int?
 
     // MARK: Exercise response
     //

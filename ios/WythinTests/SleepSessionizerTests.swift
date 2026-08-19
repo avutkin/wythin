@@ -68,13 +68,33 @@ final class SleepSessionizerTests: XCTestCase {
         XCTAssertNil(again, "already written — the poll must be idempotent")
     }
 
-    func testIgnoresNightsOlderThanTheLookback() {
-        // Stale history from a week ago must not suddenly appear as "last
-        // night" the first time the detector runs.
+    func testRecordsNightsInsideTheLookbackSoRegularityHasHistory() {
+        // Backfill is deliberate. Regularity is a comparison between days and
+        // needs at least two, so recording only the most recent night leaves
+        // Timing permanently absent on a fresh install while weeks of samples
+        // sit unused. A night from eleven days ago is inside the window and
+        // should be recorded.
         let old = points(fromHour: 23, fromMinute: 10, hours: 7.5, day: 10)
-        XCTAssertNil(SleepSessionizer.nightToRecord(from: old,
-                                                     now: at(21, 8),
-                                                     recordedDays: []))
+        XCTAssertNotNil(SleepSessionizer.nightToRecord(from: old,
+                                                       now: at(21, 8),
+                                                       recordedDays: []))
+    }
+
+    func testIgnoresNightsBeyondTheLookback() {
+        // There is still a horizon: a night from months back is not history
+        // worth surfacing, and it would drag the regularity window with it.
+        var comps = DateComponents(year: 2026, month: 4, day: 3)
+        comps.hour = 23
+        let start = Calendar.current.date(from: comps)!
+        let ancient = (0..<Int(7.5 * 120)).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(Double(i) * 30),
+                                meanBPM: 52, vti: 3.9, dc: 8, pip: 45, dfa1: 1.0,
+                                breathBPM: 13, motion: 6,
+                                signalQuality: 0.97, rrInvalidRate: 0.01, ecgQualityTier: 2)
+        }
+        XCTAssertNil(SleepSessionizer.nightToRecord(from: ancient,
+                                                    now: at(21, 8),
+                                                    recordedDays: []))
     }
 
     func testWaitsOutABriefWakeBeforeSealing() {

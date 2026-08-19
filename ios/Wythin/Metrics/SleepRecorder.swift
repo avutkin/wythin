@@ -34,17 +34,48 @@ enum SleepRecorder {
             print("❌ SleepRecorder: activity fetch — \(error)")
             return
         }
+        // A night written by an older pipeline is deleted so it can be rebuilt.
+        // Leaving it would show numbers from an algorithm that no longer exists,
+        // with every field the old version never wrote rendering as a dash.
+        let sleepLogs = existing.filter { $0.activityType == ActivityType.sleep.rawValue }
+        for stale in sleepLogs
+        where (stale.sleepAlgorithmVersion ?? 0) < SleepThresholds.algorithmVersion {
+            context.delete(stale)
+        }
+        let current = sleepLogs.filter {
+            ($0.sleepAlgorithmVersion ?? 0) >= SleepThresholds.algorithmVersion
+        }
         let recordedDays = Set(
-            existing
-                .filter { $0.activityType == ActivityType.sleep.rawValue }
-                .compactMap { $0.endedAt.map { Calendar.current.startOfDay(for: $0) } }
+            current.compactMap { $0.endedAt.map { Calendar.current.startOfDay(for: $0) } }
         )
 
-        guard let night = SleepSessionizer.nightToRecord(from: points,
-                                                         now: now,
-                                                         recordedDays: recordedDays)
-        else { return }
+        // Every unrecorded night in the window, not just the most recent.
+        //
+        // Regularity is a comparison between days and needs at least two, so
+        // recording one night at a time leaves the Timing section permanently
+        // absent on a fresh install — while weeks of samples sit in the store
+        // unused. Each pass records the best remaining night and then looks
+        // again, so a first run backfills the history in one go.
+        // Accumulated as we go, so each night's regularity index sees the ones
+        // written moments earlier in the same pass — otherwise a first run
+        // backfills three weeks and every single night still reports "needs a
+        // second night".
+        var written: [ActivityLog] = []
+        for night in SleepSessionizer.nightsToRecord(from: points,
+                                                     now: now,
+                                                     recordedDays: recordedDays)
+        where written.count < SleepThresholds.maxNightsPerPass {
+            written.append(record(night, from: points,
+                                  existing: current + written, context: context))
+        }
+        if !written.isEmpty { try? context.save() }
+    }
 
+    @discardableResult
+    private static func record(_ night: SleepWindow,
+                               from points: [MetricsHistoryPoint],
+                               existing: [ActivityLog],
+                               context: ModelContext) -> ActivityLog {
         let nightPoints = points.filter {
             $0.timestamp >= night.startedAt && $0.timestamp <= night.endedAt
         }
@@ -53,10 +84,11 @@ enum SleepRecorder {
                               startedAt: night.startedAt)
         log.endedAt = night.endedAt
         log.isManual = false
+        log.sleepAlgorithmVersion = SleepThresholds.algorithmVersion
 
         let tick = tickSeconds(nightPoints)
-        apply(stages: SleepStages.classify(nightPoints), to: log, tickSec: tick)
-        apply(detail: SleepStages.detailed(nightPoints), to: log, tickSec: tick)
+        apply(stages: SleepStages.classify(nightPoints), to: log, points: nightPoints, tickSec: tick)
+        apply(detail: SleepStages.detailed(nightPoints), to: log, points: nightPoints, tickSec: tick)
         let scored = score(night: night, points: nightPoints, existing: existing)
         apply(score: scored, to: log)
         log.sleepRegularity = SleepRegularity.index(of: priorWindows(existing) + [night])
@@ -64,13 +96,34 @@ enum SleepRecorder {
         context.insert(log)
         // Window averages last: it queries the store, so the log must be in it.
         log.computeHRVWindows(context: context)
-        try? context.save()
+        return log
     }
 
     private static func priorWindows(_ existing: [ActivityLog]) -> [SleepWindow] {
         existing
             .filter { $0.activityType == ActivityType.sleep.rawValue }
             .compactMap { log in log.endedAt.map { SleepWindow(startedAt: log.startedAt, endedAt: $0) } }
+    }
+
+    /// Elapsed seconds covered by the ticks where `mask` is true.
+    ///
+    /// Counting samples and multiplying by a median interval overcounts badly
+    /// when the cadence changes: a night that is mostly 30 s background ticks
+    /// with a stretch of 2 s foreground ones has fifteen times the samples per
+    /// minute in that stretch. On a real record that put quiet + active + awake
+    /// at 10 h 55 m inside a 10 h 10 m window — 45 minutes of sleep that never
+    /// happened. Each tick is worth the gap to the next one instead, capped so
+    /// a recording hole is not credited as sleep.
+    static func seconds(where mask: [Bool], points: [MetricsHistoryPoint]) -> Double {
+        guard mask.count == points.count, points.count > 1 else { return 0 }
+        var total: Double = 0
+        for i in points.indices where mask[i] {
+            let next = i + 1 < points.count
+                ? points[i + 1].timestamp.timeIntervalSince(points[i].timestamp)
+                : points[i].timestamp.timeIntervalSince(points[i - 1].timestamp)
+            total += min(max(next, 0), SleepThresholds.maxTickCreditSec)
+        }
+        return total
     }
 
     // MARK: - Pieces
@@ -83,10 +136,11 @@ enum SleepRecorder {
         return deltas[deltas.count / 2]
     }
 
-    private static func apply(stages: [SleepStage], to log: ActivityLog, tickSec: Double) {
+    private static func apply(stages: [SleepStage], to log: ActivityLog,
+                              points: [MetricsHistoryPoint], tickSec: Double) {
         guard !stages.isEmpty else { return }
         func minutes(_ s: SleepStage) -> Int {
-            Int((Double(stages.filter { $0 == s }.count) * tickSec / 60).rounded())
+            Int((SleepRecorder.seconds(where: stages.map { $0 == s }, points: points) / 60).rounded())
         }
         func hm(_ m: Int) -> String { "\(m / 60)h \(String(format: "%02d", m % 60))m" }
 
@@ -96,10 +150,11 @@ enum SleepRecorder {
             + "\(hm(minutes(.active))) active · \(hm(minutes(.wake))) awake"
     }
 
-    private static func apply(detail: [SleepStageDetail], to log: ActivityLog, tickSec: Double) {
+    private static func apply(detail: [SleepStageDetail], to log: ActivityLog,
+                              points: [MetricsHistoryPoint], tickSec: Double) {
         guard !detail.isEmpty else { return }
         func minutes(_ s: SleepStageDetail) -> Int {
-            Int((Double(detail.filter { $0 == s }.count) * tickSec / 60).rounded())
+            Int((SleepRecorder.seconds(where: detail.map { $0 == s }, points: points) / 60).rounded())
         }
         log.sleepDeepMinutes = minutes(.n3)
         log.sleepLightMinutes = minutes(.n2)
@@ -138,7 +193,7 @@ enum SleepRecorder {
             if s == .wake { run = 0 } else { run += 1; longest = max(longest, run) }
         }
 
-        let asleepSec = Double(stages.filter { $0 != .wake }.count) * tick
+        let asleepSec = seconds(where: stages.map { $0 != .wake }, points: points)
 
         // Regularity over this night plus the nights already recorded.
         let priorWindows: [SleepWindow] = existing

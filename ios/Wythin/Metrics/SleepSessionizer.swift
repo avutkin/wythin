@@ -22,6 +22,18 @@ enum SleepSessionizer {
     ///   - points: recent tick history, oldest first or not, it is sorted.
     ///   - now: the clock, injected so this stays pure and testable.
     ///   - recordedDays: `SleepWindow.day` for nights already stored.
+    /// Every finished, unrecorded night in the window, oldest first.
+    static func nightsToRecord(from points: [MetricsHistoryPoint],
+                               now: Date,
+                               recordedDays: Set<Date>) -> [SleepWindow] {
+        let horizon = now.addingTimeInterval(-SleepThresholds.lookbackSec)
+        let recent = points.filter { $0.timestamp >= horizon }
+        return SleepDetector.detectAll(recent)
+            .filter { now.timeIntervalSince($0.endedAt) >= SleepThresholds.settleSec }
+            .filter { !recordedDays.contains($0.day) }
+            .sorted { $0.startedAt < $1.startedAt }
+    }
+
     static func nightToRecord(from points: [MetricsHistoryPoint],
                               now: Date,
                               recordedDays: Set<Date>) -> SleepWindow? {

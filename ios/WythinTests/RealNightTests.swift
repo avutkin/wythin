@@ -99,7 +99,9 @@ final class RealNightTests: XCTestCase {
         let steady = SleepBreathing.steadyFraction(night)
 
         XCTAssertNotNil(steady, "breath rate is present, so steadiness is computable")
-        XCTAssertGreaterThan(steady ?? 0, 0.5, "a settled night is mostly steady")
+        // 0.6 rather than a guess: a settled night on this hardware measures
+        // about 76% steady at the calibrated threshold.
+        XCTAssertGreaterThan(steady ?? 0, 0.6, "a settled night is mostly steady")
         XCTAssertLessThanOrEqual(steady ?? 2, 1.0)
     }
 
@@ -120,5 +122,31 @@ final class RealNightTests: XCTestCase {
         XCTAssertGreaterThan(long, 85, "ten hours is not a failure")
         XCTAssertLessThan(short, 40, "four hours is")
         XCTAssertGreaterThan(long, short + 40)
+    }
+
+    func testDaytimeQuietIsNotRecordedAsANight() {
+        // On days the strap was not worn overnight the search still returns the
+        // quietest stretch in the slice. Against the real store that produced
+        // entries like 06:45–11:44 and 17:00–21:12 — genuine quiet periods, but
+        // a lie-in and an evening on the sofa, not nights.
+        let cal = Calendar.current
+        var comps = DateComponents(year: 2026, month: 8, day: 18)
+        comps.hour = 17
+        let start = cal.date(from: comps)!
+        let evening = (0..<Int(4.5 * 120)).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(Double(i) * 30),
+                                meanBPM: 58, vti: 3.9, dc: 8, pip: 45, dfa1: 1.0,
+                                breathBPM: 14, motion: 5,
+                                signalQuality: 0.97, rrInvalidRate: 0.01, ecgQualityTier: 2)
+        }
+        XCTAssertTrue(SleepDetector.detectAll(evening).isEmpty,
+                      "17:00–21:30 misses the circadian trough entirely")
+    }
+
+    func testTheRealNightStillSurvivesTheTroughGate() {
+        let nights = SleepDetector.detectAll(RealNight.points())
+        XCTAssertEqual(nights.count, 1)
+        XCTAssertGreaterThanOrEqual(hhmm(nights[0].startedAt), "21:55")
+        XCTAssertLessThanOrEqual(hhmm(nights[0].startedAt), "22:30")
     }
 }

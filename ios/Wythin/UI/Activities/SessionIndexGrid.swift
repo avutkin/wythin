@@ -148,6 +148,11 @@ extension IndexBand: Hashable {}
 struct SessionIndexSlotGrid: View {
 
     let slots: [(name: String, index: ScoredIndex?, whenEmpty: String)]
+    /// What an absent section shows. The exercise grid deliberately prints 0 —
+    /// every section carries a number from day one there. A night is different:
+    /// "Breathing 0" reads as a verdict on your breathing, not as "we could not
+    /// measure it", and it drags the eye to the worst-looking tile on the card.
+    var absentValue: String = "0"
     let doses: [UngradedDose]
 
     private let columns = [GridItem(.flexible(), spacing: 6),
@@ -164,7 +169,7 @@ struct SessionIndexSlotGrid: View {
                                  tint: index.band.tint, verdict: index.verdict,
                                  detail: index.detail, fill: index.value)
                     } else {
-                        SlotCell(name: slot.name, value: "0", tint: Theme.dim,
+                        SlotCell(name: slot.name, value: absentValue, tint: Theme.dim,
                                  verdict: slot.whenEmpty, detail: "", fill: 0)
                     }
                 }

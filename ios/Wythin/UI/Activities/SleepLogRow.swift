@@ -88,7 +88,7 @@ struct SleepLogRow: View {
             }
 
             // ── the five sections, absent ones shown as absent ────────
-            SessionIndexSlotGrid(slots: entry.indexSlots, doses: [])
+            SessionIndexSlotGrid(slots: entry.indexSlots, absentValue: "—", doses: [])
 
             if let arithmetic = entry.sleepScoreArithmetic {
                 Text(arithmetic)
