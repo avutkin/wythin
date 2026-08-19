@@ -25,6 +25,7 @@ struct SleepMontageChart: View {
     private let stages: [SleepStageDetail]
     private let stageMinutes: [SleepStageDetail: Int]
     private let motionThreshold: Float
+    private let positionBands: [PreparedNight.PositionBand]
 
     init(night: PreparedNight, startedAt: Date, endedAt: Date) {
         self.points = night.points
@@ -33,6 +34,7 @@ struct SleepMontageChart: View {
         self.stages = night.stages
         self.stageMinutes = night.stageMinutes
         self.motionThreshold = night.motionThreshold
+        self.positionBands = night.positionBands
     }
 
     /// Deepest at the bottom. The index is the floor-to-ceiling position, so a
@@ -90,6 +92,7 @@ struct SleepMontageChart: View {
             hypnogram
             axis
             movementStrip
+            positionStrip
             legend
         }
     }
@@ -210,6 +213,70 @@ struct SleepMontageChart: View {
             .frame(height: 46)
         }
         .padding(.top, 26)
+    }
+
+    // MARK: - Position
+
+    /// Which way the body was facing, as bands across the same time axis.
+    ///
+    /// Absent entirely on nights recorded before position was stored — the
+    /// accelerometer's three axes were collapsed to a rotation-invariant
+    /// magnitude before they reached disk, so those nights cannot be rebuilt.
+    @ViewBuilder
+    private var positionStrip: some View {
+        if !positionBands.isEmpty {
+            VStack(spacing: 6) {
+                Text("POSITION")
+                    .font(.system(size: 11, weight: .medium))
+                    .tracking(1.4)
+                    .foregroundStyle(Theme.dim)
+
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        ForEach(Array(positionBands.enumerated()), id: \.offset) { _, band in
+                            let x0 = xPos(band.start, geo.size.width)
+                            let x1 = xPos(band.end, geo.size.width)
+                            let w = max(2, x1 - x0)
+                            RoundedRectangle(cornerRadius: 5)
+                                .fill(positionColour(band.position))
+                                .frame(width: w, height: 22)
+                                // Only label a band with room for the word;
+                                // a clipped "SUPI" is worse than no label.
+                                .overlay {
+                                    if w > 74 {
+                                        Text(band.position.label.uppercased())
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .tracking(0.8)
+                                            .foregroundStyle(labelColour(band.position))
+                                    }
+                                }
+                                .offset(x: x0)
+                        }
+                    }
+                    .frame(height: geo.size.height, alignment: .center)
+                }
+                .frame(height: 26)
+            }
+            .padding(.top, 24)
+        }
+    }
+
+    /// Supine is the one that carries a clinical meaning — it is the position
+    /// the upper airway is most collapsible in — so it is the one that stands
+    /// out. The rest are deliberately quiet.
+    private func positionColour(_ p: BodyPosition) -> Color {
+        switch p {
+        case .supine:  return Color(hex: "#4A5568")
+        case .prone:   return Color(hex: "#3A4250")
+        default:       return Color(white: 0.80)
+        }
+    }
+
+    private func labelColour(_ p: BodyPosition) -> Color {
+        switch p {
+        case .supine, .prone: return Color(white: 0.96)
+        default:              return Color(white: 0.25)
+        }
     }
 
     // MARK: - Legend

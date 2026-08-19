@@ -245,7 +245,7 @@ struct SleepDetailView: View {
                 .font(.system(size: 11))
             Text("Breathing steadiness comes from how tightly your breath rate holds its own rhythm, measured on a rolling five-minute window. It is not an apnea index and carries no event rate.")
                 .font(.system(size: 11))
-            Text("Body position is not shown. It needs the three accelerometer axes to read the gravity vector, and only a single motion magnitude is stored — so supine-versus-side cannot be recovered from what is on disk. It is a storage change, not a sensor one.")
+            Text("Body position is read from the direction of gravity in the strap's accelerometer, and appears on nights recorded from now on. Earlier nights collapsed the three axes to a rotation-invariant magnitude before storing, so supine and on-your-side were literally identical on disk and cannot be recovered. Left versus right depends on which way round the strap was fastened; supine, prone and upright do not.")
                 .font(.system(size: 11))
         }
         .foregroundStyle(Theme.dim)

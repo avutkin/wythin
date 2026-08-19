@@ -62,7 +62,16 @@ struct MetricsTick {
 
     /// SD of ACC vector magnitude (mg) over the window — stillness input for
     /// the day's rested anchor. Defaulted so existing constructors compile.
+    ///
+    /// Note this is rotation-invariant and therefore says nothing about which
+    /// way the body is facing; `bodyPosition` carries that.
     var motion: Float? = nil
+
+    /// Which way the body was facing, from the gravity direction, plus how
+    /// confident that call is. Nil while moving — a window spanning a roll is
+    /// not a position. See `PostureCompute`.
+    var bodyPosition: BodyPosition? = nil
+    var positionConfidence: Float? = nil
 
     /// ECG waveform quality (flatline/clipping check) — live-only, not persisted.
     let ecgQuality: ECGQualityResult?
@@ -130,6 +139,10 @@ enum MetricsEngine {
         // either alone, and when they disagree the more dominant peak wins
         // rather than being averaged into a rate nobody measured.
         let breathing = BreathingCompute.computeRate(accXYZ: snapshot.accXYZ)
+
+        // Which way the body is facing. Nil while moving — a window spanning a
+        // roll averages two orientations into one the body never held.
+        let posture = PostureCompute.position(accXYZ: snapshot.accXYZ)
         let edr       = EDRCompute.estimate(rrMs: rrMs)
         var candidates: [BreathRateTracker.Estimate] = []
         if let b = breathing { candidates.append(.init(bpm: b.bpm, confidence: b.confidence)) }
@@ -195,6 +208,8 @@ enum MetricsEngine {
             rrInvalidRate:   hrv?.invalidRate,
             rrCorrectedRate: hrv?.correctedRate,
             motion:          MotionCompute.magnitudeSD(accXYZ: snapshot.accXYZ),
+            bodyPosition:       posture?.0,
+            positionConfidence: posture?.1,
             ecgQuality:     ecgQuality,
             rcmse:          rcmseResult?.meanEntropy,
             pip:            hrfResult?.pip,

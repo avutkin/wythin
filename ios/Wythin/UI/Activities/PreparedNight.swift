@@ -48,6 +48,19 @@ struct PreparedNight: Sendable {
         let end: Date
     }
 
+    struct PositionBand: Sendable, Equatable {
+        let position: BodyPosition
+        let start: Date
+        let end: Date
+    }
+
+    /// Stretches the body held one orientation.
+    let positionBands: [PositionBand]
+
+    /// A posture must hold for at least this long to count as a turn rather
+    /// than a wobble in the gravity estimate.
+    static let minPositionRunSec: Double = 120
+
     /// Target resolution for a metric line. The chart is a few hundred points
     /// wide and the night is ~18,000 samples, so drawing every tick is both
     /// wasted work and an unreadable smear.
@@ -104,6 +117,43 @@ struct PreparedNight: Sendable {
 
         self.series = Self.buildSeries(points)
         self.wakeBands = Self.buildWakeBands(stages, points: points)
+        self.positionBands = Self.positionBands(points)
+    }
+
+    /// Contiguous runs of one body position.
+    ///
+    /// Nil is not a posture — it means the sensor was moving, and a window
+    /// spanning a roll averages two orientations into one the body never held.
+    /// Those stretches stay gaps rather than being absorbed into a neighbour,
+    /// because "we do not know" and "still supine" are different claims.
+    static func positionBands(_ points: [MetricsHistoryPoint]) -> [PositionBand] {
+        guard !points.isEmpty else { return [] }
+        var runs: [PositionBand] = []
+        var i = 0
+        while i < points.count {
+            guard let pos = points[i].bodyPosition else { i += 1; continue }
+            var j = i
+            while j + 1 < points.count, points[j + 1].bodyPosition == pos { j += 1 }
+            let end = j + 1 < points.count ? points[j + 1].timestamp : points[j].timestamp
+            runs.append(PositionBand(position: pos, start: points[i].timestamp, end: end))
+            i = j + 1
+        }
+
+        // Drop flickers, then merge neighbours the flicker had separated.
+        let kept = runs.filter { $0.end.timeIntervalSince($0.start) >= minPositionRunSec }
+        var merged: [PositionBand] = []
+        for band in kept {
+            // Across a short gap too: dropping a flicker leaves one, and the
+            // two sides of it are the same unbroken stretch.
+            if let last = merged.last, last.position == band.position,
+               band.start.timeIntervalSince(last.end) <= minPositionRunSec {
+                merged[merged.count - 1] = PositionBand(position: last.position,
+                                                        start: last.start, end: band.end)
+            } else {
+                merged.append(band)
+            }
+        }
+        return merged
     }
 
     // MARK: - Lines

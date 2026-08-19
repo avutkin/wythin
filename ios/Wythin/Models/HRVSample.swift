@@ -26,6 +26,12 @@ final class HRVSample {
     var ials:           Float?
     var dc:             Float?
     var motion:         Float?   // SD of ACC vector magnitude (mg) — stillness
+    /// Body position from the gravity direction (`BodyPosition.rawValue`), and
+    /// the confidence of that call. Optional so existing stores migrate without
+    /// a schema break; nil on every sample recorded before this existed and on
+    /// any window the sensor was moving through.
+    var bodyPositionRaw:    Int?
+    var positionConfidence: Float?
     var vti:            Float?   // ln(RMSSD)
     var ulfPower:       Float?   // ms²  (ULF < 0.003 Hz)
     var vlfPower:       Float?   // ms²  (VLF 0.003–0.04 Hz)
@@ -60,6 +66,8 @@ final class HRVSample {
         self.ials          = tick.ials
         self.dc            = tick.dc
         self.motion        = tick.motion
+        self.bodyPositionRaw    = tick.bodyPosition?.rawValue
+        self.positionConfidence = tick.positionConfidence
         self.vti        = tick.vti
         self.breathSourceRaw = tick.breathSource?.rawValue
         self.ulfPower   = tick.ulfPower
@@ -97,6 +105,7 @@ final class HRVSample {
         self.breathSourceRaw = nil
         self.rrInvalidRate = nil; self.rrCorrectedRate = nil; self.ecgQualityTier = nil
         self.ials = nil; self.motion = nil
+        self.bodyPositionRaw = nil; self.positionConfidence = nil
         self.ulfPower = nil; self.vlfPower = nil; self.lfPower = nil; self.hfPower = nil
     }
 
