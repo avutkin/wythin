@@ -269,6 +269,8 @@
 		A772 /* SleepLogRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F772 /* SleepLogRow.swift */; };
 		A773 /* RealNightFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F773 /* RealNightFixture.swift */; };
 		A774 /* RealNightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F774 /* RealNightTests.swift */; };
+		A775 /* SleepMontageChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = F775 /* SleepMontageChart.swift */; };
+		A776 /* SleepDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F776 /* SleepDetailView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -547,6 +549,8 @@
 		F772 /* SleepLogRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepLogRow.swift; sourceTree = "<group>"; };
 		F773 /* RealNightFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealNightFixture.swift; sourceTree = "<group>"; };
 		F774 /* RealNightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealNightTests.swift; sourceTree = "<group>"; };
+		F775 /* SleepMontageChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepMontageChart.swift; sourceTree = "<group>"; };
+		F776 /* SleepDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepDetailView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -586,6 +590,8 @@
 		GAPP_ACT /* Activities */ = {
 			isa = PBXGroup;
 			children = (
+				F776 /* SleepDetailView.swift */,
+				F775 /* SleepMontageChart.swift */,
 				F772 /* SleepLogRow.swift */,
 				F137 /* ActivitiesView.swift */,
 				2C610ECB383624DF3DB2E902 /* ExerciseLogRow.swift */,
@@ -1074,6 +1080,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A776 /* SleepDetailView.swift in Sources */,
+				A775 /* SleepMontageChart.swift in Sources */,
 				A772 /* SleepLogRow.swift in Sources */,
 				A771 /* SleepRecorder.swift in Sources */,
 				A761 /* SleepSessionizer.swift in Sources */,

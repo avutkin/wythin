@@ -220,9 +220,13 @@ struct ActivitiesView: View {
                         start: start, end: end)
             }
         case .detail(let entry):
-            switch entry.measuredClass {
-            case .activating:  ExerciseDetailView(entry: entry)
-            case .restorative: ActivityDetailView(entry: entry)
+            if entry.isSleep {
+                SleepDetailView(entry: entry)
+            } else {
+                switch entry.measuredClass {
+                case .activating:  ExerciseDetailView(entry: entry)
+                case .restorative: ActivityDetailView(entry: entry)
+                }
             }
         case .edit(let entry):
             EditActivitySheet(entry: entry) { ctx in
