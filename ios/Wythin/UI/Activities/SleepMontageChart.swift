@@ -10,11 +10,30 @@ import SwiftUI
 /// silhouette rather than as a colour key.
 struct SleepMontageChart: View {
 
-    let points: [MetricsHistoryPoint]
-    let startedAt: Date
-    let endedAt: Date
+    private let points: [MetricsHistoryPoint]
+    private let startedAt: Date
+    private let endedAt: Date
 
-    private var stages: [SleepStageDetail] { SleepStages.detailed(points) }
+    /// Staging arrives already done, from `PreparedNight`.
+    ///
+    /// It used to be a computed property here, so every access re-ran the whole
+    /// pipeline over ~19,000 samples — and `minutes(_:)` is asked nine times
+    /// per render (five legend rows, four more inside `asleepMinutes`), with
+    /// `runs` on top. That was the hang on opening a night. Classification is a
+    /// property of the night, not of the view, so it belongs off the main
+    /// thread and upstream of the render.
+    private let stages: [SleepStageDetail]
+    private let stageMinutes: [SleepStageDetail: Int]
+    private let motionThreshold: Float
+
+    init(night: PreparedNight, startedAt: Date, endedAt: Date) {
+        self.points = night.points
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.stages = night.stages
+        self.stageMinutes = night.stageMinutes
+        self.motionThreshold = night.motionThreshold
+    }
 
     /// Deepest at the bottom. The index is the floor-to-ceiling position, so a
     /// bigger number is a taller bar and a shallower stage.
@@ -41,11 +60,7 @@ struct SleepMontageChart: View {
 
     private var span: Double { max(1, endedAt.timeIntervalSince(startedAt)) }
 
-    private func minutes(_ s: SleepStageDetail) -> Int {
-        guard points.count > 1 else { return 0 }
-        let tick = points[1].timestamp.timeIntervalSince(points[0].timestamp)
-        return Int((Double(stages.filter { $0 == s }.count) * tick / 60).rounded())
-    }
+    private func minutes(_ s: SleepStageDetail) -> Int { stageMinutes[s] ?? 0 }
 
     private var asleepMinutes: Int {
         SleepStageDetail.allCases.filter(\.isAsleep).reduce(0) { $0 + minutes($1) }
@@ -165,10 +180,10 @@ struct SleepMontageChart: View {
 
                 // Only movement that stands out from this night's own stillness
                 // is worth a tick; drawing every sample would be a grey wash.
-                let motions = points.compactMap(\.motion).sorted()
-                guard !motions.isEmpty else { return }
-                let median = motions[motions.count / 2]
-                let threshold = max(median * 2, 8)
+                // The threshold needs a median of the whole night, so it is
+                // computed upstream — doing it here ran it on every redraw.
+                let threshold = motionThreshold
+                guard threshold < .greatestFiniteMagnitude else { return }
 
                 for p in points {
                     guard let m = p.motion, m > threshold else { continue }

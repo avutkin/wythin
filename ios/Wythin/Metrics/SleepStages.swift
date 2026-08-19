@@ -95,12 +95,18 @@ enum SleepStages {
     private static func smooth(_ raw: [SleepStage],
                                points: [MetricsHistoryPoint]) -> [SleepStage] {
         guard raw.count > 2 else { return raw }
+        // Hoisted. `runSeconds` used to ask for this itself, which meant
+        // sorting every gap in the night once per run per pass — thousands of
+        // sorts over an eighteen-thousand-sample night, and virtually the
+        // entire cost of classifying one.
+        let tick = medianInterval(points)
         var out = raw
         // Bounded passes: absorbing one short run can leave its neighbours
         // adjacent and mergeable, but this must always terminate.
         for _ in 0..<4 {
             var changed = false
-            for run in runs(of: out) where runSeconds(run, points: points) < SleepThresholds.minStageRunSec {
+            for run in runs(of: out)
+            where runSeconds(run, points: points, tick: tick) < SleepThresholds.minStageRunSec {
                 guard let replacement = neighbour(of: run, in: out) else { continue }
                 for i in run { out[i] = replacement }
                 changed = true
@@ -121,10 +127,11 @@ enum SleepStages {
         return result
     }
 
-    private static func runSeconds(_ run: [Int], points: [MetricsHistoryPoint]) -> Double {
+    private static func runSeconds(_ run: [Int],
+                                   points: [MetricsHistoryPoint],
+                                   tick: Double) -> Double {
         guard let f = run.first, let l = run.last, l < points.count else { return 0 }
         // One tick's own interval counts, so a lone sample is not zero-length.
-        let tick = medianInterval(points)
         return points[l].timestamp.timeIntervalSince(points[f].timestamp) + tick
     }
 

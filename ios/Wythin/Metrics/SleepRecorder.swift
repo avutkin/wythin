@@ -11,6 +11,43 @@ import SwiftData
 /// Safe to call as often as the tick loop likes.
 enum SleepRecorder {
 
+    /// Runs the pipeline off the main thread.
+    ///
+    /// The work is bounded but not small — three weeks of samples on a first
+    /// run — and it must never sit between a tap and the screen redrawing. A
+    /// background `ModelContext` is created on the calling thread and used only
+    /// there, which is the supported pattern; the main context picks the rows
+    /// up on its next fetch.
+    static func recordInBackground(container: ModelContainer, now: Date = .now) {
+        guard claimRun() else { return }
+        Task.detached(priority: .utility) {
+            defer { releaseRun() }
+            let context = ModelContext(container)
+            recordIfDue(context: context, now: now)
+        }
+    }
+
+    /// Guards against a second pass starting while the first is still going —
+    /// two passes would each see no record yet and write the same night twice.
+    /// Claimed on the caller's thread and released on the background one, so
+    /// the flag needs a lock rather than a bare `var`.
+    nonisolated(unsafe) private static var isRunning = false
+    private static let runLock = NSLock()
+
+    private static func claimRun() -> Bool {
+        runLock.lock()
+        defer { runLock.unlock() }
+        guard !isRunning else { return false }
+        isRunning = true
+        return true
+    }
+
+    private static func releaseRun() {
+        runLock.lock()
+        isRunning = false
+        runLock.unlock()
+    }
+
     static func recordIfDue(context: ModelContext, now: Date = .now) {
         // Everything the sessionizer needs, and nothing older. The lookback is
         // generous enough to catch a night the app was not running for.

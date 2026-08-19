@@ -56,6 +56,10 @@ extension SleepStages {
         let coarse = classify(points)
         guard !points.isEmpty else { return [] }
 
+        // Once. `medianInterval` sorts every gap in the night, and this pass
+        // used to ask for it three times over.
+        let tick = medianInterval(points)
+
         let asleep = coarse.indices.filter { coarse[$0] != .wake }
         guard asleep.count > 10 else {
             return coarse.map { $0 == .wake ? .wake : .n2 }
@@ -77,11 +81,18 @@ extension SleepStages {
 
         // Depth, plus a tilt: early ticks lean deep, late ticks lean REM.
         let span = Double(max(1, asleep.count))
-        var raw: [Int: Double] = [:]
+        // Dense arrays rather than a dictionary keyed by index. The smoother
+        // below reads a five-minute window around every asleep tick, which at
+        // the 2 s foreground cadence is ~300 reads each — five million
+        // dictionary lookups over a ten-hour night, and the single largest
+        // cost in the whole screen.
+        var raw = [Double](repeating: 0, count: points.count)
+        var present = [Bool](repeating: false, count: points.count)
         for (rank, i) in asleep.enumerated() {
             let through = Double(rank) / span
             let tilt = (0.5 - through) * 1.2
             raw[i] = zc[i] - zs[i] - zl[i] - zh[i] + tilt
+            present[i] = true
         }
 
         // Smooth the SCORE across time before ranking. Ranking the raw score
@@ -89,15 +100,26 @@ extension SleepStages {
         // has nothing but one-sample runs to work with — so it flattens the
         // night into a single stage. Sleep changes state over minutes, so the
         // quantity being ranked has to move over minutes too.
-        let tickSec = medianInterval(points)
-        let reach = max(1, Int((5 * 60) / max(tickSec, 1)))
+        let reach = max(1, Int((5 * 60) / max(tick, 1)))
+
+        // Running sums, so each window is two subtractions instead of a walk.
+        // Same arithmetic as before — the mask keeps the mean over *asleep*
+        // ticks only, exactly as the dictionary lookup did.
+        var sums = [Double](repeating: 0, count: points.count + 1)
+        var counts = [Double](repeating: 0, count: points.count + 1)
+        for i in 0..<points.count {
+            sums[i + 1] = sums[i] + (present[i] ? raw[i] : 0)
+            counts[i + 1] = counts[i] + (present[i] ? 1 : 0)
+        }
+
         var scored: [(index: Int, depth: Double)] = []
+        scored.reserveCapacity(asleep.count)
         for i in asleep {
-            var sum = 0.0, n = 0.0
-            for k in (i - reach)...(i + reach) where raw[k] != nil {
-                sum += raw[k]!; n += 1
-            }
-            scored.append((i, n > 0 ? sum / n : (raw[i] ?? 0)))
+            let lo = max(0, i - reach)
+            let hi = min(points.count - 1, i + reach)
+            let n = counts[hi + 1] - counts[lo]
+            let sum = sums[hi + 1] - sums[lo]
+            scored.append((i, n > 0 ? sum / n : raw[i]))
         }
 
         let byDepth = scored.sorted { $0.depth > $1.depth }
@@ -111,21 +133,22 @@ extension SleepStages {
             else if n >= byDepth.count - remCount { out[entry.index] = .rem }
             else { out[entry.index] = .n2 }
         }
-        out = smoothDetail(out, points: points)
-        return markN1(out, points: points)
+        out = smoothDetail(out, points: points, tick: tick)
+        return markN1(out, points: points, tick: tick)
     }
 
     /// Same run-length rule as the coarse pass: a stage briefer than a few
     /// minutes is a transition or a dropped estimate, not a stage.
     private static func smoothDetail(_ raw: [SleepStageDetail],
-                                     points: [MetricsHistoryPoint]) -> [SleepStageDetail] {
+                                     points: [MetricsHistoryPoint],
+                                     tick: Double? = nil) -> [SleepStageDetail] {
         guard raw.count > 2, points.count == raw.count else { return raw }
         // Median, never the first interval. A night that opens with a stretch
         // of 2 s foreground ticks before settling to the 30 s background
         // cadence made `minRun` fifteen times too large — 45 minutes of real
         // time — and the smoother then absorbed every stage into whichever one
         // happened to be adjacent. The whole night came back as REM.
-        let tick = medianInterval(points)
+        let tick = tick ?? medianInterval(points)
         let minRun = max(1, Int(SleepThresholds.minStageRunSec / max(tick, 1)))
         var out = raw
         for _ in 0..<4 {
@@ -170,9 +193,10 @@ extension SleepStages {
     /// is the only handle a cardiac signal gives on it — position relative to
     /// wake, not a signature of its own. Labelled as such wherever it is shown.
     static func markN1(_ stages: [SleepStageDetail],
-                       points: [MetricsHistoryPoint]) -> [SleepStageDetail] {
+                       points: [MetricsHistoryPoint],
+                       tick: Double? = nil) -> [SleepStageDetail] {
         guard stages.count == points.count, points.count > 1 else { return stages }
-        let reach = max(1, Int(SleepThresholds.n1ReachSec / medianInterval(points)))
+        let reach = max(1, Int(SleepThresholds.n1ReachSec / (tick ?? medianInterval(points))))
         var out = stages
         for i in stages.indices where stages[i] == .wake {
             for step in 1...reach {

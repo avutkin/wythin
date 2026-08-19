@@ -75,7 +75,7 @@ struct WythinApp: App {
                 // at breakfast — strap on the nightstand — is exactly when a
                 // person wants to see the night, and the samples are already on
                 // disk. Idempotent, so both paths are safe.
-                SleepRecorder.recordIfDue(context: container.mainContext)
+                SleepRecorder.recordInBackground(container: container)
             }
         }
     }

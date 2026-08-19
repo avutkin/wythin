@@ -10,7 +10,10 @@ struct SleepDetailView: View {
     let entry: ActivityLog
     @Environment(\.modelContext) private var ctx
 
-    @State private var points: [MetricsHistoryPoint] = []
+    /// Nil until the background load lands. The rest of the screen — the hero,
+    /// the arithmetic, the sections — comes straight off the stored record and
+    /// draws immediately; only the sample-derived parts wait.
+    @State private var night: PreparedNight?
 
     private func hm(_ minutes: Int) -> String {
         "\(minutes / 60)h \(String(format: "%02d", minutes % 60))m"
@@ -35,19 +38,26 @@ struct SleepDetailView: View {
                 hero
                 if entry.sleepScore != nil { arithmetic }
                 sections
-                if !points.isEmpty { nightMetrics }
-                if !points.isEmpty, let end = entry.endedAt {
-                    SleepMontageChart(points: points,
-                                      startedAt: entry.startedAt,
-                                      endedAt: end)
-                    stageCaveat
+                if let night, !night.points.isEmpty {
+                    nightMetrics(night)
+                    if let end = entry.endedAt {
+                        SleepMontageChart(night: night,
+                                          startedAt: entry.startedAt,
+                                          endedAt: end)
+                        stageCaveat
+                    }
                 }
                 measurementNote
             }
             .padding(18)
         }
         .background(Theme.bg.ignoresSafeArea())
-        .task { load() }
+        .task {
+            guard night == nil, let end = entry.endedAt else { return }
+            night = await PreparedNight.load(container: ctx.container,
+                                             from: entry.startedAt,
+                                             to: end)
+        }
     }
 
     // MARK: - Pieces
@@ -98,11 +108,11 @@ struct SleepDetailView: View {
 
     /// The nine metrics as night averages — the values, without the
     /// during-versus-before framing that does not apply to a night.
-    private var nightMetrics: some View {
+    private func nightMetrics(_ night: PreparedNight) -> some View {
         card("NIGHT AVERAGES") {
             VStack(spacing: 0) {
                 ForEach(activityMetricDefs, id: \.id) { def in
-                    let values = points.compactMap { def.extract($0) }
+                    let average = night.averages[def.id]
                     HStack {
                         Text(def.label)
                             .font(.system(size: 12))
@@ -111,9 +121,7 @@ struct SleepDetailView: View {
                             .font(.system(size: 9, design: .monospaced))
                             .foregroundStyle(Theme.dim)
                         Spacer()
-                        Text(values.isEmpty
-                             ? "—"
-                             : def.format(values.reduce(0, +) / Double(values.count)) + " " + def.unit)
+                        Text(average.map { def.format($0) + " " + def.unit } ?? "—")
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundStyle(Theme.text)
                     }
@@ -251,20 +259,4 @@ struct SleepDetailView: View {
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 12))
     }
 
-    // MARK: - Data
-
-    private func load() {
-        guard let end = entry.endedAt else { return }
-        let start = entry.startedAt
-        var desc = FetchDescriptor<HRVSample>(
-            predicate: #Predicate<HRVSample> { $0.timestamp >= start && $0.timestamp <= end },
-            sortBy: [SortDescriptor(\.timestamp)]
-        )
-        // Sized from the span, not a constant: a night at the foreground
-        // cadence runs past any fixed limit and the fetch sorts ascending, so
-        // a short limit silently drops the END of the night.
-        desc.fetchLimit = Int(end.timeIntervalSince(start) / ActivityLog.minTickIntervalSec) + 1_000
-        let samples = (try? ctx.fetch(desc)) ?? []
-        points = samples.map(MetricsHistoryPoint.init(from:))
-    }
 }
