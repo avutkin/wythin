@@ -390,6 +390,32 @@ final class ActivityLog {
     /// windows from the `HRVSample` records still in the store. Idempotent —
     /// entries with no samples in range simply stay nil, and re-running
     /// produces the same values for entries already filled.
+    /// How long after a session the after-window closes.
+    static let afterWindowSeconds: TimeInterval = 600
+
+    /// How long to keep retrying an after-window that never filled. Past this,
+    /// a still-empty window means the strap was off, and no amount of relaunching
+    /// will conjure samples that were never recorded.
+    static let afterWindowRetryCutoff: TimeInterval = 48 * 3600
+
+    /// Whether this entry's stored windows should be recomputed now.
+    ///
+    /// The after-window is ten minutes that begin when the session ends, so at
+    /// the moment `ActivityLogging.end` runs, none of it has happened yet and
+    /// every after field is necessarily nil. Something has to come back for it
+    /// later; this decides when. Waiting for the full ten minutes matters —
+    /// filling it early would store a partial window and, because the guard then
+    /// sees a non-nil value, never correct it.
+    func needsWindowRefresh(now: Date = .now) -> Bool {
+        guard let end = endedAt else { return false }        // still recording
+        if duringStress == nil { return true }               // never computed at all
+        guard afterStress == nil else { return false }       // already has one
+        guard now >= end.addingTimeInterval(ActivityLog.afterWindowSeconds) else {
+            return false                                     // the window is still filling
+        }
+        return now.timeIntervalSince(end) < ActivityLog.afterWindowRetryCutoff
+    }
+
     static func backfillMissingWindows(context: ModelContext) {
         // Bump when the stored metric set changes. v2 adds DC / DFA1 / RCMSE / PIP,
         // which the original nil-Stress guard never backfilled — so older entries
@@ -422,7 +448,7 @@ final class ActivityLog {
         let needsFill = all.filter { entry in
             guard entry.endedAt != nil else { return false }
             if migrating { return true }
-            return entry.duringStress == nil
+            return entry.needsWindowRefresh()
         }
         if !needsFill.isEmpty {
             for entry in needsFill {
@@ -447,7 +473,7 @@ final class ActivityLog {
     func computeHRVWindows(context: ModelContext) {
         guard let end = endedAt else { return }
         let beforeStart = startedAt.addingTimeInterval(-300)   // 5 min before
-        let afterEnd    = end.addingTimeInterval(600)           // 10 min after
+        let afterEnd    = end.addingTimeInterval(ActivityLog.afterWindowSeconds)
 
         let allPredicate = #Predicate<HRVSample> {
             $0.timestamp >= beforeStart && $0.timestamp <= afterEnd

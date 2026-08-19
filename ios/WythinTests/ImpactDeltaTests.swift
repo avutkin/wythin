@@ -242,4 +242,67 @@ extension ImpactDeltaTests {
         XCTAssertEqual(ActivityImpact.caption(for: -5), "stirred")
         XCTAssertEqual(ActivityImpact.caption(for: -25), "strongly stirred")
     }
+
+    // MARK: Off the end of the scale
+    //
+    // benefitDelta clamps at ±100 so one ill-conditioned metric can't swamp the
+    // mean. That is right for aggregation and wrong for display: printed bare,
+    // a metric that doubled and one that went up eightfold both read "+100%",
+    // while the absolute values under them plainly disagree. The display needs
+    // to know which values are measurements and which are bounds.
+
+    private var dc: ActivityMetricDef {
+        activityMetricDefs.first { $0.label == "Vagal Tone" }!      // .higher
+    }
+
+    func testAChangeInsideTheScaleIsNotClamped() {
+        XCTAssertEqual(dc.benefitDelta(current: 9, base: 6)!, 50, accuracy: 0.001)
+        XCTAssertFalse(dc.isClamped(current: 9, base: 6))
+    }
+
+    /// Exactly double is exactly the bound — a real measurement, not a cap.
+    func testAnExactDoublingSitsOnTheBoundWithoutBeingClamped() {
+        XCTAssertEqual(dc.benefitDelta(current: 12, base: 6)!, 100, accuracy: 0.001)
+        XCTAssertFalse(dc.isClamped(current: 12, base: 6),
+                       "+100% reached honestly must not be marked as off-scale")
+    }
+
+    func testAChangeBeyondTheBoundIsClampedAndSaysSo() {
+        XCTAssertEqual(dc.benefitDelta(current: 48, base: 6)!, 100, accuracy: 0.001)
+        XCTAssertTrue(dc.isClamped(current: 48, base: 6))
+        XCTAssertEqual(dc.rawBenefitDelta(current: 48, base: 6)!, 700, accuracy: 0.001)
+    }
+
+    /// A `.higher` metric can never reach −100%: its benefit is the value, and
+    /// the value cannot go below zero. The negative bound is only reachable on a
+    /// metric where lower is better, whose benefit falls without limit.
+    func testAHigherIsBetterMetricCannotReachTheNegativeBound() {
+        XCTAssertEqual(dc.benefitDelta(current: 0.5, base: 60)!, -99.1666, accuracy: 0.001)
+        XCTAssertFalse(dc.isClamped(current: 0.5, base: 60))
+    }
+
+    func testTheNegativeBoundClampsOnALowerIsBetterMetric() {
+        let hr = activityMetricDefs.first { $0.label == "Pulse" }!      // .lower
+        XCTAssertEqual(hr.benefitDelta(current: 200, base: 60)!, -100, accuracy: 0.001)
+        XCTAssertTrue(hr.isClamped(current: 200, base: 60))
+        XCTAssertEqual(hr.rawBenefitDelta(current: 200, base: 60)!, -233.333, accuracy: 0.01)
+    }
+
+    /// The screenshot case: two metrics that moved very differently both read
+    /// +100%, because both had run off the top of the scale.
+    func testTwoDifferentOverflowsAreBothReportedAsClamped() {
+        XCTAssertEqual(dc.benefitDelta(current: 14.3, base: 5)!,
+                       dc.benefitDelta(current: 52.7, base: 5)!, accuracy: 0.001)
+        XCTAssertTrue(dc.isClamped(current: 14.3, base: 5))
+        XCTAssertTrue(dc.isClamped(current: 52.7, base: 5))
+        XCTAssertNotEqual(dc.rawBenefitDelta(current: 14.3, base: 5)!,
+                          dc.rawBenefitDelta(current: 52.7, base: 5)!,
+                          "the underlying changes are not the same size")
+    }
+
+    func testMissingDataIsNotClamped() {
+        XCTAssertFalse(dc.isClamped(current: nil, base: 6))
+        XCTAssertFalse(dc.isClamped(current: 9, base: nil))
+        XCTAssertFalse(dc.isClamped(current: 9, base: 0), "a zero baseline has no percentage at all")
+    }
 }
