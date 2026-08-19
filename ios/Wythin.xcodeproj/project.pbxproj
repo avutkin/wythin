@@ -198,6 +198,7 @@
 		AT92 /* SpectralPeakTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT92 /* SpectralPeakTests.swift */; };
 		AT93 /* EDRComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT93 /* EDRComputeTests.swift */; };
 		AT95 /* BreathRateTrackerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT95 /* BreathRateTrackerTests.swift */; };
+		AT96 /* BreathRateValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT96 /* BreathRateValidationTests.swift */; };
 		AT94 /* WelchPSDSegmentCountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT94 /* WelchPSDSegmentCountTests.swift */; };
 		AT91 /* CloudRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT91 /* CloudRestoreTests.swift */; };
 		AT15 /* PotentialScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT15 /* PotentialScoreTests.swift */; };
@@ -482,6 +483,7 @@
 		FT92 /* SpectralPeakTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectralPeakTests.swift; sourceTree = "<group>"; };
 		FT93 /* EDRComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EDRComputeTests.swift; sourceTree = "<group>"; };
 		FT95 /* BreathRateTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathRateTrackerTests.swift; sourceTree = "<group>"; };
+		FT96 /* BreathRateValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathRateValidationTests.swift; sourceTree = "<group>"; };
 		FT94 /* WelchPSDSegmentCountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelchPSDSegmentCountTests.swift; sourceTree = "<group>"; };
 		FT91 /* CloudRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRestoreTests.swift; sourceTree = "<group>"; };
 		FT15 /* PotentialScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScoreTests.swift; sourceTree = "<group>"; };
@@ -931,6 +933,7 @@
 				FT92 /* SpectralPeakTests.swift */,
 				FT93 /* EDRComputeTests.swift */,
 				FT95 /* BreathRateTrackerTests.swift */,
+				FT96 /* BreathRateValidationTests.swift */,
 				FT94 /* WelchPSDSegmentCountTests.swift */,
 				FT91 /* CloudRestoreTests.swift */,
 				FT13 /* AnchorDetectorTests.swift */,
@@ -1305,6 +1308,7 @@
 				AT92 /* SpectralPeakTests.swift in Sources */,
 				AT93 /* EDRComputeTests.swift in Sources */,
 				AT95 /* BreathRateTrackerTests.swift in Sources */,
+				AT96 /* BreathRateValidationTests.swift in Sources */,
 				AT94 /* WelchPSDSegmentCountTests.swift in Sources */,
 				AT91 /* CloudRestoreTests.swift in Sources */,
 				AT13 /* AnchorDetectorTests.swift in Sources */,
@@ -1376,7 +1380,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 94;
+				CURRENT_PROJECT_VERSION = 95;
 				DEVELOPMENT_TEAM = FHUVQ8JNXD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
@@ -1465,7 +1469,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 94;
+				CURRENT_PROJECT_VERSION = 95;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -1484,7 +1488,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 94;
+				CURRENT_PROJECT_VERSION = 95;
 				DEVELOPMENT_TEAM = FHUVQ8JNXD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
@@ -1566,7 +1570,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 94;
+				CURRENT_PROJECT_VERSION = 95;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
