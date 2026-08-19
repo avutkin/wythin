@@ -95,7 +95,22 @@ extension ActivityLog {
     /// The four implemented index slots, every one always present: a slot with
     /// no reading carries the reason instead of vanishing. Asked for twice —
     /// a two-cell grid read as "metrics look off", not as honest absence.
+    /// True for a measured night. Nights take a scoring channel of their own —
+    /// none of the exercise or practice machinery applies to eight hours of
+    /// lying still, and letting it run produces confident nonsense.
+    var isSleep: Bool { ActivityType.fromStored(activityType) == .sleep }
+
+    /// Whether the during-vs-before practice score applies at all.
+    ///
+    /// `RestorativeScore` credits during-vs-before uplift. For a night the
+    /// before-window is the five minutes before sleep onset — awake, upright,
+    /// possibly still moving — so the uplift is enormous and the score pins
+    /// near the top for every night regardless of how the night went. A number
+    /// that is always 96 measures nothing.
+    var showsRestorativeScore: Bool { !isSleep }
+
     var indexSlots: [(name: String, index: ScoredIndex?, whenEmpty: String)] {
+        if isSleep { return sleepIndexSlots }
         // The yoga rule (research §4): a mind-body session that MEASURES
         // restorative or mixed is scored on the regulation channel — the vagal
         // rebound it exists to produce — never on suppression or HRR framing,
@@ -178,5 +193,48 @@ extension ActivityLog {
                                     caption: "highest reached"))
         }
         return out
+    }
+}
+
+
+// MARK: - Sleep sections
+
+extension ActivityLog {
+
+    /// The five sections a night is scored on, in evidence order. Each carries
+    /// its own weight in the headline, and each is absent rather than zero when
+    /// its input was not measured.
+    var sleepIndexSlots: [(name: String, index: ScoredIndex?, whenEmpty: String)] {
+        [
+            ("Timing", sleepSection(.timing, sleepTiming), "needs a second night"),
+            ("Duration", sleepSection(.duration, sleepDuration), "no sleep time"),
+            ("Continuity", sleepSection(.continuity, sleepContinuity), "no stages"),
+            ("Autonomic", sleepSection(.autonomic, sleepAutonomic), "no heart rate"),
+            ("Breathing", sleepSection(.breathing, sleepBreathing), "needs respiratory effort"),
+        ]
+    }
+
+    private func sleepSection(_ section: SleepSection, _ value: Int?) -> ScoredIndex? {
+        guard let value else { return nil }
+        return ScoredIndex(name: section.name,
+                           value: value,
+                           verdict: SleepSection.verdict(for: value),
+                           detail: sleepSectionDetail(section))
+    }
+
+    private func sleepSectionDetail(_ section: SleepSection) -> String {
+        switch section {
+        case .timing:
+            return sleepRegularity.map { "regularity index \(Int($0))" } ?? "how steady your hours are"
+        case .duration:
+            guard let m = sleepAsleepMinutes else { return "time asleep" }
+            return "\(m / 60)h \(String(format: "%02d", m % 60))m asleep"
+        case .continuity:
+            return sleepStageSummary ?? "how unbroken the night was"
+        case .autonomic:
+            return "how far your heart rate settled, and when"
+        case .breathing:
+            return "steadiness of breathing overnight"
+        }
     }
 }

@@ -98,4 +98,59 @@ final class SleepRecorderTests: XCTestCase {
         // load, a suppression axis and workout-shaped expectations.
         XCTAssertEqual(ActivityType.sleep.activityClass, .restorative)
     }
+
+    // MARK: - How a night presents in Activities
+
+    func testNightNeverGetsTheExerciseSections() {
+        // Left on the default path a night inherits Mobilized, Cost and
+        // Recovery — how fast you rose to the load, the vagal cost of that
+        // rise, and heart-rate recovery after stopping. Every one of those is
+        // a workout construct applied to eight hours of lying still.
+        let ctx = ModelContext(container)
+        insertNight(into: ctx)
+        SleepRecorder.recordIfDue(context: ctx, now: at(21, 8))
+        guard let night = sleepLogs(ctx).first else { return XCTFail("no night") }
+
+        let names = night.indexSlots.map(\.name)
+        for workoutSection in ["Mobilised", "Mobilized", "Cost", "Recovery"] {
+            XCTAssertFalse(names.contains(workoutSection),
+                           "\(workoutSection) is a workout section: \(names)")
+        }
+    }
+
+    func testNightPresentsItsOwnFiveSections() {
+        let ctx = ModelContext(container)
+        insertNight(into: ctx)
+        SleepRecorder.recordIfDue(context: ctx, now: at(21, 8))
+        guard let night = sleepLogs(ctx).first else { return XCTFail("no night") }
+
+        let names = night.indexSlots.map(\.name)
+        XCTAssertEqual(names, ["Timing", "Duration", "Continuity", "Autonomic", "Breathing"])
+    }
+
+    func testBreathingSectionIsHonestlyAbsentNotZero() {
+        // Steadiness needs the respiratory-effort channel, which is not built.
+        // Reporting 0 would read as "your breathing was terrible" rather than
+        // "we did not measure it".
+        let ctx = ModelContext(container)
+        insertNight(into: ctx)
+        SleepRecorder.recordIfDue(context: ctx, now: at(21, 8))
+        guard let night = sleepLogs(ctx).first else { return XCTFail("no night") }
+
+        let breathing = night.indexSlots.first { $0.name == "Breathing" }
+        XCTAssertNil(breathing?.index, "absent, not zero")
+        XCTAssertNotEqual(night.sleepBreathing, 0)
+    }
+
+    func testNightDoesNotGetARestorativePracticeScore() {
+        // during-vs-before uplift: sleeping HRV against the five minutes before
+        // sleep onset is a huge apparent "benefit" and would score near 100.
+        let ctx = ModelContext(container)
+        insertNight(into: ctx)
+        SleepRecorder.recordIfDue(context: ctx, now: at(21, 8))
+        guard let night = sleepLogs(ctx).first else { return XCTFail("no night") }
+
+        XCTAssertFalse(night.showsRestorativeScore,
+                       "a night is not a practice with a before-window")
+    }
 }

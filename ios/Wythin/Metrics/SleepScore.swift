@@ -24,6 +24,18 @@ enum SleepSection: String, CaseIterable, Codable {
         }
     }
 
+    /// Band wording for a night. The exercise vocabulary ("act on it", "keep
+    /// doing this") reads as instructions about a workout you chose; nobody
+    /// chooses how a night went, and being told to act on your continuity at
+    /// breakfast is neither actionable nor kind.
+    static func verdict(for value: Int) -> String {
+        switch IndexBand.of(value) {
+        case .act:     return "below your usual"
+        case .improve: return "about usual"
+        case .keep:    return "a good night for you"
+        }
+    }
+
     var name: String {
         switch self {
         case .timing:     return "Timing"
