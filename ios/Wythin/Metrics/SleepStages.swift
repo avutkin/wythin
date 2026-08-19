@@ -124,9 +124,7 @@ enum SleepStages {
     private static func runSeconds(_ run: [Int], points: [MetricsHistoryPoint]) -> Double {
         guard let f = run.first, let l = run.last, l < points.count else { return 0 }
         // One tick's own interval counts, so a lone sample is not zero-length.
-        let tick = points.count > 1
-            ? points[1].timestamp.timeIntervalSince(points[0].timestamp)
-            : 0
+        let tick = medianInterval(points)
         return points[l].timestamp.timeIntervalSince(points[f].timestamp) + tick
     }
 

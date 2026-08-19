@@ -55,6 +55,15 @@ enum SleepThresholds {
     /// How far either side of a wake bout light sleep is marked N1 — the
     /// descent into sleep, and the settling after an arousal.
     static let n1ReachSec: Double = 5 * 60
+    /// Most a single tick may be credited with. Beyond this the gap is a hole
+    /// in the recording, not time asleep.
+    static let maxTickCreditSec: Double = 120
+
+    /// Bumped whenever the detector, the classifier or the score changes shape.
+    /// A night written by an older version is recomputed rather than left in
+    /// place — otherwise the app shows numbers from an algorithm that no longer
+    /// exists, with fields the old code never populated rendering as dashes.
+    static let algorithmVersion: Int = 5
     /// Shortest run that can stand as its own stage. Sleep changes state on
     /// the scale of minutes; anything briefer is a turn or a dropped estimate,
     /// and leaving it in inflates every count derived from the hypnogram.
@@ -77,7 +86,18 @@ enum SleepThresholds {
     /// How far back a poll looks. Long enough to catch a night the app slept
     /// through recording, short enough that stale history cannot resurface as
     /// "last night" the first time the detector ever runs.
-    static let lookbackSec: Double = 36 * 3600
+    static let lookbackSec: Double = 21 * 24 * 3600
+    /// Ceiling on one pass, so a first run over weeks of history cannot spin.
+    static let maxNightsPerPass: Int = 25
+    /// Hour of the evening a night slice opens, and the hour of the next day it
+    /// closes. Wide enough for a late night and a long lie-in.
+    static let nightSliceFromHour: Double = 17
+    static let nightSliceToHour: Double = 12
+    /// The circadian trough a night must cover, and by how much. Local hours
+    /// on the WAKE date.
+    static let troughFromHour: Double = 1
+    static let troughToHour: Double = 5
+    static let minTroughOverlapSec: Double = 2 * 3600
     /// Sleep need until the app learns this person's own. A placeholder, and
     /// labelled as one: the experimental between-subject SD for sleep need is
     /// about 0.7 h, so a population figure is the wrong tool and only stands in
@@ -112,6 +132,57 @@ struct SleepWindow: Equatable {
 /// throws away.
 enum SleepDetector {
 
+    /// Every night in a long recording, one pass.
+    ///
+    /// Slicing by calendar first is what makes this affordable. Running the
+    /// single-night search across three weeks of samples is quadratic — the
+    /// window scan filters the whole array at every step, and the caller then
+    /// repeats it once per night found. On a real store of 90,000 samples that
+    /// pinned the main thread for minutes. A night lives between one evening
+    /// and the next midday, so cutting there first bounds every inner search to
+    /// about eighteen hours of data.
+    static func detectAll(_ points: [MetricsHistoryPoint]) -> [SleepWindow] {
+        let all = points.sorted { $0.timestamp < $1.timestamp }
+        guard let first = all.first, let last = all.last else { return [] }
+
+        let cal = Calendar.current
+        var found: [SleepWindow] = []
+        var dayStart = cal.startOfDay(for: first.timestamp)
+
+        while dayStart <= last.timestamp {
+            // Evening through to the following midday: wide enough for a late
+            // night and a long lie-in, narrow enough to hold exactly one.
+            let from = dayStart.addingTimeInterval(SleepThresholds.nightSliceFromHour * 3600)
+            let to = dayStart.addingTimeInterval((24 + SleepThresholds.nightSliceToHour) * 3600)
+            let slice = all.filter { $0.timestamp >= from && $0.timestamp <= to }
+            if slice.count > 20, let night = detect(slice), spansTheCircadianTrough(night) {
+                // The slices overlap by design, so the same night can surface
+                // twice; keep one per wake date.
+                if !found.contains(where: { $0.day == night.day }) { found.append(night) }
+            }
+            dayStart = cal.date(byAdding: .day, value: 1, to: dayStart) ?? last.timestamp.addingTimeInterval(1)
+        }
+        return found
+    }
+
+    /// Whether a candidate covers the hours a night has to cover.
+    ///
+    /// Without this the backfill invents nights out of daytime. On days the
+    /// strap was not worn overnight the search still returns the quietest
+    /// stretch it can find in the slice, which produced entries like
+    /// 06:45–11:44 and 17:00–21:12 — real quiet periods, but a late lie-in and
+    /// an evening on the sofa, not sleep. Human sleep is anchored to the
+    /// circadian trough; something that misses 01:00–05:00 entirely is a rest,
+    /// and rests belong to the anchor, not here.
+    static func spansTheCircadianTrough(_ window: SleepWindow) -> Bool {
+        let cal = Calendar.current
+        let day = cal.startOfDay(for: window.endedAt)
+        let troughStart = day.addingTimeInterval(SleepThresholds.troughFromHour * 3600)
+        let troughEnd = day.addingTimeInterval(SleepThresholds.troughToHour * 3600)
+        let overlap = min(window.endedAt, troughEnd).timeIntervalSince(max(window.startedAt, troughStart))
+        return overlap >= SleepThresholds.minTroughOverlapSec
+    }
+
     static func detect(_ points: [MetricsHistoryPoint]) -> SleepWindow? {
         let all = points.sorted { $0.timestamp < $1.timestamp }
         let candidates = continuousRuns(all)
@@ -142,17 +213,24 @@ enum SleepDetector {
         guard span > SleepThresholds.searchWhenLongerThanSec else { return run }
 
         let width = SleepThresholds.nightSearchSpanSec
-        var best: (score: Float, window: [MetricsHistoryPoint])?
+        // Two moving indices rather than a filter per step: filtering the run
+        // at every window position is quadratic, and on a long recording that
+        // is the difference between milliseconds and minutes.
+        var best: (score: Float, lo: Int, hi: Int)?
+        var lo = 0, hi = 0
         var start = first.timestamp
         while start.addingTimeInterval(width) <= last.timestamp {
             let end = start.addingTimeInterval(width)
-            let window = run.filter { $0.timestamp >= start && $0.timestamp <= end }
-            if let score = medianHR(window) {
-                if best == nil || score < best!.score { best = (score, window) }
+            while lo < run.count && run[lo].timestamp < start { lo += 1 }
+            if hi < lo { hi = lo }
+            while hi < run.count && run[hi].timestamp <= end { hi += 1 }
+            if hi > lo, let score = medianHR(Array(run[lo..<hi])) {
+                if best == nil || score < best!.score { best = (score, lo, hi) }
             }
             start = start.addingTimeInterval(SleepThresholds.nightSearchStepSec)
         }
-        return best?.window ?? run
+        guard let best else { return run }
+        return Array(run[best.lo..<best.hi])
     }
 
     private static func medianHR(_ points: [MetricsHistoryPoint]) -> Float? {

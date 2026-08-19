@@ -19,29 +19,53 @@ import Foundation
 /// ordinal, self-referential, and reported that way.
 enum SleepBreathing {
 
-    /// Rolling window over which the spread is measured. Long enough that one
-    /// noisy estimate cannot mark the whole minute unsteady, short enough to
-    /// resolve a settling period rather than averaging across it.
-    static let windowSec: Double = 5 * 60
+    /// Breath rate is first reduced to a median every `binSec`, and the spread
+    /// is then measured across `windowSec` of those bins.
+    ///
+    /// The timescale matters more than the threshold, and getting it wrong
+    /// inverted the result. Measured tick-to-tick over five minutes, awake and
+    /// asleep are indistinguishable — awake evening p50 1.02 against asleep
+    /// 1.18, with asleep marginally HIGHER. Measured as the swing of
+    /// five-minute medians across twenty minutes, they separate cleanly: awake
+    /// p50 2.14 against asleep 0.59. Breathing during sleep is noisy from
+    /// breath to breath and steady in its rhythm; awake it is the other way
+    /// round.
+    static let binSec: Double = 5 * 60
+    static let windowSec: Double = 20 * 60
 
-    /// Breath-rate spread (breaths/min) at or below which a tick counts as
-    /// steady. Set from measurement: a settled night holds well under half a
-    /// breath, and the awake stretches run several times that.
-    static let steadySpread: Float = 1.6
+    /// Spread of those binned medians (breaths/min) at or below which
+    /// breathing counts as steady. Measured against a settled night: 1.5
+    /// admits 76% of asleep time while still sitting clear of the awake median
+    /// of 2.14. Tighter values eat into ordinary sleep — 1.25 admitted only
+    /// 68%, and 1.0 just 62%.
+    static let steadySpread: Float = 1.5
 
-    /// Per-tick rolling spread of breath rate, aligned with `points`.
+    /// Per-tick spread of the binned breath rate, aligned with `points`.
     static func spread(_ points: [MetricsHistoryPoint]) -> [Float?] {
-        guard !points.isEmpty else { return [] }
-        return points.indices.map { i in
-            let centre = points[i].timestamp
-            let half = windowSec / 2
-            let window = points.lazy
-                .filter { abs($0.timestamp.timeIntervalSince(centre)) <= half }
-                .compactMap(\.breathBPM)
-            let values = Array(window)
+        guard !points.isEmpty, let first = points.first else { return [] }
+
+        // Bin to medians first. Without this the measure reads breath-to-breath
+        // jitter, which does not distinguish sleep from waking at all.
+        var bins: [Int: [Float]] = [:]
+        for p in points {
+            guard let b = p.breathBPM else { continue }
+            let bin = Int(p.timestamp.timeIntervalSince(first.timestamp) / binSec)
+            bins[bin, default: []].append(b)
+        }
+        let medians: [Int: Float] = bins.compactMapValues { values in
             guard values.count >= 3 else { return nil }
-            let mean = values.reduce(0, +) / Float(values.count)
-            let variance = values.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Float(values.count)
+            let s = values.sorted()
+            return s[s.count / 2]
+        }
+        guard !medians.isEmpty else { return points.map { _ in nil } }
+
+        let reach = Int((windowSec / binSec) / 2)
+        return points.map { p in
+            let bin = Int(p.timestamp.timeIntervalSince(first.timestamp) / binSec)
+            let window = ((bin - reach)...(bin + reach)).compactMap { medians[$0] }
+            guard window.count >= 3 else { return nil }
+            let mean = window.reduce(0, +) / Float(window.count)
+            let variance = window.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Float(window.count)
             return sqrt(variance)
         }
     }

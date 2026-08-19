@@ -114,7 +114,12 @@ struct SleepScore {
             sections[.autonomic] = round(parts.reduce(0) { $0 + $1.0 * $1.1 } / totalWeight)
         }
         if let steady = input.steadyFraction {
-            sections[.breathing] = round(ramp(steady, worst: 0.70, best: 0.98))
+            // Anchored on measurement, not on a guess. A settled night on this
+            // hardware runs about 76% steady, so the original 0.70–0.98 span
+            // scored an ordinary night at zero — the section read as a verdict
+            // on the wearer's breathing when it was really a verdict on the
+            // anchors.
+            sections[.breathing] = round(ramp(steady, worst: 0.45, best: 0.90))
         }
 
         let present = SleepSection.allCases.filter { sections[$0] != nil }
@@ -127,13 +132,27 @@ struct SleepScore {
             overall = nil
         }
 
+        // Renormalised weights, so the printed sum actually reaches the
+        // headline. Showing the raw weights of a partial set was worse than
+        // showing nothing: "46 = 25%·0 + 15%·96 + 20%·67" adds up to 28, and a
+        // reader who checks it finds the arithmetic wrong rather than finding
+        // out that two sections were missing.
+        let liveWeight = present.reduce(0.0) { $0 + $1.weight }
         let line = present
-            .map { "\(Int(($0.weight * 100).rounded()))%·\(sections[$0] ?? 0) \($0.name.lowercased())" }
+            .map { section -> String in
+                let share = liveWeight > 0 ? section.weight / liveWeight : 0
+                return "\(Int((share * 100).rounded()))%·\(sections[section] ?? 0) \(section.name.lowercased())"
+            }
             .joined(separator: " + ")
+        let missing = SleepSection.allCases.filter { sections[$0] == nil }
+        let note = missing.isEmpty
+            ? ""
+            : "  (\(missing.map { $0.name.lowercased() }.joined(separator: " and ")) not measured — "
+              + "the rest are reweighted to fill it)"
 
         return SleepScore(sections: sections,
                           overall: overall,
-                          arithmetic: overall.map { "\($0) = \(line)" } ?? line)
+                          arithmetic: (overall.map { "\($0) = \(line)" } ?? line) + note)
     }
 
     // MARK: Helpers
