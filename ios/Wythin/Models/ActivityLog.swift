@@ -436,6 +436,12 @@ final class ActivityLog {
 
     // MARK: HRV window computation
 
+    /// Fastest cadence the tick loop ever records at (foreground). Background
+    /// runs at 30 s, so this is the worst case for sample count.
+    static let minTickIntervalSec: Double = 2
+    /// Hard ceiling so a corrupt end date cannot ask the store for everything.
+    static let windowFetchCeiling: Int = 200_000
+
     /// Queries HRVSample records for the three windows around this activity
     /// and stores per-metric averages. Call after setting `endedAt`.
     func computeHRVWindows(context: ModelContext) {
@@ -450,7 +456,15 @@ final class ActivityLog {
             predicate: allPredicate,
             sortBy: [SortDescriptor(\.timestamp)]
         )
-        desc.fetchLimit = 10_000   // match the detail chart's fetch so long sessions aren't truncated
+        // Sized from the window itself, not a constant. The fetch sorts
+        // ascending, so a limit smaller than the window drops its TAIL — the
+        // end of the session — and every average below is then computed over a
+        // prefix while looking exactly like a whole-session number. A fixed
+        // 10,000 covered any workout but silently truncated an 8-hour night to
+        // its first 5.5 hours at the 2 s foreground cadence.
+        let spanSec = afterEnd.timeIntervalSince(beforeStart)
+        let maxTicks = Int(spanSec / ActivityLog.minTickIntervalSec) + 1_000
+        desc.fetchLimit = min(maxTicks, ActivityLog.windowFetchCeiling)
         guard let rawSamples = try? context.fetch(desc) else { return }
         // Gate samples through the same wear/artifact quality filter the Live
         // view and the activity detail charts use, so these stored window

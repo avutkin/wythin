@@ -125,7 +125,14 @@ enum StandbyPolicy {
         if contact == false { score += 3 } else if contact == true { score -= 1 }
         if ecgPoor { score += 1 }
         if rrBad   { score += 1 }
-        if still   { score += 1 }
+        // Stillness only corroborates when the heartbeat is ALSO gone. A strap
+        // on a table is dead-still and produces no RR; a sleeper is dead-still
+        // and produces perfectly good RR for eight hours. Counting stillness
+        // unconditionally made a motionless sleeper indistinguishable from a
+        // doffed strap, and paired with the ECG dip that dry electrodes develop
+        // overnight it reached the off-body threshold on its own — dropping the
+        // strap into standby in the middle of the night the app most wants.
+        if still && rrBad { score += 1 }
         return score
     }
 }
