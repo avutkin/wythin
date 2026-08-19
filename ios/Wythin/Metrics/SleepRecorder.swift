@@ -101,8 +101,9 @@ enum SleepRecorder {
         func minutes(_ s: SleepStageDetail) -> Int {
             Int((Double(detail.filter { $0 == s }.count) * tickSec / 60).rounded())
         }
-        log.sleepDeepMinutes = minutes(.deep)
-        log.sleepLightMinutes = minutes(.light)
+        log.sleepDeepMinutes = minutes(.n3)
+        log.sleepLightMinutes = minutes(.n2)
+        log.sleepN1Minutes = minutes(.n1)
         log.sleepREMMinutes = minutes(.rem)
         log.sleepAwakeMinutes = minutes(.wake)
     }

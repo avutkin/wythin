@@ -214,6 +214,8 @@ final class ActivityLog {
     var sleepLightMinutes: Int?
     var sleepREMMinutes: Int?
     var sleepAwakeMinutes: Int?
+    /// N1 — transitional, marked by position beside wake rather than measured.
+    var sleepN1Minutes: Int?
 
     // MARK: Exercise response
     //

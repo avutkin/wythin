@@ -1,207 +1,216 @@
-import Charts
 import SwiftUI
 
-/// The night, channel by channel, on one shared clock axis.
+/// The night: a stepped hypnogram, a movement strip, and the stage legend.
 ///
-/// Laid out as a sleep-study montage because that is the instrument's own
-/// vernacular — but every channel here is one a chest ECG plus a sternum
-/// accelerometer can actually produce. Nothing is inferred from a sensor this
-/// strap does not have.
-///
-/// The hypnogram is a lane ribbon rather than a fill-to-baseline shape: depth
-/// is vertical POSITION, and every state carries equal visual mass. Filling
-/// each block down to the floor instead makes the deepest state the shortest
-/// bar, and since one state usually occupies most of a night, that collapses
-/// the whole chart into a flat strip with the variation invisible.
+/// Drawn in Canvas rather than Swift Charts because the shape is specific —
+/// each block fills from its own stage level **down to the floor**, so the
+/// shallowest stage is the tallest bar and the deepest is a short block along
+/// the bottom. That is what produces the skyline: awake reads as a tall thin
+/// spike, N3 as a low dark step, and the depth of the night is legible as a
+/// silhouette rather than as a colour key.
 struct SleepMontageChart: View {
 
     let points: [MetricsHistoryPoint]
     let startedAt: Date
     let endedAt: Date
 
-    // MARK: - Derived
-
-    private struct StageRun: Identifiable {
-        let id = UUID()
-        let stage: SleepStageDetail
-        let from: Date
-        let to: Date
-    }
-
     private var stages: [SleepStageDetail] { SleepStages.detailed(points) }
 
-    /// Contiguous runs, so the ribbon draws one rectangle per stretch rather
-    /// than one per tick.
-    private var runs: [StageRun] {
-        let s = stages
-        guard s.count == points.count, !s.isEmpty else { return [] }
-        var out: [StageRun] = []
-        var start = 0
-        for i in 1...s.count {
-            if i == s.count || s[i] != s[start] {
-                out.append(StageRun(stage: s[start],
-                                    from: points[start].timestamp,
-                                    to: points[min(i, points.count - 1)].timestamp))
-                start = i
-            }
-        }
-        return out
-    }
-
-    /// Awake on top, then increasing depth downward — the convention every
-    /// hypnogram uses, and the one that makes the staircase readable.
-    private func lane(_ stage: SleepStageDetail) -> Double {
-        switch stage {
-        case .wake:  return 3
-        case .rem:   return 2
-        case .light: return 1
-        case .deep:  return 0
+    /// Deepest at the bottom. The index is the floor-to-ceiling position, so a
+    /// bigger number is a taller bar and a shallower stage.
+    private func level(_ s: SleepStageDetail) -> Int {
+        switch s {
+        case .n3:   return 1
+        case .n2:   return 2
+        case .n1:   return 3
+        case .rem:  return 4
+        case .wake: return 5
         }
     }
 
-    private func colour(_ stage: SleepStageDetail) -> Color {
-        switch stage {
-        // Wake is not a depth, so it takes a neutral rather than a rung on the
-        // same ramp as the three sleep stages.
-        case .wake:  return Theme.dim.opacity(0.55)
-        case .rem:   return ActivityType.sleep.color.opacity(0.35)
-        case .light: return ActivityType.sleep.color.opacity(0.62)
-        case .deep:  return ActivityType.sleep.color
+    private func colour(_ s: SleepStageDetail) -> Color {
+        switch s {
+        // Awake is not a depth, so it sits outside the blue ramp entirely.
+        case .wake: return Color(white: 0.94)
+        case .rem:  return Color(red: 0.55, green: 0.76, blue: 0.94)
+        case .n1:   return Color(red: 0.42, green: 0.66, blue: 0.89)
+        case .n2:   return Color(red: 0.30, green: 0.58, blue: 0.85)
+        case .n3:   return Color(red: 0.20, green: 0.40, blue: 0.58)
         }
     }
 
-    private var nadir: (Date, Float)? {
-        let hrs = points.compactMap { p -> (Date, Float)? in
-            p.meanBPM.map { (p.timestamp, $0) }
-        }
-        return hrs.min { $0.1 < $1.1 }
+    private var span: Double { max(1, endedAt.timeIntervalSince(startedAt)) }
+
+    private func minutes(_ s: SleepStageDetail) -> Int {
+        guard points.count > 1 else { return 0 }
+        let tick = points[1].timestamp.timeIntervalSince(points[0].timestamp)
+        return Int((Double(stages.filter { $0 == s }.count) * tick / 60).rounded())
     }
 
-    // MARK: - Body
+    private var asleepMinutes: Int {
+        SleepStageDetail.allCases.filter(\.isAsleep).reduce(0) { $0 + minutes($1) }
+    }
+
+    private func hm(_ m: Int) -> String { "\(m / 60)h \(String(format: "%02d", m % 60))m" }
+
+    private func clock(_ d: Date) -> String {
+        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: d)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 0) {
             hypnogram
-            trace("HEART RATE", unit: "bpm", value: { $0.meanBPM }, annotateNadir: true)
-            trace("HRV RMSSD", unit: "ms", value: { $0.rmssd })
-            trace("BREATHING", unit: "br/min", value: { $0.breathBPM })
-            movement
+            axis
+            movementStrip
             legend
         }
     }
 
+    // MARK: - Hypnogram
+
     private var hypnogram: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            channelLabel("SLEEP", unit: nil)
-            Chart(runs) { run in
-                RectangleMark(
-                    xStart: .value("from", run.from),
-                    xEnd: .value("to", run.to),
-                    yStart: .value("lo", lane(run.stage) + 0.12),
-                    yEnd: .value("hi", lane(run.stage) + 0.88)
-                )
-                .foregroundStyle(colour(run.stage))
-            }
-            .chartYScale(domain: 0...4)
-            .chartXScale(domain: startedAt...endedAt)
-            .chartYAxis {
-                AxisMarks(values: [0.5, 1.5, 2.5, 3.5]) { v in
-                    AxisValueLabel {
-                        Text(["DEEP", "LIGHT", "REM", "AWAKE"][Int((v.as(Double.self) ?? 0.5) - 0.5)])
-                            .font(.system(size: 8, design: .monospaced))
-                            .foregroundStyle(Theme.dim)
-                    }
-                    AxisGridLine().foregroundStyle(Theme.dim.opacity(0.15))
+        Canvas { ctx, size in
+            guard stages.count == points.count, !points.isEmpty else { return }
+            let levels = 5.0
+            let unit = size.height / levels
+
+            var start = 0
+            for i in 1...stages.count {
+                if i == stages.count || stages[i] != stages[start] {
+                    let x0 = xPos(points[start].timestamp, size.width)
+                    let x1 = i < points.count
+                        ? xPos(points[i].timestamp, size.width)
+                        : size.width
+                    let h = Double(level(stages[start])) * unit
+                    let rect = CGRect(x: x0, y: size.height - h,
+                                      width: max(1.2, x1 - x0), height: h)
+                    ctx.fill(Path(rect), with: .color(colour(stages[start])))
+                    start = i
                 }
             }
-            .chartXAxis(.hidden)
-            .frame(height: 104)
         }
+        .frame(height: 132)
+        .padding(.horizontal, 2)
+        .overlay(alignment: .leading) { edge }
+        .overlay(alignment: .trailing) { edge }
     }
 
-    private func trace(_ name: String,
-                       unit: String,
-                       value: @escaping (MetricsHistoryPoint) -> Float?,
-                       annotateNadir: Bool = false) -> some View {
-        let series = points.compactMap { p -> (Date, Double)? in
-            value(p).map { (p.timestamp, Double($0)) }
-        }
-        return VStack(alignment: .leading, spacing: 4) {
-            channelLabel(name, unit: unit)
-            Chart {
-                ForEach(Array(series.enumerated()), id: \.offset) { _, s in
-                    LineMark(x: .value("t", s.0), y: .value(name, s.1))
-                        .foregroundStyle(ActivityType.sleep.color)
-                        .lineStyle(StrokeStyle(lineWidth: 1.4))
-                        .interpolationMethod(.monotone)
-                }
-                if annotateNadir, let (t, hr) = nadir {
-                    PointMark(x: .value("t", t), y: .value(name, Double(hr)))
-                        .foregroundStyle(ActivityType.sleep.color)
-                        .symbolSize(28)
-                        .annotation(position: .top, alignment: .center) {
-                            Text("nadir \(Int(hr))")
-                                .font(.system(size: 8, design: .monospaced))
-                                .foregroundStyle(Theme.dim)
-                        }
-                }
-            }
-            .chartXScale(domain: startedAt...endedAt)
-            .chartXAxis(name == "BREATHING" ? .automatic : .hidden)
-            .chartYAxis {
-                AxisMarks(position: .leading, values: .automatic(desiredCount: 2)) { _ in
-                    AxisValueLabel().font(.system(size: 8, design: .monospaced))
-                        .foregroundStyle(Theme.dim)
-                    AxisGridLine().foregroundStyle(Theme.dim.opacity(0.12))
-                }
-            }
-            .frame(height: 56)
-        }
+    private var edge: some View {
+        Rectangle()
+            .fill(Theme.dim.opacity(0.45))
+            .frame(width: 1)
     }
 
-    private var movement: some View {
-        let series = points.compactMap { p -> (Date, Double)? in
-            p.motion.map { (p.timestamp, Double($0)) }
-        }
-        return VStack(alignment: .leading, spacing: 4) {
-            channelLabel("MOVEMENT", unit: "mg")
-            Chart {
-                ForEach(Array(series.enumerated()), id: \.offset) { _, s in
-                    BarMark(x: .value("t", s.0), y: .value("motion", s.1), width: 1)
-                        .foregroundStyle(Theme.dim.opacity(0.7))
-                }
-            }
-            .chartXScale(domain: startedAt...endedAt)
-            .chartXAxis(.hidden)
-            .chartYAxis(.hidden)
-            .frame(height: 34)
-        }
+    private func xPos(_ t: Date, _ width: Double) -> Double {
+        width * min(1, max(0, t.timeIntervalSince(startedAt) / span))
     }
 
-    private func channelLabel(_ name: String, unit: String?) -> some View {
-        HStack(spacing: 5) {
-            Text(name)
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .tracking(0.6)
-            if let unit {
-                Text(unit).font(.system(size: 8, design: .monospaced))
+    // MARK: - Axis
+
+    private var axis: some View {
+        HStack(spacing: 0) {
+            Text(clock(startedAt))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.text)
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 5))
+            Spacer()
+            ForEach(hourTicks, id: \.self) { t in
+                Text(clock(t))
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.dim)
+                Spacer()
             }
+            Text(clock(endedAt))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.text)
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 5))
         }
-        .foregroundStyle(Theme.dim)
+        .padding(.top, 8)
     }
+
+    /// Every second hour, and never so close to an end that it collides with
+    /// the boxed start or finish time.
+    private var hourTicks: [Date] {
+        var out: [Date] = []
+        let cal = Calendar.current
+        var t = cal.date(bySetting: .minute, value: 0, of: startedAt) ?? startedAt
+        while t < endedAt {
+            let h = cal.component(.hour, from: t)
+            if t > startedAt.addingTimeInterval(45 * 60),
+               t < endedAt.addingTimeInterval(-45 * 60),
+               h % 2 == 0 {
+                out.append(t)
+            }
+            t = t.addingTimeInterval(3600)
+        }
+        return out
+    }
+
+    // MARK: - Movement
+
+    private var movementStrip: some View {
+        VStack(spacing: 6) {
+            Text("MOVEMENT")
+                .font(.system(size: 11, weight: .medium))
+                .tracking(1.4)
+                .foregroundStyle(Theme.dim)
+            Canvas { ctx, size in
+                let mid = size.height / 2
+                ctx.stroke(Path { p in
+                    p.move(to: CGPoint(x: 0, y: mid))
+                    p.addLine(to: CGPoint(x: size.width, y: mid))
+                }, with: .color(Theme.dim.opacity(0.25)), lineWidth: 1)
+
+                // Only movement that stands out from this night's own stillness
+                // is worth a tick; drawing every sample would be a grey wash.
+                let motions = points.compactMap(\.motion).sorted()
+                guard !motions.isEmpty else { return }
+                let median = motions[motions.count / 2]
+                let threshold = max(median * 2, 8)
+
+                for p in points {
+                    guard let m = p.motion, m > threshold else { continue }
+                    let x = xPos(p.timestamp, size.width)
+                    let scale = min(1, Double(m / (threshold * 4)))
+                    let h = 6 + scale * (mid - 4)
+                    ctx.fill(Path(CGRect(x: x, y: mid - h / 2, width: 1.6, height: h)),
+                             with: .color(Color(white: 0.92).opacity(0.55 + scale * 0.45)))
+                }
+            }
+            .frame(height: 46)
+        }
+        .padding(.top, 26)
+    }
+
+    // MARK: - Legend
 
     private var legend: some View {
-        HStack(spacing: 14) {
-            ForEach([SleepStageDetail.deep, .light, .rem, .wake], id: \.self) { s in
-                HStack(spacing: 5) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(colour(s))
-                        .frame(width: 12, height: 8)
-                    Text(s.label)
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.dim)
+        VStack(alignment: .leading, spacing: 11) {
+            ForEach([SleepStageDetail.wake, .rem, .n1, .n2, .n3], id: \.self) { s in
+                let mins = minutes(s)
+                if mins > 0 || s == .wake {
+                    HStack(spacing: 12) {
+                        Capsule()
+                            .fill(colour(s))
+                            .frame(width: 92, height: 9)
+                        Text(s.label)
+                            .font(.system(size: 16))
+                            .foregroundStyle(Theme.text)
+                        Text(hm(mins))
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(Theme.text)
+                        if s.isAsleep, asleepMinutes > 0 {
+                            Text("\(Int(round(Double(mins) / Double(asleepMinutes) * 100)))%")
+                                .font(.system(size: 15))
+                                .foregroundStyle(Theme.dim)
+                        }
+                        Spacer()
+                    }
                 }
             }
         }
+        .padding(.top, 30)
     }
 }

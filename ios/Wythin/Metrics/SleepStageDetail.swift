@@ -21,16 +21,20 @@ import Foundation
 ///    deep sleep will still be reported near the typical share. Trust the
 ///    shape; do not read the minutes as a measurement.
 enum SleepStageDetail: Int, CaseIterable {
-    case wake = 0, rem = 1, light = 2, deep = 3
+    case wake = 0, rem = 1, n1 = 2, n2 = 3, n3 = 4
 
     var label: String {
         switch self {
-        case .wake:  return "Awake"
-        case .rem:   return "REM"
-        case .light: return "Light"
-        case .deep:  return "Deep"
+        case .wake: return "Awake"
+        case .rem:  return "REM"
+        case .n1:   return "N1"
+        case .n2:   return "N2 (light)"
+        case .n3:   return "N3 (deep)"
         }
     }
+
+    /// Whether this stage is asleep at all.
+    var isAsleep: Bool { self != .wake }
 }
 
 extension SleepStages {
@@ -54,7 +58,7 @@ extension SleepStages {
 
         let asleep = coarse.indices.filter { coarse[$0] != .wake }
         guard asleep.count > 10 else {
-            return coarse.map { $0 == .wake ? .wake : .light }
+            return coarse.map { $0 == .wake ? .wake : .n2 }
         }
 
         func z(_ values: [Float?]) -> [Double] {
@@ -84,14 +88,15 @@ extension SleepStages {
         let deepCount = Int(Double(byDepth.count) * deepShare)
         let remCount = Int(Double(byDepth.count) * remShare)
 
-        var out = [SleepStageDetail](repeating: .light, count: points.count)
+        var out = [SleepStageDetail](repeating: .n2, count: points.count)
         for i in coarse.indices where coarse[i] == .wake { out[i] = .wake }
         for (n, entry) in byDepth.enumerated() {
-            if n < deepCount { out[entry.index] = .deep }
+            if n < deepCount { out[entry.index] = .n3 }
             else if n >= byDepth.count - remCount { out[entry.index] = .rem }
-            else { out[entry.index] = .light }
+            else { out[entry.index] = .n2 }
         }
-        return smoothDetail(out, points: points)
+        out = smoothDetail(out, points: points)
+        return markN1(out, points: points)
     }
 
     /// Same run-length rule as the coarse pass: a stage briefer than a few
@@ -121,6 +126,30 @@ extension SleepStages {
                 i = j + 1
             }
             if !changed { break }
+        }
+        return out
+    }
+}
+
+
+extension SleepStages {
+
+    /// Marks the light epochs bordering wake as N1.
+    ///
+    /// N1 is the descent into sleep and the minutes after an arousal, and that
+    /// is the only handle a cardiac signal gives on it — position relative to
+    /// wake, not a signature of its own. Labelled as such wherever it is shown.
+    static func markN1(_ stages: [SleepStageDetail],
+                       points: [MetricsHistoryPoint]) -> [SleepStageDetail] {
+        guard stages.count == points.count, points.count > 1 else { return stages }
+        let tick = points[1].timestamp.timeIntervalSince(points[0].timestamp)
+        let reach = max(1, Int(SleepThresholds.n1ReachSec / max(tick, 1)))
+        var out = stages
+        for i in stages.indices where stages[i] == .wake {
+            for step in 1...reach {
+                if i + step < out.count, out[i + step] == .n2 { out[i + step] = .n1 }
+                if i - step >= 0, out[i - step] == .n2 { out[i - step] = .n1 }
+            }
         }
         return out
     }
