@@ -184,6 +184,16 @@ final class AppEnvironment {
     ///
     /// Cheap because it exits on the day check in the overwhelming common case:
     /// once today's anchor exists, this is one fetch every five minutes.
+    /// Records last night, once it is over.
+    ///
+    /// Shares the anchor's five-minute throttle: both are cheap, both are
+    /// idempotent, and neither needs to be prompt. `SleepRecorder` decides for
+    /// itself whether a night is finished, so calling this at 03:00 is a no-op
+    /// rather than a truncated record.
+    private func recordSleepIfDue(now: Date) {
+        SleepRecorder.recordIfDue(context: modelContainer.mainContext, now: now)
+    }
+
     private func detectAnchorIfDue(now: Date) {
         guard now.timeIntervalSince(lastAnchorCheckAt) >= anchorCheckInterval else { return }
         lastAnchorCheckAt = now
@@ -854,6 +864,7 @@ final class AppEnvironment {
                 self.nudges.ingest(point, now: point.timestamp)
                 self.evaluateNudgesIfDue(now: point.timestamp)
                 self.detectAnchorIfDue(now: point.timestamp)
+                self.recordSleepIfDue(now: point.timestamp)
 
                 // ── Foreground-only: live table + live cloud stream ───────────
                 if inForeground {

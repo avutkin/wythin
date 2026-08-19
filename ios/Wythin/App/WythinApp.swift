@@ -69,6 +69,13 @@ struct WythinApp: App {
             // app is when we can finally fill it in.
             if newPhase == .active {
                 ActivityLog.backfillMissingWindows(context: container.mainContext)
+                // Last night, if it has not been written down yet. Deliberately
+                // here and not only in the tick loop: that loop runs on arriving
+                // metric ticks, so it needs the strap connected. Opening the app
+                // at breakfast — strap on the nightstand — is exactly when a
+                // person wants to see the night, and the samples are already on
+                // disk. Idempotent, so both paths are safe.
+                SleepRecorder.recordIfDue(context: container.mainContext)
             }
         }
     }

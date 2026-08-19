@@ -23,7 +23,8 @@ final class ActivityClassTests: XCTestCase {
 
     func testEveryCaseIsClassified() {
         // A new ActivityType must be a deliberate choice, not a silent default.
-        XCTAssertEqual(ActivityType.allCases.count, 10)
+        XCTAssertEqual(ActivityType.allCases.count, 11,
+                       "Sleep joined the enum; it is measured, not picked")
     }
 
     func testStoredWalkEntryClassifiesAsActivating() {

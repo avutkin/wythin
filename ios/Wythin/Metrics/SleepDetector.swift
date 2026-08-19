@@ -52,6 +52,11 @@ enum SleepThresholds {
     /// through recording, short enough that stale history cannot resurface as
     /// "last night" the first time the detector ever runs.
     static let lookbackSec: Double = 36 * 3600
+    /// Sleep need until the app learns this person's own. A placeholder, and
+    /// labelled as one: the experimental between-subject SD for sleep need is
+    /// about 0.7 h, so a population figure is the wrong tool and only stands in
+    /// until enough nights exist to estimate an individual one.
+    static let defaultNeedSec: Double = 7.75 * 3600
 }
 
 // MARK: - Window
