@@ -52,18 +52,18 @@ extension SleepStages {
     /// deep sleep is front-loaded and REM lengthens toward morning; without it
     /// the two ends of the axis are only "calm" and "not calm", with no way to
     /// tell early light sleep from late REM.
-    static func detailed(_ points: [MetricsHistoryPoint]) -> [SleepStageDetail] {
+    /// The within-night depth axis: higher is deeper. Nil where awake.
+    ///
+    /// Split out from `detailed` so the cut points can be calibrated against
+    /// real nights instead of asserted. The axis itself is a measurement — it
+    /// is the *cutting* of it that used to be a constant.
+    static func depthAxis(_ points: [MetricsHistoryPoint]) -> [Double?] {
         let coarse = classify(points)
         guard !points.isEmpty else { return [] }
-
-        // Once. `medianInterval` sorts every gap in the night, and this pass
-        // used to ask for it three times over.
         let tick = medianInterval(points)
 
         let asleep = coarse.indices.filter { coarse[$0] != .wake }
-        guard asleep.count > 10 else {
-            return coarse.map { $0 == .wake ? .wake : .n2 }
-        }
+        guard asleep.count > 10 else { return points.map { _ in nil } }
 
         func z(_ values: [Float?]) -> [Double] {
             let present = values.compactMap { $0 }.map(Double.init)
@@ -79,32 +79,41 @@ extension SleepStages {
         let zl = z(points.map(\.lfHF))
         let zh = z(points.map(\.meanBPM))
 
+        // The measured part of the axis: four standardised channels that the
+        // research found actually separate depth.
+        var base = [Double](repeating: 0, count: points.count)
+        for i in asleep { base[i] = zc[i] - zs[i] - zl[i] - zh[i] }
+
+        // How much depth structure this night actually contains. A recording
+        // whose channels never move, or move without agreeing, has a narrow
+        // base — and must not then be handed structure by the tilt.
+        let observed = asleep.map { base[$0] }
+        let mean = observed.reduce(0, +) / Double(observed.count)
+        let baseSD = sqrt(observed.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(observed.count))
+
         // Depth, plus a tilt: early ticks lean deep, late ticks lean REM.
+        //
+        // The tilt is scaled by the measured spread. Unscaled it injected a
+        // fixed ±0.6 of pure artefact, which on a structureless night was the
+        // ENTIRE axis — the night got a full hypnogram built from nothing but
+        // the clock. Scaled, a flat night stays flat and reports itself as
+        // undifferentiated light sleep, which is the honest answer.
+        let tiltScale = min(1, baseSD / 2.0)
         let span = Double(max(1, asleep.count))
-        // Dense arrays rather than a dictionary keyed by index. The smoother
-        // below reads a five-minute window around every asleep tick, which at
-        // the 2 s foreground cadence is ~300 reads each — five million
-        // dictionary lookups over a ten-hour night, and the single largest
-        // cost in the whole screen.
         var raw = [Double](repeating: 0, count: points.count)
         var present = [Bool](repeating: false, count: points.count)
         for (rank, i) in asleep.enumerated() {
             let through = Double(rank) / span
-            let tilt = (0.5 - through) * 1.2
-            raw[i] = zc[i] - zs[i] - zl[i] - zh[i] + tilt
+            raw[i] = base[i] + (0.5 - through) * 1.2 * tiltScale
             present[i] = true
         }
 
-        // Smooth the SCORE across time before ranking. Ranking the raw score
+        // Smooth the SCORE across time before cutting. Cutting the raw score
         // scatters stage labels tick by tick, and the run-length smoother then
         // has nothing but one-sample runs to work with — so it flattens the
         // night into a single stage. Sleep changes state over minutes, so the
-        // quantity being ranked has to move over minutes too.
+        // quantity being cut has to move over minutes too.
         let reach = max(1, Int((5 * 60) / max(tick, 1)))
-
-        // Running sums, so each window is two subtractions instead of a walk.
-        // Same arithmetic as before — the mask keeps the mean over *asleep*
-        // ticks only, exactly as the dictionary lookup did.
         var sums = [Double](repeating: 0, count: points.count + 1)
         var counts = [Double](repeating: 0, count: points.count + 1)
         for i in 0..<points.count {
@@ -112,26 +121,39 @@ extension SleepStages {
             counts[i + 1] = counts[i] + (present[i] ? 1 : 0)
         }
 
-        var scored: [(index: Int, depth: Double)] = []
-        scored.reserveCapacity(asleep.count)
+        var out = [Double?](repeating: nil, count: points.count)
         for i in asleep {
             let lo = max(0, i - reach)
             let hi = min(points.count - 1, i + reach)
             let n = counts[hi + 1] - counts[lo]
-            let sum = sums[hi + 1] - sums[lo]
-            scored.append((i, n > 0 ? sum / n : raw[i]))
+            out[i] = n > 0 ? (sums[hi + 1] - sums[lo]) / n : raw[i]
+        }
+        return out
+    }
+
+    static func detailed(_ points: [MetricsHistoryPoint]) -> [SleepStageDetail] {
+        guard !points.isEmpty else { return [] }
+        let coarse = classify(points)
+        let tick = medianInterval(points)
+        let depth = depthAxis(points)
+
+        guard depth.contains(where: { $0 != nil }) else {
+            return coarse.map { $0 == .wake ? .wake : .n2 }
         }
 
-        let byDepth = scored.sorted { $0.depth > $1.depth }
-        let deepCount = Int(Double(byDepth.count) * deepShare)
-        let remCount = Int(Double(byDepth.count) * remShare)
-
+        // Cut on the axis itself, not on rank.
+        //
+        // This used to take the deepest 21% and the shallowest 23% of ticks,
+        // which meant every night ever recorded reported 21% deep and 23% REM
+        // — the constants, read back out. A night with no depth structure at
+        // all scored identically to one with a textbook 90-minute cycle.
+        // Thresholds on the axis let a flat night report itself as flat.
         var out = [SleepStageDetail](repeating: .n2, count: points.count)
-        for i in coarse.indices where coarse[i] == .wake { out[i] = .wake }
-        for (n, entry) in byDepth.enumerated() {
-            if n < deepCount { out[entry.index] = .n3 }
-            else if n >= byDepth.count - remCount { out[entry.index] = .rem }
-            else { out[entry.index] = .n2 }
+        for i in points.indices {
+            guard coarse[i] != .wake, let d = depth[i] else { out[i] = .wake; continue }
+            if d >= SleepThresholds.deepDepth      { out[i] = .n3 }
+            else if d < SleepThresholds.remDepth   { out[i] = .rem }
+            else                                   { out[i] = .n2 }
         }
         out = smoothDetail(out, points: points, tick: tick)
         return markN1(out, points: points, tick: tick)

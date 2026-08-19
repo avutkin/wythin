@@ -1,19 +1,17 @@
 import XCTest
 @testable import Wythin
 
-/// **A known defect, recorded rather than hidden.**
+/// The stage breakdown has to describe *this* night.
 ///
-/// `detailed()` ranks every asleep tick on a depth axis and then cuts the
-/// ranking at `deepShare` (21%) and `remShare` (23%). Ranking is a measurement;
-/// cutting at a fixed share is not. The consequence is that the deep and REM
-/// percentages are the same on every night that was ever recorded — they are
-/// the constants, read back out.
+/// It did not. `detailed()` ranked ticks on a depth axis — a real measurement —
+/// and then cut the ranking at fixed shares, 21% deep and 23% REM. So every
+/// night ever recorded reported 21% deep and 23% REM: the constants, read back
+/// out. A textbook 90-minute cycle and a perfectly flat recording came back
+/// identical.
 ///
-/// The doc comment on `detailed()` is honest about this ("the proportions are
-/// imposed, not discovered"), but the UI prints exact minutes and percentages,
-/// which reads as measurement. This test asserts what the numbers *should* do
-/// and is expected to fail until the cut points come from the night instead of
-/// from a constant.
+/// The cut is on the axis itself now, so a night with no depth structure
+/// reports undifferentiated light sleep instead of being handed a hypnogram
+/// built from nothing but the clock.
 final class StageProportionDiagnostic: XCTestCase {
 
     private func night(coherence: @escaping (Int) -> Float,
@@ -36,8 +34,6 @@ final class StageProportionDiagnostic: XCTestCase {
     }
 
     func testDeepSleepShareReflectsTheNightAndNotAConstant() {
-        XCTExpectFailure("known: deepShare/remShare impose the proportions — see doc above")
-
         let structured = night(coherence: { 0.5 + 0.4 * Float(sin(Double($0) / 60)) },
                                sdnn: { 60 - 20 * Float(sin(Double($0) / 60)) })
         let flat = night(coherence: { _ in 0.5 }, sdnn: { _ in 60 })
@@ -46,5 +42,21 @@ final class StageProportionDiagnostic: XCTestCase {
         // having the same deep-sleep share as one with a strong 90-minute cycle.
         XCTAssertNotEqual(deepShare(structured), deepShare(flat), accuracy: 0.02,
                           "both nights report the same deep share — it is the constant, not a measurement")
+    }
+
+    func testANightWithNoDepthStructureReportsNoDeepSleep() {
+        let flat = night(coherence: { _ in 0.5 }, sdnn: { _ in 60 })
+        XCTAssertEqual(deepShare(flat), 0, accuracy: 0.001,
+                       "nothing was measured, so nothing should be claimed")
+    }
+
+    func testAStructuredNightStillReportsAPlausibleDeepShare() {
+        // Responsive must not mean unanchored: a night with real structure
+        // should still land inside the typical adult N3 range of 13–23%.
+        let structured = night(coherence: { 0.5 + 0.4 * Float(sin(Double($0) / 60)) },
+                               sdnn: { i in 60 - 20 * Float(sin(Double(i) / 60)) })
+        let share = deepShare(structured)
+        XCTAssertGreaterThan(share, 0.05)
+        XCTAssertLessThan(share, 0.40)
     }
 }

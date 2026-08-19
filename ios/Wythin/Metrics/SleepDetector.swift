@@ -63,7 +63,27 @@ enum SleepThresholds {
     /// A night written by an older version is recomputed rather than left in
     /// place — otherwise the app shows numbers from an algorithm that no longer
     /// exists, with fields the old code never populated rendering as dashes.
-    static let algorithmVersion: Int = 5
+    /// Cut points on the depth axis, in z-units of this night's own signal.
+    ///
+    /// Both replace fixed *shares* (formerly 21% deep, 23% REM), which meant
+    /// every night reported the same breakdown no matter what was recorded.
+    ///
+    /// `remDepth` at zero has a physiological reading rather than an arbitrary
+    /// one: the axis is centred on the whole recording, so a tick at or below
+    /// zero is one whose autonomic state is no deeper than this person's
+    /// night-wide average — and REM is precisely the stage that resembles
+    /// wake in heart rate and LF/HF. The comparison is strict, so a recording
+    /// with no structure at all (axis identically zero) reports no REM rather
+    /// than reporting itself as entirely REM.
+    ///
+    /// `deepDepth` at 2.2 is calibrated against a real overnight capture,
+    /// where it selects the deepest ~22% — inside the typical adult N3 range
+    /// of 13–23%. A night with less depth structure now returns less N3,
+    /// which is the entire point of the change.
+    static let deepDepth: Double = 2.2
+    static let remDepth: Double = 0.0
+
+    static let algorithmVersion: Int = 6
     /// Shortest run that can stand as its own stage. Sleep changes state on
     /// the scale of minutes; anything briefer is a turn or a dropped estimate,
     /// and leaving it in inflates every count derived from the hypnogram.
