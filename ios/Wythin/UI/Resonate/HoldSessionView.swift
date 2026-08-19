@@ -5,7 +5,8 @@ import SwiftUI
 // Unlike the pacers, this one has a setup step and an end. You set the hold
 // length and the number of sets, hit Start, and it runs a fixed course:
 //
-//   per set →  inhale (rising tone) · exhale (falling tone) · beep · HOLD · beep
+//   per set →  inhale (a count a second) · double · exhale · long tone · HOLD
+//              (silent) · long tone
 //
 // The hold is on empty lungs, which is a stronger stimulus than the same clock
 // time on full, so the defaults are short and the setup screen says so.
@@ -287,20 +288,14 @@ struct HoldSessionView: View {
     private func begin() {
         startedAt = .now
         engine.configure(plan)
-        cue.prepare(breatheSeconds: breatheSeconds)
         cue.isMuted = isMuted
         cue.start()
         UIApplication.shared.isIdleTimerDisabled = true
 
-        engine.onPhaseChange = { state in
-            // The hold is bracketed: the beep that opens it, and the beep that
-            // ends it — which arrives as the next set's inhale, or as the finish.
-            switch state.phase {
-            case .hold:   cue.play(.beep)
-            case .inhale: cue.play(.beep); cue.play(.inhale)
-            case .exhale: cue.play(.exhale)
-            }
-        }
+        // One line, because what to play is a pure function of the second —
+        // counts through the breaths, a double at the turn, a long tone either
+        // side of the hold, silence inside it.
+        engine.onTick = { state in cue.play(HoldCueEvent.at(state)) }
         engine.onFinish = { finish(completed: true) }
 
         phase = .running
@@ -308,7 +303,7 @@ struct HoldSessionView: View {
     }
 
     private func teardown() {
-        engine.onPhaseChange = nil
+        engine.onTick = nil
         engine.onFinish = nil
         engine.stop()
         cue.stop()

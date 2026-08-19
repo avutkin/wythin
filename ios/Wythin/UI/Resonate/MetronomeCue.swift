@@ -128,27 +128,28 @@ final class MetronomeCue {
 
 // MARK: - Breath-hold cue
 //
-// A hold session needs sounds that say *keep going* for several seconds at a
-// time, not a beat. So the breaths get glides — pitch and volume rising through
-// the inhale, falling through the exhale — which you can follow without looking
-// at anything, and the hold is bracketed by two short beeps.
+// The hold session counts out loud rather than sliding. A short tone marks each
+// second of a breath, a double marks the inhale handing over to the exhale, and
+// a long tone opens and closes every hold. The hold itself is silent: the one
+// place you least want a noise is halfway through holding your breath.
+//
+// This replaced a pair of pitch glides. A five-second slide told you a breath
+// was happening but never where in it you were, and it was heard as intense —
+// a continuous tone has no beat to sit behind.
 
 @MainActor
 final class HoldCue {
-
-    enum Sound { case inhale, exhale, beep }
 
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
 
-    private var inhale: AVAudioPCMBuffer?
-    private var exhale: AVAudioPCMBuffer?
-    private var beep:   AVAudioPCMBuffer?
-    private var glideSeconds = 0
+    private var countTone:    AVAudioPCMBuffer?
+    private var turnTone:     AVAudioPCMBuffer?
+    private var boundaryTone: AVAudioPCMBuffer?
 
-    private let beepHaptic  = UIImpactFeedbackGenerator(style: .rigid)
-    private let phaseHaptic = UIImpactFeedbackGenerator(style: .soft)
+    private let softHaptic = UIImpactFeedbackGenerator(style: .soft)
+    private let firmHaptic = UIImpactFeedbackGenerator(style: .rigid)
 
     var isMuted = false
     private var isStarted = false
@@ -156,22 +157,12 @@ final class HoldCue {
     init() {
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: format)
-        beep = HoldCue.beepTone(format: format)
-    }
 
-    /// Glides are as long as the breath they pace, so they have to be rebuilt
-    /// whenever that setting changes. Cached on length — the setup screen can
-    /// step the value repeatedly without resynthesising each time.
-    func prepare(breatheSeconds: Int) {
-        guard breatheSeconds != glideSeconds else { return }
-        glideSeconds = breatheSeconds
-        // A fifth, low in the register: 196 Hz to 294 Hz. The first version swept
-        // a whole octave and was heard as intense — a wide sweep reads as urgency,
-        // which is the opposite of what a breath cue wants to say.
-        inhale = HoldCue.glide(from: 196, to: 294, seconds: Double(breatheSeconds),
-                               swell: true, format: format)
-        exhale = HoldCue.glide(from: 294, to: 196, seconds: Double(breatheSeconds),
-                               swell: false, format: format)
+        // Seconds tick at 587 Hz; boundaries sit a fifth below at 392 and ring
+        // far longer, so a hold opening reads as heavier rather than just louder.
+        countTone    = HoldCue.tone(frequency: 587.33, seconds: 0.09, decay: 26, gain: 0.20, format: format)
+        turnTone     = HoldCue.doubleTone(frequency: 587.33, gap: 0.14, format: format)
+        boundaryTone = HoldCue.tone(frequency: 392.00, seconds: 0.55, decay: 5,  gain: 0.26, format: format)
     }
 
     func start() {
@@ -184,12 +175,12 @@ final class HoldCue {
             player.play()
             isStarted = true
         } catch {
-            // Silent audio still leaves the on-screen countdown and the haptics,
-            // so a failure here does not sink the session.
+            // Silent audio still leaves the countdown and the haptics, so a
+            // failure here does not sink the session.
             isStarted = false
         }
-        beepHaptic.prepare()
-        phaseHaptic.prepare()
+        softHaptic.prepare()
+        firmHaptic.prepare()
     }
 
     func stop() {
@@ -199,31 +190,34 @@ final class HoldCue {
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
     }
 
-    func play(_ sound: Sound) {
-        switch sound {
-        case .beep:             beepHaptic.impactOccurred()
-        case .inhale, .exhale:  phaseHaptic.impactOccurred()
+    /// Nothing plays for `.silent` — the hold is meant to be undisturbed.
+    func play(_ event: HoldCueEvent) {
+        switch event {
+        case .count:           softHaptic.impactOccurred()
+        case .turn, .boundary: firmHaptic.impactOccurred()
+        case .silent:          return
         }
 
         guard !isMuted, isStarted else { return }
         let buffer: AVAudioPCMBuffer?
-        switch sound {
-        case .inhale: buffer = inhale
-        case .exhale: buffer = exhale
-        case .beep:   buffer = beep
+        switch event {
+        case .count:    buffer = countTone
+        case .turn:     buffer = turnTone
+        case .boundary: buffer = boundaryTone
+        case .silent:   buffer = nil
         }
         guard let buffer else { return }
-        player.scheduleBuffer(buffer, at: nil, options: [.interrupts])
+        // No .interrupts: a count landing while a boundary still rings should
+        // layer over it, not chop it off.
+        player.scheduleBuffer(buffer, at: nil, options: [])
     }
 
     // MARK: Synthesis
 
-    /// A tone sweeping between two pitches over the whole phase. Phase is
-    /// accumulated rather than computed from `sin(2π f t)` directly — with a
-    /// changing frequency the direct form drifts out of phase with itself and
-    /// the sweep audibly warbles.
-    private static func glide(from f0: Double, to f1: Double, seconds: Double,
-                              swell: Bool, format: AVAudioFormat) -> AVAudioPCMBuffer? {
+    /// One struck tone. The short attack ramp keeps it from clicking; the decay
+    /// rate is what separates a tick from a held note.
+    private static func tone(frequency: Double, seconds: Double, decay: Double,
+                             gain: Double, format: AVAudioFormat) -> AVAudioPCMBuffer? {
         let rate   = format.sampleRate
         let frames = AVAudioFrameCount(rate * seconds)
         guard frames > 0,
@@ -231,45 +225,39 @@ final class HoldCue {
               let channel = buffer.floatChannelData?[0] else { return nil }
         buffer.frameLength = frames
 
-        let fade = 0.12                     // seconds, both ends
-        var phase = 0.0
-
+        let attack = 0.006
         for i in 0..<Int(frames) {
             let t = Double(i) / rate
-            let u = t / seconds             // 0…1 through the phase
-
-            let freq = f0 + (f1 - f0) * u
-            phase += 2 * .pi * freq / rate
-
-            // Swell in for the inhale, ebb out for the exhale, so volume carries
-            // the direction even for someone who can't hear the pitch move. The
-            // range is gentle on purpose; a big swing sounds like an alarm.
-            let shape = swell ? (0.55 + 0.45 * u) : (1.0 - 0.45 * u)
-
-            // Soft ends so the buffer never starts or stops on a discontinuity.
-            let edge = min(1, min(t, seconds - t) / fade)
-
-            channel[i] = Float(sin(phase) * shape * edge * 0.10)
+            let envelope = (t < attack ? t / attack : 1) * exp(-decay * t)
+            var sample = sin(2 * .pi * frequency * t)
+            sample += 0.20 * sin(2 * .pi * frequency * 2 * t) * exp(-decay * 2 * t)
+            channel[i] = Float(sample * envelope * gain)
         }
         return buffer
     }
 
-    /// Short and above the glides, so it reads as an instruction rather than part
-    /// of the breath — but only just above, and quiet. It marks a boundary; it is
-    /// not trying to startle anyone mid-hold.
-    private static func beepTone(format: AVAudioFormat) -> AVAudioPCMBuffer? {
-        let rate     = format.sampleRate
-        let duration = 0.16
-        let frames   = AVAudioFrameCount(rate * duration)
+    /// Two counts in one buffer, so the turn is unmistakably not a count. Built
+    /// as a single buffer rather than two scheduled plays, which would leave the
+    /// gap at the mercy of the audio queue.
+    private static func doubleTone(frequency: Double, gap: Double,
+                                   format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        let rate   = format.sampleRate
+        let single = 0.09
+        let frames = AVAudioFrameCount(rate * (gap + single))
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames),
               let channel = buffer.floatChannelData?[0] else { return nil }
         buffer.frameLength = frames
 
-        let attack = 0.005
+        let attack = 0.006
         for i in 0..<Int(frames) {
             let t = Double(i) / rate
-            let envelope = (t < attack ? t / attack : 1) * exp(-14 * t)
-            channel[i] = Float(sin(2 * .pi * 587.33 * t) * envelope * 0.26)
+            var value = 0.0
+            for onset in [0.0, gap] where t >= onset && t < onset + single {
+                let u = t - onset
+                let envelope = (u < attack ? u / attack : 1) * exp(-26 * u)
+                value += sin(2 * .pi * frequency * u) * envelope
+            }
+            channel[i] = Float(value * 0.20)
         }
         return buffer
     }
