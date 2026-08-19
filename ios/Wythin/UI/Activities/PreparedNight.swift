@@ -26,6 +26,33 @@ struct PreparedNight: Sendable {
     /// own stillness, which needs a median — once, not once per draw.
     let motionThreshold: Float
 
+    /// One bucketed line per metric, keyed by `ActivityMetricDef.id`.
+    ///
+    /// A night average is a single number for eight hours, which hides the
+    /// only thing worth seeing: *where* vagal tone climbed, *where* it fell
+    /// away, and whether either lines up with being awake. The average stays —
+    /// as the header on its own chart — but the line is what you read.
+    let series: [String: [Sample]]
+
+    /// The stretches spent awake, so every metric can be read against the
+    /// night's architecture rather than against a bare clock.
+    let wakeBands: [Band]
+
+    struct Sample: Sendable, Equatable {
+        let date: Date
+        let value: Double
+    }
+
+    struct Band: Sendable, Equatable {
+        let start: Date
+        let end: Date
+    }
+
+    /// Target resolution for a metric line. The chart is a few hundred points
+    /// wide and the night is ~18,000 samples, so drawing every tick is both
+    /// wasted work and an unreadable smear.
+    static let seriesBuckets = 120
+
     /// Reads the night out of the store on a background context and does the
     /// whole computation there.
     ///
@@ -74,5 +101,58 @@ struct PreparedNight: Sendable {
         self.motionThreshold = motions.isEmpty
             ? .greatestFiniteMagnitude
             : max(motions[motions.count / 2] * 2, 8)
+
+        self.series = Self.buildSeries(points)
+        self.wakeBands = Self.buildWakeBands(stages, points: points)
+    }
+
+    // MARK: - Lines
+
+    private static func buildSeries(_ points: [MetricsHistoryPoint]) -> [String: [Sample]] {
+        guard let first = points.first, let last = points.last else { return [:] }
+        let span = last.timestamp.timeIntervalSince(first.timestamp)
+        guard span > 0 else { return [:] }
+        let bucketSec = span / Double(seriesBuckets)
+
+        var out: [String: [Sample]] = [:]
+        for def in activityMetricDefs {
+            var sums: [Int: Double] = [:]
+            var counts: [Int: Int] = [:]
+            for p in points {
+                guard let v = def.extract(p) else { continue }
+                let k = min(seriesBuckets - 1,
+                            Int(p.timestamp.timeIntervalSince(first.timestamp) / bucketSec))
+                sums[k, default: 0] += v
+                counts[k, default: 0] += 1
+            }
+            guard !sums.isEmpty else { continue }
+            out[def.id] = sums.keys.sorted().map { k in
+                Sample(date: first.timestamp.addingTimeInterval(Double(k) * bucketSec + bucketSec / 2),
+                       value: sums[k]! / Double(counts[k]!))
+            }
+        }
+        return out
+    }
+
+    /// Contiguous runs of wake, as time ranges. Merged rather than per-tick, so
+    /// the chart shades a handful of bands instead of thousands of hairlines.
+    private static func buildWakeBands(_ stages: [SleepStageDetail],
+                                       points: [MetricsHistoryPoint]) -> [Band] {
+        guard stages.count == points.count, !points.isEmpty else { return [] }
+        var bands: [Band] = []
+        var i = 0
+        while i < stages.count {
+            guard stages[i] == .wake else { i += 1; continue }
+            var j = i
+            while j + 1 < stages.count && stages[j + 1] == .wake { j += 1 }
+            // A single-tick bout still has width: extend to the next sample so
+            // the band is drawable rather than zero-wide.
+            let end = j + 1 < points.count ? points[j + 1].timestamp : points[j].timestamp
+            if end > points[i].timestamp {
+                bands.append(Band(start: points[i].timestamp, end: end))
+            }
+            i = j + 1
+        }
+        return bands
     }
 }

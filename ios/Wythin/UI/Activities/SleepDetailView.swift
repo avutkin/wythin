@@ -106,32 +106,37 @@ struct SleepDetailView: View {
         }
     }
 
-    /// The nine metrics as night averages — the values, without the
-    /// during-versus-before framing that does not apply to a night.
+    /// The nine metrics, each as a line across the night.
+    ///
+    /// This was a list of nine averages, and an average over eight hours tells
+    /// you almost nothing: the same "14.5 ms" covers a night where vagal tone
+    /// climbed until five and then fell off a cliff, and one where it never
+    /// moved. The average is still printed — as each chart's header — but the
+    /// line is the part you can act on, and the wake bands behind it are what
+    /// make a dip readable as "lying awake" rather than as a mystery.
     private func nightMetrics(_ night: PreparedNight) -> some View {
-        card("NIGHT AVERAGES") {
-            VStack(spacing: 0) {
+        card("THROUGH THE NIGHT") {
+            VStack(alignment: .leading, spacing: 16) {
                 ForEach(activityMetricDefs, id: \.id) { def in
-                    let average = night.averages[def.id]
-                    HStack {
-                        Text(def.label)
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.text)
-                        Text(def.techLabel)
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(Theme.dim)
-                        Spacer()
-                        Text(average.map { def.format($0) + " " + def.unit } ?? "—")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(Theme.text)
-                    }
-                    .padding(.vertical, 6)
-                    Divider().opacity(0.2)
+                    SleepMetricChart(def: def,
+                                     samples: night.series[def.id] ?? [],
+                                     wakeBands: night.wakeBands,
+                                     average: night.averages[def.id],
+                                     startedAt: entry.startedAt,
+                                     endedAt: entry.endedAt ?? entry.startedAt)
                 }
-                Text("Averages across the night. No before-versus-during uplift: a night's \"before\" is the five minutes you were still awake, which makes every number look like a triumph.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.dim)
-                    .padding(.top, 8)
+                HStack(spacing: 7) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color(white: 0.62).opacity(0.16))
+                        .frame(width: 22, height: 11)
+                    Text("awake")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.dim)
+                    Text("·  dashed line is the night average")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.dim)
+                }
+                .padding(.top, 2)
             }
         }
     }

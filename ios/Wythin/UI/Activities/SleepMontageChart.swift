@@ -47,14 +47,27 @@ struct SleepMontageChart: View {
         }
     }
 
+    /// A sequential depth ramp, plus one neutral that sits outside it.
+    ///
+    /// Awake used to be `white 0.94` on a near-black ground, and because a wake
+    /// block is also the full-height bar, the least informative state was by far
+    /// the loudest thing on the chart — three hours of white slab drowning the
+    /// architecture the chart exists to show. It is a neutral grey now: still
+    /// clearly legible as mass, no longer the first thing the eye lands on.
+    ///
+    /// The four sleep stages are one hue with monotonic lightness, ~0.15 apart
+    /// in OKLab (0.43 / 0.59 / 0.73 / 0.88), worst adjacent pair ΔE 14.4 in
+    /// normal vision and 14.4 under protan simulation. Depth is additionally
+    /// carried by bar height and by the labelled legend below, so colour is
+    /// never the only thing separating two stages.
     private func colour(_ s: SleepStageDetail) -> Color {
         switch s {
         // Awake is not a depth, so it sits outside the blue ramp entirely.
-        case .wake: return Color(white: 0.94)
-        case .rem:  return Color(red: 0.55, green: 0.76, blue: 0.94)
-        case .n1:   return Color(red: 0.42, green: 0.66, blue: 0.89)
-        case .n2:   return Color(red: 0.30, green: 0.58, blue: 0.85)
-        case .n3:   return Color(red: 0.20, green: 0.40, blue: 0.58)
+        case .wake: return Color(hex: "#6B6B6B")
+        case .rem:  return Color(hex: "#BCDCF7")
+        case .n1:   return Color(hex: "#74AEE4")
+        case .n2:   return Color(hex: "#3F7CC0")
+        case .n3:   return Color(hex: "#22508F")
         }
     }
 
@@ -191,7 +204,7 @@ struct SleepMontageChart: View {
                     let scale = min(1, Double(m / (threshold * 4)))
                     let h = 6 + scale * (mid - 4)
                     ctx.fill(Path(CGRect(x: x, y: mid - h / 2, width: 1.6, height: h)),
-                             with: .color(Color(white: 0.92).opacity(0.55 + scale * 0.45)))
+                             with: .color(Color(white: 0.78).opacity(0.5 + scale * 0.5)))
                 }
             }
             .frame(height: 46)
