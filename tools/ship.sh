@@ -143,6 +143,13 @@ cmd_phone() {
 
   local st; st=$(phone_state)
   [ "$st" = unreachable ] && die "iPhone unreachable — plug it in or join the Mac's Wi-Fi, then re-run"
+  # Two concurrent devicectl installs deadlock each other AND wedge the
+  # device's lockdown service (error 4000) — observed 2026-08-19 when two
+  # sessions raced. If someone else is mid-install, yield; theirs is
+  # probably newer anyway (everything ships from origin/main).
+  if pgrep -f 'devicectl device install' >/dev/null 2>&1; then
+    die "another install to the iPhone is in flight (pgrep devicectl) — let it finish, then re-run"
+  fi
   say "installing to iPhone ($st)"
   xcrun devicectl device install app --device "$UDID" "$app" >/dev/null 2>&1 \
     || { sleep 15; xcrun devicectl device install app --device "$UDID" "$app" >/dev/null; }
