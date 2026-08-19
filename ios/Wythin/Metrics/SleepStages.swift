@@ -35,11 +35,49 @@ enum SleepStage: Int, Codable, CaseIterable {
 enum SleepStages {
 
     static func classify(_ points: [MetricsHistoryPoint]) -> [SleepStage] {
+        let base = Baseline(points)
         let raw = points.map { p -> SleepStage in
-            if isWake(p) { return .wake }
-            return quietVotes(p) >= 2 ? .quiet : .active
+            if isWake(p, base) { return .wake }
+            return quietVotes(p, base) >= 2 ? .quiet : .active
         }
         return smooth(raw, points: points)
+    }
+
+    /// What this recording's own signal looks like.
+    ///
+    /// The published per-stage tables do not transfer. Measured against one
+    /// real night on this hardware: coherence sat at 0.60 asleep where the
+    /// literature reports 0.91–0.97 for deep sleep, LF/HF at 4.5 against a
+    /// reported 0.51, and SDNN ran *higher* asleep than awake — the opposite
+    /// direction. Those numbers come from research pipelines, not from this
+    /// app's own definitions of coherence, LF/HF and motion.
+    ///
+    /// What did transfer is the *structure*: coherence peaks every 90–105
+    /// minutes across the night, and SDNN runs low exactly where coherence runs
+    /// high, which is the relationship the literature describes. So the
+    /// discriminators are right and only their scale was wrong — which is the
+    /// same conclusion the research reached about population thresholds
+    /// generally, applied one level further down.
+    struct Baseline {
+        let motion: Float
+        let hr: Float
+        let coherence: Float
+        let lfHF: Float
+        let sdnn: Float
+
+        init(_ points: [MetricsHistoryPoint]) {
+            motion = Self.median(points.compactMap(\.motion)) ?? 0
+            hr = Self.median(points.compactMap(\.meanBPM)) ?? 0
+            coherence = Self.median(points.compactMap(\.coherence)) ?? 0
+            lfHF = Self.median(points.compactMap(\.lfHF)) ?? 0
+            sdnn = Self.median(points.compactMap(\.sdnn)) ?? 0
+        }
+
+        private static func median(_ v: [Float]) -> Float? {
+            guard !v.isEmpty else { return nil }
+            let s = v.sorted()
+            return s[s.count / 2]
+        }
     }
 
     /// Absorbs runs too short to be a real stage into their neighbours.
@@ -119,18 +157,33 @@ enum SleepStages {
     /// weakest channel any wearable has — published wake specificity runs
     /// 29–52% — so anything built on this must carry that uncertainty forward
     /// rather than presenting a wake count as fact.
-    private static func isWake(_ p: MetricsHistoryPoint) -> Bool {
-        guard let motion = p.motion else { return false }
-        return motion >= SleepThresholds.wakeMotionSD
+    private static func isWake(_ p: MetricsHistoryPoint, _ base: Baseline) -> Bool {
+        // Either channel alone is enough, and that is deliberate. Getting up
+        // shows as motion; lying awake in bed before sleep shows only as an
+        // elevated heart rate, with motion no higher than during sleep.
+        // Requiring both misses the second case entirely, which is the one
+        // that decides where the night starts.
+        if let motion = p.motion, base.motion > 0,
+           motion >= base.motion * SleepThresholds.wakeMotionMultiple { return true }
+        if let hr = p.meanBPM, base.hr > 0,
+           hr >= base.hr + SleepThresholds.wakeHRRise { return true }
+        return false
     }
 
     /// Two of three, so no single channel can carry the call on its own — a
     /// dropped coherence estimate should not silently reclassify half a night.
-    private static func quietVotes(_ p: MetricsHistoryPoint) -> Int {
+    /// Each vote is against this recording's own median, not a fixed number,
+    /// so the split follows the night that was actually measured.
+    ///
+    /// Inclusive on the quiet side. A median is itself an observed value, so
+    /// with strict comparisons every tick sitting exactly on it loses its vote
+    /// — and when one state occupies more than half the night, the median IS
+    /// that state's value and the whole state scores zero.
+    private static func quietVotes(_ p: MetricsHistoryPoint, _ base: Baseline) -> Int {
         var votes = 0
-        if let c = p.coherence, c >= SleepThresholds.quietCoherence { votes += 1 }
-        if let r = p.lfHF, r <= SleepThresholds.quietLFHF { votes += 1 }
-        if let s = p.sdnn, s <= SleepThresholds.quietSDNN { votes += 1 }
+        if let c = p.coherence, c >= base.coherence { votes += 1 }
+        if let r = p.lfHF, r <= base.lfHF { votes += 1 }
+        if let s = p.sdnn, s <= base.sdnn { votes += 1 }
         return votes
     }
 }

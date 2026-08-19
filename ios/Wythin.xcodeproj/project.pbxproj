@@ -267,6 +267,8 @@
 		A770 /* SleepRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F770 /* SleepRecorderTests.swift */; };
 		A771 /* SleepRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F771 /* SleepRecorder.swift */; };
 		A772 /* SleepLogRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F772 /* SleepLogRow.swift */; };
+		A773 /* RealNightFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F773 /* RealNightFixture.swift */; };
+		A774 /* RealNightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F774 /* RealNightTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -543,6 +545,8 @@
 		F770 /* SleepRecorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepRecorderTests.swift; sourceTree = "<group>"; };
 		F771 /* SleepRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepRecorder.swift; sourceTree = "<group>"; };
 		F772 /* SleepLogRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepLogRow.swift; sourceTree = "<group>"; };
+		F773 /* RealNightFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealNightFixture.swift; sourceTree = "<group>"; };
+		F774 /* RealNightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealNightTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -881,6 +885,8 @@
 		GTESTS /* WythinTests */ = {
 			isa = PBXGroup;
 			children = (
+				F774 /* RealNightTests.swift */,
+				F773 /* RealNightFixture.swift */,
 				F770 /* SleepRecorderTests.swift */,
 				F760 /* SleepSessionizerTests.swift */,
 				F708 /* SleepWindowTruncationTests.swift */,
@@ -1242,6 +1248,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A774 /* RealNightTests.swift in Sources */,
+				A773 /* RealNightFixture.swift in Sources */,
 				A770 /* SleepRecorderTests.swift in Sources */,
 				A760 /* SleepSessionizerTests.swift in Sources */,
 				A708 /* SleepWindowTruncationTests.swift in Sources */,
