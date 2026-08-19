@@ -34,15 +34,13 @@ struct SleepDetailView: View {
             VStack(alignment: .leading, spacing: 22) {
                 hero
                 if entry.sleepScore != nil { arithmetic }
-                stageBreakdown
                 sections
                 if !points.isEmpty { nightMetrics }
                 if !points.isEmpty, let end = entry.endedAt {
-                    card("THE NIGHT, CHANNEL BY CHANNEL") {
-                        SleepMontageChart(points: points,
-                                          startedAt: entry.startedAt,
-                                          endedAt: end)
-                    }
+                    SleepMontageChart(points: points,
+                                      startedAt: entry.startedAt,
+                                      endedAt: end)
+                    stageCaveat
                 }
                 measurementNote
             }
@@ -68,18 +66,25 @@ struct SleepDetailView: View {
             .foregroundStyle(Theme.dim)
 
             Text("TIME ASLEEP")
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .tracking(0.8)
+                .font(.system(size: 13, weight: .medium))
+                .tracking(1.6)
                 .foregroundStyle(Theme.dim)
-            Text(asleepMinutes.map(hm) ?? "—")
-                .font(.system(size: 40, weight: .semibold, design: .rounded))
-                .foregroundStyle(Theme.text)
+            // Big number, small units — the reference's proportions.
+            HStack(alignment: .firstTextBaseline, spacing: 1) {
+                Text("\((asleepMinutes ?? 0) / 60)")
+                    .font(.system(size: 46, weight: .regular))
+                Text("h").font(.system(size: 24, weight: .regular)).foregroundStyle(Theme.dim)
+                Text(" \(String(format: "%02d", (asleepMinutes ?? 0) % 60))")
+                    .font(.system(size: 46, weight: .regular))
+                Text("m").font(.system(size: 24, weight: .regular)).foregroundStyle(Theme.dim)
+            }
+            .foregroundStyle(Theme.text)
             // The pair, not the single number. The gap between them is the part
             // of the night spent awake, which is the disclosure most sleep UIs
             // quietly drop.
             if let inBed = inBedMinutes {
                 Text("Total duration \(hm(inBed))")
-                    .font(.system(size: 13))
+                    .font(.system(size: 17))
                     .foregroundStyle(Theme.dim)
             }
             if let stages = entry.sleepStageSummary {
@@ -88,53 +93,6 @@ struct SleepDetailView: View {
                     .foregroundStyle(Theme.dim)
                     .padding(.top, 2)
             }
-        }
-    }
-
-    /// Four stages, with the caveat attached rather than in a footnote.
-    private var stageBreakdown: some View {
-        let rows: [(String, Int?)] = [
-            ("Deep", entry.sleepDeepMinutes),
-            ("Light", entry.sleepLightMinutes),
-            ("REM", entry.sleepREMMinutes),
-            ("Awake", entry.sleepAwakeMinutes),
-        ]
-        let asleep = (entry.sleepDeepMinutes ?? 0) + (entry.sleepLightMinutes ?? 0) + (entry.sleepREMMinutes ?? 0)
-        return card("STAGES") {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(rows, id: \.0) { name, mins in
-                    HStack(spacing: 10) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(stageColour(name))
-                            .frame(width: 12, height: 8)
-                        Text(name)
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.text)
-                            .frame(width: 52, alignment: .leading)
-                        Text(mins.map(hm) ?? "—")
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Theme.text)
-                        if let m = mins, asleep > 0, name != "Awake" {
-                            Text("\(Int(round(Double(m) / Double(asleep) * 100)))%")
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(Theme.dim)
-                        }
-                        Spacer()
-                    }
-                }
-                Text("Four stages are shown because it is the vocabulary everyone knows, but the score is built on three. Consumer four-stage agreement with sleep-lab scoring runs κ 0.21–0.53, and light-versus-deep is the boundary a chest strap places worst. N1 is folded into light: it is about 5% of a night and human scorers agree on it at κ 0.24. The ordering here is measured; the totals are cut at typical adult shares, so read the shape rather than the minutes.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.dim)
-            }
-        }
-    }
-
-    private func stageColour(_ name: String) -> Color {
-        switch name {
-        case "Deep":  return ActivityType.sleep.color
-        case "Light": return ActivityType.sleep.color.opacity(0.62)
-        case "REM":   return ActivityType.sleep.color.opacity(0.35)
-        default:      return Theme.dim.opacity(0.5)
         }
     }
 
@@ -256,6 +214,13 @@ struct SleepDetailView: View {
                 }
             }
         }
+    }
+
+    private var stageCaveat: some View {
+        Text("N2 and N3 are measured — the depth axis is coherence, variability and heart rate, ranked within this night. N1 is positional: it marks the light sleep either side of a wake bout, which is what N1 physiologically is. ECG quality is not the limit here (86% of ticks top-tier, invalid-RR 0.0); N1 simply has no cardiac signature — human scorers reading EEG agree on it at κ 0.24. Stage totals are cut at typical adult shares, so read the shape rather than the minutes.")
+            .font(.system(size: 10))
+            .foregroundStyle(Theme.dim)
+            .padding(.top, 10)
     }
 
     private var measurementNote: some View {

@@ -52,6 +52,9 @@ enum SleepThresholds {
     /// night swings several times the asleep spread, so the separation is
     /// generous.
     static let unsettledBreathMultiple: Float = 2.5
+    /// How far either side of a wake bout light sleep is marked N1 — the
+    /// descent into sleep, and the settling after an arousal.
+    static let n1ReachSec: Double = 5 * 60
     /// Shortest run that can stand as its own stage. Sleep changes state on
     /// the scale of minutes; anything briefer is a turn or a dropped estimate,
     /// and leaving it in inflates every count derived from the hypnogram.
