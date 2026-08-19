@@ -28,10 +28,12 @@ from datetime import datetime, timedelta
 # ── thresholds, mirroring SleepThresholds in Swift ──────────────────────
 MAX_GAP_SEC = 20 * 60
 MIN_NIGHT_SEC = 3 * 3600
-WAKE_MOTION_SD = 100.0
-QUIET_COHERENCE = 0.85
-QUIET_LFHF = 1.2
-QUIET_SDNN = 75.0
+# Relative to the recording's own medians — the published absolutes did not
+# survive contact with this app's signal definitions. Kept in step with
+# SleepThresholds in Swift.
+WAKE_MOTION_MULTIPLE = 3.0
+WAKE_HR_RISE = 10.0
+IMPOSSIBLE_SLEEP_MOTION = 40.0
 MIN_STAGE_RUN_SEC = 180
 
 
@@ -97,19 +99,30 @@ def runs(samples):
     return result
 
 
+def med(samples, key):
+    v = [s[key] for s in samples if s[key] is not None]
+    return statistics.median(v) if v else None
+
+
 def classify(samples):
     """SleepStages.classify, including the run-length smoothing."""
+    base = {k: med(samples, k) for k in ("motion", "hr", "coherence", "lfhf", "sdnn")}
     raw = []
     for s in samples:
-        if s["motion"] is not None and s["motion"] >= WAKE_MOTION_SD:
+        wake = False
+        if s["motion"] is not None and base["motion"]:
+            wake = s["motion"] >= base["motion"] * WAKE_MOTION_MULTIPLE
+        if not wake and s["hr"] is not None and base["hr"]:
+            wake = s["hr"] >= base["hr"] + WAKE_HR_RISE
+        if wake:
             raw.append("wake")
             continue
         votes = 0
-        if s["coherence"] is not None and s["coherence"] >= QUIET_COHERENCE:
+        if s["coherence"] is not None and base["coherence"] is not None and s["coherence"] >= base["coherence"]:
             votes += 1
-        if s["lfhf"] is not None and s["lfhf"] <= QUIET_LFHF:
+        if s["lfhf"] is not None and base["lfhf"] is not None and s["lfhf"] <= base["lfhf"]:
             votes += 1
-        if s["sdnn"] is not None and s["sdnn"] <= QUIET_SDNN:
+        if s["sdnn"] is not None and base["sdnn"] is not None and s["sdnn"] <= base["sdnn"]:
             votes += 1
         raw.append("quiet" if votes >= 2 else "active")
 
@@ -208,7 +221,17 @@ def main():
     print(f"{len(all_runs)} continuous runs, {len(nights)} long enough to be nights "
           f"(≥{MIN_NIGHT_SEC/3600:.0f}h)")
 
-    for night in nights:
+    trimmed = []
+    for n in nights:
+        m = med(n, "motion")
+        if m is not None and m > IMPOSSIBLE_SLEEP_MOTION:
+            continue
+        st = classify(n)
+        idx = [i for i, v in enumerate(st) if v != "wake"]
+        if idx:
+            trimmed.append(n[idx[0]:idx[-1] + 1])
+
+    for night in trimmed:
         report(night)
 
     if not nights:
