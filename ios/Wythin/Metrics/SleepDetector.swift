@@ -40,6 +40,18 @@ enum SleepThresholds {
     /// One section is not a night score. Mirrors the exercise model's rule
     /// that a headline needs at least two present components behind it.
     static let minSectionsForOverall: Int = 2
+
+    // MARK: Sessionizing — when the app may write a night down
+
+    /// How long after the last sustained sleep before a night counts as over.
+    /// Must comfortably exceed a bathroom trip: five minutes of quiet is not
+    /// proof the night ended, and sealing on it truncates the rest of the
+    /// night away permanently. 45 minutes awake is someone up for the day.
+    static let settleSec: Double = 45 * 60
+    /// How far back a poll looks. Long enough to catch a night the app slept
+    /// through recording, short enough that stale history cannot resurface as
+    /// "last night" the first time the detector ever runs.
+    static let lookbackSec: Double = 36 * 3600
 }
 
 // MARK: - Window
@@ -71,11 +83,29 @@ enum SleepDetector {
 
     static func detect(_ points: [MetricsHistoryPoint]) -> SleepWindow? {
         let all = points.sorted { $0.timestamp < $1.timestamp }
-        let runs = continuousRuns(all)
-        guard let night = runs.max(by: { span($0) < span($1) }),
+        let candidates = continuousRuns(all).compactMap(trimmedToSleep)
+        guard let night = candidates.max(by: { span($0) < span($1) }),
               span(night) >= SleepThresholds.minNightSec,
               let first = night.first, let last = night.last else { return nil }
         return SleepWindow(startedAt: first.timestamp, endedAt: last.timestamp)
+    }
+
+    /// Cuts the waking hours off both ends of a run.
+    ///
+    /// Recording continuity is not sleep continuity. Worn from 21:00 through to
+    /// 09:00 the strap never disconnects, so gap-splitting alone yields one
+    /// twelve-hour run and would report the evening and the morning as part of
+    /// the night. The night is the *asleep* part: from the first sustained
+    /// sleep to the last.
+    ///
+    /// Interior wake is deliberately kept. Being up for eight minutes at 03:00
+    /// is a wake bout inside one night, not the end of it — and those bouts are
+    /// what the continuity section is there to count.
+    private static func trimmedToSleep(_ run: [MetricsHistoryPoint]) -> [MetricsHistoryPoint]? {
+        let stages = SleepStages.classify(run)
+        guard let first = stages.firstIndex(where: { $0 != .wake }),
+              let last = stages.lastIndex(where: { $0 != .wake }) else { return nil }
+        return Array(run[first...last])
     }
 
     /// Splits on wall-clock holes only. Unlike the anchor's run splitter this
