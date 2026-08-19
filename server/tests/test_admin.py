@@ -604,3 +604,107 @@ async def test_track_daily_averages_and_baseline():
 
     # Every stored metric gets a card, even ones with no data this week.
     assert len(wk["metrics"]) == 14
+
+
+@pytest.mark.asyncio
+async def test_activity_series_spans_the_window():
+    """The activity chart needs the metric's line across the window, not just
+    three averages: five minutes before the start through ten after the end,
+    bucketed, with the activity's own boundaries reported. Requires a database."""
+    from datetime import datetime, timezone, timedelta
+    import uuid
+
+    device = f"test-actseries-{uuid.uuid4().hex[:8]}"
+    start = datetime.now(timezone.utc) - timedelta(hours=2)
+    end = start + timedelta(minutes=30)
+    async with _client() as client:
+        # Samples every 2 minutes from 10 before the start to 20 after the end.
+        samples = []
+        t = start - timedelta(minutes=10)
+        while t <= end + timedelta(minutes=20):
+            samples.append({"ts": t.isoformat(), "mean_bpm": 70.0, "rmssd": 40.0})
+            t += timedelta(minutes=2)
+        r = await client.post("/v1/metrics", headers={"X-User-ID": device},
+                              json={"samples": samples})
+        assert r.status_code in (200, 201), r.text
+
+        act = await client.post("/activities", headers={"X-User-ID": device}, json={
+            "id": str(uuid.uuid4()), "activity_type": "Meditation",
+            "started_at": start.isoformat(), "ended_at": end.isoformat(),
+            "before_hr": 72.0, "during_hr": 66.0, "after_hr": 70.0,
+        })
+        assert act.status_code == 200, act.text
+        aid = act.json()["id"]
+
+        r = await client.get(f"/admin/activities/{aid}/series")
+    assert r.status_code == 200, r.text
+    d = r.json()
+
+    ws = datetime.fromisoformat(d["window_start"])
+    we = datetime.fromisoformat(d["window_end"])
+    assert abs((start - ws).total_seconds() - 300) < 1, "window opens 5 min before the start"
+    assert abs((we - end).total_seconds() - 600) < 1, "window closes 10 min after the end"
+    assert datetime.fromisoformat(d["started_at"]) == start.replace(microsecond=start.microsecond)
+
+    pts = d["samples"]
+    assert pts, "expected a series"
+    assert len(pts) <= 130, "bucketed, not raw"
+    # Every point sits inside the window, and the metric columns come through.
+    for p in pts:
+        ts = datetime.fromisoformat(p["ts"])
+        assert ws <= ts <= we
+    assert any(p["mean_bpm"] is not None for p in pts)
+
+    # A missing activity is a clean 404.
+    async with _client() as client:
+        nf = await client.get("/admin/activities/00000000-0000-0000-0000-0000000000fe/series")
+    assert nf.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_activity_series_spans_the_window():
+    """The activity chart needs the metric's line across the window, not three
+    averages: five minutes before the start through ten after the end,
+    bucketed, with the activity's own boundaries reported."""
+    from datetime import datetime, timezone, timedelta
+    import uuid
+
+    device = f"test-actseries-{uuid.uuid4().hex[:8]}"
+    start = datetime.now(timezone.utc) - timedelta(hours=2)
+    end = start + timedelta(minutes=30)
+    async with _client() as client:
+        samples, t = [], start - timedelta(minutes=10)
+        while t <= end + timedelta(minutes=20):
+            samples.append({"ts": t.isoformat(), "mean_bpm": 70.0, "rmssd": 40.0})
+            t += timedelta(minutes=2)
+        r = await client.post("/v1/metrics", headers={"X-User-ID": device},
+                              json={"samples": samples})
+        assert r.status_code in (200, 201), r.text
+
+        act = await client.post("/activities", headers={"X-User-ID": device}, json={
+            "id": str(uuid.uuid4()), "activity_type": "Meditation",
+            "started_at": start.isoformat(), "ended_at": end.isoformat(),
+            "before_hr": 72.0, "during_hr": 66.0, "after_hr": 70.0,
+        })
+        assert act.status_code == 200, act.text
+        aid = act.json()["id"]
+
+        r = await client.get(f"/admin/activities/{aid}/series")
+    assert r.status_code == 200, r.text
+    d = r.json()
+
+    ws = datetime.fromisoformat(d["window_start"])
+    we = datetime.fromisoformat(d["window_end"])
+    assert abs((start - ws).total_seconds() - 300) < 1, "window opens 5 min before the start"
+    assert abs((we - end).total_seconds() - 600) < 1, "window closes 10 min after the end"
+
+    pts = d["samples"]
+    assert pts, "expected a series"
+    assert len(pts) <= 130, "bucketed, not raw"
+    for p in pts:
+        assert ws <= datetime.fromisoformat(p["ts"]) <= we
+    assert any(p["mean_bpm"] is not None for p in pts)
+
+    async with _client() as client:
+        nf = await client.get("/admin/activities/00000000-0000-0000-0000-0000000000fe/series")
+    assert nf.status_code == 404

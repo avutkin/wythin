@@ -702,6 +702,54 @@ async def activity_detail(activity_id: str):
     return _activity_row(row)
 
 
+@router.get("/activities/{activity_id}/series")
+async def activity_series(activity_id: str):
+    """The metric line across one activity's window — the same shape the app's
+    ActivityWindowChart draws: five minutes before the start through ten after
+    the end, bucketed to ~120 points so an hour-long sit and a five-minute one
+    both read the same."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        act = await conn.fetchrow(
+            "SELECT user_id, started_at, ended_at FROM activities WHERE id = $1::uuid",
+            activity_id,
+        )
+        if act is None:
+            raise HTTPException(status_code=404, detail="activity not found")
+
+        started, ended = act["started_at"], act["ended_at"] or act["started_at"]
+        window_start = started - timedelta(minutes=5)
+        window_end = ended + timedelta(minutes=10)
+        span = (window_end - window_start).total_seconds()
+        bucket = timedelta(seconds=max(span / 120, 1))
+
+        avg_cols = ", ".join(f"AVG({c}) AS {c}" for c in _METRIC_COLS)
+        rows = await conn.fetch(
+            f"""
+            SELECT date_bin($2::interval, ts, $3) AS bucket, {avg_cols}
+            FROM metric_samples
+            WHERE user_id = $1 AND ts >= $3 AND ts <= $4
+            GROUP BY bucket
+            ORDER BY bucket
+            """,
+            act["user_id"], bucket, window_start, window_end,
+        )
+
+    def _f(v):
+        return float(v) if v is not None else None
+
+    return {
+        "started_at":   started.isoformat(),
+        "ended_at":     ended.isoformat(),
+        "window_start": window_start.isoformat(),
+        "window_end":   window_end.isoformat(),
+        "samples": [
+            {"ts": r["bucket"].isoformat(), **{c: _f(r[c]) for c in _METRIC_COLS}}
+            for r in rows
+        ],
+    }
+
+
 @router.get("/users/{user_id}/usage")
 async def user_usage(user_id: str, days: int = 30):
     """Per-day app-usage series for one user: opens, active minutes, ECG

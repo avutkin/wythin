@@ -96,6 +96,10 @@
   .mini.track .foot { font: 11px var(--mono); color: var(--dim); margin-top: 4px; }
   .ref { stroke: var(--dim); stroke-width: 1; stroke-dasharray: 4 4; opacity: .6; }
   .ref-t { opacity: .7; }
+  .mini.actline svg { height: 150px; }
+  .band { opacity: .10; }
+  .edge { stroke: var(--dim); stroke-width: 1; opacity: .45; stroke-dasharray: 3 3; }
+  .phase { stroke: var(--text); stroke-width: 1.5; opacity: .55; stroke-dasharray: 5 3; }
   .tbar { opacity: .85; }
   .tbar.best  { stroke: var(--accent); stroke-width: 2; opacity: 1; }
   .tbar.worst { stroke: var(--warn);   stroke-width: 2; opacity: 1; }
@@ -220,7 +224,7 @@
     <section id="view-activity" style="display:none">
       <div class="kpis" id="activity-kpis"></div>
       <div class="panel">
-        <h2>Before · During · After <span class="sub">— hover a bar for its value</span></h2>
+        <h2>Before · During · After <span class="sub">— the window around the activity; hover for values</span></h2>
         <div class="charts" id="activity-charts"></div>
       </div>
       <div class="panel">
@@ -726,54 +730,129 @@
     pip: "var(--breathe)", dc: "var(--accent)", dfa1: "var(--coh)",
   };
 
-  function drawActivityCharts(a) {
+  async function drawActivityCharts(a) {
     const host = $("#activity-charts");
-    const cards = ACT_METRICS.map(([label, key, dp, higherBetter]) => {
-      const pts = [["Before", a[`before_${key}`]], ["During", a[`during_${key}`]], ["After", a[`after_${key}`]]];
-      if (pts.every(([, v]) => v == null)) return "";
-      const b = a[`before_${key}`], af = a[`after_${key}`];
+    let d;
+    try { d = await api(`activities/${a.id}/series`); }
+    catch { host.innerHTML = `<div class="empty">could not load the window series</div>`; return; }
+    const pts = d.samples || [];
+    if (!pts.length) {
+      host.innerHTML = `<div class="empty">no per-tick data recorded around this activity</div>`;
+      return;
+    }
+    const meta = {
+      start:  new Date(d.started_at).getTime(),
+      end:    new Date(d.ended_at).getTime(),
+      wStart: new Date(d.window_start).getTime(),
+      wEnd:   new Date(d.window_end).getTime(),
+    };
+    host.innerHTML = ACT_METRICS.map(([label, key, dp, higherBetter]) => {
+      const col = ACT_SERIES_COL[key];
+      if (!col || !pts.some(s => s[col] != null)) return "";
+      const af = a[`after_${key}`];
+      const b  = a[`before_${key}`];
       let chip = "";
       if (b != null && af != null) {
-        const d = af - b, better = higherBetter ? d > 0 : d < 0;
-        chip = `<div class="delta ${better ? "up" : "down"}">${d >= 0 ? "+" : "−"}${fmt(Math.abs(d), dp)} after vs before</div>`;
+        const delta = af - b, better = higherBetter ? delta > 0 : delta < 0;
+        chip = `<div class="delta ${better ? "up" : "down"}">${delta >= 0 ? "+" : "−"}${fmt(Math.abs(delta), dp)} after vs before</div>`;
       }
-      return `<div class="mini track act" data-act='${esc(JSON.stringify({ pts, dp, color: ACT_COLOR[key] || "var(--accent)", higherBetter }))}'>
+      return `<div class="mini track actline" data-key="${col}" data-dp="${dp}"
+                   data-color="${ACT_COLOR[key] || "var(--accent)"}"
+                   data-phases='${esc(JSON.stringify({ before: b, during: a[`during_${key}`], after: af }))}'>
         <div class="cap"><span class="t">${esc(label)}</span>
           <span class="v" style="color:${ACT_COLOR[key] || "var(--accent)"}">${af == null ? "—" : fmt(af, dp)}</span></div>
-        ${chip}<svg></svg></div>`;
-    }).join("");
-    host.innerHTML = cards || `<div class="empty">no before/during/after metrics recorded</div>`;
-    [...host.querySelectorAll(".mini.act")].forEach(box => {
-      const cfg = JSON.parse(box.dataset.act), svg = box.querySelector("svg");
-      const W = Math.max(160, Math.round(svg.clientWidth || 300)), H = 120;
-      const pad = { l: 6, r: 6, t: 18, b: 18 };
-      svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-      const vals = cfg.pts.map(([, v]) => v).filter(v => v != null);
-      const top = Math.max(...vals) * 1.15 || 1;
-      const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b, bw = iw / 3;
-      const y = (v) => pad.t + ih - (v / top) * ih;
-      // Best phase by the metric's own direction, so "best" is best-for-you.
-      let bestI = -1;
-      cfg.pts.forEach(([, v], i) => {
-        if (v == null) return;
-        if (bestI < 0) { bestI = i; return; }
-        const cur = cfg.pts[bestI][1];
-        if (cfg.higherBetter ? v > cur : v < cur) bestI = i;
-      });
-      let el = "";
-      cfg.pts.forEach(([name, v], i) => {
-        const x = pad.l + i * bw;
-        if (v == null) {
-          el += `<text class="tick" x="${(x + bw / 2).toFixed(1)}" y="${(pad.t + ih / 2).toFixed(1)}" text-anchor="middle">—</text>`;
-        } else {
-          const h = Math.max(1, ih - (y(v) - pad.t));
-          el += `<rect class="tbar${i === bestI ? " best" : ""}" x="${(x + bw * 0.2).toFixed(1)}" y="${y(v).toFixed(1)}" width="${(bw * 0.6).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${cfg.color}"><title>${name}: ${Number(v).toFixed(cfg.dp)}</title></rect>`;
-          el += `<text class="tick" x="${(x + bw / 2).toFixed(1)}" y="${(y(v) - 5).toFixed(1)}" text-anchor="middle">${Number(v).toFixed(cfg.dp)}</text>`;
-        }
-        el += `<text class="tick" x="${(x + bw / 2).toFixed(1)}" y="${H - 5}" text-anchor="middle">${name}</text>`;
-      });
-      svg.innerHTML = el;
+        ${chip}<svg tabindex="0" role="img" aria-label="${esc(label)} across the activity"></svg></div>`;
+    }).join("") || `<div class="empty">no metrics recorded around this activity</div>`;
+
+    const boxes = [...host.querySelectorAll(".mini.actline")];
+    const draw = () => boxes.forEach(box => drawActivityLine(box, pts, meta));
+    draw();
+    clearTimeout(state.actResize);
+    state.actResize = setTimeout(draw, 300);
+  }
+
+  // Column each activity metric reads in the per-tick series.
+  const ACT_SERIES_COL = {
+    hr: "mean_bpm", rsa: "rsa_ms", rmssd: "rmssd", sdnn: "sdnn", vti: "vti",
+    stress: "lf_hf", rcmse: "rcmse", pip: "pip", dc: "dc", dfa1: "dfa1",
+  };
+
+  function drawActivityLine(box, pts, meta) {
+    const svg = box.querySelector("svg"), col = box.dataset.key;
+    const dp = Number(box.dataset.dp), color = box.dataset.color;
+    const phases = JSON.parse(box.dataset.phases);
+    const series = pts.map(s => ({ t: new Date(s.ts).getTime(), v: s[col] }))
+                      .filter(p => p.v != null && isFinite(p.v));
+    const W = Math.max(200, Math.round(svg.clientWidth || 320)), H = 150;
+    const pad = { l: 6, r: 8, t: 10, b: 20 };
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    if (series.length < 2) {
+      svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" class="tick">not enough data</text>`;
+      return;
+    }
+    const x0 = meta.wStart, x1 = meta.wEnd, span = x1 - x0 || 1;
+    const vals = series.map(p => p.v).concat(Object.values(phases).filter(v => v != null));
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    if (lo === hi) { lo -= 1; hi += 1; }
+    const pxOf = (t) => pad.l + ((t - x0) / span) * (W - pad.l - pad.r);
+    const pyOf = (v) => pad.t + (1 - (v - lo) / (hi - lo)) * (H - pad.t - pad.b);
+    const base = H - pad.b;
+
+    // The during window is the subject: shade it in the metric's colour and
+    // rule its edges, so the line is read against when the activity happened.
+    let el = `<rect class="band" x="${pxOf(meta.start).toFixed(1)}" y="${pad.t}"
+                width="${Math.max(1, pxOf(meta.end) - pxOf(meta.start)).toFixed(1)}"
+                height="${(base - pad.t).toFixed(1)}" fill="${color}"/>`;
+    [meta.start, meta.end].forEach(t => {
+      el += `<line class="edge" x1="${pxOf(t).toFixed(1)}" y1="${pad.t}" x2="${pxOf(t).toFixed(1)}" y2="${base}"/>`;
     });
+
+    // Phase averages, each spanning only its own phase.
+    const rule = (v, from, to) => {
+      if (v == null) return "";
+      const y = pyOf(v).toFixed(1);
+      return `<line class="phase" x1="${pxOf(from).toFixed(1)}" y1="${y}" x2="${pxOf(to).toFixed(1)}" y2="${y}"/>`;
+    };
+    el += rule(phases.before, meta.wStart, meta.start);
+    el += rule(phases.during, meta.start, meta.end);
+    el += rule(phases.after, meta.end, meta.wEnd);
+
+    const d = series.map((p, i) => `${i ? "L" : "M"}${pxOf(p.t).toFixed(1)},${pyOf(p.v).toFixed(1)}`).join(" ");
+    el += `<path class="line" stroke="${color}" d="${d}"/>`;
+    el += `<line class="axis" x1="${pad.l}" y1="${base}" x2="${W - pad.r}" y2="${base}"/>`;
+    // Only the activity's own boundaries get labelled: the window edges sit 5
+    // and 10 minutes away and their labels collide with these at card width.
+    const clock = (t) => new Date(t).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    [meta.start, meta.end].forEach(t => {
+      const x = pxOf(t);
+      const anchor = x < 34 ? "start" : x > W - 34 ? "end" : "middle";
+      el += `<text class="tick" x="${x.toFixed(1)}" y="${H - 5}" text-anchor="${anchor}">${clock(t)}</text>`;
+    });
+    el += `<g class="cursor" style="display:none"><line class="hair" y1="${pad.t}" y2="${base}"/>
+             <circle class="dot" r="3.5" fill="${color}"/></g>`;
+    svg.innerHTML = el;
+
+    // Same hover behaviour as the live charts: snap to the nearest sample.
+    const cursor = svg.querySelector(".cursor"), hair = cursor.querySelector("line"), dot = cursor.querySelector("circle");
+    const sig = { label: box.querySelector(".cap .t").textContent, unit: "", color, d: dp };
+    const setCursor = (i) => {
+      const p = series[Math.max(0, Math.min(series.length - 1, i))];
+      const x = pxOf(p.t), y = pyOf(p.v);
+      cursor.style.display = "";
+      hair.setAttribute("x1", x); hair.setAttribute("x2", x);
+      dot.setAttribute("cx", x); dot.setAttribute("cy", y);
+      const r = svg.getBoundingClientRect();
+      showTip(r.left + x * (r.width / W), r.top + y * (r.height / H), sig, p, span);
+    };
+    svg.addEventListener("pointermove", (e) => {
+      const r = svg.getBoundingClientRect();
+      const t = x0 + ((e.clientX - r.left) / r.width * W - pad.l) / (W - pad.l - pad.r) * span;
+      let best = 0;
+      for (let i = 1; i < series.length; i++)
+        if (Math.abs(series[i].t - t) < Math.abs(series[best].t - t)) best = i;
+      setCursor(best);
+    });
+    svg.addEventListener("pointerleave", () => { cursor.style.display = "none"; hideTip(); });
   }
 
   // ── Charts ────────────────────────────────────────────────────────────
