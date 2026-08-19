@@ -617,7 +617,11 @@ final class AppEnvironment {
     // strap into low-power standby (auto-reconnects when worn again).
     private var offBodySince: Date?
     private let offBodyStandbySeconds:     TimeInterval = 60   // borderline consensus (score 2)
-    private let offBodyStandbyFastSeconds: TimeInterval = 20   // strong agreement (score ≥ 3)
+    // 12 s of strong agreement, not 20: rrIntervalsLive already needs 8 s of
+    // silence before it goes false, so doffing reaches standby in ~20 s total —
+    // the budget Alex asked for. The score can't strengthen faster than that
+    // window, so the two constants must be read together.
+    private let offBodyStandbyFastSeconds: TimeInterval = 12   // strong agreement (score ≥ 3)
 
     // Accelerometer motion: worn straps always jitter a little (breathing,
     // ballistocardiogram, posture); a strap set down is dead-still. Rolling
@@ -631,6 +635,47 @@ final class AppEnvironment {
     /// the live readout: off-body on a table measures ~1.8–1.9, so 3.0 sits above
     /// that with margin and below normal worn motion.
     private let accStillnessThreshold: Float = 3.0
+
+    // ── Off-body detection → low-power standby ────────────────────────────
+    // Fuse four cues into a confidence score so no single cue can wrongly
+    // trip (false positive) or be missed:
+    //   • skin-contact bit — authoritative: worn (−1) / off (+3)
+    //   • ECG poor OR the ECG stream dead: +1
+    //   • RR intervals stopped arriving (rrIntervalsLive, 8 s window) or the
+    //     last tick's RR mostly invalid: +1
+    //   • accelerometer dead-still AND heartbeat gone (sleepers are still too,
+    //     but their RR keeps flowing): +1
+    // score ≥ 2 ⇒ off-body. Strong agreement (≥3) trips in ~12 s, borderline
+    // needs 60 s. Runs on the 2 s loop cadence with no FFT: liveness flags
+    // and an ACC stddev only, so it is background-safe every iteration.
+    private func evaluateOffBodyStandby() {
+        accMotion = computeAccMotion()
+        guard case .connected = ble.state else {
+            offBodySince = nil
+            return
+        }
+        let contact = ble.sensorContact
+        // DEAD counts as bad, not as absent: when the strap comes off, data
+        // stops entirely — and "no data" once read as "no problem".
+        let ecgPoor = latestTick?.ecgQuality?.tier == .poor || !ble.ecgStreamLive
+        let rrBad   = !ble.rrIntervalsLive
+                      || (latestTick?.signalQuality.map { $0 < 0.5 } ?? false)
+        let still   = accMotion.map { $0 < self.accStillnessThreshold } ?? false
+        let score   = StandbyPolicy.offBodyScore(
+            contact: contact, ecgPoor: ecgPoor, rrBad: rrBad, still: still)
+
+        if score >= 2 {
+            let since = offBodySince ?? Date()
+            offBodySince = since
+            let needed = score >= 3 ? offBodyStandbyFastSeconds : offBodyStandbySeconds
+            if Date().timeIntervalSince(since) >= needed {
+                ble.enterStandby()
+                offBodySince = nil
+            }
+        } else {
+            offBodySince = nil
+        }
+    }
 
     /// Mean per-axis standard deviation of the rolling ACC window — the live
     /// motion level. nil until enough samples have accumulated.
@@ -754,6 +799,12 @@ final class AppEnvironment {
 
                 let inForeground = self.isInForeground
 
+                // Off-body check runs on the 2 s cadence in BOTH foreground and
+                // background — it reads stream liveness and an ACC stddev, no
+                // FFT. Behind the 30 s throttle below it added up to a minute
+                // of latency to standby, blowing the ~20 s doffing budget.
+                self.evaluateOffBodyStandby()
+
                 // In background, only process every 30 s to avoid unnecessary
                 // FFT/PSD computation draining the battery.
                 if !inForeground {
@@ -779,42 +830,6 @@ final class AppEnvironment {
                 tick.breathBPM = self.breathTracker.update(
                     tick.breathBPM.map { [.init(bpm: $0, confidence: tick.breathConfidence ?? 3)] } ?? [],
                     dt: dt)
-
-                // ── Off-body detection → low-power standby ────────────────────
-                // Fuse four cues into a confidence score so no single cue can
-                // wrongly trip (false positive) or be missed:
-                //   • skin-contact bit — authoritative: worn (−1) / off (+3)
-                //   • ECG poor — lead-off OR white noise (no QRS): +1
-                //   • RR mostly invalid (signalQuality < 0.5): +1
-                //   • accelerometer dead-still (worn straps always jitter): +1
-                // score ≥ 2 ⇒ off-body. A strong score (≥3 — contact reports off,
-                // or all signal cues agree) trips fast (~20 s); a borderline
-                // consensus needs the full ~60 s. "contact = worn" (−1) suppresses
-                // false positives when only one cue fires, yet the signal cues can
-                // still override a stuck "contact = true" (score reaches 2).
-                accMotion = computeAccMotion()
-                let contact = ble.sensorContact
-                // DEAD counts as bad, not as absent: when the strap comes off,
-                // quality fields go nil (no data at all), and nil used to read
-                // as "fine" — so an off-body strap with dead streams never
-                // scored a single point and standby never engaged.
-                let ecgPoor = tick.ecgQuality?.tier == .poor || !ble.ecgStreamLive
-                let rrBad   = (tick.signalQuality ?? 0) < 0.5
-                let still   = accMotion.map { $0 < self.accStillnessThreshold } ?? false
-                let score   = StandbyPolicy.offBodyScore(
-                    contact: contact, ecgPoor: ecgPoor, rrBad: rrBad, still: still)
-
-                if score >= 2 {
-                    let since = offBodySince ?? Date()
-                    offBodySince = since
-                    let needed = score >= 3 ? offBodyStandbyFastSeconds : offBodyStandbySeconds
-                    if Date().timeIntervalSince(since) >= needed {
-                        ble.enterStandby()
-                        offBodySince = nil
-                    }
-                } else {
-                    offBodySince = nil
-                }
 
                 // Keep the chart history current in BOTH foreground and background
                 // so the charts are already up-to-date the instant the app is

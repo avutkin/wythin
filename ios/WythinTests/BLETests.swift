@@ -325,35 +325,80 @@ final class BLETests: XCTestCase {
             contact: nil, ecgPoor: true, rrBad: true, still: true), 3)
     }
 
+    // Shorthand: a physiologically-consistent frame (rr ≈ 60000/bpm).
+    private func plausible(_ gate: inout StandbyResumeGate, bpm: Int,
+                           at seconds: TimeInterval) -> Bool {
+        gate.step(contact: nil, bpm: bpm, rrIntervalsMs: [60000 / bpm],
+                  secondsInStandby: seconds)
+    }
+
     func testResumeGateContactFastPath() {
         var gate = StandbyResumeGate()
-        XCTAssertTrue(gate.step(contact: true, bpm: 62, rrCount: 1))
+        XCTAssertTrue(gate.step(contact: true, bpm: 62, rrIntervalsMs: [950],
+                                secondsInStandby: 1),
+                      "the authoritative bit resumes instantly, even inside the grace window")
     }
 
     func testResumeGateNeedsARunOfPlausibleFramesWithoutContact() {
-        // Contact bit absent: three consecutive plausible HR frames (real bpm
-        // AND RR intervals present) prove the strap is worn.
         var gate = StandbyResumeGate()
-        XCTAssertFalse(gate.step(contact: nil, bpm: 64, rrCount: 1))
-        XCTAssertFalse(gate.step(contact: nil, bpm: 66, rrCount: 2))
-        XCTAssertTrue (gate.step(contact: nil, bpm: 65, rrCount: 1))
+        XCTAssertFalse(plausible(&gate, bpm: 64, at: 20))
+        XCTAssertFalse(plausible(&gate, bpm: 66, at: 21))
+        XCTAssertFalse(plausible(&gate, bpm: 65, at: 22))
+        XCTAssertTrue (plausible(&gate, bpm: 65, at: 23))
     }
 
     func testResumeGateImplausibleFrameResetsTheRun() {
         var gate = StandbyResumeGate()
-        _ = gate.step(contact: nil, bpm: 64, rrCount: 1)
-        _ = gate.step(contact: nil, bpm: 0,  rrCount: 0)   // off-body beacon frame
-        _ = gate.step(contact: nil, bpm: 64, rrCount: 1)
-        XCTAssertFalse(gate.step(contact: nil, bpm: 65, rrCount: 1),
-                       "run restarted — only two plausible frames since the reset")
+        _ = plausible(&gate, bpm: 64, at: 20)
+        _ = gate.step(contact: nil, bpm: 0, rrIntervalsMs: [],
+                      secondsInStandby: 21)   // off-body beacon frame
+        _ = plausible(&gate, bpm: 64, at: 22)
+        _ = plausible(&gate, bpm: 65, at: 23)
+        XCTAssertFalse(plausible(&gate, bpm: 65, at: 24),
+                       "run restarted — only three plausible frames since the reset")
     }
 
     func testResumeGateExplicitOffBodyNeverResumes() {
         var gate = StandbyResumeGate()
-        _ = gate.step(contact: false, bpm: 70, rrCount: 2)
-        _ = gate.step(contact: false, bpm: 70, rrCount: 2)
-        XCTAssertFalse(gate.step(contact: false, bpm: 70, rrCount: 2),
-                       "contact=false is authoritative — plausible-looking noise loses")
+        for i in 0..<6 {
+            XCTAssertFalse(gate.step(contact: false, bpm: 70, rrIntervalsMs: [857],
+                                     secondsInStandby: TimeInterval(20 + i)),
+                           "contact=false is authoritative — plausible-looking noise loses")
+        }
+    }
+
+    func testResumeGateIgnoresNoiseDuringEntryGrace() {
+        // Doffing produces seconds of electrode noise that can masquerade as
+        // beats — the flapping Alex saw. Non-contact evidence inside the grace
+        // window counts for nothing, not even toward the run.
+        var gate = StandbyResumeGate()
+        XCTAssertFalse(plausible(&gate, bpm: 64, at: 1))
+        XCTAssertFalse(plausible(&gate, bpm: 64, at: 3))
+        XCTAssertFalse(plausible(&gate, bpm: 64, at: 5))
+        XCTAssertFalse(plausible(&gate, bpm: 64, at: 9),
+                       "first counted frame is after the grace — run is 1, not 4")
+    }
+
+    func testResumeGateRejectsBeatsThatDontExplainTheBPM() {
+        // Noise RR wanders independently of the reported bpm; real straps agree.
+        var gate = StandbyResumeGate()
+        for i in 0..<6 {
+            XCTAssertFalse(gate.step(contact: nil, bpm: 65, rrIntervalsMs: [400],
+                                     secondsInStandby: TimeInterval(20 + i)),
+                           "rr 400 ms claims 150 bpm while the frame says 65 — noise")
+        }
+    }
+
+    func testResumeGateRejectsErraticBPMJumps() {
+        var gate = StandbyResumeGate()
+        _ = plausible(&gate, bpm: 60,  at: 20)
+        _ = plausible(&gate, bpm: 130, at: 21)   // +70 bpm in one second: not a heart
+        _ = plausible(&gate, bpm: 129, at: 22)
+        _ = plausible(&gate, bpm: 128, at: 23)
+        XCTAssertFalse(plausible(&gate, bpm: 127, at: 24),
+                       "the jump frame resets the run — three consistent frames since is not enough")
+        XCTAssertTrue(plausible(&gate, bpm: 126, at: 25),
+                      "four consistent frames after the jump resume")
     }
 
     // MARK: - Skin contact display (strap may not report the flag)
