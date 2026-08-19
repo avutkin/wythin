@@ -28,17 +28,28 @@ struct BreathRateTracker {
         }
     }
 
-    /// How fast breathing can genuinely drift, in (br/min)² per second. At 1.0
-    /// a deliberate change of ~10 br/min is followed within about ten seconds,
-    /// while tick-to-tick spectral jitter is averaged away.
-    static let processNoise: Float = 1.0
+    /// How fast breathing can genuinely drift, in (br/min)² per second.
+    ///
+    /// At the original 1.0 the predicted uncertainty grew ~2 per tick against
+    /// a measurement noise of ~4.5, leaving a Kalman gain near 0.5 — a
+    /// two-sample average, which the validation harness showed was *worse*
+    /// than the raw per-tick picks it was meant to clean up. At 0.15 the gain
+    /// settles near 0.23 (~4–5 ticks of averaging) while a deliberate 8
+    /// br/min change still converges inside ten ticks.
+    static let processNoise: Float = 0.15
     /// Measurement noise for a peak sitting at the acceptance threshold. Scaled
     /// by confidence: a prominence-9 peak is trusted ~3× more than a
     /// prominence-3 one.
     static let baseMeasurementNoise: Float = 9.0
     /// Gate width in standard deviations. Beyond this, a reading is treated as
     /// an outlier rather than folded in.
-    static let gateSigma: Float = 3.0
+    ///
+    /// 2.5, not 3: at steady state the gate sits at 2.5·√(p+r) ≈ 6 br/min, and
+    /// simulation showed a 7 br/min spike landing exactly on the 3σ boundary
+    /// and being folded in — dragging the tracked rate 2 br/min off truth in
+    /// one tick. Sustained changes are unaffected; they arrive as a *run* of
+    /// agreeing outliers and re-seed the filter through the path below.
+    static let gateSigma: Float = 2.5
     /// Consecutive gated readings that agree with each other before the filter
     /// concedes the breathing really did change and re-seeds. Three ticks ≈ 6 s
     /// of consistent evidence.
