@@ -262,6 +262,8 @@
 		A706 /* SleepScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F706 /* SleepScoreTests.swift */; };
 		A707 /* SleepScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F707 /* SleepScore.swift */; };
 		A708 /* SleepWindowTruncationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F708 /* SleepWindowTruncationTests.swift */; };
+		A760 /* SleepSessionizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F760 /* SleepSessionizerTests.swift */; };
+		A761 /* SleepSessionizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F761 /* SleepSessionizer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -533,6 +535,8 @@
 		F706 /* SleepScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepScoreTests.swift; sourceTree = "<group>"; };
 		F707 /* SleepScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepScore.swift; sourceTree = "<group>"; };
 		F708 /* SleepWindowTruncationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepWindowTruncationTests.swift; sourceTree = "<group>"; };
+		F760 /* SleepSessionizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepSessionizerTests.swift; sourceTree = "<group>"; };
+		F761 /* SleepSessionizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepSessionizer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -675,6 +679,7 @@
 		GAPP_MET /* Metrics */ = {
 			isa = PBXGroup;
 			children = (
+				F761 /* SleepSessionizer.swift */,
 				F707 /* SleepScore.swift */,
 				F705 /* SleepRegularity.swift */,
 				F703 /* SleepStages.swift */,
@@ -868,6 +873,7 @@
 		GTESTS /* WythinTests */ = {
 			isa = PBXGroup;
 			children = (
+				F760 /* SleepSessionizerTests.swift */,
 				F708 /* SleepWindowTruncationTests.swift */,
 				F706 /* SleepScoreTests.swift */,
 				F704 /* SleepRegularityTests.swift */,
@@ -1053,6 +1059,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A761 /* SleepSessionizer.swift in Sources */,
 				A707 /* SleepScore.swift in Sources */,
 				A705 /* SleepRegularity.swift in Sources */,
 				A703 /* SleepStages.swift in Sources */,
@@ -1224,6 +1231,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A760 /* SleepSessionizerTests.swift in Sources */,
 				A708 /* SleepWindowTruncationTests.swift in Sources */,
 				A706 /* SleepScoreTests.swift in Sources */,
 				A704 /* SleepRegularityTests.swift in Sources */,
@@ -1332,7 +1340,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 86;
+				CURRENT_PROJECT_VERSION = 88;
 				DEVELOPMENT_TEAM = FHUVQ8JNXD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
@@ -1421,7 +1429,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 86;
+				CURRENT_PROJECT_VERSION = 88;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -1440,7 +1448,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 86;
+				CURRENT_PROJECT_VERSION = 88;
 				DEVELOPMENT_TEAM = FHUVQ8JNXD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
@@ -1522,7 +1530,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 86;
+				CURRENT_PROJECT_VERSION = 88;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
