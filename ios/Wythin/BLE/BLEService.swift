@@ -138,35 +138,59 @@ enum StandbyPolicy {
 }
 
 /// Exit gate for standby: worn again? `contact == true` resumes instantly;
-/// with the bit absent, a run of consecutive plausible HR frames (a real BPM
-/// and RR intervals present — off-body beacons deliver neither) is accepted
-/// instead. `contact == false` is authoritative and resets the run.
+/// with the bit absent, a run of consecutive PHYSIOLOGICALLY CONSISTENT HR
+/// frames is required instead. "Plausible" is deliberately strict — doffing
+/// leaves seconds of electrode noise that can masquerade as beats, and a
+/// cheap gate flapped the recording on/off right after standby. A frame
+/// counts only if the bpm is human, the RR intervals are human, the RR
+/// actually explains the reported bpm, and the bpm isn't jumping around
+/// frame to frame. `contact == false` stays authoritative.
 struct StandbyResumeGate {
     /// Consecutive plausible frames required when the contact bit is absent
-    /// (~3 s at the HR characteristic's 1 Hz cadence).
-    static let requiredRun = 3
-    /// Below resting-human range ⇒ off-body beacon frame, not a heartbeat.
-    static let minPlausibleBPM = 30
+    /// (~4 s at the HR characteristic's 1 Hz cadence).
+    static let requiredRun = 4
+    /// Human heart-rate band; outside it is beacon/noise, not a wearer.
+    static let plausibleBPM = 30...220
+    /// Human RR band in ms (30–200 bpm).
+    static let plausibleRRms = 300...2000
+    /// A real heart doesn't move this much between 1 Hz frames.
+    static let maxBPMJump = 20
+    /// Ignore non-contact evidence this long after entering standby — the
+    /// doffing transient is still on the electrodes.
+    static let entryGraceSeconds: TimeInterval = 8
 
     private var run = 0
+    private var lastBPM: Int?
 
-    mutating func step(contact: Bool?, bpm: Int, rrCount: Int) -> Bool {
+    mutating func step(contact: Bool?, bpm: Int, rrIntervalsMs: [Int],
+                       secondsInStandby: TimeInterval) -> Bool {
         switch contact {
         case .some(true):
-            run = 0
+            run = 0; lastBPM = nil
             return true
         case .some(false):
-            run = 0
+            run = 0; lastBPM = nil
             return false
         case .none:
-            if bpm >= Self.minPlausibleBPM && rrCount > 0 {
-                run += 1
-            } else {
-                run = 0
+            guard secondsInStandby >= Self.entryGraceSeconds else {
+                run = 0; lastBPM = nil
+                return false
             }
-            if run >= Self.requiredRun { run = 0; return true }
+            run = isPlausible(bpm: bpm, rr: rrIntervalsMs) ? run + 1 : 0
+            lastBPM = bpm
+            if run >= Self.requiredRun { run = 0; lastBPM = nil; return true }
             return false
         }
+    }
+
+    private func isPlausible(bpm: Int, rr: [Int]) -> Bool {
+        guard Self.plausibleBPM.contains(bpm), !rr.isEmpty,
+              rr.allSatisfy({ Self.plausibleRRms.contains($0) }) else { return false }
+        // The beats must explain the number: mean RR ↔ bpm within tolerance.
+        let meanRR = rr.reduce(0, +) / rr.count
+        guard abs(bpm - 60_000 / meanRR) <= 25 else { return false }
+        if let last = lastBPM, abs(bpm - last) > Self.maxBPMJump { return false }
+        return true
     }
 }
 
@@ -386,6 +410,14 @@ final class BLEService: NSObject {
     private(set) var lastACCSampleAt: Date?
     private var lastRRSampleAt:  Date?
     private var resumeGate = StandbyResumeGate()
+    private var standbyEnteredAt: Date?
+    /// Actual RR intervals (not just HR frames) arrived within the last 8 s.
+    /// The most direct wear signal there is: off-body straps keep sending HR
+    /// beacon frames but stop producing beats almost immediately.
+    private(set) var lastRRIntervalAt: Date?
+    var rrIntervalsLive: Bool {
+        lastRRIntervalAt.map { Date().timeIntervalSince($0) < 8 } ?? false
+    }
     private var lastECGStartCmd: Data?
     /// True once the fast budget has been spent and `lastError` surfaced —
     /// so the slow-retry loop doesn't rewrite it every minute.
@@ -624,6 +656,7 @@ final class BLEService: NSObject {
         print("🌙 BLE: entering standby — strap off-body (paused in place)")
         inStandby = true
         resumeGate = StandbyResumeGate()   // fresh run for the wake decision
+        standbyEnteredAt = Date()          // starts the resume grace window
         connectionTimeoutTask?.cancel()
         reconnectTask?.cancel()
         watchdogTask?.cancel()
@@ -1291,16 +1324,21 @@ extension BLEService: CBPeripheralDelegate {
                     // independent of both PMD streams, so it can prove the
                     // link is alive while ECG and ACC are both stalled.
                     self.lastRRSampleAt = Date()
+                    if !frame.rrIntervalsMs.isEmpty { self.lastRRIntervalAt = Date() }
                     self.sensorContact = frame.contact
                     // Paused for off-body: keep watching the contact bit over the
                     // lightweight HR link and resume the moment the strap is worn
                     // again. Don't forward off-body beats into the pipeline.
                     if self.inStandby {
                         // Contact bit when reported; otherwise a run of
-                        // plausible beats — see StandbyResumeGate.
+                        // physiologically consistent beats — see StandbyResumeGate.
+                        let inStandbyFor = self.standbyEnteredAt.map {
+                            Date().timeIntervalSince($0)
+                        } ?? .infinity
                         if self.resumeGate.step(contact: frame.contact,
                                                 bpm: frame.bpm,
-                                                rrCount: frame.rrIntervalsMs.count) {
+                                                rrIntervalsMs: frame.rrIntervalsMs,
+                                                secondsInStandby: inStandbyFor) {
                             self.resumeFromStandby(name: name)
                         }
                         return
