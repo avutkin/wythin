@@ -32,28 +32,42 @@ final class SleepStagesTests: XCTestCase {
         stretch(minutes: min, from: from, motion: 4, hr: 50, coherence: 0.94, lfHF: 0.5, sdnn: 54)
     }
     private func active(_ min: Double, from: Double) -> [MetricsHistoryPoint] {
-        stretch(minutes: min, from: from, motion: 12, hr: 56, coherence: 0.72, lfHF: 2.0, sdnn: 105)
+        stretch(minutes: min, from: from, motion: 6, hr: 56, coherence: 0.72, lfHF: 2.0, sdnn: 105)
     }
     private func awake(_ min: Double, from: Double) -> [MetricsHistoryPoint] {
         stretch(minutes: min, from: from, motion: 180, hr: 66, coherence: 0.5, lfHF: 3.0, sdnn: 70)
     }
 
-    func testStillHighCoherenceStretchReadsAsQuietSleep() {
-        let stages = SleepStages.classify(quiet(60, from: 0))
-        XCTAssertEqual(stages.count, 120)
-        XCTAssertTrue(stages.allSatisfy { $0 == .quiet },
-                      "high coherence, low LF/HF and low SDNN is the deep-sleep signature")
+    func testTellsTheQuietHalfOfANightFromTheActiveHalf() {
+        // A structured night, because that is the only thing the question can
+        // be asked of. Classification is relative to the recording's own
+        // medians — measured against a real night, the published absolutes do
+        // not transfer at all — so a flat stretch has no quiet and active
+        // halves to find, and inventing them would be noise.
+        var points = quiet(45, from: 0)
+        points += active(45, from: 45)
+        points += quiet(45, from: 90)
+        let stages = SleepStages.classify(points)
+
+        let firstQuiet = stages[0..<90]
+        let middle = stages[90..<180]
+        XCTAssertTrue(firstQuiet.allSatisfy { $0 == .quiet },
+                      "high coherence with low LF/HF and low SDNN is the quiet signature")
+        XCTAssertTrue(middle.allSatisfy { $0 == .active },
+                      "coherence collapses and variability rises — still asleep, not quiet")
     }
 
-    func testMovingElevatedStretchReadsAsAwake() {
-        let stages = SleepStages.classify(awake(20, from: 0))
-        XCTAssertTrue(stages.allSatisfy { $0 == .wake })
-    }
+    func testMovementInsideANightReadsAsAwake() {
+        // Wake is a departure from this recording's own stillness, not a fixed
+        // level: measured asleep motion is about 4 mg and awake about 13, so an
+        // absolute gate taken from the literature (100 mg) never fires at all.
+        var points = quiet(60, from: 0)
+        points += awake(20, from: 60)
+        points += quiet(60, from: 80)
+        let stages = SleepStages.classify(points)
 
-    func testLowCoherenceHighVariabilityStretchReadsAsActiveSleep() {
-        let stages = SleepStages.classify(active(30, from: 0))
-        XCTAssertTrue(stages.allSatisfy { $0 == .active },
-                      "REM-like: coherence collapses, LF/HF and SDNN rise, but still asleep")
+        XCTAssertTrue(stages[120..<160].allSatisfy { $0 == .wake })
+        XCTAssertFalse(stages[0..<120].contains(.wake), "the quiet hour before it is not wake")
     }
 
     func testAbsorbsSingleTickSpikesIntoTheSurroundingStage() {

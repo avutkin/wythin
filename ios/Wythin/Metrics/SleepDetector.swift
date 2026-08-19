@@ -19,16 +19,34 @@ enum SleepThresholds {
 
     // MARK: Stage discrimination — values from the published per-stage tables
 
-    /// ACC magnitude SD (mg) at or above which a tick reads as awake. Well
-    /// clear of `AnchorThresholds.stillnessSD`, which exists to reject any
-    /// movement at all: here turning over must stay inside sleep.
-    static let wakeMotionSD: Float = 100
-    /// RR↔breath coherence. N3 measures 0.91–0.97, N2 0.81–0.89, REM 0.69–0.82.
-    static let quietCoherence: Float = 0.85
-    /// LF/HF. SWS 0.51, stage 2 1.11, REM 2.02.
-    static let quietLFHF: Float = 1.2
-    /// SDNN (ms). SWS 53.8, stage 2 68.5, REM 105.5.
-    static let quietSDNN: Float = 75
+    /// Motion, as a multiple of this recording's own median. Measured on a
+    /// real night: 3.9 mg asleep against 12.6 awake and 30 at the morning
+    /// rise, so the separation is a ratio rather than a level — an absolute
+    /// gate set from published figures (100 mg) never fired at all, and the
+    /// whole waking day read as sleep.
+    static let wakeMotionMultiple: Float = 3.0
+    /// Heart rate above this recording's median, in bpm. Catches lying awake
+    /// before sleep, where motion is as low as during sleep and only the pulse
+    /// gives it away — 68 bpm at 21:30 against a 56 bpm night.
+    static let wakeHRRise: Float = 10
+    /// Median motion (mg) above which a candidate is not sleep at all,
+    /// whatever its internal structure. The relative gates above compare a
+    /// tick to its own recording, so a uniformly thrashing one has no contrast
+    /// for them to find — this is the floor that catches it. Set well clear of
+    /// both measured levels: 3.9 mg asleep, 12.6 mg awake and sitting.
+    static let impossibleSleepMotion: Float = 40
+
+    // MARK: Finding a night inside all-day wear
+
+    /// Beyond this, a run is too long to be one night and gets searched rather
+    /// than trimmed. Comfortably above the longest plausible night so an
+    /// ordinary evening-to-morning recording is never carved up.
+    static let searchWhenLongerThanSec: Double = 14 * 3600
+    /// Width of the search window. Wide enough to hold a long night with room
+    /// at both ends for the trim to find the real boundaries.
+    static let nightSearchSpanSec: Double = 11 * 3600
+    /// How far the window slides each step.
+    static let nightSearchStepSec: Double = 30 * 60
     /// Shortest run that can stand as its own stage. Sleep changes state on
     /// the scale of minutes; anything briefer is a turn or a dropped estimate,
     /// and leaving it in inflates every count derived from the hypnogram.
@@ -88,11 +106,51 @@ enum SleepDetector {
 
     static func detect(_ points: [MetricsHistoryPoint]) -> SleepWindow? {
         let all = points.sorted { $0.timestamp < $1.timestamp }
-        let candidates = continuousRuns(all).compactMap(trimmedToSleep)
+        let candidates = continuousRuns(all)
+            .map(quietestNightWindow)
+            .compactMap(trimmedToSleep)
         guard let night = candidates.max(by: { span($0) < span($1) }),
               span(night) >= SleepThresholds.minNightSec,
               let first = night.first, let last = night.last else { return nil }
         return SleepWindow(startedAt: first.timestamp, endedAt: last.timestamp)
+    }
+
+    /// Narrows an all-day run to the quietest night-length stretch inside it.
+    ///
+    /// The stage gates are relative to the recording's own medians, which only
+    /// works while that recording is mostly one thing. A strap worn from lunch
+    /// through to the next morning gives a 21-hour run whose median heart rate
+    /// sits squarely between the waking 76 and the sleeping 55 — so neither
+    /// reads as a departure, no tick is called wake, and the trim below has
+    /// nothing to cut. Measured on a real capture, that produced a 20 h 35 m
+    /// "night" starting at 12:55.
+    ///
+    /// So find the night first, by the thing that actually distinguishes it:
+    /// sustained low heart rate. Then the baseline is a night's, and the gates
+    /// mean what they were calibrated to mean.
+    private static func quietestNightWindow(_ run: [MetricsHistoryPoint]) -> [MetricsHistoryPoint] {
+        guard let first = run.first, let last = run.last else { return run }
+        let span = last.timestamp.timeIntervalSince(first.timestamp)
+        guard span > SleepThresholds.searchWhenLongerThanSec else { return run }
+
+        let width = SleepThresholds.nightSearchSpanSec
+        var best: (score: Float, window: [MetricsHistoryPoint])?
+        var start = first.timestamp
+        while start.addingTimeInterval(width) <= last.timestamp {
+            let end = start.addingTimeInterval(width)
+            let window = run.filter { $0.timestamp >= start && $0.timestamp <= end }
+            if let score = medianHR(window) {
+                if best == nil || score < best!.score { best = (score, window) }
+            }
+            start = start.addingTimeInterval(SleepThresholds.nightSearchStepSec)
+        }
+        return best?.window ?? run
+    }
+
+    private static func medianHR(_ points: [MetricsHistoryPoint]) -> Float? {
+        let hrs = points.compactMap(\.meanBPM).sorted()
+        guard !hrs.isEmpty else { return nil }
+        return hrs[hrs.count / 2]
     }
 
     /// Cuts the waking hours off both ends of a run.
@@ -107,6 +165,9 @@ enum SleepDetector {
     /// is a wake bout inside one night, not the end of it — and those bouts are
     /// what the continuity section is there to count.
     private static func trimmedToSleep(_ run: [MetricsHistoryPoint]) -> [MetricsHistoryPoint]? {
+        let motions = run.compactMap(\.motion).sorted()
+        if let median = motions.isEmpty ? nil : motions[motions.count / 2],
+           median > SleepThresholds.impossibleSleepMotion { return nil }
         let stages = SleepStages.classify(run)
         guard let first = stages.firstIndex(where: { $0 != .wake }),
               let last = stages.lastIndex(where: { $0 != .wake }) else { return nil }

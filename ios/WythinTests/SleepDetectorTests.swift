@@ -69,9 +69,9 @@ final class SleepDetectorTests: XCTestCase {
     func testKeepsNightDespiteMovement() {
         // The anchor rejects anything above `stillnessSD` (20 mg). A sleeper is
         // not a statue, so a detector that inherited that gate would find no
-        // nights at all. 55 mg sits well above the anchor's gate and well below
-        // the wake gate — a normal sleeping body.
-        let w = SleepDetector.detect(night(fromHour: 23, hours: 7, motion: 55))
+        // nights at all. 25 mg sits above the anchor's gate and inside what a
+        // real night measures — asleep is about 4 mg, awake about 13.
+        let w = SleepDetector.detect(night(fromHour: 23, hours: 7, motion: 25))
         XCTAssertNotNil(w, "movement is part of sleep, not a disqualifier")
         XCTAssertEqual(w?.durationSec ?? 0, 7 * 3600, accuracy: 120)
     }
@@ -81,6 +81,9 @@ final class SleepDetectorTests: XCTestCase {
         // someone sleeping. Finding no night is the correct answer, not a
         // failure — and it is what keeps a long restless evening on the sofa
         // out of the record.
+        // Relative gates cannot reject this on their own — a uniformly moving
+        // recording has no contrast for them to compare against — so this is
+        // the absolute sanity floor doing its job.
         XCTAssertNil(SleepDetector.detect(night(fromHour: 23, hours: 7, motion: 140)),
                      "sustained heavy movement is not sleep at any duration")
     }
