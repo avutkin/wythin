@@ -54,7 +54,7 @@ final class PracticeCatalogTests: XCTestCase {
     /// reminder to restore the real invariant above it.
     func testCatalogIsTemporarilyThePacersOnly() {
         XCTAssertEqual(PracticeCatalog.practices.map(\.id),
-                       ["box-breathing", "resonance-breathing", "coherent-breathing", "hold-breath"],
+                       ["box-breathing", "resonance-breathing", "hold-breath"],
                        "catalog changed — restore the per-category and per-state coverage tests")
     }
 
@@ -120,23 +120,28 @@ final class PracticeCatalogTests: XCTestCase {
 
     // MARK: Pacer practices
 
-    /// 5.5 seconds a phase is only expressible as whole beats on a half-second
-    /// beat, so this practice's tempo is load-bearing, not a preference.
-    func testCoherentBreathingIsExactlyFiveAndAHalfSecondsEachWay() {
-        guard let coherent = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing" }),
-              let pattern  = coherent.breathPattern else {
-            return XCTFail("coherent-breathing missing from the catalog")
+    /// Resonance and Coherent Breathing were the same practice with different
+    /// numbers, so they are one. It opens on 5.5 s a side — expressible only on a
+    /// half-second beat, which is why the cadence type exists at all.
+    func testResonanceOpensOnFiveAndAHalfSecondsEachWay() {
+        guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }),
+              let pattern = res.breathPattern else {
+            return XCTFail("resonance-breathing missing from the catalog")
         }
-        XCTAssertEqual(coherent.defaultBPM, 120)
-        XCTAssertEqual(pattern.inhale, 11)
+        let cadence = EvenCadence(beats: pattern.inhale, bpm: res.defaultBPM)
+        XCTAssertEqual(cadence.seconds, 5.5, accuracy: 0.0001)
+        XCTAssertEqual(cadence.label, "5.5s")
+        XCTAssertEqual(cadence.breathsPerMinute, 60.0 / 11.0, accuracy: 0.0001)
         XCTAssertFalse(pattern.hasHolds)
+    }
 
-        let beatSeconds  = 60.0 / Double(coherent.defaultBPM)
-        let phaseSeconds = Double(pattern.inhale) * beatSeconds
-        XCTAssertEqual(phaseSeconds, 5.5, accuracy: 0.0001)
-        XCTAssertEqual(pattern.cycleSeconds(bpm: coherent.defaultBPM), 11.0, accuracy: 0.0001)
-        XCTAssertEqual(pattern.breathsPerMinute(bpm: coherent.defaultBPM), 60.0 / 11.0, accuracy: 0.0001)
-        XCTAssertEqual(coherent.subtype, "Coherent Breathing")
+    func testTheMergedPracticeCarriesBothOfItsPredecessorsStudies() {
+        guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }) else {
+            return XCTFail("resonance-breathing missing")
+        }
+        let dois = Set(res.evidence.map(\.doi))
+        XCTAssertTrue(dois.contains("10.3390/ijerph182312478"), "kept resonance's dose-response study")
+        XCTAssertTrue(dois.contains("10.1016/j.ijpsycho.2019.02.011"), "kept coherent's decision-making trial")
     }
 
     /// The session's pace stepper has to be able to reach every shipped pattern,
@@ -177,15 +182,16 @@ final class PracticeCatalogTests: XCTestCase {
     }
 
     func testResonanceBreathingIsAHoldFreePacer() {
-        guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }) else {
+        guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }),
+              let pattern = res.breathPattern else {
             return XCTFail("resonance-breathing missing from the catalog")
         }
-        XCTAssertEqual(res.kind, .pacer(.resonance))
         XCTAssertEqual(res.activityType, .breathwork)
         XCTAssertEqual(res.subtype, "Resonance")
-        XCTAssertFalse(res.breathPattern?.hasHolds ?? true, "resonance pauses at neither end")
-        XCTAssertEqual(res.breathPattern?.breathsPerMinute(bpm: 60), 6.0,
-                       "the default pace is the coherent six a minute")
+        XCTAssertFalse(pattern.hasHolds, "resonance pauses at neither end")
+        // Read at the practice's own tempo, not a hardcoded 60: the pace is
+        // declared in beats, and beats only mean seconds against a tempo.
+        XCTAssertEqual(pattern.breathsPerMinute(bpm: res.defaultBPM), 60.0 / 11.0, accuracy: 0.0001)
     }
 
     func testBoxBreathingIsAPacerOnTheBoxPattern() {

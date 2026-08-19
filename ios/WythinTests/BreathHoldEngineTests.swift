@@ -10,8 +10,10 @@ import XCTest
 /// explicitly.
 final class BreathHoldEngineTests: XCTestCase {
 
-    /// 5s in, 5s out, 20s hold, 5 sets → 30s a set, 150s total.
-    private let plan = HoldProtocol.standard
+    /// Fixed here rather than taken from `.standard`: these assertions are about
+    /// the engine's arithmetic, and should not break when the shipped default
+    /// changes. 5s in, 5s out, 20s hold, 5 sets → 30s a set, 150s total.
+    private let plan = HoldProtocol(breatheSeconds: 5, holdSeconds: 20, sets: 5)
 
     // MARK: Phase order within a set
 
@@ -126,5 +128,71 @@ final class BreathHoldEngineTests: XCTestCase {
         XCTAssertEqual(BreathHoldEngine.state(at: 8,  plan: one).phase, .hold)
         XCTAssertEqual(BreathHoldEngine.state(at: 22, plan: one).phase, .hold)
         XCTAssertTrue(BreathHoldEngine.state(at: 23, plan: one).isFinished)
+    }
+
+    // MARK: The shipped default
+
+    /// Pinned separately, so changing it is a deliberate act and not a silent
+    /// side effect of editing a test.
+    func testTheStandardPlanIsTwentySecondsFiveTimes() {
+        let standard = HoldProtocol.standard
+        XCTAssertEqual(standard.holdSeconds, 20)
+        XCTAssertEqual(standard.sets, 5)
+        XCTAssertEqual(standard.breatheSeconds, 6)
+        XCTAssertEqual(standard.setSeconds, 32)
+        XCTAssertEqual(standard.totalHoldSeconds, 100)
+    }
+
+    /// The inhale and the exhale are the same length by construction. The dial
+    /// animates each over `seconds(phase)`, so if these ever diverged the two
+    /// halves of the breath would visibly differ.
+    func testTheBreathsAreSymmetric() {
+        for plan in [HoldProtocol.standard,
+                     HoldProtocol(breatheSeconds: 3, holdSeconds: 45, sets: 2)] {
+            XCTAssertEqual(plan.seconds(.inhale), plan.seconds(.exhale))
+        }
+    }
+
+    // MARK: The sound of a set
+    //
+    // Asserted as a sequence, because the pattern is what someone follows with
+    // their eyes shut. A count landing where a boundary belongs, or any sound at
+    // all inside the hold, would be felt immediately and seen by nothing else.
+
+    private func cues(_ plan: HoldProtocol, seconds: Range<Int>) -> [HoldCueEvent] {
+        seconds.map { HoldCueEvent.at(BreathHoldEngine.state(at: $0, plan: plan)) }
+    }
+
+    func testASetSoundsOutAsCountsATurnAndTwoBoundaries() {
+        let p = HoldProtocol(breatheSeconds: 3, holdSeconds: 4, sets: 2)
+        XCTAssertEqual(cues(p, seconds: 0..<10), [
+            .boundary, .count, .count,     // inhale: long tone, then counts
+            .turn,     .count, .count,     // exhale opens on the double
+            .boundary, .silent, .silent, .silent,   // hold: opened, then quiet
+        ])
+    }
+
+    func testTheHoldIsSilentThroughout() {
+        let p = HoldProtocol(breatheSeconds: 2, holdSeconds: 30, sets: 1)
+        let holdSeconds = (p.breatheSeconds * 2 + 1)..<p.totalSeconds
+        XCTAssertTrue(cues(p, seconds: holdSeconds).allSatisfy { $0 == .silent },
+                      "nothing should interrupt a hold once it has begun")
+    }
+
+    /// The long tone that closes a hold is the same one that opens the next
+    /// inhale — one sound doing both jobs, rather than two colliding.
+    func testTheNextSetOpensOnABoundaryNotACount() {
+        let p = HoldProtocol(breatheSeconds: 3, holdSeconds: 4, sets: 2)
+        let secondSetStart = p.setSeconds
+        XCTAssertEqual(HoldCueEvent.at(BreathHoldEngine.state(at: secondSetStart, plan: p)), .boundary)
+        XCTAssertEqual(BreathHoldEngine.state(at: secondSetStart, plan: p).set, 2)
+    }
+
+    func testThereIsExactlyOneTurnAndTwoBoundariesPerSet() {
+        let p = HoldProtocol(breatheSeconds: 4, holdSeconds: 6, sets: 3)
+        let first = cues(p, seconds: 0..<p.setSeconds)
+        XCTAssertEqual(first.filter { $0 == .turn }.count, 1)
+        XCTAssertEqual(first.filter { $0 == .boundary }.count, 2)
+        XCTAssertEqual(first.filter { $0 == .count }.count, (p.breatheSeconds - 1) * 2)
     }
 }

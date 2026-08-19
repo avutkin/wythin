@@ -97,6 +97,8 @@
   .ref { stroke: var(--dim); stroke-width: 1; stroke-dasharray: 4 4; opacity: .6; }
   .ref-t { opacity: .7; }
   .tbar { opacity: .85; }
+  .tbar.best  { stroke: var(--accent); stroke-width: 2; opacity: 1; }
+  .tbar.worst { stroke: var(--warn);   stroke-width: 2; opacity: 1; }
   .tbar:hover { opacity: 1; }
   .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px 20px; }
   .facts .k { font-family: var(--mono); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); margin-bottom: 5px; }
@@ -218,7 +220,11 @@
     <section id="view-activity" style="display:none">
       <div class="kpis" id="activity-kpis"></div>
       <div class="panel">
-        <h2>Before · During · After</h2>
+        <h2>Before · During · After <span class="sub">— hover a bar for its value</span></h2>
+        <div class="charts" id="activity-charts"></div>
+      </div>
+      <div class="panel">
+        <h2>Before · During · After <span class="sub">— table</span></h2>
         <div class="tablewrap"><table id="activity-metrics"></table></div>
       </div>
     </section>
@@ -469,15 +475,15 @@
   // dashboard had wrong. Columns with no product name keep their technical one.
   const LIVE_SIGNALS = [
     { k: "mean_bpm",   label: "Pulse",               unit: "bpm",    color: "var(--warn)",    d: 0 , tech: "HR" },
-    { k: "rmssd",      label: "Energy Reserve",      unit: "ms",     color: "var(--hrv)",     d: 0 , tech: "HRV" },
+    { k: "rmssd",      label: "Energy Reserve",      unit: "ms",     color: "var(--hrv)",     d: 0 , tech: "RMSSD" },
     { k: "rsa_ms",     label: "Conscious Breathing", unit: "ms",     color: "var(--rsa)",     d: 0 , tech: "RSA" },
-    { k: "vti",        label: "Calm Power",          unit: "",       color: "var(--breathe)", d: 2 , tech: "VTI" },
+    { k: "vti",        label: "Calm Power",          unit: "",       color: "var(--breathe)", d: 2 , tech: "VTI · ln(RMSSD)" },
     { k: "coherence",  label: "Coherence",           unit: "",       color: "var(--coh)",     d: 2 , tech: "COH" },
     { k: "dc",         label: "Vagal Tone",          unit: "ms",     color: "var(--accent)",  d: 1 , tech: "DC" },
     { k: "dfa1",       label: "Harmony",             unit: "",       color: "var(--coh)",     d: 2 , tech: "DFA α1" },
     { k: "pip",        label: "Inner Noise",         unit: "%",      color: "var(--breathe)", d: 0 , tech: "PIP" },
     { k: "rcmse",      label: "Adaptive Capacity",   unit: "",       color: "var(--accent)",  d: 2 , tech: "RCMSE" },
-    { k: "sdnn",       label: "SDNN",                unit: "ms",     color: "var(--hrv)",     d: 0 , tech: "SDNN" },
+    { k: "sdnn",       label: "HRV Spread",                unit: "ms",     color: "var(--hrv)",     d: 0 , tech: "SDNN" },
     { k: "pnn50",      label: "pNN50",               unit: "%",      color: "var(--hrv)",     d: 1 , tech: "pNN50" },
     { k: "lf_hf",      label: "LF/HF",               unit: "",       color: "var(--warn)",    d: 2 , tech: "LF/HF" },
     { k: "cbi",        label: "CBI",                 unit: "",       color: "var(--rsa)",     d: 2 , tech: "CBI" },
@@ -557,6 +563,7 @@
       : `<div class="foot">${m.better_count} of ${m.present_count} ${d.bucket === "month" ? "months" : "days"} better than typical.</div>`;
     return `<div class="mini track" data-bars='${esc(JSON.stringify({
         bars: m.bars, reference: m.reference, color: sig.color, decimals: sig.d,
+        direction: m.direction, target: sig.k === 'dfa1' ? 1.0 : null,
         personal: m.reference_is_personal }))}'>
       <div class="cap">
         <span class="t">${esc(sig.label)}${sig.tech && sig.tech.toUpperCase() !== sig.label.toUpperCase()
@@ -591,10 +598,24 @@
       el += `<line class="ref" x1="${pad.l}" y1="${ry.toFixed(1)}" x2="${W - pad.r}" y2="${ry.toFixed(1)}"/>`;
       el += `<text class="tick ref-t" x="${W - pad.r}" y="${(ry - 3).toFixed(1)}" text-anchor="end">typical</text>`;
     }
+    // Best and worst bar of the period, scored the way the metric is read:
+    // for a lower-is-better metric the smallest value is the best day.
+    let bestI = -1, worstI = -1;
+    if (values.length > 1 && cfg.direction) {
+      const score = (v) => cfg.direction === "lower" ? -v
+                    : cfg.direction === "target" ? -Math.abs(v - (cfg.target ?? 1)) : v;
+      bars.forEach((b, i) => {
+        if (b.value == null) return;
+        if (bestI < 0 || score(b.value) > score(bars[bestI].value)) bestI = i;
+        if (worstI < 0 || score(b.value) < score(bars[worstI].value)) worstI = i;
+      });
+      if (bestI === worstI) worstI = -1;
+    }
     bars.forEach((b, i) => {
       if (b.value == null) return;
       const x = pad.l + i * bw, h = Math.max(1, ih - (y(b.value) - pad.t));
-      el += `<rect class="tbar" x="${(x + bw * 0.15).toFixed(1)}" y="${y(b.value).toFixed(1)}" width="${Math.max(1, bw * 0.7).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${cfg.color}"><title>${b.label}: ${Number(b.value).toFixed(cfg.decimals)}</title></rect>`;
+      const mark = i === bestI ? " best" : i === worstI ? " worst" : "";
+      el += `<rect class="tbar${mark}" x="${(x + bw * 0.15).toFixed(1)}" y="${y(b.value).toFixed(1)}" width="${Math.max(1, bw * 0.7).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${cfg.color}"><title>${b.label}: ${Number(b.value).toFixed(cfg.decimals)}${mark ? " — " + mark.trim() + " of period" : ""}</title></rect>`;
       // Value labels only when the bars are wide enough to carry them.
       if (bars.length <= 8) {
         el += `<text class="tick" x="${(x + bw / 2).toFixed(1)}" y="${(y(b.value) - 4).toFixed(1)}" text-anchor="middle">${Number(b.value).toFixed(cfg.decimals)}</text>`;
@@ -637,7 +658,7 @@
     { k: "rsa_ms",     label: "RSA",        unit: "ms",  color: "var(--rsa)",     d: 0 , tech: "RSA" },
     { k: "coherence",  label: "Coherence",  unit: "",    color: "var(--coh)",     d: 2 , tech: "COH" },
     { k: "breath_bpm", label: "Breath",     unit: "br/min", color: "var(--breathe)", d: 1 , tech: "BR" },
-    { k: "sdnn",       label: "SDNN",       unit: "ms",  color: "var(--hrv)",     d: 0 , tech: "SDNN" },
+    { k: "sdnn",       label: "HRV Spread",       unit: "ms",  color: "var(--hrv)",     d: 0 , tech: "SDNN" },
   ];
   async function openSession(id) {
     const d = await api(`sessions/${id}/samples`);
@@ -661,11 +682,11 @@
   // ── Activity detail ───────────────────────────────────────────────────
   // [label, activities-column suffix, decimals, higherIsBetter]
   const ACT_METRICS = [
-    ["Pulse", "hr", 0, false], ["Conscious Breathing", "rsa", 0, true],
-    ["RMSSD", "rmssd", 0, true], ["Energy Reserve", "sdnn", 0, true],
-    ["Calm Power", "vti", 2, true], ["Stress Balance", "stress", 0, false],
-    ["Adaptive Capacity", "rcmse", 2, true], ["Inner Noise", "pip", 0, false],
-    ["Vagal Tone", "dc", 1, true], ["Harmony", "dfa1", 2, true],
+    ["Pulse", "hr", 0, false, "HR"], ["Conscious Breathing", "rsa", 0, true, "RSA"],
+    ["Energy Reserve", "rmssd", 0, true, "RMSSD"], ["HRV Spread", "sdnn", 0, true, "SDNN"],
+    ["Calm Power", "vti", 2, true, "VTI"], ["Stress Balance", "stress", 0, false, "LF/HF"],
+    ["Adaptive Capacity", "rcmse", 2, true, "RCMSE"], ["Inner Noise", "pip", 0, false, "PIP"],
+    ["Vagal Tone", "dc", 1, true, "DC"], ["Harmony", "dfa1", 2, true, "DFA α1"],
   ];
   async function openActivity(id) {
     const a = await api(`activities/${id}`);
@@ -680,7 +701,7 @@
       ["Impact", a.impact_score == null ? "—" : a.impact_score + "%"],
     ].map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
     const head = "<tr><th>Metric</th><th>Before</th><th>During</th><th>After</th><th>Δ</th></tr>";
-    const body = ACT_METRICS.map(([label, key, dp, higherBetter]) => {
+    const body = ACT_METRICS.map(([label, key, dp, higherBetter, tech]) => {
       const b = a[`before_${key}`], dv = a[`during_${key}`], af = a[`after_${key}`];
       let delta = "<span class='muted'>—</span>";
       if (b != null && dv != null) {
@@ -691,8 +712,68 @@
       return `<tr><td>${label}</td><td>${c(b)}</td><td>${c(dv)}</td><td>${c(af)}</td><td>${delta}</td></tr>`;
     }).join("");
     $("#activity-metrics").innerHTML = head + body;
+    drawActivityCharts(a);
     wireCrumb();
     stamp();
+  }
+
+  // One card per metric: three bars — before, during, after — so the shape of
+  // the response is readable without parsing a row of numbers. The table below
+  // keeps the exact figures.
+  const ACT_COLOR = {
+    hr: "var(--warn)", rsa: "var(--rsa)", rmssd: "var(--hrv)", sdnn: "var(--hrv)",
+    vti: "var(--breathe)", stress: "var(--warn)", rcmse: "var(--accent)",
+    pip: "var(--breathe)", dc: "var(--accent)", dfa1: "var(--coh)",
+  };
+
+  function drawActivityCharts(a) {
+    const host = $("#activity-charts");
+    const cards = ACT_METRICS.map(([label, key, dp, higherBetter]) => {
+      const pts = [["Before", a[`before_${key}`]], ["During", a[`during_${key}`]], ["After", a[`after_${key}`]]];
+      if (pts.every(([, v]) => v == null)) return "";
+      const b = a[`before_${key}`], af = a[`after_${key}`];
+      let chip = "";
+      if (b != null && af != null) {
+        const d = af - b, better = higherBetter ? d > 0 : d < 0;
+        chip = `<div class="delta ${better ? "up" : "down"}">${d >= 0 ? "+" : "−"}${fmt(Math.abs(d), dp)} after vs before</div>`;
+      }
+      return `<div class="mini track act" data-act='${esc(JSON.stringify({ pts, dp, color: ACT_COLOR[key] || "var(--accent)", higherBetter }))}'>
+        <div class="cap"><span class="t">${esc(label)}</span>
+          <span class="v" style="color:${ACT_COLOR[key] || "var(--accent)"}">${af == null ? "—" : fmt(af, dp)}</span></div>
+        ${chip}<svg></svg></div>`;
+    }).join("");
+    host.innerHTML = cards || `<div class="empty">no before/during/after metrics recorded</div>`;
+    [...host.querySelectorAll(".mini.act")].forEach(box => {
+      const cfg = JSON.parse(box.dataset.act), svg = box.querySelector("svg");
+      const W = Math.max(160, Math.round(svg.clientWidth || 300)), H = 120;
+      const pad = { l: 6, r: 6, t: 18, b: 18 };
+      svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+      const vals = cfg.pts.map(([, v]) => v).filter(v => v != null);
+      const top = Math.max(...vals) * 1.15 || 1;
+      const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b, bw = iw / 3;
+      const y = (v) => pad.t + ih - (v / top) * ih;
+      // Best phase by the metric's own direction, so "best" is best-for-you.
+      let bestI = -1;
+      cfg.pts.forEach(([, v], i) => {
+        if (v == null) return;
+        if (bestI < 0) { bestI = i; return; }
+        const cur = cfg.pts[bestI][1];
+        if (cfg.higherBetter ? v > cur : v < cur) bestI = i;
+      });
+      let el = "";
+      cfg.pts.forEach(([name, v], i) => {
+        const x = pad.l + i * bw;
+        if (v == null) {
+          el += `<text class="tick" x="${(x + bw / 2).toFixed(1)}" y="${(pad.t + ih / 2).toFixed(1)}" text-anchor="middle">—</text>`;
+        } else {
+          const h = Math.max(1, ih - (y(v) - pad.t));
+          el += `<rect class="tbar${i === bestI ? " best" : ""}" x="${(x + bw * 0.2).toFixed(1)}" y="${y(v).toFixed(1)}" width="${(bw * 0.6).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${cfg.color}"><title>${name}: ${Number(v).toFixed(cfg.dp)}</title></rect>`;
+          el += `<text class="tick" x="${(x + bw / 2).toFixed(1)}" y="${(y(v) - 5).toFixed(1)}" text-anchor="middle">${Number(v).toFixed(cfg.dp)}</text>`;
+        }
+        el += `<text class="tick" x="${(x + bw / 2).toFixed(1)}" y="${H - 5}" text-anchor="middle">${name}</text>`;
+      });
+      svg.innerHTML = el;
+    });
   }
 
   // ── Charts ────────────────────────────────────────────────────────────

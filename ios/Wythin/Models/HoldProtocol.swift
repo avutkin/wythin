@@ -30,9 +30,11 @@ struct HoldProtocol: Equatable, Hashable {
     let holdSeconds:    Int
     let sets:           Int
 
-    /// Twenty seconds on empty, five times. Deliberately modest: this is the
-    /// number a first session should meet, not a target.
-    static let standard = HoldProtocol(breatheSeconds: 5, holdSeconds: 20, sets: 5)
+    /// Twenty seconds on empty, five times, with six-second breaths leading in.
+    /// Deliberately modest: this is the number a first session should meet, not
+    /// a target. Six rather than five because the breaths are the part you have
+    /// to follow, and five felt hurried against the hold that follows them.
+    static let standard = HoldProtocol(breatheSeconds: 6, holdSeconds: 20, sets: 5)
 
     func seconds(_ phase: HoldPhase) -> Int {
         switch phase {

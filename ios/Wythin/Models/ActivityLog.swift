@@ -390,6 +390,32 @@ final class ActivityLog {
     /// windows from the `HRVSample` records still in the store. Idempotent —
     /// entries with no samples in range simply stay nil, and re-running
     /// produces the same values for entries already filled.
+    /// How long after a session the after-window closes.
+    static let afterWindowSeconds: TimeInterval = 600
+
+    /// How long to keep retrying an after-window that never filled. Past this,
+    /// a still-empty window means the strap was off, and no amount of relaunching
+    /// will conjure samples that were never recorded.
+    static let afterWindowRetryCutoff: TimeInterval = 48 * 3600
+
+    /// Whether this entry's stored windows should be recomputed now.
+    ///
+    /// The after-window is ten minutes that begin when the session ends, so at
+    /// the moment `ActivityLogging.end` runs, none of it has happened yet and
+    /// every after field is necessarily nil. Something has to come back for it
+    /// later; this decides when. Waiting for the full ten minutes matters —
+    /// filling it early would store a partial window and, because the guard then
+    /// sees a non-nil value, never correct it.
+    func needsWindowRefresh(now: Date = .now) -> Bool {
+        guard let end = endedAt else { return false }        // still recording
+        if duringStress == nil { return true }               // never computed at all
+        guard afterStress == nil else { return false }       // already has one
+        guard now >= end.addingTimeInterval(ActivityLog.afterWindowSeconds) else {
+            return false                                     // the window is still filling
+        }
+        return now.timeIntervalSince(end) < ActivityLog.afterWindowRetryCutoff
+    }
+
     static func backfillMissingWindows(context: ModelContext) {
         // Bump when the stored metric set changes. v2 adds DC / DFA1 / RCMSE / PIP,
         // which the original nil-Stress guard never backfilled — so older entries
@@ -422,7 +448,7 @@ final class ActivityLog {
         let needsFill = all.filter { entry in
             guard entry.endedAt != nil else { return false }
             if migrating { return true }
-            return entry.duringStress == nil
+            return entry.needsWindowRefresh()
         }
         if !needsFill.isEmpty {
             for entry in needsFill {
@@ -436,12 +462,18 @@ final class ActivityLog {
 
     // MARK: HRV window computation
 
+    /// Fastest cadence the tick loop ever records at (foreground). Background
+    /// runs at 30 s, so this is the worst case for sample count.
+    static let minTickIntervalSec: Double = 2
+    /// Hard ceiling so a corrupt end date cannot ask the store for everything.
+    static let windowFetchCeiling: Int = 200_000
+
     /// Queries HRVSample records for the three windows around this activity
     /// and stores per-metric averages. Call after setting `endedAt`.
     func computeHRVWindows(context: ModelContext) {
         guard let end = endedAt else { return }
         let beforeStart = startedAt.addingTimeInterval(-300)   // 5 min before
-        let afterEnd    = end.addingTimeInterval(600)           // 10 min after
+        let afterEnd    = end.addingTimeInterval(ActivityLog.afterWindowSeconds)
 
         let allPredicate = #Predicate<HRVSample> {
             $0.timestamp >= beforeStart && $0.timestamp <= afterEnd
@@ -450,7 +482,15 @@ final class ActivityLog {
             predicate: allPredicate,
             sortBy: [SortDescriptor(\.timestamp)]
         )
-        desc.fetchLimit = 10_000   // match the detail chart's fetch so long sessions aren't truncated
+        // Sized from the window itself, not a constant. The fetch sorts
+        // ascending, so a limit smaller than the window drops its TAIL — the
+        // end of the session — and every average below is then computed over a
+        // prefix while looking exactly like a whole-session number. A fixed
+        // 10,000 covered any workout but silently truncated an 8-hour night to
+        // its first 5.5 hours at the 2 s foreground cadence.
+        let spanSec = afterEnd.timeIntervalSince(beforeStart)
+        let maxTicks = Int(spanSec / ActivityLog.minTickIntervalSec) + 1_000
+        desc.fetchLimit = min(maxTicks, ActivityLog.windowFetchCeiling)
         guard let rawSamples = try? context.fetch(desc) else { return }
         // Gate samples through the same wear/artifact quality filter the Live
         // view and the activity detail charts use, so these stored window

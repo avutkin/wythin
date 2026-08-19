@@ -253,6 +253,15 @@
 		F7233A74A7B0B97C62834AF5 /* PracticeImpactGauge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5157D6102C251A37AF413C96 /* PracticeImpactGauge.swift */; };
 		A6E1AF270813ABED5CDABAE7 /* ExerciseScoreGauge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C21C1F6442376CD6F03ABFA9 /* ExerciseScoreGauge.swift */; };
 		AT38 /* UsageUploaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT38 /* UsageUploaderTests.swift */; };
+		A700 /* SleepDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F700 /* SleepDetectorTests.swift */; };
+		A701 /* SleepDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F701 /* SleepDetector.swift */; };
+		A702 /* SleepStagesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F702 /* SleepStagesTests.swift */; };
+		A703 /* SleepStages.swift in Sources */ = {isa = PBXBuildFile; fileRef = F703 /* SleepStages.swift */; };
+		A704 /* SleepRegularityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F704 /* SleepRegularityTests.swift */; };
+		A705 /* SleepRegularity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F705 /* SleepRegularity.swift */; };
+		A706 /* SleepScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F706 /* SleepScoreTests.swift */; };
+		A707 /* SleepScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F707 /* SleepScore.swift */; };
+		A708 /* SleepWindowTruncationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F708 /* SleepWindowTruncationTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -515,6 +524,15 @@
 		FT58 /* LiveStateCopyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateCopyTests.swift; sourceTree = "<group>"; };
 		FT59 /* LiveStateStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateStoreTests.swift; sourceTree = "<group>"; };
 		FT60 /* MacroReadLineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacroReadLineTests.swift; sourceTree = "<group>"; };
+		F700 /* SleepDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepDetectorTests.swift; sourceTree = "<group>"; };
+		F701 /* SleepDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepDetector.swift; sourceTree = "<group>"; };
+		F702 /* SleepStagesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepStagesTests.swift; sourceTree = "<group>"; };
+		F703 /* SleepStages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepStages.swift; sourceTree = "<group>"; };
+		F704 /* SleepRegularityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepRegularityTests.swift; sourceTree = "<group>"; };
+		F705 /* SleepRegularity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepRegularity.swift; sourceTree = "<group>"; };
+		F706 /* SleepScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepScoreTests.swift; sourceTree = "<group>"; };
+		F707 /* SleepScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepScore.swift; sourceTree = "<group>"; };
+		F708 /* SleepWindowTruncationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepWindowTruncationTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -657,6 +675,10 @@
 		GAPP_MET /* Metrics */ = {
 			isa = PBXGroup;
 			children = (
+				F707 /* SleepScore.swift */,
+				F705 /* SleepRegularity.swift */,
+				F703 /* SleepStages.swift */,
+				F701 /* SleepDetector.swift */,
 				F500 /* DayPotentialProgress.swift */,
 				F218 /* DayLoadSummary.swift */,
 				F217 /* DayPotentialInsight.swift */,
@@ -846,6 +868,11 @@
 		GTESTS /* WythinTests */ = {
 			isa = PBXGroup;
 			children = (
+				F708 /* SleepWindowTruncationTests.swift */,
+				F706 /* SleepScoreTests.swift */,
+				F704 /* SleepRegularityTests.swift */,
+				F702 /* SleepStagesTests.swift */,
+				F700 /* SleepDetectorTests.swift */,
 				FT500 /* DayPotentialProgressTests.swift */,
 				FT19 /* DayLoadSummaryTests.swift */,
 				FT20 /* DayPotentialStateTests.swift */,
@@ -1026,6 +1053,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A707 /* SleepScore.swift in Sources */,
+				A705 /* SleepRegularity.swift in Sources */,
+				A703 /* SleepStages.swift in Sources */,
+				A701 /* SleepDetector.swift in Sources */,
 				A220 /* DayPotentialStrip.swift in Sources */,
 				A219 /* DayPotentialStore.swift in Sources */,
 				A500 /* DayPotentialProgress.swift in Sources */,
@@ -1193,6 +1224,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A708 /* SleepWindowTruncationTests.swift in Sources */,
+				A706 /* SleepScoreTests.swift in Sources */,
+				A704 /* SleepRegularityTests.swift in Sources */,
+				A702 /* SleepStagesTests.swift in Sources */,
+				A700 /* SleepDetectorTests.swift in Sources */,
 				AT500 /* DayPotentialProgressTests.swift in Sources */,
 				AT19 /* DayLoadSummaryTests.swift in Sources */,
 				AT20 /* DayPotentialStateTests.swift in Sources */,

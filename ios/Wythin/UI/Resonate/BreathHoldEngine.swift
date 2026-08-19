@@ -26,6 +26,30 @@ struct HoldState: Equatable {
     }
 }
 
+/// What the ear should hear on a given second.
+///
+/// A pure function of the state so the sound design can be asserted without
+/// playing anything — the pattern is easy to get subtly wrong, and wrong here
+/// means someone breathing to the wrong cue with their eyes shut.
+enum HoldCueEvent: Equatable {
+    case count    // one second of a breath, ticking it off
+    case turn     // the double that marks inhale handing over to exhale
+    case boundary // the long tone opening or closing a hold
+    case silent   // inside the hold, where nothing should interrupt
+
+    static func at(_ state: HoldState) -> HoldCueEvent {
+        guard state.secondsIntoPhase == 0 else {
+            // Mid-phase: count the breaths, leave the hold alone.
+            return state.phase == .hold ? .silent : .count
+        }
+        switch state.phase {
+        case .inhale: return .boundary   // also closes the hold that preceded it
+        case .exhale: return .turn
+        case .hold:   return .boundary
+        }
+    }
+}
+
 @Observable
 final class BreathHoldEngine {
 
@@ -34,10 +58,11 @@ final class BreathHoldEngine {
     private(set) var elapsed: Int = 0
     private(set) var isRunning = false
 
-    /// Fires once whenever the phase or the set changes, and once at the start.
-    /// The session view hangs the audio cues off this — a rising tone into the
-    /// inhale, a falling one into the exhale, a beep either side of the hold.
-    var onPhaseChange: ((HoldState) -> Void)?
+    /// Fires every second, including the first. The session view hangs the audio
+    /// off this: the cue for a second is a pure function of the state, so one
+    /// callback covers both the per-second counting and the boundary tones —
+    /// and there is no second callback to fire twice on a phase change.
+    var onTick: ((HoldState) -> Void)?
     /// Fires once when the last set's hold ends.
     var onFinish: (() -> Void)?
 
@@ -105,7 +130,7 @@ final class BreathHoldEngine {
         isRunning = true
         elapsed   = 0
         state     = BreathHoldEngine.state(at: 0, plan: plan)
-        onPhaseChange?(state)
+        onTick?(state)
 
         let began = DispatchTime.now()
         let timer = DispatchSource.makeTimerSource(queue: .main)
@@ -133,16 +158,15 @@ final class BreathHoldEngine {
     private func advance() {
         elapsed += 1
         let next = BreathHoldEngine.state(at: elapsed, plan: plan)
-        let changed = next.phase != state.phase || next.set != state.set
         let justFinished = next.isFinished && !state.isFinished
         state = next
 
         if justFinished {
             stop()
-            onPhaseChange?(next)     // the beep that ends the final hold
+            onTick?(next)            // the long tone closing the final hold
             onFinish?()
             return
         }
-        if changed { onPhaseChange?(next) }
+        onTick?(next)
     }
 }

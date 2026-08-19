@@ -21,8 +21,10 @@ struct BoxBreathingSessionView: View {
 
     // Keyed per practice, so the box and the ring keep their own settings.
     @AppStorage private var minutes: Int
-    @AppStorage private var beats:   Int
-    @AppStorage private var bpm:     Int
+    @AppStorage private var beats:   Int      // box only: beats per phase
+    @AppStorage private var bpm:     Int      // box only: metronome tempo
+    /// Hold-free breaths are set in seconds instead, in halves — see EvenCadence.
+    @AppStorage private var halfSeconds: Int
 
     @State private var engine:   BoxBreathEngine
     @State private var cue     = MetronomeCue()
@@ -44,17 +46,29 @@ struct BoxBreathingSessionView: View {
         self.practice = practice
         let base    = practice.breathPattern ?? .box
         let defaults = practice.id
-        _minutes = AppStorage(wrappedValue: practice.defaultDurationMins, "pacer.\(defaults).minutes")
-        _beats   = AppStorage(wrappedValue: base.inhale,                  "pacer.\(defaults).beats")
-        _bpm     = AppStorage(wrappedValue: practice.defaultBPM,          "pacer.\(defaults).bpm")
+        let cadence = EvenCadence(beats: base.inhale, bpm: practice.defaultBPM)
+        _minutes     = AppStorage(wrappedValue: practice.defaultDurationMins, "pacer.\(defaults).minutes")
+        _beats       = AppStorage(wrappedValue: base.inhale,                  "pacer.\(defaults).beats")
+        _bpm         = AppStorage(wrappedValue: practice.defaultBPM,          "pacer.\(defaults).bpm")
+        _halfSeconds = AppStorage(wrappedValue: cadence.halfSeconds,          "pacer.\(defaults).halfSeconds")
         _engine  = State(initialValue: BoxBreathEngine(pattern: base, bpm: practice.defaultBPM))
     }
+
+    /// True for a breath with holds, which is set in beats against a tempo;
+    /// a hold-free breath is set in seconds and derives its own tempo.
+    private var isBox: Bool { practice.breathPattern?.hasHolds ?? true }
+
+    private var cadence: EvenCadence { EvenCadence(halfSeconds: halfSeconds) }
 
     /// The pattern the controls describe — the practice's own shape, resized to
     /// the chosen pace. A box stays a box; a hold-free breath stays hold-free.
     private var pattern: BreathPattern {
-        (practice.breathPattern?.hasHolds ?? true) ? .box(beats: beats) : .even(beats: beats)
+        isBox ? .box(beats: beats) : cadence.pattern
     }
+
+    /// The tempo that pattern runs at. For a hold-free breath this is derived,
+    /// never chosen: the pace in seconds is the only thing the user sets.
+    private var tempo: Int { isBox ? bpm : cadence.bpm }
 
     private var target:    TimeInterval { TimeInterval(minutes) * 60 }
     private var remaining: TimeInterval { max(0, target - sessionElapsed) }
@@ -107,8 +121,9 @@ struct BoxBreathingSessionView: View {
             sessionElapsed = Date.now.timeIntervalSince(startedAt)
             if sessionElapsed >= target { didComplete = true; stop() }
         }
-        .onChange(of: beats) { engine.reconfigure(pattern: pattern, bpm: bpm) }
-        .onChange(of: bpm)   { engine.reconfigure(pattern: pattern, bpm: bpm) }
+        .onChange(of: beats)       { engine.reconfigure(pattern: pattern, bpm: tempo) }
+        .onChange(of: bpm)         { engine.reconfigure(pattern: pattern, bpm: tempo) }
+        .onChange(of: halfSeconds) { engine.reconfigure(pattern: pattern, bpm: tempo) }
     }
 
     // MARK: Pacer
@@ -147,7 +162,7 @@ struct BoxBreathingSessionView: View {
             divider
             readout("LEFT",    mmss(remaining))
             divider
-            readout("RATE",    String(format: "%.1f", pattern.breathsPerMinute(bpm: bpm)),
+            readout("RATE",    String(format: "%.1f", pattern.breathsPerMinute(bpm: tempo)),
                     unit: "br/min")
         }
     }
@@ -179,6 +194,12 @@ struct BoxBreathingSessionView: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// The one line you can read without opening the panel.
+    private var summary: String {
+        isBox ? "\(minutes) MIN · \(pattern.label) · \(bpm) BPM"
+              : "\(minutes) MIN · \(cadence.label) EACH WAY"
+    }
+
     private func mmss(_ seconds: TimeInterval) -> String {
         let total = Int(max(0, seconds))
         return String(format: "%d:%02d", total / 60, total % 60)
@@ -197,7 +218,7 @@ struct BoxBreathingSessionView: View {
                     Image(systemName: "slider.horizontal.3")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.accent)
-                    Text("\(minutes) MIN · \(pattern.label) · \(bpm) BPM")
+                    Text(summary)
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                     Spacer()
@@ -218,16 +239,26 @@ struct BoxBreathingSessionView: View {
                            canRaise: minutes < minuteRange.upperBound,
                            lower: { minutes -= 1 }, raise: { minutes += 1 })
                 Divider().background(Theme.border)
-                stepperRow(label: "PACE", value: pattern.label,
-                           canLower: beats > beatRange.lowerBound,
-                           canRaise: beats < beatRange.upperBound,
-                           lower: { beats -= 1 }, raise: { beats += 1 })
-                Divider().background(Theme.border)
-                stepperRow(label: "TEMPO", value: "\(bpm) BPM",
-                           canLower: bpm > bpmRange.lowerBound,
-                           canRaise: bpm < bpmRange.upperBound,
-                           lower: { bpm = max(bpmRange.lowerBound, bpm - bpmStep) },
-                           raise: { bpm = min(bpmRange.upperBound, bpm + bpmStep) })
+                if isBox {
+                    stepperRow(label: "PACE", value: pattern.label,
+                               canLower: beats > beatRange.lowerBound,
+                               canRaise: beats < beatRange.upperBound,
+                               lower: { beats -= 1 }, raise: { beats += 1 })
+                    Divider().background(Theme.border)
+                    stepperRow(label: "TEMPO", value: "\(bpm) BPM",
+                               canLower: bpm > bpmRange.lowerBound,
+                               canRaise: bpm < bpmRange.upperBound,
+                               lower: { bpm = max(bpmRange.lowerBound, bpm - bpmStep) },
+                               raise: { bpm = min(bpmRange.upperBound, bpm + bpmStep) })
+                } else {
+                    // Seconds a side, in halves. No tempo control: it is derived
+                    // from the pace, because the tempo is an implementation
+                    // detail of keeping the accent on the phase change.
+                    stepperRow(label: "PACE", value: "\(cadence.label) each way",
+                               canLower: halfSeconds > EvenCadence.range.lowerBound,
+                               canRaise: halfSeconds < EvenCadence.range.upperBound,
+                               lower: { halfSeconds -= 1 }, raise: { halfSeconds += 1 })
+                }
             }
         }
         .padding(.horizontal, 14)
@@ -283,7 +314,7 @@ struct BoxBreathingSessionView: View {
         engine.onBeat = { state in
             cue.play(state.isAccent ? .accent : .plain)
         }
-        engine.reconfigure(pattern: pattern, bpm: bpm)
+        engine.reconfigure(pattern: pattern, bpm: tempo)
         engine.start()
     }
 

@@ -135,6 +135,58 @@ final class ActiveActivityTests: XCTestCase {
                                endedAt: now, isManual: true)
         XCTAssertTrue(ActivityLogging.activeEntries(in: [done]).isEmpty)
     }
+
+    // MARK: The after-window
+    //
+    // The after-window is ten minutes that begin when a session ends, so at the
+    // moment the session is stored none of it has happened. Every after field is
+    // necessarily nil at that point, and something has to come back for it. The
+    // old guard only ever re-ran an entry whose *during* window was missing, so
+    // a session with a good during and an empty after was never revisited — the
+    // AFT column read "—" for the life of the entry.
+
+    private func finished(_ ago: TimeInterval, during: Float?, after: Float?) -> ActivityLog {
+        let e = ActivityLog(activityType: ActivityType.breathwork.rawValue,
+                            startedAt: Date().addingTimeInterval(-ago - 600),
+                            endedAt: Date().addingTimeInterval(-ago),
+                            isManual: false)
+        e.duringStress = during
+        e.afterStress  = after
+        return e
+    }
+
+    func testAnEntryWithNoAfterWindowIsRefreshedOnceTheWindowHasClosed() {
+        let e = finished(20 * 60, during: 44, after: nil)
+        XCTAssertTrue(e.needsWindowRefresh(), "twenty minutes on, the after-window exists to be read")
+    }
+
+    /// Filling it early would store a partial window — and because the guard
+    /// then sees a value, it would never be corrected.
+    func testAnEntryIsNotRefreshedWhileItsAfterWindowIsStillFilling() {
+        XCTAssertFalse(finished(3 * 60, during: 44, after: nil).needsWindowRefresh(),
+                       "only three minutes of a ten-minute window have happened")
+    }
+
+    func testAnEntryThatAlreadyHasAnAfterWindowIsLeftAlone() {
+        XCTAssertFalse(finished(60 * 60, during: 44, after: 41).needsWindowRefresh())
+    }
+
+    func testAnEntryMissingItsDuringWindowIsAlwaysRefreshed() {
+        XCTAssertTrue(finished(30, during: nil, after: nil).needsWindowRefresh(),
+                      "a missing during window is worth recomputing whenever we notice")
+    }
+
+    /// Past the cutoff an empty after-window means the strap was off, and
+    /// relaunching will not conjure samples that were never recorded.
+    func testAStaleEmptyAfterWindowStopsBeingRetried() {
+        XCTAssertFalse(finished(5 * 24 * 3600, during: 44, after: nil).needsWindowRefresh())
+    }
+
+    func testAnActivityStillRecordingIsNeverRefreshed() {
+        let live = ActivityLog(activityType: ActivityType.breathwork.rawValue, isManual: false)
+        XCTAssertNil(live.endedAt)
+        XCTAssertFalse(live.needsWindowRefresh())
+    }
 }
 
 private struct NoopClient: InsightAPIClient {

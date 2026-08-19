@@ -93,39 +93,24 @@ enum PracticeCatalog {
             kind: .pacer(.box)),
 
         Practice(
-            id: "resonance-breathing", title: "Resonance Breathing", subtitle: "Six breaths a minute, no holds",
+            id: "resonance-breathing", title: "Resonance Breathing", subtitle: "Even in, even out, nothing held",
             category: .breathwork, states: [.stress, .focus],
             activityType: .breathwork, subtype: "Resonance",
-            defaultDurationMins: 10, defaultBPM: 60,
-            description: "An even breath in and out with nothing held at either end. At the default pace it lands near six breaths a minute — the rate around which heart-rate variability peaks and heart and breath fall into step. The ring shows the whole cycle; the beat keeps you on it.",
+            defaultDurationMins: 10, defaultBPM: EvenCadence.resonance.bpm,
+            description: "An even breath in and out with nothing held at either end, at the classic five-and-a-half-second cadence — about five and a half breaths a minute. Set the pace in the session; anywhere between three and eight seconds a side, in half seconds. The ring shows the whole cycle and the beat keeps you on it.",
             howItWorks: [
-                "Around six breaths a minute the breath falls into step with the baroreflex — the loop that corrects blood pressure beat to beat — and heart rate swings furthest with each breath.",
-                "That is the point of the pace rather than a side effect: the same rate that maximises the swing is the one that raises vagally-mediated heart rate variability.",
-                "Nothing is held at either end, so the breath stays even and unforced, which is what makes ten or twenty minutes of it sustainable.",
+                "Between about five and six seconds each way, the breath falls into step with the baroreflex — the loop that corrects blood pressure beat to beat — and heart rate swings furthest with each breath.",
+                "That is the point of the pace rather than a side effect: the rate that maximises the swing is the same one that raises vagally-mediated heart rate variability. It is why this band has a name at all.",
+                "Nothing is held at either end, so the breath stays even and unforced, which is what makes ten or twenty minutes of it sustainable — and what makes it usable as background to thinking rather than a thing you have to attend to.",
+                "Honest limits: the autonomic effect is well evidenced, and better decisions after slow breathing have been measured directly. Sharper creative output has not — that link rests on correlations between heart rate variability and divergent thinking, not on trials.",
             ],
-            evidence: [you2021, laborde2022, zaccaro2018],
+            evidence: [you2021, laborde2022, decouck2019, zaccaro2018],
             tags: ["Coherence", "Vagal Tone", "Calm"],
             art: practiceArt,
-            kind: .pacer(.resonance)),
-
-        Practice(
-            id: "coherent-breathing", title: "Coherent Breathing", subtitle: "Five and a half seconds each way",
-            category: .breathwork, states: [.focus, .stress],
-            activityType: .breathwork, subtype: "Coherent Breathing",
-            defaultDurationMins: 12, defaultBPM: 120,
-            description: "The classic 5.5-second cadence: five and a half seconds in, five and a half out, nothing held. That works out at about five and a half breaths a minute — slow enough to settle you, even enough that you stop having to think about it. Good for the loose, unhurried attention that ideas tend to arrive in.",
-            howItWorks: [
-                "At five and a half seconds each way the breath sits in the band where heart and blood-pressure control lock together, and heart rate variability reaches its widest swing.",
-                "The state that produces is calm but awake — the body settling without the mind going dull, which is the condition most people describe thinking loosely in.",
-                "On the honest side of the ledger: the physiological effect is well evidenced, and better decisions after slow breathing have been measured directly. Creative output specifically has not — the link there rests on correlations between heart rate variability and divergent thinking, not on trials. Treat the creative framing as the reason to try it, not as a finding.",
-            ],
-            evidence: [decouck2019, laborde2022, zaccaro2018],
-            tags: ["Coherence", "Loose Attention", "Ideas"],
-            art: practiceArt,
-            // 11 beats at 120 BPM is exactly 5.5 s a phase. Pace is counted in
-            // whole beats so the accent can never drift off the phase change,
-            // and 5.5 s is only reachable on a half-second beat.
-            kind: .pacer(.even(beats: 11))),
+            // Declared as the cadence expresses it: 11 beats at 120 BPM is
+            // exactly 5.5 s a phase, and whole beats are what keep the accent on
+            // the phase change.
+            kind: .pacer(EvenCadence.resonance.pattern)),
 
         Practice(
             id: "hold-breath", title: "Hold Breath", subtitle: "Holds on empty, in sets",

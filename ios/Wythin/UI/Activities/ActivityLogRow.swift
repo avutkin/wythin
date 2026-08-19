@@ -41,8 +41,10 @@ struct ActivityLogRow: View {
         let label: String
         let durPct: Double?
         let durValue: String
+        let durClamped: Bool
         let aftPct: Double?
         let aftValue: String
+        let aftClamped: Bool
     }
 
     private var readings: [Reading] {
@@ -53,8 +55,10 @@ struct ActivityLogRow: View {
             return Reading(label: def.label,
                            durPct: def.benefitDelta(current: during, base: before),
                            durValue: def.format(during),
+                           durClamped: def.isClamped(current: during, base: before),
                            aftPct: def.benefitDelta(current: after, base: before),
-                           aftValue: def.format(after))
+                           aftValue: def.format(after),
+                           aftClamped: def.isClamped(current: after, base: before))
         }
     }
 
@@ -257,8 +261,10 @@ private struct MetricCell: View {
                 .frame(minHeight: 20)
 
             HStack(spacing: 5) {
-                phase(pct: reading.durPct, value: reading.durValue, tag: "DUR")
-                phase(pct: reading.aftPct, value: reading.aftValue, tag: "AFT")
+                phase(pct: reading.durPct, value: reading.durValue,
+                      clamped: reading.durClamped, tag: "DUR")
+                phase(pct: reading.aftPct, value: reading.aftValue,
+                      clamped: reading.aftClamped, tag: "AFT")
             }
         }
         .frame(maxWidth: .infinity)
@@ -267,9 +273,9 @@ private struct MetricCell: View {
         .background(Theme.surface.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
     }
 
-    private func phase(pct: Double?, value: String, tag: String) -> some View {
+    private func phase(pct: Double?, value: String, clamped: Bool, tag: String) -> some View {
         VStack(spacing: 1) {
-            Text(pctString(pct))
+            Text(pctString(pct, clamped: clamped))
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundStyle(color(pct))
                 .monospacedDigit()
@@ -288,10 +294,15 @@ private struct MetricCell: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func pctString(_ pct: Double?) -> String {
+    /// A clamped change is marked, not printed as if it were measured. Without
+    /// this, a metric that doubled and one that went up eightfold both read
+    /// "+100%" while their absolute values plainly disagreed.
+    private func pctString(_ pct: Double?, clamped: Bool) -> String {
         guard let pct else { return "—" }
         let rounded = Int(pct.rounded())
-        return rounded > 0 ? "+\(rounded)%" : "\(rounded)%"
+        let body = rounded > 0 ? "+\(rounded)%" : "\(rounded)%"
+        guard clamped else { return body }
+        return (rounded > 0 ? ">" : "<") + body
     }
 
     private func color(_ pct: Double?) -> Color {

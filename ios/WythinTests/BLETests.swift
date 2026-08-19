@@ -304,8 +304,25 @@ final class BLETests: XCTestCase {
         XCTAssertEqual(StandbyPolicy.offBodyScore(
             contact: nil, ecgPoor: true, rrBad: true, still: true), 3)
         XCTAssertEqual(StandbyPolicy.offBodyScore(
-            contact: nil, ecgPoor: false, rrBad: false, still: true), 1,
-            "stillness alone must never trip standby")
+            contact: nil, ecgPoor: false, rrBad: false, still: true), 0,
+            "stillness with a live heartbeat is sleep, and carries no off-body weight at all")
+    }
+
+    func testStillSleeperWithLiveHeartbeatIsNotOffBody() {
+        // The overnight case. A sleeper is motionless for hours, and electrode
+        // contact degrades across a night (dry textile electrodes: ~45% of an
+        // overnight recording is class 1–2). ECG quality dips while RR stays
+        // good — a live heartbeat. A strap on a bedside table has no heartbeat
+        // at all, so stillness here means asleep, not doffed.
+        XCTAssertLessThan(StandbyPolicy.offBodyScore(
+            contact: nil, ecgPoor: true, rrBad: false, still: true), 2,
+            "a motionless sleeper with good RR must not be dropped into standby")
+    }
+
+    func testStillnessStillCountsWhenTheHeartbeatIsGone() {
+        // Doffed and set down: no RR, no ECG, dead still. Unchanged.
+        XCTAssertGreaterThanOrEqual(StandbyPolicy.offBodyScore(
+            contact: nil, ecgPoor: true, rrBad: true, still: true), 3)
     }
 
     func testResumeGateContactFastPath() {

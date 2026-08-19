@@ -42,11 +42,30 @@ extension ActivityMetricDef {
     /// feeds (impactDeltaPct), which is why it's clamped here rather than at
     /// each call site: every consumer of benefitDelta gets the same bound.
     func benefitDelta(current: Double?, base: Double?) -> Double? {
+        rawBenefitDelta(current: current, base: base)
+            .map { min(max($0, -Self.deltaBound), Self.deltaBound) }
+    }
+
+    /// The bound `benefitDelta` clamps to. Exposed so a display can tell a real
+    /// doubling from a value that ran off the end of the scale — printing a
+    /// clamped number as though it were measured is how two very different
+    /// changes end up reading as the same "+100%".
+    static let deltaBound: Double = 100
+
+    /// The same change, unclamped. Only for deciding whether a value was
+    /// clamped: near a `.target` metric's target this is ill-conditioned and can
+    /// be enormous, which is exactly why the clamped form is what gets averaged.
+    func rawBenefitDelta(current: Double?, base: Double?) -> Double? {
         guard let c = current, let b = base else { return nil }
         let bb = direction.benefit(b)
         guard bb != 0 else { return nil }
-        let pct = (direction.benefit(c) - bb) / abs(bb) * 100
-        return min(max(pct, -100), 100)
+        return (direction.benefit(c) - bb) / abs(bb) * 100
+    }
+
+    /// Whether this change is off the end of the scale rather than on it.
+    func isClamped(current: Double?, base: Double?) -> Bool {
+        guard let raw = rawBenefitDelta(current: current, base: base) else { return false }
+        return abs(raw) > Self.deltaBound
     }
 
     /// Position of `value` on a 0…1 benefit axis spanning `others` (higher =

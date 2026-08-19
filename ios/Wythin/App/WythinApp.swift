@@ -64,6 +64,12 @@ struct WythinApp: App {
         }
         .onChange(of: scenePhase) { _, newPhase in
             env.isInForeground = (newPhase == .active)
+            // An after-window closes ten minutes after its session, long after
+            // the code that stored the session has finished. Coming back to the
+            // app is when we can finally fill it in.
+            if newPhase == .active {
+                ActivityLog.backfillMissingWindows(context: container.mainContext)
+            }
         }
     }
 }
