@@ -266,6 +266,7 @@
 		A761 /* SleepSessionizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F761 /* SleepSessionizer.swift */; };
 		A770 /* SleepRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F770 /* SleepRecorderTests.swift */; };
 		A771 /* SleepRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F771 /* SleepRecorder.swift */; };
+		A772 /* SleepLogRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F772 /* SleepLogRow.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -541,6 +542,7 @@
 		F761 /* SleepSessionizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepSessionizer.swift; sourceTree = "<group>"; };
 		F770 /* SleepRecorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepRecorderTests.swift; sourceTree = "<group>"; };
 		F771 /* SleepRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepRecorder.swift; sourceTree = "<group>"; };
+		F772 /* SleepLogRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepLogRow.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -580,6 +582,7 @@
 		GAPP_ACT /* Activities */ = {
 			isa = PBXGroup;
 			children = (
+				F772 /* SleepLogRow.swift */,
 				F137 /* ActivitiesView.swift */,
 				2C610ECB383624DF3DB2E902 /* ExerciseLogRow.swift */,
 				D15C26A1221A7A4516DABAB9 /* SessionIndexGrid.swift */,
@@ -1065,6 +1068,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A772 /* SleepLogRow.swift in Sources */,
 				A771 /* SleepRecorder.swift in Sources */,
 				A761 /* SleepSessionizer.swift in Sources */,
 				A707 /* SleepScore.swift in Sources */,

@@ -55,12 +55,20 @@ enum SleepRecorder {
         log.isManual = false
 
         apply(stages: SleepStages.classify(nightPoints), to: log, tickSec: tickSeconds(nightPoints))
-        apply(score: score(night: night, points: nightPoints, existing: existing), to: log)
+        let scored = score(night: night, points: nightPoints, existing: existing)
+        apply(score: scored, to: log)
+        log.sleepRegularity = SleepRegularity.index(of: priorWindows(existing) + [night])
 
         context.insert(log)
         // Window averages last: it queries the store, so the log must be in it.
         log.computeHRVWindows(context: context)
         try? context.save()
+    }
+
+    private static func priorWindows(_ existing: [ActivityLog]) -> [SleepWindow] {
+        existing
+            .filter { $0.activityType == ActivityType.sleep.rawValue }
+            .compactMap { log in log.endedAt.map { SleepWindow(startedAt: log.startedAt, endedAt: $0) } }
     }
 
     // MARK: - Pieces
@@ -140,5 +148,11 @@ enum SleepRecorder {
     private static func apply(score: SleepScore, to log: ActivityLog) {
         log.sleepScore = score.overall
         log.sleepScoreArithmetic = score.arithmetic
+        // Absent stays absent — never coerced to zero on the way to disk.
+        log.sleepTiming = score.sections[.timing]
+        log.sleepDuration = score.sections[.duration]
+        log.sleepContinuity = score.sections[.continuity]
+        log.sleepAutonomic = score.sections[.autonomic]
+        log.sleepBreathing = score.sections[.breathing]
     }
 }

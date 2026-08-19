@@ -197,6 +197,16 @@ final class ActivityLog {
     /// time. Nil until there are at least two nights to compare.
     var sleepRegularity: Float?
 
+    /// The five sections, stored individually so the row can render them
+    /// without recomputing, and so an ABSENT section stays absent. A section
+    /// with no input must never be persisted as 0 — "we did not measure your
+    /// breathing" and "your breathing was terrible" are different sentences.
+    var sleepTiming: Int?
+    var sleepDuration: Int?
+    var sleepContinuity: Int?
+    var sleepAutonomic: Int?
+    var sleepBreathing: Int?
+
     // MARK: Exercise response
     //
     // Written by `computeExerciseResponse` for activating entries only, and
