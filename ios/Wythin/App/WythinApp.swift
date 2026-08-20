@@ -69,6 +69,9 @@ struct WythinApp: App {
             // app is when we can finally fill it in.
             if newPhase == .active {
                 ActivityLog.backfillMissingWindows(context: container.mainContext)
+                // The version re-derive, if one is owed. Detached and chunked;
+                // never on the main context — that is what killed build 98.
+                ActivityLog.migrateInBackground(container: container)
                 // Last night, if it has not been written down yet. Deliberately
                 // here and not only in the tick loop: that loop runs on arriving
                 // metric ticks, so it needs the strap connected. Opening the app
@@ -138,6 +141,7 @@ struct ContentView: View {
                                                      userID: env.userID)
             }
             ActivityLog.backfillMissingWindows(context: modelContext)
+            ActivityLog.migrateInBackground(container: modelContext.container)
             didRunActivityBackfill = true
         }
     }

@@ -281,12 +281,60 @@ final class ExerciseResponsePersistenceTests: XCTestCase {
         try? ctx.save()
 
         UserDefaults.standard.set(0, forKey: "activityBackfillVersion")
-        ActivityLog.backfillMissingWindows(context: ctx)
+        UserDefaults.standard.removeObject(forKey: "activityBackfillCursor")
+        // The re-derive moved off the main context after build 98 shipped it
+        // there and never drew a frame. `backfillMissingWindows` is the cheap
+        // ongoing guard now and deliberately refuses migrations; `migrate` owns
+        // them. The guarantee under test is unchanged — a bump rebuilds every
+        // stored field — only its owner is.
+        ActivityLog.migrate(context: ctx)
 
         XCTAssertNotNil(entry.exerciseLoad, "Load must be rebuilt by the backfill")
         XCTAssertNotNil(entry.afterTailDC, "the recovery tail must be rebuilt")
         XCTAssertNotNil(entry.recoveryObservedMinutes,
                         "recovery timing must be rebuilt, not left to a future session")
+    }
+
+    func testAnInterruptedMigrationBanksItsProgress() throws {
+        // Build 98's real defect. Its version marker was written once, after
+        // the whole loop, so a migration killed partway wrote nothing and the
+        // next launch began again from the start — it could never converge.
+        // A cursor after every slice is what makes the work monotonic.
+        let ctx = makeContext()
+        let end = seed(ctx)
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Intervals",
+                                startedAt: start, endedAt: end)
+        ctx.insert(entry)
+        try? ctx.save()
+
+        UserDefaults.standard.set(0, forKey: "activityBackfillVersion")
+        UserDefaults.standard.removeObject(forKey: "activityBackfillCursor")
+        ActivityLog.migrate(context: ctx)
+
+        XCTAssertEqual(UserDefaults.standard.integer(forKey: "activityBackfillVersion"),
+                       ActivityLog.currentBackfillVersion,
+                       "a completed migration records the version it reached")
+        XCTAssertNil(UserDefaults.standard.object(forKey: "activityBackfillCursor"),
+                     "and clears the cursor, so the next bump starts clean")
+    }
+
+    func testTheCheapGuardRefusesToRunAMigration() throws {
+        // The rule that keeps a migration off the main context. If this ever
+        // starts passing entries through, build 98 comes back.
+        let ctx = makeContext()
+        let end = seed(ctx)
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Intervals",
+                                startedAt: start, endedAt: end)
+        ctx.insert(entry)
+        entry.computeHRVWindows(context: ctx)
+        entry.exerciseLoad = nil
+        try? ctx.save()
+
+        UserDefaults.standard.set(0, forKey: "activityBackfillVersion")
+        ActivityLog.backfillMissingWindows(context: ctx)
+
+        XCTAssertNil(entry.exerciseLoad,
+                     "the ongoing guard must leave a version bump alone — migrating is not its job")
     }
 
     func testRecomputeIsIdempotent() throws {

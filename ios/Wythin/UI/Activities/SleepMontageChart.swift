@@ -35,6 +35,15 @@ struct MontageRuler: Equatable {
         return width * min(1, max(0, t.timeIntervalSince(startedAt) / span))
     }
 
+    /// The inverse of `x`: which moment a finger at this position is pointing
+    /// at. Clamped to the window, so a drag that runs off either edge reports
+    /// the boundary rather than a time outside the night.
+    func date(atX x: Double, width: Double) -> Date {
+        guard width > 0 else { return startedAt }
+        let fraction = min(1, max(0, x / width))
+        return startedAt.addingTimeInterval(fraction * span)
+    }
+
     /// Tick density follows the span, so a four-hour nap is not labelled as
     /// sparsely as a sixteen-hour wear.
     var tickStepHours: Int {

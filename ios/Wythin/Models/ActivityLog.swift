@@ -478,6 +478,11 @@ final class ActivityLog {
         return now.timeIntervalSince(end) < ActivityLog.afterWindowRetryCutoff
     }
 
+    /// The stored-shape version every finished entry must have been computed
+    /// under. Bumping it schedules a re-derive; see `migrateInBackground` for
+    /// what that costs and why it is not done on the main thread.
+    static let currentBackfillVersion = 9
+
     static func backfillMissingWindows(context: ModelContext) {
         // Bump when the stored metric set changes. v2 adds DC / DFA1 / RCMSE / PIP,
         // which the original nil-Stress guard never backfilled — so older entries
@@ -502,36 +507,30 @@ final class ActivityLog {
         //     stored under the old label-based rule must be re-evaluated.
         // v8  readinessScore/readinessPeerCount — how you arrived, scored
         //     against your own recent pre-session windows.
-        // v9  WITHHELD — see below. The half-recovery hold is bounded now, and
-        //     every entry stored under v4–v8 carries the old verdict, so a
-        //     re-derive IS owed. It cannot be taken this way.
+        // v9  the half-recovery hold is bounded, so every entry stored under
+        //     v4-v8 carries a verdict the current code would not produce. One
+        //     session came back inside four minutes and is still showing 0.
         //
-        // BUMPING THIS IS NOT FREE, AND BUILD 98 PROVED IT. A bump sets
-        // `migrating`, which selects EVERY finished entry, and the loop below
-        // runs `computeHRVWindows` + `computeExerciseResponse` synchronously on
-        // the main context — a session-span fetch plus a four-hour, 20,000-row
-        // fetch each — from `.task` at launch and again on every foreground.
-        // With a store holding months of continuously-synced samples that
-        // exceeded the ~20 s watchdog, so the app was killed before it drew.
-        //
-        // And it could not recover on its own: the `UserDefaults.set` that
-        // records progress is the LAST statement, after the whole loop. Killed
-        // partway, nothing is written, and the next launch repeats all of it —
-        // a bump that cannot finish is a permanent brick, not a slow start.
-        //
-        // The re-derive returns once this runs off the main thread in bounded
-        // chunks that persist their progress. Until then the bar stays where a
-        // shipped build is known to launch.
-        let currentVersion = 8
+        //     THIS BUMP WAS TRIED ONCE AND BRICKED THE APP. Build 98 ran the
+        //     re-derive on the main context from launch, blew past the
+        //     watchdog, and — because the progress marker was written only
+        //     after the whole loop — could never finish, so it never started.
+        //     It is safe now only because `migrateInBackground` owns the work:
+        //     detached, chunked, and banking its cursor after every slice.
+        //     Do not move a migration back onto this path.
+        let currentVersion = ActivityLog.currentBackfillVersion
         let versionKey = "activityBackfillVersion"
         let migrating = UserDefaults.standard.integer(forKey: versionKey) < currentVersion
 
+        // A migration is NOT done here. It selects every finished entry, and
+        // each one costs a session-span fetch plus a four-hour, 20,000-row
+        // fetch — on the main context, from launch and from every foreground.
+        // Build 98 shipped that and never drew a frame. `migrateInBackground`
+        // owns that work now; this stays the cheap ongoing guard it always was.
+        guard !migrating else { return }
+
         guard let all = try? context.fetch(FetchDescriptor<ActivityLog>()) else { return }
-        let needsFill = all.filter { entry in
-            guard entry.endedAt != nil else { return false }
-            if migrating { return true }
-            return entry.needsWindowRefresh()
-        }
+        let needsFill = all.filter { $0.endedAt != nil && $0.needsWindowRefresh() }
         if !needsFill.isEmpty {
             for entry in needsFill {
                 entry.computeHRVWindows(context: context)
@@ -539,7 +538,75 @@ final class ActivityLog {
             }
             try? context.save()
         }
-        UserDefaults.standard.set(currentVersion, forKey: versionKey)
+    }
+
+    /// How many entries one slice of a migration re-derives before saving.
+    ///
+    /// Small enough that a slice is short, so an interruption costs at most
+    /// this much repeated work rather than the entire history.
+    static let migrationChunk = 6
+
+    /// Re-derives every stored entry after a version bump, off the main thread
+    /// and in slices that record their own progress.
+    ///
+    /// **Three properties, each of which build 98 lacked and needed.**
+    ///
+    /// It runs on a detached task with its own `ModelContext`, so the recompute
+    /// cannot hold up the first frame — the previous version ran on the main
+    /// context and was killed by the watchdog before the UI appeared.
+    ///
+    /// It saves and records a cursor after every slice. The old code wrote its
+    /// version marker as the last statement after the whole loop, so a kill
+    /// partway through wrote nothing and the next launch started again from the
+    /// beginning: a migration that could not finish in one go could never
+    /// finish at all.
+    ///
+    /// It walks oldest-first from that cursor, so the work is monotonic. Newest
+    /// entries are the ones a person is most likely to open, but they are also
+    /// the ones the cheap ongoing guard already keeps fresh; the stale verdicts
+    /// live in the history.
+    static func migrateInBackground(container: ModelContainer) {
+        Task.detached(priority: .utility) {
+            migrate(context: ModelContext(container))
+        }
+    }
+
+    /// The migration itself, synchronous so it can be driven by a test.
+    ///
+    /// Callers other than a test must reach this through `migrateInBackground`.
+    static func migrate(context: ModelContext) {
+        let versionKey = "activityBackfillVersion"
+        let cursorKey = "activityBackfillCursor"
+        guard UserDefaults.standard.integer(forKey: versionKey) < currentBackfillVersion else {
+            return
+        }
+
+        let desc = FetchDescriptor<ActivityLog>(sortBy: [SortDescriptor(\.startedAt)])
+        guard let all = try? context.fetch(desc) else { return }
+
+        let cursor = UserDefaults.standard.object(forKey: cursorKey) as? Date
+        let pending = all.filter { entry in
+            guard entry.endedAt != nil else { return false }
+            guard let cursor else { return true }
+            return entry.startedAt > cursor
+        }
+
+        for slice in stride(from: 0, to: pending.count, by: migrationChunk) {
+            let chunk = Array(pending[slice..<min(slice + migrationChunk, pending.count)])
+            for entry in chunk {
+                entry.computeHRVWindows(context: context)
+                entry.computeExerciseResponse(context: context)
+            }
+            try? context.save()
+            // Progress is banked BEFORE the next slice starts, so whatever has
+            // been re-derived stays re-derived.
+            if let last = chunk.last {
+                UserDefaults.standard.set(last.startedAt, forKey: cursorKey)
+            }
+        }
+
+        UserDefaults.standard.set(currentBackfillVersion, forKey: versionKey)
+        UserDefaults.standard.removeObject(forKey: cursorKey)
     }
 
     // MARK: HRV window computation

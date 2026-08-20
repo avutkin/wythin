@@ -93,4 +93,25 @@ final class SleepMontageRulerTests: XCTestCase {
         let r = ruler(at(22, 13), at(7, 41, day: 21))
         XCTAssertTrue(r.ticks.allSatisfy { $0 > r.startedAt && $0 < r.endedAt })
     }
+
+    // MARK: - Scrubbing back from a finger position
+
+    func testXAndDateAreInverses() {
+        let r = ruler(at(22, 13), at(7, 41, day: 21))
+        for x in stride(from: 0.0, through: 360.0, by: 36.0) {
+            let back = r.x(r.date(atX: x, width: 360), width: 360)
+            XCTAssertEqual(back, x, accuracy: 0.001)
+        }
+    }
+
+    func testScrubbingOffEitherEdgeClampsToTheNight() {
+        let r = ruler(at(23), at(7, day: 21))
+        XCTAssertEqual(r.date(atX: -80, width: 300), r.startedAt)
+        XCTAssertEqual(r.date(atX: 900, width: 300), r.endedAt)
+    }
+
+    func testAZeroWidthPlotDoesNotDivideByZero() {
+        let r = ruler(at(23), at(7, day: 21))
+        XCTAssertEqual(r.date(atX: 42, width: 0), r.startedAt)
+    }
 }
