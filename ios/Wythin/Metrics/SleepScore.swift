@@ -24,6 +24,18 @@ enum SleepSection: String, CaseIterable, Codable {
         }
     }
 
+    /// Band wording for a night. The exercise vocabulary ("act on it", "keep
+    /// doing this") reads as instructions about a workout you chose; nobody
+    /// chooses how a night went, and being told to act on your continuity at
+    /// breakfast is neither actionable nor kind.
+    static func verdict(for value: Int) -> String {
+        switch IndexBand.of(value) {
+        case .act:     return "below your usual"
+        case .improve: return "about usual"
+        case .keep:    return "a good night for you"
+        }
+    }
+
     var name: String {
         switch self {
         case .timing:     return "Timing"
@@ -69,8 +81,18 @@ struct SleepScore {
             sections[.timing] = round(ramp(Double(sri), worst: 55, best: 90))
         }
         if let asleep = input.asleepSec {
-            let deficit = abs(asleep - input.needSec)
-            sections[.duration] = round(ramp(-deficit, worst: -(120 * 60), best: 0))
+            // Asymmetric, deliberately. Symmetric scoring punished ten hours
+            // exactly as hard as four, and the evidence does not support that:
+            // short sleep is causally harmful and dose-dependent, while the
+            // long-sleep hazard is not supported by Mendelian randomisation,
+            // largely disappears under accelerometry, and reads as a marker of
+            // illness rather than a cause. The research says it plainly — do
+            // not tell users that sleeping long is harmful.
+            //
+            // So the score climbs to the need and then holds. Sleeping more
+            // than you need is not a failure to report.
+            let shortfall = max(0, input.needSec - asleep)
+            sections[.duration] = round(ramp(-shortfall, worst: -(150 * 60), best: 0))
         }
         if let longest = input.longestUnbrokenSec, let bouts = input.wakeBouts {
             let stretch = ramp(longest, worst: 45 * 60, best: 180 * 60)
@@ -92,7 +114,12 @@ struct SleepScore {
             sections[.autonomic] = round(parts.reduce(0) { $0 + $1.0 * $1.1 } / totalWeight)
         }
         if let steady = input.steadyFraction {
-            sections[.breathing] = round(ramp(steady, worst: 0.70, best: 0.98))
+            // Anchored on measurement, not on a guess. A settled night on this
+            // hardware runs about 76% steady, so the original 0.70–0.98 span
+            // scored an ordinary night at zero — the section read as a verdict
+            // on the wearer's breathing when it was really a verdict on the
+            // anchors.
+            sections[.breathing] = round(ramp(steady, worst: 0.45, best: 0.90))
         }
 
         let present = SleepSection.allCases.filter { sections[$0] != nil }
@@ -105,13 +132,27 @@ struct SleepScore {
             overall = nil
         }
 
+        // Renormalised weights, so the printed sum actually reaches the
+        // headline. Showing the raw weights of a partial set was worse than
+        // showing nothing: "46 = 25%·0 + 15%·96 + 20%·67" adds up to 28, and a
+        // reader who checks it finds the arithmetic wrong rather than finding
+        // out that two sections were missing.
+        let liveWeight = present.reduce(0.0) { $0 + $1.weight }
         let line = present
-            .map { "\(Int(($0.weight * 100).rounded()))%·\(sections[$0] ?? 0) \($0.name.lowercased())" }
+            .map { section -> String in
+                let share = liveWeight > 0 ? section.weight / liveWeight : 0
+                return "\(Int((share * 100).rounded()))%·\(sections[section] ?? 0) \(section.name.lowercased())"
+            }
             .joined(separator: " + ")
+        let missing = SleepSection.allCases.filter { sections[$0] == nil }
+        let note = missing.isEmpty
+            ? ""
+            : "  (\(missing.map { $0.name.lowercased() }.joined(separator: " and ")) not measured — "
+              + "the rest are reweighted to fill it)"
 
         return SleepScore(sections: sections,
                           overall: overall,
-                          arithmetic: overall.map { "\($0) = \(line)" } ?? line)
+                          arithmetic: (overall.map { "\($0) = \(line)" } ?? line) + note)
     }
 
     // MARK: Helpers

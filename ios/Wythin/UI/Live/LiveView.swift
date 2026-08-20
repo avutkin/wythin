@@ -1154,14 +1154,15 @@ private struct MetricsTableView: View {
     var body: some View {
         // `LiveMetric`'s declaration order — the app's canonical display
         // order, shared with the Track charts and the Live history charts.
-        // Breath Rate has no tile and Calm Power carries RMSSD raw, so
-        // eight chart slots appear.
+        // Nine of the ten chart slots appear as tiles — Calm Power carries
+        // RMSSD raw, and Energy Reserve is gone as its duplicate.
         LazyVGrid(columns: cols, spacing: 10) {
             tile("Vagal Tone",          "DC",     "ms",  .dc,            { $0?.dc })     { String(format: "%.1f", $0) }
             tile("Adaptive Capacity",   "RCMSE",  "",    .rcmse,         { $0?.rcmse })  { String(format: "%.2f", $0) }
             tile("Inner Noise",         "PIP",    "%",   .pip,           { $0?.pip })    { String(format: "%.1f", $0) }
             tile("Harmony",             "DFA α1", "",    .dfa1,          { $0?.dfa1 })   { String(format: "%.2f", $0) }
             tile("Stress Balance",      "SNS",    "%",   .stressBalance, stressBalance) { String(format: "%.0f", $0) }
+            tile("Breath Rate",         "br/min", "",    .breathBPM,     { $0?.breathBPM }) { String(format: "%.1f", $0) }
             tile("Conscious Breathing", "RSA",    "ms",  .rsa,           { $0?.rsaMs })  { String(format: "%.1f", $0) }
             tile("Calm Power",          "RMSSD",  "ms",  .rmssd,         { $0?.rmssd })  { String(format: "%.1f", $0) }
             tile("Pulse",               "HR",     "bpm", .hr,            { $0?.meanBPM }) { String(format: "%.0f", $0) }

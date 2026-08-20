@@ -151,7 +151,6 @@
 		8347B3DDA06ADC21D3E5F709 /* ActivityRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 069EE46E63C336F2DE95016D /* ActivityRestore.swift */; };
 		A261 /* FeltStateLogUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F261 /* FeltStateLogUploader.swift */; };
 		A209 /* MotionCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F209 /* MotionCompute.swift */; };
-		A715 /* PostureCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F715 /* PostureCompute.swift */; };
 		A210 /* AnchorDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F210 /* AnchorDetector.swift */; };
 		A211 /* DailyAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F211 /* DailyAnchor.swift */; };
 		A262 /* FeltStateLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F262 /* FeltStateLog.swift */; };
@@ -199,7 +198,6 @@
 		AT92 /* SpectralPeakTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT92 /* SpectralPeakTests.swift */; };
 		AT93 /* EDRComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT93 /* EDRComputeTests.swift */; };
 		AT95 /* BreathRateTrackerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT95 /* BreathRateTrackerTests.swift */; };
-		AT96 /* BreathRateValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT96 /* BreathRateValidationTests.swift */; };
 		AT94 /* WelchPSDSegmentCountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT94 /* WelchPSDSegmentCountTests.swift */; };
 		AT91 /* CloudRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT91 /* CloudRestoreTests.swift */; };
 		AT15 /* PotentialScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT15 /* PotentialScoreTests.swift */; };
@@ -265,13 +263,6 @@
 		A707 /* SleepScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F707 /* SleepScore.swift */; };
 		A708 /* SleepWindowTruncationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F708 /* SleepWindowTruncationTests.swift */; };
 		A760 /* SleepSessionizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F760 /* SleepSessionizerTests.swift */; };
-		A710 /* PreparedNightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F710 /* PreparedNightTests.swift */; };
-		A718 /* SleepRecorderPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F718 /* SleepRecorderPersistenceTests.swift */; };
-		A717 /* PositionBandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F717 /* PositionBandTests.swift */; };
-		A716 /* PostureComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F716 /* PostureComputeTests.swift */; };
-		A714 /* StageProportionDiagnostic.swift in Sources */ = {isa = PBXBuildFile; fileRef = F714 /* StageProportionDiagnostic.swift */; };
-		A712 /* SleepMetricSeriesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F712 /* SleepMetricSeriesTests.swift */; };
-		A711 /* PreparedNightPerfTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F711 /* PreparedNightPerfTests.swift */; };
 		A761 /* SleepSessionizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F761 /* SleepSessionizer.swift */; };
 		A770 /* SleepRecorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F770 /* SleepRecorderTests.swift */; };
 		A771 /* SleepRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F771 /* SleepRecorder.swift */; };
@@ -279,11 +270,8 @@
 		A773 /* RealNightFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F773 /* RealNightFixture.swift */; };
 		A774 /* RealNightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F774 /* RealNightTests.swift */; };
 		A775 /* SleepMontageChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = F775 /* SleepMontageChart.swift */; };
-		A713 /* SleepMetricChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = F713 /* SleepMetricChart.swift */; };
-		A709 /* PreparedNight.swift in Sources */ = {isa = PBXBuildFile; fileRef = F709 /* PreparedNight.swift */; };
 		A776 /* SleepDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F776 /* SleepDetailView.swift */; };
 		A777 /* SleepBreathing.swift in Sources */ = {isa = PBXBuildFile; fileRef = F777 /* SleepBreathing.swift */; };
-		A800 /* SleepStageDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = F800 /* SleepStageDetail.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -443,7 +431,6 @@
 		069EE46E63C336F2DE95016D /* ActivityRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRestore.swift; sourceTree = "<group>"; };
 		F261 /* FeltStateLogUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeltStateLogUploader.swift; sourceTree = "<group>"; };
 		F209 /* MotionCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MotionCompute.swift; sourceTree = "<group>"; };
-		F715 /* PostureCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostureCompute.swift; sourceTree = "<group>"; };
 		F210 /* AnchorDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetector.swift; sourceTree = "<group>"; };
 		F211 /* DailyAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyAnchor.swift; sourceTree = "<group>"; };
 		F262 /* FeltStateLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeltStateLog.swift; sourceTree = "<group>"; };
@@ -494,7 +481,6 @@
 		FT92 /* SpectralPeakTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectralPeakTests.swift; sourceTree = "<group>"; };
 		FT93 /* EDRComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EDRComputeTests.swift; sourceTree = "<group>"; };
 		FT95 /* BreathRateTrackerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathRateTrackerTests.swift; sourceTree = "<group>"; };
-		FT96 /* BreathRateValidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathRateValidationTests.swift; sourceTree = "<group>"; };
 		FT94 /* WelchPSDSegmentCountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelchPSDSegmentCountTests.swift; sourceTree = "<group>"; };
 		FT91 /* CloudRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRestoreTests.swift; sourceTree = "<group>"; };
 		FT15 /* PotentialScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScoreTests.swift; sourceTree = "<group>"; };
@@ -558,13 +544,6 @@
 		F707 /* SleepScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepScore.swift; sourceTree = "<group>"; };
 		F708 /* SleepWindowTruncationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepWindowTruncationTests.swift; sourceTree = "<group>"; };
 		F760 /* SleepSessionizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepSessionizerTests.swift; sourceTree = "<group>"; };
-		F710 /* PreparedNightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedNightTests.swift; sourceTree = "<group>"; };
-		F718 /* SleepRecorderPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepRecorderPersistenceTests.swift; sourceTree = "<group>"; };
-		F717 /* PositionBandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionBandTests.swift; sourceTree = "<group>"; };
-		F716 /* PostureComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostureComputeTests.swift; sourceTree = "<group>"; };
-		F714 /* StageProportionDiagnostic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StageProportionDiagnostic.swift; sourceTree = "<group>"; };
-		F712 /* SleepMetricSeriesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepMetricSeriesTests.swift; sourceTree = "<group>"; };
-		F711 /* PreparedNightPerfTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedNightPerfTests.swift; sourceTree = "<group>"; };
 		F761 /* SleepSessionizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepSessionizer.swift; sourceTree = "<group>"; };
 		F770 /* SleepRecorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepRecorderTests.swift; sourceTree = "<group>"; };
 		F771 /* SleepRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepRecorder.swift; sourceTree = "<group>"; };
@@ -572,11 +551,8 @@
 		F773 /* RealNightFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealNightFixture.swift; sourceTree = "<group>"; };
 		F774 /* RealNightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealNightTests.swift; sourceTree = "<group>"; };
 		F775 /* SleepMontageChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepMontageChart.swift; sourceTree = "<group>"; };
-		F713 /* SleepMetricChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepMetricChart.swift; sourceTree = "<group>"; };
-		F709 /* PreparedNight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedNight.swift; sourceTree = "<group>"; };
 		F776 /* SleepDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepDetailView.swift; sourceTree = "<group>"; };
 		F777 /* SleepBreathing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepBreathing.swift; sourceTree = "<group>"; };
-		F800 /* SleepStageDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepStageDetail.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -618,8 +594,6 @@
 			children = (
 				F776 /* SleepDetailView.swift */,
 				F775 /* SleepMontageChart.swift */,
-				F713 /* SleepMetricChart.swift */,
-				F709 /* PreparedNight.swift */,
 				F772 /* SleepLogRow.swift */,
 				F137 /* ActivitiesView.swift */,
 				2C610ECB383624DF3DB2E902 /* ExerciseLogRow.swift */,
@@ -724,7 +698,6 @@
 		GAPP_MET /* Metrics */ = {
 			isa = PBXGroup;
 			children = (
-				F800 /* SleepStageDetail.swift */,
 				F777 /* SleepBreathing.swift */,
 				F771 /* SleepRecorder.swift */,
 				F761 /* SleepSessionizer.swift */,
@@ -773,7 +746,6 @@
 				F202 /* AutonomicCompute.swift */,
 				F155 /* HeartRateCompute.swift */,
 				F209 /* MotionCompute.swift */,
-				F715 /* PostureCompute.swift */,
 				F246 /* NudgeNotification.swift */,
 				F245 /* NudgeCopy.swift */,
 				F244 /* NudgeEngine.swift */,
@@ -926,13 +898,6 @@
 				F773 /* RealNightFixture.swift */,
 				F770 /* SleepRecorderTests.swift */,
 				F760 /* SleepSessionizerTests.swift */,
-				F710 /* PreparedNightTests.swift */,
-				F718 /* SleepRecorderPersistenceTests.swift */,
-				F717 /* PositionBandTests.swift */,
-				F716 /* PostureComputeTests.swift */,
-						F714 /* StageProportionDiagnostic.swift */,
-				F712 /* SleepMetricSeriesTests.swift */,
-				F711 /* PreparedNightPerfTests.swift */,
 				F708 /* SleepWindowTruncationTests.swift */,
 				F706 /* SleepScoreTests.swift */,
 				F704 /* SleepRegularityTests.swift */,
@@ -963,7 +928,6 @@
 				FT92 /* SpectralPeakTests.swift */,
 				FT93 /* EDRComputeTests.swift */,
 				FT95 /* BreathRateTrackerTests.swift */,
-				FT96 /* BreathRateValidationTests.swift */,
 				FT94 /* WelchPSDSegmentCountTests.swift */,
 				FT91 /* CloudRestoreTests.swift */,
 				FT13 /* AnchorDetectorTests.swift */,
@@ -1119,12 +1083,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A800 /* SleepStageDetail.swift in Sources */,
 				A777 /* SleepBreathing.swift in Sources */,
 				A776 /* SleepDetailView.swift in Sources */,
 				A775 /* SleepMontageChart.swift in Sources */,
-				A713 /* SleepMetricChart.swift in Sources */,
-				A709 /* PreparedNight.swift in Sources */,
 				A772 /* SleepLogRow.swift in Sources */,
 				A771 /* SleepRecorder.swift in Sources */,
 				A761 /* SleepSessionizer.swift in Sources */,
@@ -1260,7 +1221,6 @@
 				A202 /* AutonomicCompute.swift in Sources */,
 				A155 /* HeartRateCompute.swift in Sources */,
 				A209 /* MotionCompute.swift in Sources */,
-				A715 /* PostureCompute.swift in Sources */,
 				A246 /* NudgeNotification.swift in Sources */,
 				A245 /* NudgeCopy.swift in Sources */,
 				A244 /* NudgeEngine.swift in Sources */,
@@ -1304,13 +1264,6 @@
 				A773 /* RealNightFixture.swift in Sources */,
 				A770 /* SleepRecorderTests.swift in Sources */,
 				A760 /* SleepSessionizerTests.swift in Sources */,
-				A710 /* PreparedNightTests.swift in Sources */,
-				A718 /* SleepRecorderPersistenceTests.swift in Sources */,
-				A717 /* PositionBandTests.swift in Sources */,
-				A716 /* PostureComputeTests.swift in Sources */,
-						A714 /* StageProportionDiagnostic.swift in Sources */,
-				A712 /* SleepMetricSeriesTests.swift in Sources */,
-				A711 /* PreparedNightPerfTests.swift in Sources */,
 				A708 /* SleepWindowTruncationTests.swift in Sources */,
 				A706 /* SleepScoreTests.swift in Sources */,
 				A704 /* SleepRegularityTests.swift in Sources */,
@@ -1348,7 +1301,6 @@
 				AT92 /* SpectralPeakTests.swift in Sources */,
 				AT93 /* EDRComputeTests.swift in Sources */,
 				AT95 /* BreathRateTrackerTests.swift in Sources */,
-				AT96 /* BreathRateValidationTests.swift in Sources */,
 				AT94 /* WelchPSDSegmentCountTests.swift in Sources */,
 				AT91 /* CloudRestoreTests.swift in Sources */,
 				AT13 /* AnchorDetectorTests.swift in Sources */,
@@ -1420,7 +1372,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 96;
+				CURRENT_PROJECT_VERSION = 88;
 				DEVELOPMENT_TEAM = FHUVQ8JNXD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
@@ -1509,7 +1461,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 96;
+				CURRENT_PROJECT_VERSION = 88;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -1528,7 +1480,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 96;
+				CURRENT_PROJECT_VERSION = 88;
 				DEVELOPMENT_TEAM = FHUVQ8JNXD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
@@ -1610,7 +1562,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 96;
+				CURRENT_PROJECT_VERSION = 88;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

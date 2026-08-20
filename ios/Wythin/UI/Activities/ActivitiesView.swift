@@ -150,6 +150,14 @@ struct ActivitiesView: View {
                 Section {
                     ForEach(group.entries) { entry in
                         Group {
+                            // Sleep first: it is restorative by class, but the
+                            // practice row would score it on a before-window
+                            // that does not exist for a night.
+                            if entry.isSleep {
+                                SleepLogRow(entry: entry,
+                                            onEdit: { activeSheet = .edit(entry) },
+                                            onDelete: { deleteEntry(entry) })
+                            } else {
                             switch entry.measuredClass {
                             case .activating:  ExerciseLogRow(entry: entry,
                                                               onEdit: { activeSheet = .edit(entry) },
@@ -157,6 +165,7 @@ struct ActivitiesView: View {
                             case .restorative: ActivityLogRow(entry: entry,
                                                               onEdit: { activeSheet = .edit(entry) },
                                                               onDelete: { deleteEntry(entry) })
+                            }
                             }
                         }
                             .contentShape(Rectangle())
@@ -211,9 +220,13 @@ struct ActivitiesView: View {
                         start: start, end: end)
             }
         case .detail(let entry):
-            switch entry.measuredClass {
-            case .activating:  ExerciseDetailView(entry: entry)
-            case .restorative: ActivityDetailView(entry: entry)
+            if entry.isSleep {
+                SleepDetailView(entry: entry)
+            } else {
+                switch entry.measuredClass {
+                case .activating:  ExerciseDetailView(entry: entry)
+                case .restorative: ActivityDetailView(entry: entry)
+                }
             }
         case .edit(let entry):
             EditActivitySheet(entry: entry) { ctx in

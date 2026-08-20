@@ -83,6 +83,9 @@ struct MetricsHistoryPoint {
     let ials:          Float?   // HR Fragmentation: inverse avg segment length
     let dc:            Float?   // Deceleration Capacity (ms)
     let motion:        Float?   // SD of ACC vector magnitude (mg) — stillness
+    /// Which way the body was facing. Nil where unknown — while moving, or on
+    /// any night recorded before position was stored at all.
+    let bodyPosition:  BodyPosition?
     /// Which channel produced `breathBPM` — measured (ACC) or estimated (EDR).
     /// Defaulted so hand-built fixtures compile unchanged.
     var breathSource:  BreathSource? = nil
@@ -114,6 +117,7 @@ struct MetricsHistoryPoint {
         ials          = tick.ials
         dc            = tick.dc
         motion        = tick.motion
+        bodyPosition  = tick.bodyPosition
         breathSource  = tick.breathSource
     }
 
@@ -144,6 +148,7 @@ struct MetricsHistoryPoint {
         ials          = sample.ials
         dc            = sample.dc
         motion        = sample.motion
+        bodyPosition  = sample.bodyPositionRaw.flatMap(BodyPosition.init(rawValue:))
         breathSource  = sample.breathSourceRaw.flatMap(BreathSource.init(rawValue:))
     }
 
@@ -165,6 +170,7 @@ struct MetricsHistoryPoint {
         pip:       Float? = nil,
         dc:        Float? = nil,
         motion:    Float? = nil,
+        bodyPosition: BodyPosition? = nil,
         signalQuality:  Float? = nil,
         ecgQualityTier: Int?   = nil
     ) {
@@ -194,6 +200,7 @@ struct MetricsHistoryPoint {
         self.ials = nil
         self.dc = dc
         self.motion = motion
+        self.bodyPosition = bodyPosition
     }
 
     /// Convenience initializer covering the fields the anchor pipeline reads.
@@ -206,6 +213,7 @@ struct MetricsHistoryPoint {
         dfa1: Float? = nil,
         breathBPM: Float? = nil,
         motion: Float? = nil,
+        bodyPosition: BodyPosition? = nil,
         signalQuality: Float? = nil,
         rrInvalidRate: Float? = nil,
         ecgQualityTier: Int? = nil,
@@ -239,5 +247,6 @@ struct MetricsHistoryPoint {
         self.ials = nil
         self.dc = dc
         self.motion = motion
+        self.bodyPosition = bodyPosition
     }
 }

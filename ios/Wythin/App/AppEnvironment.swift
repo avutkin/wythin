@@ -184,6 +184,23 @@ final class AppEnvironment {
     ///
     /// Cheap because it exits on the day check in the overwhelming common case:
     /// once today's anchor exists, this is one fetch every five minutes.
+    /// Records last night, once it is over.
+    ///
+    /// Shares the anchor's five-minute throttle: both are cheap, both are
+    /// idempotent, and neither needs to be prompt. `SleepRecorder` decides for
+    /// itself whether a night is finished, so calling this at 03:00 is a no-op
+    /// rather than a truncated record.
+    private func recordSleepIfDue(now: Date) {
+        // Throttled, because this sits in the tick loop and the loop runs every
+        // two seconds in the foreground. `detectAnchorIfDue` throttles itself
+        // internally, so placing this beside it looked right and was not: the
+        // whole sleep pipeline — fetch, segment, classify, score — ran thirty
+        // times a minute on the main thread. That is the lag.
+        guard now.timeIntervalSince(lastSleepCheckAt) >= sleepCheckInterval else { return }
+        lastSleepCheckAt = now
+        SleepRecorder.recordInBackground(container: modelContainer, now: now)
+    }
+
     private func detectAnchorIfDue(now: Date) {
         guard now.timeIntervalSince(lastAnchorCheckAt) >= anchorCheckInterval else { return }
         lastAnchorCheckAt = now
@@ -357,6 +374,11 @@ final class AppEnvironment {
     private var lastSaveAt: Date = .distantPast   // wall-clock cap so bg saves land ≤2 min
     private var lastBackgroundTick: Date = .distantPast  // throttles bg computation to 30 s
     private var lastMetricSyncAt: Date = .distantPast     // throttles cloud sync attempts to ~120 s
+    private var lastSleepCheckAt: Date = .distantPast
+    /// Same cadence as the anchor. A night is written once and never changes,
+    /// so there is nothing to gain from looking more often.
+    private let sleepCheckInterval: TimeInterval = 300
+
     private var lastAnchorCheckAt: Date = .distantPast     // throttles anchor detection to ~5 min
     /// Anchors are frozen once a day, so checking every five minutes is generous.
     private let anchorCheckInterval: TimeInterval = 300
@@ -854,6 +876,7 @@ final class AppEnvironment {
                 self.nudges.ingest(point, now: point.timestamp)
                 self.evaluateNudgesIfDue(now: point.timestamp)
                 self.detectAnchorIfDue(now: point.timestamp)
+                self.recordSleepIfDue(now: point.timestamp)
 
                 // ── Foreground-only: live table + live cloud stream ───────────
                 if inForeground {

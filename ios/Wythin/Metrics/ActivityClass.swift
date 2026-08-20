@@ -59,7 +59,12 @@ extension ActivityType {
             return .activating
 
         case .meditation, .breathwork, .meal, .nap,
-             .thermal, .drinks, .work, .custom:
+             .thermal, .drinks, .work, .sleep, .custom:
+            // Sleep is restorative by construction. It must never reach the
+            // activating path, which would hand it a TRIMP load, a suppression
+            // axis and workout-shaped expectations — the same category error
+            // the research report flags for yin yoga, an order of magnitude
+            // longer.
             return .restorative
         }
     }

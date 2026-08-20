@@ -459,19 +459,14 @@ private struct MetricChartCard: View {
                                      val: val, quality: q, segment: segs[i],
                                      estimated: est))
         }
-        // A change of source starts a new series: renumber segments so an
-        // estimated run never shares a LineMark series with a measured one —
-        // otherwise the dashed style would bleed across the boundary, or two
-        // estimated runs would be bridged across the measured run between.
-        guard isEstimated != nil else { return result }
-        var runId = 0
-        return result.enumerated().map { i, pt in
-            if i > 0, result[i - 1].segment != pt.segment
-                   || result[i - 1].estimated != pt.estimated { runId += 1 }
-            return ChartPoint(id: pt.id, date: pt.date, val: pt.val,
-                              quality: pt.quality, segment: runId,
-                              estimated: pt.estimated)
-        }
+        // Deliberately NOT re-segmented on `estimated`. Splitting the series
+        // at every source change looked right in principle and was wrong on
+        // screen: the two channels swap back and forth tick to tick, so each
+        // swap produced a one-point series — a scatter of orphan dots with no
+        // line between them. Continuity of the trace matters more than never
+        // sharing a series, so the run stays whole and estimated samples are
+        // distinguished by their symbol alone.
+        return result
     }
 
     /// Minimum gap between two dots before the connecting line breaks. Dots
@@ -681,8 +676,7 @@ private struct MetricChartCard: View {
                     )
                     .foregroundStyle(markColor(pt))
                     .interpolationMethod(.monotone)
-                    .lineStyle(StrokeStyle(lineWidth: 1.5,
-                                           dash: pt.estimated ? [4, 3] : []))
+                    .lineStyle(StrokeStyle(lineWidth: 1.5))
                 }
 
                 ForEach(pts) { pt in

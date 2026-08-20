@@ -14,13 +14,18 @@ enum ActivityType: String, CaseIterable, Codable {
     case thermal      = "Thermal"
     case drinks       = "Drinks"
     case work         = "Work"
+    /// Measured, never started by hand — see `SleepRecorder`.
+    case sleep        = "Sleep"
     case custom       = "Custom"
 
     /// The eight tiles shown in the picker grid — Custom is offered separately
     /// beneath it so it stays reachable without spending a tile, and Walk has
     /// folded into Exercise (its subtypes moved across).
+    /// Sleep is deliberately absent: it is the one type nobody starts by hand.
+    /// It appears because the strap measured it, and a tile offering to "start
+    /// sleeping" would be both useless and a lie about how it is produced.
     static var pickerCases: [ActivityType] {
-        allCases.filter { $0 != .custom && $0 != .walk }
+        allCases.filter { $0 != .custom && $0 != .walk && $0 != .sleep }
     }
 
     /// Resolves a stored `activityType` string, including types that have
@@ -52,6 +57,7 @@ enum ActivityType: String, CaseIterable, Codable {
         case .thermal:      return "thermometer.snowflake"
         case .drinks:       return "cup.and.saucer.fill"
         case .work:         return "laptopcomputer"
+        case .sleep:        return "bed.double.fill"
         case .custom:       return "pencil.circle"
         }
     }
@@ -67,6 +73,7 @@ enum ActivityType: String, CaseIterable, Codable {
         case .thermal:           return Color(hex: "#67E8F9")
         case .drinks:            return Color(hex: "#C89F6B")
         case .work:              return Theme.ulf
+        case .sleep:             return Theme.hrv
         case .custom:            return Theme.dim
         }
     }
@@ -103,6 +110,8 @@ enum ActivityType: String, CaseIterable, Codable {
                     "Beer", "Wine", "Spirits", "Cocktail"]
         case .work:
             return ["Deep Work", "Meetings", "Email", "Creative", "Reading"]
+        case .sleep:
+            return []
         case .custom:
             return []
         }
@@ -167,6 +176,48 @@ final class ActivityLog {
     var beforePIP:   Float?;  var duringPIP:   Float?;  var afterPIP:   Float?
     var beforeDC:    Float?;  var duringDC:    Float?;  var afterDC:    Float?
     var beforeDFA1:  Float?;  var duringDFA1:  Float?;  var afterDFA1:  Float?
+
+    // MARK: Sleep
+    //
+    // Written by `SleepRecorder` for measured nights only. Stored rather than
+    // recomputed because the list row holds no sample series, exactly as the
+    // exercise-response fields are.
+
+    /// Transparent 0–100 composed from the five sections. Nil when fewer than
+    /// two sections were present — one section is not a night score.
+    var sleepScore: Int?
+    /// The arithmetic behind `sleepScore`, printed so it stays checkable.
+    var sleepScoreArithmetic: String?
+    /// "6h 02m quiet · 1h 20m active · 0h 30m awake" — the three states, in the
+    /// order the hypnogram reads them.
+    var sleepStageSummary: String?
+    /// Minutes asleep, which is not the same as the window length.
+    var sleepAsleepMinutes: Int?
+    /// Sleep Regularity Index over the trailing nights available at record
+    /// time. Nil until there are at least two nights to compare.
+    var sleepRegularity: Float?
+
+    /// The five sections, stored individually so the row can render them
+    /// without recomputing, and so an ABSENT section stays absent. A section
+    /// with no input must never be persisted as 0 — "we did not measure your
+    /// breathing" and "your breathing was terrible" are different sentences.
+    var sleepTiming: Int?
+    var sleepDuration: Int?
+    var sleepContinuity: Int?
+    var sleepAutonomic: Int?
+    var sleepBreathing: Int?
+
+    /// Four-stage minutes. Stored so the row and detail can show them without
+    /// re-deriving, and kept separate from the coarse three-state summary the
+    /// SCORE is built on — the score does not use these, deliberately.
+    var sleepDeepMinutes: Int?
+    var sleepLightMinutes: Int?
+    var sleepREMMinutes: Int?
+    var sleepAwakeMinutes: Int?
+    /// N1 — transitional, marked by position beside wake rather than measured.
+    var sleepN1Minutes: Int?
+    /// Which version of the sleep pipeline wrote this. Stale rows are rebuilt.
+    var sleepAlgorithmVersion: Int?
 
     // MARK: Exercise response
     //
