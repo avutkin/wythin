@@ -639,11 +639,14 @@ final class AppEnvironment {
     // strap into low-power standby (auto-reconnects when worn again).
     private var offBodySince: Date?
     private let offBodyStandbySeconds:     TimeInterval = 45   // borderline consensus (score 2)
-    // Read together with the 6 s liveness windows in BLEService: the cues go
-    // true ~6 s after doffing, plus 8 s of sustained strong agreement lands
-    // standby ~14 s after the strap comes off — in the background too, since
-    // every cue is a liveness flag, none needs a metrics tick.
-    private let offBodyStandbyFastSeconds: TimeInterval = 8    // strong agreement (score ≥ 3)
+    // Read together with the 4 s liveness windows in BLEService: the cues go
+    // true ~4 s after doffing, plus 5 s of sustained strong agreement lands
+    // standby ~10 s after the strap comes off — Alex's chosen budget — in
+    // the background too, since every cue is a liveness flag, none needs a
+    // metrics tick. The worn-strap safety margin is the bpm cue: a worn H10
+    // keeps reporting a heart rate straight through motion-artifact gaps, so
+    // the fast path can't assemble on a wearer even at these windows.
+    private let offBodyStandbyFastSeconds: TimeInterval = 5    // strong agreement (score ≥ 3)
 
     // Accelerometer motion: worn straps always jitter a little (breathing,
     // ballistocardiogram, posture); a strap set down is dead-still. Rolling
