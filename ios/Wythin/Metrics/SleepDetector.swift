@@ -55,6 +55,17 @@ enum SleepThresholds {
     /// How far either side of a wake bout light sleep is marked N1 — the
     /// descent into sleep, and the settling after an arousal.
     static let n1ReachSec: Double = 5 * 60
+    /// Sleep has to persist this long before the night is said to have begun.
+    ///
+    /// `SleepStages.smooth` already absorbs stage runs under `minStageRunSec`
+    /// (three minutes), so anything longer than that survives to the trim — and
+    /// six still minutes on the sofa at 17:00 is longer than that. Taking the
+    /// first surviving non-wake tick as onset anchored a real night to the
+    /// evening it was recorded in: 17:00 → 05:37, of which 7 h 15 m was scored
+    /// awake. Ten persistent minutes is the actigraphy convention for onset and
+    /// comfortably excludes sitting quietly, while still admitting a genuine
+    /// short doze followed by an arousal.
+    static let minSustainedSleepSec: Double = 10 * 60
     /// Most a single tick may be credited with. Beyond this the gap is a hole
     /// in the recording, not time asleep.
     static let maxTickCreditSec: Double = 120
@@ -83,7 +94,7 @@ enum SleepThresholds {
     static let deepDepth: Double = 2.2
     static let remDepth: Double = 0.0
 
-    static let algorithmVersion: Int = 6
+    static let algorithmVersion: Int = 7
     /// Shortest run that can stand as its own stage. Sleep changes state on
     /// the scale of minutes; anything briefer is a turn or a dropped estimate,
     /// and leaving it in inflates every count derived from the hypnogram.
@@ -267,6 +278,15 @@ enum SleepDetector {
     /// the night. The night is the *asleep* part: from the first sustained
     /// sleep to the last.
     ///
+    /// **Sustained is the operative word, and it used not to be enforced.** The
+    /// bounds came from `firstIndex(where: { $0 != .wake })`, which is the first
+    /// non-wake tick of any duration. Smoothing removes runs under three
+    /// minutes, so a quiet six-minute spell early in the evening survives it and
+    /// became the start of the night — one real capture opened at 17:00 and
+    /// reported 7 h 15 m of a 12 h 37 m "night" as awake, because six hours of
+    /// evening sat inside the window. Onset now needs
+    /// `minSustainedSleepSec` of persistent sleep, and so does the final wake.
+    ///
     /// Interior wake is deliberately kept. Being up for eight minutes at 03:00
     /// is a wake bout inside one night, not the end of it — and those bouts are
     /// what the continuity section is there to count.
@@ -275,9 +295,35 @@ enum SleepDetector {
         if let median = motions.isEmpty ? nil : motions[motions.count / 2],
            median > SleepThresholds.impossibleSleepMotion { return nil }
         let stages = SleepStages.classify(run)
-        guard let first = stages.firstIndex(where: { $0 != .wake }),
-              let last = stages.lastIndex(where: { $0 != .wake }) else { return nil }
+        let sustained = sustainedSleepRuns(stages, points: run)
+        guard let first = sustained.first?.lowerBound,
+              let last = sustained.last?.upperBound else { return nil }
         return Array(run[first...last])
+    }
+
+    /// Index ranges of unbroken sleep lasting at least `minSustainedSleepSec`.
+    ///
+    /// Closed ranges over `stages`, measured on the clock rather than in ticks —
+    /// the cadence changes between foreground and background recording, so a
+    /// tick count is not a duration.
+    private static func sustainedSleepRuns(_ stages: [SleepStage],
+                                           points: [MetricsHistoryPoint]) -> [ClosedRange<Int>] {
+        guard stages.count == points.count, !stages.isEmpty else { return [] }
+        var out: [ClosedRange<Int>] = []
+        var i = 0
+        while i < stages.count {
+            guard stages[i] != .wake else { i += 1; continue }
+            var j = i
+            while j + 1 < stages.count && stages[j + 1] != .wake { j += 1 }
+            // Credit the run up to the next tick, so a stretch that ends at the
+            // last sample still has the width its samples actually cover.
+            let end = j + 1 < points.count ? points[j + 1].timestamp : points[j].timestamp
+            if end.timeIntervalSince(points[i].timestamp) >= SleepThresholds.minSustainedSleepSec {
+                out.append(i...j)
+            }
+            i = j + 1
+        }
+        return out
     }
 
     /// Splits on wall-clock holes only. Unlike the anchor's run splitter this

@@ -9,6 +9,13 @@ struct SleepDetailView: View {
 
     let entry: ActivityLog
     @Environment(\.modelContext) private var ctx
+    @Environment(AppEnvironment.self) private var env
+
+    /// Where the written read has got to. Distinct from "there is no text":
+    /// a night still being read and a night whose read failed look the same on
+    /// screen otherwise, and only one of them is worth waiting for.
+    private enum ReadState { case idle, reading, failed }
+    @State private var readState: ReadState = .idle
 
     /// Nil until the background load lands. The rest of the screen — the hero,
     /// the arithmetic, the sections — comes straight off the stored record and
@@ -36,16 +43,16 @@ struct SleepDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 hero
+                nightRead
                 if entry.sleepScore != nil { arithmetic }
                 sections
-                if let night, !night.points.isEmpty {
-                    nightMetrics(night)
-                    if let end = entry.endedAt {
+                if let night, !night.points.isEmpty, let end = entry.endedAt {
+                    card("THE NIGHT, CHANNEL BY CHANNEL") {
                         SleepMontageChart(night: night,
                                           startedAt: entry.startedAt,
                                           endedAt: end)
-                        stageCaveat
                     }
+                    stageCaveat
                 }
                 measurementNote
             }
@@ -54,10 +61,97 @@ struct SleepDetailView: View {
         .background(Theme.bg.ignoresSafeArea())
         .task {
             guard night == nil, let end = entry.endedAt else { return }
-            night = await PreparedNight.load(container: ctx.container,
-                                             from: entry.startedAt,
-                                             to: end)
+            let prepared = await PreparedNight.load(container: ctx.container,
+                                                    from: entry.startedAt,
+                                                    to: end)
+            night = prepared
+            await read(prepared)
         }
+    }
+
+    // MARK: - The written read
+
+    /// The night in words: what it shows, and what to change tonight.
+    ///
+    /// Generated once and stored on the entry, so re-opening a night does not
+    /// re-ask the model and cannot produce a different reading of the same
+    /// numbers. The read waits for `PreparedNight` because everything worth
+    /// saying — where vagal tone climbed, when Pulse bottomed out, how the
+    /// night was spent lying — lives in the prepared night, not in the stored
+    /// summary row.
+    @ViewBuilder
+    private var nightRead: some View {
+        if let text = entry.sleepReadText {
+            card("WHAT THIS NIGHT SHOWS") { readBody(text) }
+        } else if readState == .reading {
+            card("WHAT THIS NIGHT SHOWS") {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Reading the night…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.dim)
+                }
+            }
+        } else if readState == .failed {
+            card("WHAT THIS NIGHT SHOWS") {
+                Text(OnboardingConsent.aiInsights()
+                     ? "Couldn't reach the coach. Open this night again when you're back online."
+                     : "AI guidance is off, so this night has not been read. Turn it on in Settings.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// A headline, then bullets, then the actions.
+    ///
+    /// The '→' lines are the point of the whole card — they are the only part
+    /// a person can act on tonight — so they are set apart from the findings
+    /// rather than running on as more prose.
+    private func readBody(_ text: String) -> some View {
+        let lines = text
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        let headline = lines.first { !$0.hasPrefix("•") && !$0.hasPrefix("→") }
+        let bullets  = lines.filter { $0.hasPrefix("•") }
+        let actions  = lines.filter { $0.hasPrefix("→") }
+
+        return VStack(alignment: .leading, spacing: 10) {
+            if let headline {
+                Text(headline)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(bullets, id: \.self) { line in
+                // The same one-bold-span-per-bullet convention the live read
+                // and the macro read use, through the same renderer.
+                Text(MarkdownBullet.styled(line))
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !actions.isEmpty {
+                Divider().opacity(0.25).padding(.vertical, 2)
+                ForEach(actions, id: \.self) { line in
+                    Text(MarkdownBullet.styled(line))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(ActivityType.sleep.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func read(_ prepared: PreparedNight) async {
+        guard entry.sleepReadText == nil, entry.endedAt != nil else { return }
+        readState = .reading
+        await InsightGenerator(client: env.sync.client)
+            .generate(for: entry, night: prepared, context: ctx)
+        readState = entry.sleepReadText == nil ? .failed : .idle
     }
 
     // MARK: - Pieces
@@ -102,41 +196,6 @@ struct SleepDetailView: View {
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(Theme.dim)
                     .padding(.top, 2)
-            }
-        }
-    }
-
-    /// The nine metrics, each as a line across the night.
-    ///
-    /// This was a list of nine averages, and an average over eight hours tells
-    /// you almost nothing: the same "14.5 ms" covers a night where vagal tone
-    /// climbed until five and then fell off a cliff, and one where it never
-    /// moved. The average is still printed — as each chart's header — but the
-    /// line is the part you can act on, and the wake bands behind it are what
-    /// make a dip readable as "lying awake" rather than as a mystery.
-    private func nightMetrics(_ night: PreparedNight) -> some View {
-        card("THROUGH THE NIGHT") {
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(activityMetricDefs, id: \.id) { def in
-                    SleepMetricChart(def: def,
-                                     samples: night.series[def.id] ?? [],
-                                     wakeBands: night.wakeBands,
-                                     average: night.averages[def.id],
-                                     startedAt: entry.startedAt,
-                                     endedAt: entry.endedAt ?? entry.startedAt)
-                }
-                HStack(spacing: 7) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color(white: 0.62).opacity(0.16))
-                        .frame(width: 22, height: 11)
-                    Text("awake")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.dim)
-                    Text("·  dashed line is the night average")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.dim)
-                }
-                .padding(.top, 2)
             }
         }
     }

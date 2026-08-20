@@ -57,6 +57,30 @@ struct PreparedNight: Sendable {
     /// Stretches the body held one orientation.
     let positionBands: [PositionBand]
 
+    /// How many ticks carried an orientation at all.
+    ///
+    /// This is the difference between the two ways a night ends up with no
+    /// bands, and the screen must not conflate them: zero means the night
+    /// predates position storage and can never show it, non-zero with no bands
+    /// means orientation WAS measured but was never held past the two-minute
+    /// floor. "Not recorded" is true of the first and false of the second.
+    let positionTicks: Int
+
+    /// Minutes in each position, from the bands. A position never held is
+    /// absent rather than zero — absent and zero are different claims.
+    let positionMinutes: [BodyPosition: Int]
+
+    /// Supine as a share of the time a position was *known*, not of the night.
+    ///
+    /// The gaps are stretches the sensor was moving through, and dividing by
+    /// them would understate every position by however long the person spent
+    /// turning over. Nil when no position was ever held.
+    var supineSharePct: Int? {
+        let total = positionMinutes.values.reduce(0, +)
+        guard total > 0 else { return nil }
+        return Int((Double(positionMinutes[.supine] ?? 0) / Double(total) * 100).rounded())
+    }
+
     /// A posture must hold for at least this long to count as a turn rather
     /// than a wobble in the gravity estimate.
     static let minPositionRunSec: Double = 120
@@ -117,7 +141,13 @@ struct PreparedNight: Sendable {
 
         self.series = Self.buildSeries(points)
         self.wakeBands = Self.buildWakeBands(stages, points: points)
-        self.positionBands = Self.positionBands(points)
+        let bands = Self.positionBands(points)
+        self.positionBands = bands
+        self.positionTicks = points.reduce(0) { $0 + ($1.bodyPosition == nil ? 0 : 1) }
+        self.positionMinutes = bands.reduce(into: [:]) { out, band in
+            out[band.position, default: 0] +=
+                Int((band.end.timeIntervalSince(band.start) / 60).rounded())
+        }
     }
 
     /// Contiguous runs of one body position.

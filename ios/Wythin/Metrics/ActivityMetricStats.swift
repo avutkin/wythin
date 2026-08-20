@@ -3,8 +3,8 @@ import Foundation
 /// Which direction of change counts as "better" for a metric — so peaks and
 /// uplift percentages read correctly (a drop in HR is an improvement; a drop
 /// in RSA is not).
-enum BenefitDirection {
-    case higher          // more is better (RSA, HRV, RCMSE, DC, VTI)
+enum BenefitDirection: Equatable {
+    case higher          // more is better (RMSSD, RSA, RCMSE, DC)
     case lower           // less is better (HR, LF/HF, PIP)
     case target(Double)  // closeness to a value is better (DFA α1 → 1.0)
 

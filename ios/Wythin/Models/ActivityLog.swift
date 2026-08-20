@@ -132,7 +132,7 @@ struct ImpactCoverage: Equatable {
 
     var isComplete: Bool { counted == total }
 
-    /// "avg of 8/9 metrics" — printed under the headline so the denominator is
+    /// "avg of 7/8 metrics" — printed under the headline so the denominator is
     /// never implicit.
     var summary: String { "avg of \(counted)/\(total) metrics" }
 }
@@ -218,6 +218,17 @@ final class ActivityLog {
     var sleepN1Minutes: Int?
     /// Which version of the sleep pipeline wrote this. Stale rows are rebuilt.
     var sleepAlgorithmVersion: Int?
+    /// The written read of this night — what it shows, and what to change.
+    ///
+    /// Its own field rather than `insightText`, because `insightText` on a
+    /// night is already occupied by junk: nights are `ActivityLog` rows, the
+    /// insight sweep did not exclude them, and so every recorded night was sent
+    /// to a prompt built around a session's before / during / after with all
+    /// three nil. Nothing ever displayed the result, so nothing caught it.
+    /// Reusing the field would mean showing that text on the night screen with
+    /// no way to tell it from a real read; a separate field makes the stale
+    /// value simply unreferenced.
+    var sleepReadText: String?
 
     // MARK: Exercise response
     //
@@ -305,7 +316,7 @@ final class ActivityLog {
     var scoreHistoryCount:     Int?
 
     /// Mean benefit-signed change from the before-window to the during-window
-    /// across the nine metrics — literally the average of the per-metric
+    /// across the named metrics — literally the average of the per-metric
     /// numbers shown on the rows below the meter, so the two agree to within
     /// rounding at the displayed whole-percent precision. (The one residual
     /// source of drift: VTI is deliberately computed as ln(mean(RMSSD)), not

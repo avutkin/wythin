@@ -51,4 +51,47 @@ final class PositionBandTests: XCTestCase {
     func testANightWithNoPositionDataHasNoBands() {
         XCTAssertTrue(PreparedNight.positionBands(points([(nil, 60)])).isEmpty)
     }
+
+    // MARK: - Was position ever measured on this night?
+
+    // Two nights produce no bands for completely different reasons, and the
+    // screen has to be able to tell them apart: one predates position storage
+    // and can NEVER show it, the other recorded orientation but the person
+    // never held one long enough to count. Saying "not recorded" about the
+    // second, or drawing a blank for the first, are both lies.
+
+    func testANightThatPredatesPositionStorageReportsNoTicks() {
+        let night = PreparedNight(points: points([(nil, 60)]))
+        XCTAssertEqual(night.positionTicks, 0)
+        XCTAssertTrue(night.positionBands.isEmpty)
+    }
+
+    func testANightThatMeasuredPositionButNeverHeldOneReportsTicks() {
+        // Orientation was stored on every one of these ticks; no stretch
+        // survives the two-minute floor, so there are no bands.
+        let night = PreparedNight(points: points([(.supine, 1), (.leftSide, 1),
+                                                  (.supine, 1), (.prone, 1)]))
+        XCTAssertEqual(night.positionTicks, 4)
+        XCTAssertTrue(night.positionBands.isEmpty)
+    }
+
+    func testPositionMinutesComeFromTheBandsNotTheRawTicks() {
+        // 40 ticks x 30 s = 20 min supine, then 40 more on the left.
+        let night = PreparedNight(points: points([(.supine, 40), (.leftSide, 40)]))
+        XCTAssertEqual(night.positionMinutes[.supine], 20)
+        XCTAssertEqual(night.positionMinutes[.leftSide], 20)
+        XCTAssertNil(night.positionMinutes[.prone], "a position never held is absent, not zero")
+    }
+
+    func testSupineShareIsOfTheTimeAPositionWasKnown() {
+        // Not of the whole night: the gaps are stretches where the sensor was
+        // moving, and dividing by them would understate every position.
+        let night = PreparedNight(points: points([(.supine, 40), (nil, 40), (.leftSide, 40)]))
+        XCTAssertEqual(night.positionMinutes[.supine], 20)
+        XCTAssertEqual(night.supineSharePct, 50)
+    }
+
+    func testSupineShareIsNilWhenNoPositionWasEverHeld() {
+        XCTAssertNil(PreparedNight(points: points([(nil, 60)])).supineSharePct)
+    }
 }

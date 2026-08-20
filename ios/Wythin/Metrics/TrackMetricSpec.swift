@@ -37,10 +37,10 @@ enum TrackMetrics {
     /// cases — the app's canonical display order, which the Live history
     /// charts and Live metric tiles follow too, so Track and Live agree on
     /// which metric reads as "first" instead of each screen inventing its own
-    /// ordering. Pulse (`.hr`) and Calm Power (`.vti`) are deliberately
-    /// excluded, along with every other `LiveMetric` case Track has no chart
-    /// for (`.sdnn`, `.coherence`, `.breathBPM`, `.cbi`); the 7 that remain
-    /// keep `LiveMetric`'s relative order.
+    /// ordering. Pulse (`.hr`) is deliberately excluded, along with every
+    /// other `LiveMetric` case Track has no chart for (`.vti`, `.coherence`,
+    /// `.breathBPM`, `.cbi`); the 7 that remain keep `LiveMetric`'s relative
+    /// order, and `.sdnn` is added as a Track-only day-level trend.
     static let all: [TrackMetricSpec] = [
         .init(def: def("Vagal Tone"),          rollup: { $0.dc },
               color: Theme.accent,  zeroBased: true,  fallbackReference: 6.0,  trendKey: "dc",
@@ -60,16 +60,16 @@ enum TrackMetrics {
         .init(def: def("Conscious Breathing"), rollup: { $0.rsaMs },
               color: Theme.rsa,     zeroBased: true,  fallbackReference: 40.0, trendKey: "rsa",
               trendWhy: "Conscious Breathing (Respiratory Sinus Arrhythmia) is the swing of heart rate with each breath — the clearest sign of vagal tone. A trend climbing over days suggests your breathing practice is taking hold; a flat line means it hasn't shown up yet in daily life."),
-        .init(def: def("Energy Reserve"),      rollup: { $0.rmssd },
+        .init(def: def("Calm Power"),          rollup: { $0.rmssd },
               color: Theme.hrv,     zeroBased: true,  fallbackReference: 40.0, trendKey: "rmssd",
-              trendWhy: "Energy Reserve (RMSSD) is your core beat-to-beat variability — the headline marker of recovery and vagal tone. A trend climbing over days points to a system that's recovering well; a sustained dip is a cue to prioritise rest."),
+              trendWhy: "Calm Power (RMSSD) is your core beat-to-beat variability — the headline marker of recovery and vagal tone. A trend climbing over days points to a system that's recovering well; a sustained dip is a cue to prioritise rest."),
         // Overall Variability rides Track only: its def is built inline
         // rather than added to `activityMetricDefs`, so the Activities grid
         // keeps its nine slots. Averaged over a full day of wear, daily SDNN
         // approximates the classic 24-hour clinical measure — which is why it
         // lives here as a day-level trend and not on the Live screen.
         .init(def: ActivityMetricDef(
-                  label: "Overall Variability", techLabel: "SDNN",
+                  label: "Overall Variability", metric: .sdnn, techLabel: "SDNN",
                   techFull: "Standard Deviation of NN intervals (SDNN)", unit: "ms",
                   direction: .higher,
                   extract: { $0.sdnn.map(Double.init) },

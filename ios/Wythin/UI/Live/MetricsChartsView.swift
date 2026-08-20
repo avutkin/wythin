@@ -837,7 +837,7 @@ struct MetricsChartsView: View, Equatable {
             lfhfCard          // Stress Balance
             breathRateCard
             rsaCard           // Conscious Breathing
-            vtiCard           // Calm Power
+            rmssdCard         // Calm Power
             hrCard            // Pulse
 
             signalQualitySection
@@ -986,8 +986,8 @@ struct MetricsChartsView: View, Equatable {
 
     private var hrCard: some View {
         MetricChartCard(
-            title:    "Pulse",
-            technicalName: "Heart Rate (HR)",
+            title:    metricDef(.hr).label,
+            technicalName: metricDef(.hr).techFull,
             subtitle: "Your heart rate",
             yLabel:   "bpm",
             color:    Theme.warn,
@@ -1076,12 +1076,12 @@ struct MetricsChartsView: View, Equatable {
         ) { $0.ieRatio.map(Double.init) }
     }
 
-    // MARK: VTI
+    // MARK: RMSSD
 
-    private var vtiCard: some View {
+    private var rmssdCard: some View {
         MetricChartCard(
-            title:   "Calm Power",
-            technicalName: "Root Mean Square of Successive Differences (RMSSD)",
+            title:   metricDef(.rmssd).label,
+            technicalName: metricDef(.rmssd).techFull,
             subtitle: "Total strength of your recovery drive",
             yLabel:  "ms",
             color:   Theme.breathe,
@@ -1150,8 +1150,8 @@ struct MetricsChartsView: View, Equatable {
 
     private var rsaCard: some View {
         MetricChartCard(
-            title:   "Conscious Breathing",
-            technicalName: "Respiratory Sinus Arrhythmia (RSA)",
+            title:   metricDef(.rsa).label,
+            technicalName: metricDef(.rsa).techFull,
             subtitle: "How your breath moves your heart rate",
             yLabel:  "ms",
             color:   Theme.rsa,
@@ -1214,8 +1214,8 @@ struct MetricsChartsView: View, Equatable {
 
     private var dcCard: some View {
         MetricChartCard(
-            title:    "Vagal Tone",
-            technicalName: "Deceleration Capacity (DC)",
+            title:    metricDef(.dc).label,
+            technicalName: metricDef(.dc).techFull,
             subtitle: "Your relaxation and recovery capacity",
             yLabel:   "ms",
             color:    Color(red: 0.4, green: 0.7, blue: 1.0),
@@ -1246,8 +1246,8 @@ struct MetricsChartsView: View, Equatable {
 
     private var rcmseCard: some View {
         MetricChartCard(
-            title:    "Adaptive Capacity",
-            technicalName: "Multiscale Sample Entropy (RCMSE)",
+            title:    metricDef(.rcmse).label,
+            technicalName: metricDef(.rcmse).techFull,
             subtitle: "How flexibly your system adapts across timescales",
             yLabel:   "entropy",
             color:    Color(red: 0.8, green: 0.5, blue: 1.0),
@@ -1278,8 +1278,8 @@ struct MetricsChartsView: View, Equatable {
 
     private var pipCard: some View {
         MetricChartCard(
-            title:    "Inner Noise",
-            technicalName: "Percentage of Inflection Points (PIP)",
+            title:    metricDef(.pip).label,
+            technicalName: metricDef(.pip).techFull,
             subtitle: "Beat-to-beat fragmentation — rises with stress and fatigue",
             yLabel:   "%",
             color:    Color(red: 1.0, green: 0.7, blue: 0.3),
@@ -1310,8 +1310,8 @@ struct MetricsChartsView: View, Equatable {
 
     private var dfa1Card: some View {
         MetricChartCard(
-            title:   "Harmony",
-            technicalName: "Detrended Fluctuation Analysis (DFA α1)",
+            title:   metricDef(.dfa1).label,
+            technicalName: metricDef(.dfa1).techFull,
             subtitle: "How ordered vs random your heart rhythm is",
             yLabel:  "α1",
             color:   Theme.ulf,
@@ -1343,8 +1343,8 @@ struct MetricsChartsView: View, Equatable {
 
     private var lfhfCard: some View {
         MetricChartCard(
-            title:   "Stress Balance",
-            technicalName: "100·(1 − RMSSD index) (SNS %)",
+            title:   metricDef(.stressBalance).label,
+            technicalName: metricDef(.stressBalance).techFull,
             subtitle: "Balance of activation vs rest",
             yLabel:  "%",
             color:   Theme.rsa,

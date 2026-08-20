@@ -99,6 +99,11 @@
   .mini.actline svg { height: 150px; }
   .band { opacity: .10; }
   .edge { stroke: var(--dim); stroke-width: 1; opacity: .45; stroke-dasharray: 3 3; }
+  .avg { fill: var(--text); font: 10px var(--mono); opacity: .75; }
+  .avg.better { fill: var(--accent); opacity: 1; font-weight: 650; }
+  .avg.worse  { fill: var(--warn);   opacity: 1; font-weight: 650; }
+  .mini.actline svg { cursor: crosshair; }
+  .mini.actline svg.pinned { outline: 1px solid var(--border); border-radius: 8px; }
   .phase { stroke: var(--text); stroke-width: 1.5; opacity: .55; stroke-dasharray: 5 3; }
   .tbar { opacity: .85; }
   .tbar.best  { stroke: var(--accent); stroke-width: 2; opacity: 1; }
@@ -758,6 +763,7 @@
       }
       return `<div class="mini track actline" data-key="${col}" data-dp="${dp}"
                    data-color="${ACT_COLOR[key] || "var(--accent)"}"
+                   data-higher="${higherBetter ? 1 : 0}"
                    data-phases='${esc(JSON.stringify({ before: b, during: a[`during_${key}`], after: af }))}'>
         <div class="cap"><span class="t">${esc(label)}</span>
           <span class="v" style="color:${ACT_COLOR[key] || "var(--accent)"}">${af == null ? "—" : fmt(af, dp)}</span></div>
@@ -807,15 +813,29 @@
       el += `<line class="edge" x1="${pxOf(t).toFixed(1)}" y1="${pad.t}" x2="${pxOf(t).toFixed(1)}" y2="${base}"/>`;
     });
 
-    // Phase averages, each spanning only its own phase.
-    const rule = (v, from, to) => {
+    // Phase averages, each spanning only its own phase, each labelled the way
+    // the app labels them: the average, plus a benefit-signed % vs before on
+    // the during and after rules (green better, red worse).
+    const higher = box.dataset.higher === "1";
+    const rule = (v, from, to, withPct) => {
       if (v == null) return "";
-      const y = pyOf(v).toFixed(1);
-      return `<line class="phase" x1="${pxOf(from).toFixed(1)}" y1="${y}" x2="${pxOf(to).toFixed(1)}" y2="${y}"/>`;
+      const y = pyOf(v), x1 = pxOf(from), x2 = pxOf(to);
+      let s = `<line class="phase" x1="${x1.toFixed(1)}" y1="${y.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y.toFixed(1)}"/>`;
+      let label = fmt(v, dp);
+      let pctCls = "";
+      if (withPct && phases.before != null && phases.before !== 0) {
+        const pct = (v - phases.before) / Math.abs(phases.before) * 100;
+        const better = higher ? pct >= 0 : pct <= 0;
+        label += `  ${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(0)}%`;
+        pctCls = better ? " better" : " worse";
+      }
+      const mid = (x1 + x2) / 2;
+      s += `<text class="avg${pctCls}" x="${mid.toFixed(1)}" y="${(y - 4).toFixed(1)}" text-anchor="middle">${label}</text>`;
+      return s;
     };
-    el += rule(phases.before, meta.wStart, meta.start);
-    el += rule(phases.during, meta.start, meta.end);
-    el += rule(phases.after, meta.end, meta.wEnd);
+    el += rule(phases.before, meta.wStart, meta.start, false);
+    el += rule(phases.during, meta.start, meta.end, true);
+    el += rule(phases.after, meta.end, meta.wEnd, true);
 
     const d = series.map((p, i) => `${i ? "L" : "M"}${pxOf(p.t).toFixed(1)},${pyOf(p.v).toFixed(1)}`).join(" ");
     el += `<path class="line" stroke="${color}" d="${d}"/>`;
@@ -844,15 +864,29 @@
       const r = svg.getBoundingClientRect();
       showTip(r.left + x * (r.width / W), r.top + y * (r.height / H), sig, p, span);
     };
-    svg.addEventListener("pointermove", (e) => {
+    const nearest = (clientX) => {
       const r = svg.getBoundingClientRect();
-      const t = x0 + ((e.clientX - r.left) / r.width * W - pad.l) / (W - pad.l - pad.r) * span;
+      const t = x0 + ((clientX - r.left) / r.width * W - pad.l) / (W - pad.l - pad.r) * span;
       let best = 0;
       for (let i = 1; i < series.length; i++)
         if (Math.abs(series[i].t - t) < Math.abs(series[best].t - t)) best = i;
-      setCursor(best);
+      return best;
+    };
+    // Hover previews; a click pins the readout so a value can be read, copied
+    // or compared without holding the pointer still. Click again to release.
+    svg.addEventListener("pointermove", (e) => { if (!box.dataset.pinned) setCursor(nearest(e.clientX)); });
+    svg.addEventListener("pointerleave", () => {
+      if (box.dataset.pinned) return;
+      cursor.style.display = "none"; hideTip();
     });
-    svg.addEventListener("pointerleave", () => { cursor.style.display = "none"; hideTip(); });
+    svg.addEventListener("click", (e) => {
+      if (box.dataset.pinned) { delete box.dataset.pinned; svg.classList.remove("pinned"); }
+      else { box.dataset.pinned = "1"; svg.classList.add("pinned"); }
+      setCursor(nearest(e.clientX));
+    });
+    svg.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { delete box.dataset.pinned; svg.classList.remove("pinned"); cursor.style.display = "none"; hideTip(); }
+    });
   }
 
   // ── Charts ────────────────────────────────────────────────────────────

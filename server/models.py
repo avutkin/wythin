@@ -208,6 +208,15 @@ class InsightRequest(BaseModel):
     before_lf_hf: Optional[float] = None
     during_lf_hf: Optional[float] = None
     after_lf_hf:  Optional[float] = None
+    # The rest of what the session detail charts. Optional like everything
+    # else here, so a client that predates them still gets a read — it just
+    # gets a thinner one. See `_ACTIVITY_METRICS` in routers/insights.py.
+    before_rmssd:  Optional[float] = None; during_rmssd:  Optional[float] = None; after_rmssd:  Optional[float] = None
+    before_dc:     Optional[float] = None; during_dc:     Optional[float] = None; after_dc:     Optional[float] = None
+    before_rcmse:  Optional[float] = None; during_rcmse:  Optional[float] = None; after_rcmse:  Optional[float] = None
+    before_pip:    Optional[float] = None; during_pip:    Optional[float] = None; after_pip:    Optional[float] = None
+    before_dfa1:   Optional[float] = None; during_dfa1:   Optional[float] = None; after_dfa1:   Optional[float] = None
+    before_stress: Optional[float] = None; during_stress: Optional[float] = None; after_stress: Optional[float] = None
 
     # "live_state" mode fields
     window_minutes: Optional[int] = None

@@ -41,9 +41,9 @@ final class ActivityTargetTests: XCTestCase {
 
 /// Insight client that never returns — logPast fires generation in a detached
 /// Task we don't await, so this just has to not make a network call.
-/// InsightAPIClient (APIClient.swift:406) declares exactly these two methods.
 private struct NoopInsightClient: InsightAPIClient {
     struct Stop: Error {}
     func generateInsight(_ payload: InsightPayload) async throws -> InsightResponse { throw Stop() }
     func generateLiveStateInsight(_ payload: LiveStateInsightPayload) async throws -> InsightResponse { throw Stop() }
+    func generateSleepInsight(_ payload: SleepInsightPayload) async throws -> InsightResponse { throw Stop() }
 }

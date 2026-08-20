@@ -25,8 +25,9 @@ import Foundation
 ///
 /// The sequence is the Live charts' original stack, restored by request after
 /// a 2026-08-06 re-ordering: Vagal Tone, Adaptive Capacity, Inner Noise,
-/// Harmony, Stress Balance, then Breath Rate, Conscious Breathing, Calm
-/// Power, Energy Reserve, Pulse. The cases no surface charts trail at the end.
+/// Harmony, Stress Balance, then Breath Rate, Conscious Breathing, Calm Power
+/// (`.rmssd` — `.vti` is its log and shows nowhere), Pulse. The cases no
+/// surface charts trail at the end.
 enum LiveMetric: String, CaseIterable {
     case dc         = "dc"
     case rcmse      = "rcmse"
@@ -46,7 +47,7 @@ enum LiveMetric: String, CaseIterable {
     var displayName: String {
         switch self {
         case .hr:        return "heart rate"
-        case .rmssd:     return "recovery"
+        case .rmssd:     return "calm power"
         case .rsa:       return "breathing depth"
         case .sdnn:      return "overall variability"
         case .stressBalance: return "stress balance"
@@ -57,7 +58,7 @@ enum LiveMetric: String, CaseIterable {
         case .dfa1:      return "focus"
         case .dc:        return "settling depth"
         case .rcmse:     return "adaptability"
-        case .vti:       return "calm power"
+        case .vti:       return "recovery drive"
         }
     }
 

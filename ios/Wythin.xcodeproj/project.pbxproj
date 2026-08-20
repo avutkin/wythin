@@ -96,6 +96,7 @@
 		A143 /* ECGQualityCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F143 /* ECGQualityCompute.swift */; };
 		A144 /* SignalQualityTier+Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F144 /* SignalQualityTier+Theme.swift */; };
 		A145 /* InsightGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F145 /* InsightGenerator.swift */; };
+		A196 /* SleepInsightPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = F196 /* SleepInsightPayload.swift */; };
 		A146 /* LiveStateTrendCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F146 /* LiveStateTrendCompute.swift */; };
 		A147 /* LiveStateWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F147 /* LiveStateWidget.swift */; };
 		A991 /* LiveDeltaTile.swift in Sources */ = {isa = PBXBuildFile; fileRef = F991 /* LiveDeltaTile.swift */; };
@@ -207,6 +208,8 @@
 		AT44 /* TrackCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT44 /* TrackCacheTests.swift */; };
 		AT45 /* TrackPeriodTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT45 /* TrackPeriodTests.swift */; };
 		AT46 /* TrackMetricSpecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT46 /* TrackMetricSpecTests.swift */; };
+		AT97 /* SleepInsightPayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT97 /* SleepInsightPayloadTests.swift */; };
+		AT96 /* MetricNamingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT96 /* MetricNamingTests.swift */; };
 		AT47 /* TrackSeriesBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT47 /* TrackSeriesBuilderTests.swift */; };
 		AT48 /* ConsistencySummaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT48 /* ConsistencySummaryTests.swift */; };
 		AT40 /* RSAComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT40 /* RSAComputeTests.swift */; };
@@ -268,6 +271,7 @@
 		A710 /* PreparedNightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F710 /* PreparedNightTests.swift */; };
 		A718 /* SleepRecorderPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F718 /* SleepRecorderPersistenceTests.swift */; };
 		A717 /* PositionBandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F717 /* PositionBandTests.swift */; };
+		A719 /* SleepMontageRulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F719 /* SleepMontageRulerTests.swift */; };
 		A716 /* PostureComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F716 /* PostureComputeTests.swift */; };
 		A714 /* StageProportionDiagnostic.swift in Sources */ = {isa = PBXBuildFile; fileRef = F714 /* StageProportionDiagnostic.swift */; };
 		A712 /* SleepMetricSeriesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F712 /* SleepMetricSeriesTests.swift */; };
@@ -279,7 +283,6 @@
 		A773 /* RealNightFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F773 /* RealNightFixture.swift */; };
 		A774 /* RealNightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F774 /* RealNightTests.swift */; };
 		A775 /* SleepMontageChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = F775 /* SleepMontageChart.swift */; };
-		A713 /* SleepMetricChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = F713 /* SleepMetricChart.swift */; };
 		A709 /* PreparedNight.swift in Sources */ = {isa = PBXBuildFile; fileRef = F709 /* PreparedNight.swift */; };
 		A776 /* SleepDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F776 /* SleepDetailView.swift */; };
 		A777 /* SleepBreathing.swift in Sources */ = {isa = PBXBuildFile; fileRef = F777 /* SleepBreathing.swift */; };
@@ -388,6 +391,7 @@
 		F143 /* ECGQualityCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ECGQualityCompute.swift; sourceTree = "<group>"; };
 		F144 /* SignalQualityTier+Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SignalQualityTier+Theme.swift"; sourceTree = "<group>"; };
 		F145 /* InsightGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightGenerator.swift; sourceTree = "<group>"; };
+		F196 /* SleepInsightPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepInsightPayload.swift; sourceTree = "<group>"; };
 		F146 /* LiveStateTrendCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateTrendCompute.swift; sourceTree = "<group>"; };
 		F147 /* LiveStateWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateWidget.swift; sourceTree = "<group>"; };
 		F991 /* LiveDeltaTile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDeltaTile.swift; sourceTree = "<group>"; };
@@ -502,6 +506,8 @@
 		FT44 /* TrackCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackCacheTests.swift; sourceTree = "<group>"; };
 		FT45 /* TrackPeriodTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPeriodTests.swift; sourceTree = "<group>"; };
 		FT46 /* TrackMetricSpecTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackMetricSpecTests.swift; sourceTree = "<group>"; };
+		FT97 /* SleepInsightPayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepInsightPayloadTests.swift; sourceTree = "<group>"; };
+		FT96 /* MetricNamingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricNamingTests.swift; sourceTree = "<group>"; };
 		FT47 /* TrackSeriesBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackSeriesBuilderTests.swift; sourceTree = "<group>"; };
 		FT48 /* ConsistencySummaryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsistencySummaryTests.swift; sourceTree = "<group>"; };
 		FT40 /* RSAComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSAComputeTests.swift; sourceTree = "<group>"; };
@@ -561,6 +567,7 @@
 		F710 /* PreparedNightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedNightTests.swift; sourceTree = "<group>"; };
 		F718 /* SleepRecorderPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepRecorderPersistenceTests.swift; sourceTree = "<group>"; };
 		F717 /* PositionBandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionBandTests.swift; sourceTree = "<group>"; };
+		F719 /* SleepMontageRulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepMontageRulerTests.swift; sourceTree = "<group>"; };
 		F716 /* PostureComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostureComputeTests.swift; sourceTree = "<group>"; };
 		F714 /* StageProportionDiagnostic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StageProportionDiagnostic.swift; sourceTree = "<group>"; };
 		F712 /* SleepMetricSeriesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepMetricSeriesTests.swift; sourceTree = "<group>"; };
@@ -572,7 +579,6 @@
 		F773 /* RealNightFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealNightFixture.swift; sourceTree = "<group>"; };
 		F774 /* RealNightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RealNightTests.swift; sourceTree = "<group>"; };
 		F775 /* SleepMontageChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepMontageChart.swift; sourceTree = "<group>"; };
-		F713 /* SleepMetricChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepMetricChart.swift; sourceTree = "<group>"; };
 		F709 /* PreparedNight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedNight.swift; sourceTree = "<group>"; };
 		F776 /* SleepDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepDetailView.swift; sourceTree = "<group>"; };
 		F777 /* SleepBreathing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepBreathing.swift; sourceTree = "<group>"; };
@@ -618,7 +624,6 @@
 			children = (
 				F776 /* SleepDetailView.swift */,
 				F775 /* SleepMontageChart.swift */,
-				F713 /* SleepMetricChart.swift */,
 				F709 /* PreparedNight.swift */,
 				F772 /* SleepLogRow.swift */,
 				F137 /* ActivitiesView.swift */,
@@ -869,6 +874,7 @@
 				069EE46E63C336F2DE95016D /* ActivityRestore.swift */,
 				F261 /* FeltStateLogUploader.swift */,
 				F145 /* InsightGenerator.swift */,
+				F196 /* SleepInsightPayload.swift */,
 				FE6F0E9C8772030B86BA730E /* UsageUploader.swift */,
 			);
 			path = Sync;
@@ -929,6 +935,7 @@
 				F710 /* PreparedNightTests.swift */,
 				F718 /* SleepRecorderPersistenceTests.swift */,
 				F717 /* PositionBandTests.swift */,
+				F719 /* SleepMontageRulerTests.swift */,
 				F716 /* PostureComputeTests.swift */,
 						F714 /* StageProportionDiagnostic.swift */,
 				F712 /* SleepMetricSeriesTests.swift */,
@@ -1007,6 +1014,8 @@
 				FT44 /* TrackCacheTests.swift */,
 				FT45 /* TrackPeriodTests.swift */,
 				FT46 /* TrackMetricSpecTests.swift */,
+				FT97 /* SleepInsightPayloadTests.swift */,
+				FT96 /* MetricNamingTests.swift */,
 				FT47 /* TrackSeriesBuilderTests.swift */,
 				FT48 /* ConsistencySummaryTests.swift */,
 				FT49 /* ConsistencyCardTests.swift */,
@@ -1123,7 +1132,6 @@
 				A777 /* SleepBreathing.swift in Sources */,
 				A776 /* SleepDetailView.swift in Sources */,
 				A775 /* SleepMontageChart.swift in Sources */,
-				A713 /* SleepMetricChart.swift in Sources */,
 				A709 /* PreparedNight.swift in Sources */,
 				A772 /* SleepLogRow.swift in Sources */,
 				A771 /* SleepRecorder.swift in Sources */,
@@ -1164,6 +1172,7 @@
 				8347B3DDA06ADC21D3E5F709 /* ActivityRestore.swift in Sources */,
 				A261 /* FeltStateLogUploader.swift in Sources */,
 				A145 /* InsightGenerator.swift in Sources */,
+				A196 /* SleepInsightPayload.swift in Sources */,
 				A114 /* HRVSession.swift in Sources */,
 				A115 /* HRVSample.swift in Sources */,
 				A116 /* ResonanceResult.swift in Sources */,
@@ -1307,6 +1316,7 @@
 				A710 /* PreparedNightTests.swift in Sources */,
 				A718 /* SleepRecorderPersistenceTests.swift in Sources */,
 				A717 /* PositionBandTests.swift in Sources */,
+				A719 /* SleepMontageRulerTests.swift in Sources */,
 				A716 /* PostureComputeTests.swift in Sources */,
 						A714 /* StageProportionDiagnostic.swift in Sources */,
 				A712 /* SleepMetricSeriesTests.swift in Sources */,
@@ -1339,6 +1349,8 @@
 				AT44 /* TrackCacheTests.swift in Sources */,
 				AT45 /* TrackPeriodTests.swift in Sources */,
 				AT46 /* TrackMetricSpecTests.swift in Sources */,
+				AT97 /* SleepInsightPayloadTests.swift in Sources */,
+				AT96 /* MetricNamingTests.swift in Sources */,
 				AT47 /* TrackSeriesBuilderTests.swift in Sources */,
 				AT48 /* ConsistencySummaryTests.swift in Sources */,
 				AT49 /* ConsistencyCardTests.swift in Sources */,

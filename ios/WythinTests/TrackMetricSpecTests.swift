@@ -9,7 +9,7 @@ final class TrackMetricSpecTests: XCTestCase {
         stressBalance: 45, vti: 3.7, meanBPM: 60,
         sampleCount: 200, wearSeconds: 400, mean: [:], sd: [:])
 
-    func testHasExactlySevenMetricsInOrder() {
+    func testHasExactlyEightMetricsInOrder() {
         // Matches `LiveMetric`'s declaration order for the cases the two
         // screens share (dc, rcmse, pip, dfa1, stressBalance, rsa, rmssd) —
         // see `testOrderMatchesLiveMetricDeclarationOrder` below, which pins
@@ -17,7 +17,7 @@ final class TrackMetricSpecTests: XCTestCase {
         // label list that could drift out of sync with `LiveMetric` unnoticed.
         XCTAssertEqual(TrackMetrics.all.map(\.def.label), [
             "Vagal Tone", "Adaptive Capacity", "Inner Noise", "Harmony",
-            "Stress Balance", "Conscious Breathing", "Energy Reserve",
+            "Stress Balance", "Conscious Breathing", "Calm Power",
             "Overall Variability",
         ])
     }
@@ -35,7 +35,7 @@ final class TrackMetricSpecTests: XCTestCase {
     /// fresh, since it doesn't derive its expectation from `LiveMetric` at all.
     func testOrderMatchesLiveMetricDeclarationOrder() {
         let liveCase: [String: LiveMetric] = [
-            "Vagal Tone": .dc, "Energy Reserve": .rmssd, "Conscious Breathing": .rsa,
+            "Vagal Tone": .dc, "Calm Power": .rmssd, "Conscious Breathing": .rsa,
             "Adaptive Capacity": .rcmse, "Harmony": .dfa1, "Inner Noise": .pip,
             "Stress Balance": .stressBalance, "Overall Variability": .sdnn,
         ]
@@ -51,10 +51,9 @@ final class TrackMetricSpecTests: XCTestCase {
         XCTAssertEqual(Set(liveCase.keys), Set(TrackMetrics.all.map(\.def.label)))
     }
 
-    func testExcludesPulseAndCalmPower() {
+    func testExcludesPulse() {
         let labels = Set(TrackMetrics.all.map(\.def.label))
         XCTAssertFalse(labels.contains("Pulse"))
-        XCTAssertFalse(labels.contains("Calm Power"))
     }
 
     func testEveryExtractorReadsItsField() {
@@ -80,7 +79,7 @@ final class TrackMetricSpecTests: XCTestCase {
         }
         XCTAssertFalse(spec("Adaptive Capacity").zeroBased)
         XCTAssertFalse(spec("Harmony").zeroBased)
-        XCTAssertTrue(spec("Energy Reserve").zeroBased)
+        XCTAssertTrue(spec("Calm Power").zeroBased)
     }
 
     func testDirectionsComeFromTheSharedRegistry() {
@@ -137,15 +136,14 @@ final class TrackMetricSpecTests: XCTestCase {
     }
 
     /// Names the measure, not a family or a stale alias. Each of these was
-    /// wrong on screen at some point: Energy Reserve said "HRV" (a family,
-    /// not a measure), Calm Power said "VTI" (a historical alias for ln
-    /// RMSSD), and Stress Balance said "LF/HF" — which it has never plotted.
+    /// wrong on screen at some point: the RMSSD card said "HRV" (a family, not
+    /// a measure), the name "Calm Power" sat on the log of the measure beside
+    /// it, and Stress Balance said "LF/HF" — which it has never plotted.
     func testTechLabelsNameTheActualMeasure() {
         func def(_ label: String) -> ActivityMetricDef {
             activityMetricDefs.first { $0.label == label }!
         }
-        XCTAssertEqual(def("Energy Reserve").techLabel, "RMSSD")
-        XCTAssertEqual(def("Calm Power").techLabel, "ln RMSSD")
+        XCTAssertEqual(def("Calm Power").techLabel, "RMSSD")
         XCTAssertNotEqual(def("Stress Balance").techLabel, "LF/HF")
 
         // And every metric spells its measure out somewhere, so an

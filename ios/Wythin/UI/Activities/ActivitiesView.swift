@@ -333,9 +333,12 @@ private struct ActiveActivityBanner: View {
             }
 
             HStack(spacing: 0) {
-                MetricPill(label: "HR",  value: MetricFormat.bpm(tick?.meanBPM),  unit: "bpm")
-                MetricPill(label: "RSA", value: MetricFormat.ms(tick?.rsaMs),     unit: "ms")
-                MetricPill(label: "VTI", value: MetricFormat.ratio(tick?.vti),    unit: "")
+                // Tech labels and units from the shared registry — a session in
+                // progress must not show a different measure (or a different
+                // name for it) than the Live tab three taps away.
+                MetricPill(label: metricDef(.hr).techLabel,    value: MetricFormat.bpm(tick?.meanBPM), unit: "bpm")
+                MetricPill(label: metricDef(.rsa).techLabel,   value: MetricFormat.ms(tick?.rsaMs),    unit: "ms")
+                MetricPill(label: metricDef(.rmssd).techLabel, value: MetricFormat.ms(tick?.rmssd),    unit: "ms")
             }
 
             Button(action: onStop) {

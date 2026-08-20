@@ -46,7 +46,17 @@ struct InsightPayload: Codable {
     let beforeHR: Float?;    let duringHR: Float?;    let afterHR: Float?
     let beforeRSA: Float?;   let duringRSA: Float?;   let afterRSA: Float?
     let beforeSDNN: Float?;  let duringSDNN: Float?;  let afterSDNN: Float?
-    let beforeLFHF: Float?;  let duringLFHF: Float?;  let afterLFHF: Float?
+    // The rest of what the session detail charts. The read is printed under
+    // those charts, so it is written from the same numbers rather than from a
+    // four-metric subset of them. The raw LF/HF ratio is deliberately not sent
+    // at all: it climbs during slow paced breathing, and a coach handed it
+    // calls the calmest thing you can do sympathetic activation.
+    let beforeRMSSD: Float?; let duringRMSSD: Float?; let afterRMSSD: Float?
+    let beforeDC: Float?;    let duringDC: Float?;    let afterDC: Float?
+    let beforeRCMSE: Float?; let duringRCMSE: Float?; let afterRCMSE: Float?
+    let beforePIP: Float?;   let duringPIP: Float?;   let afterPIP: Float?
+    let beforeDFA1: Float?;  let duringDFA1: Float?;  let afterDFA1: Float?
+    let beforeStress: Float?; let duringStress: Float?; let afterStress: Float?
 
     enum CodingKeys: String, CodingKey {
         case activityType    = "activity_type"
@@ -55,7 +65,12 @@ struct InsightPayload: Codable {
         case beforeHR = "before_hr"; case duringHR = "during_hr"; case afterHR = "after_hr"
         case beforeRSA = "before_rsa"; case duringRSA = "during_rsa"; case afterRSA = "after_rsa"
         case beforeSDNN = "before_sdnn"; case duringSDNN = "during_sdnn"; case afterSDNN = "after_sdnn"
-        case beforeLFHF = "before_lf_hf"; case duringLFHF = "during_lf_hf"; case afterLFHF = "after_lf_hf"
+        case beforeRMSSD = "before_rmssd"; case duringRMSSD = "during_rmssd"; case afterRMSSD = "after_rmssd"
+        case beforeDC = "before_dc"; case duringDC = "during_dc"; case afterDC = "after_dc"
+        case beforeRCMSE = "before_rcmse"; case duringRCMSE = "during_rcmse"; case afterRCMSE = "after_rcmse"
+        case beforePIP = "before_pip"; case duringPIP = "during_pip"; case afterPIP = "after_pip"
+        case beforeDFA1 = "before_dfa1"; case duringDFA1 = "during_dfa1"; case afterDFA1 = "after_dfa1"
+        case beforeStress = "before_stress"; case duringStress = "during_stress"; case afterStress = "after_stress"
     }
 }
 
@@ -432,6 +447,16 @@ struct APIClient {
         return try JSONDecoder().decode(InsightResponse.self, from: data)
     }
 
+    func generateSleepInsight(_ payload: SleepInsightPayload) async throws -> InsightResponse {
+        var req = request(path: "/insights", method: "POST")
+        // Without this header the server cannot check consent, and a request
+        // whose consent cannot be checked is refused rather than waved through.
+        req.addValue(DeviceIdentity.current, forHTTPHeaderField: "X-User-ID")
+        req.httpBody = try JSONEncoder().encode(payload)
+        let (data, _) = try await session.data(for: req)
+        return try JSONDecoder().decode(InsightResponse.self, from: data)
+    }
+
     func generateMacroTrendInsight(_ payload: MacroTrendPayload) async throws -> InsightResponse {
         var req = request(path: "/insights", method: "POST")
         req.addValue(DeviceIdentity.current, forHTTPHeaderField: "X-User-ID")
@@ -616,6 +641,7 @@ enum DeviceIdentity {
 protocol InsightAPIClient {
     func generateInsight(_ payload: InsightPayload) async throws -> InsightResponse
     func generateLiveStateInsight(_ payload: LiveStateInsightPayload) async throws -> InsightResponse
+    func generateSleepInsight(_ payload: SleepInsightPayload) async throws -> InsightResponse
 }
 
 extension APIClient: InsightAPIClient {}
@@ -682,7 +708,12 @@ extension InsightPayload {
         self.beforeHR   = entry.beforeHR;   self.duringHR   = entry.duringHR;   self.afterHR   = entry.afterHR
         self.beforeRSA  = entry.beforeRSA;  self.duringRSA  = entry.duringRSA;  self.afterRSA  = entry.afterRSA
         self.beforeSDNN = entry.beforeSDNN; self.duringSDNN = entry.duringSDNN; self.afterSDNN = entry.afterSDNN
-        self.beforeLFHF = entry.beforeLFHF; self.duringLFHF = entry.duringLFHF; self.afterLFHF = entry.afterLFHF
+        self.beforeRMSSD = entry.beforeRMSSD; self.duringRMSSD = entry.duringRMSSD; self.afterRMSSD = entry.afterRMSSD
+        self.beforeDC = entry.beforeDC; self.duringDC = entry.duringDC; self.afterDC = entry.afterDC
+        self.beforeRCMSE = entry.beforeRCMSE; self.duringRCMSE = entry.duringRCMSE; self.afterRCMSE = entry.afterRCMSE
+        self.beforePIP = entry.beforePIP; self.duringPIP = entry.duringPIP; self.afterPIP = entry.afterPIP
+        self.beforeDFA1 = entry.beforeDFA1; self.duringDFA1 = entry.duringDFA1; self.afterDFA1 = entry.afterDFA1
+        self.beforeStress = entry.beforeStress; self.duringStress = entry.duringStress; self.afterStress = entry.afterStress
     }
 }
 

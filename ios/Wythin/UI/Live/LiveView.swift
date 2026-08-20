@@ -1152,31 +1152,30 @@ private struct MetricsTableView: View {
     private let cols = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
 
     var body: some View {
-        // `LiveMetric`'s declaration order — the app's canonical display
-        // order, shared with the Track charts and the Live history charts.
-        // Nine of the ten chart slots appear as tiles — Calm Power carries
-        // RMSSD raw, and Energy Reserve is gone as its duplicate.
+        // `activityMetricDefs` — the app's one naming registry, in `LiveMetric`
+        // declaration order. The tiles ARE the Activities grid's metrics: same
+        // names, same units, same formatting, same benefit directions, because
+        // they are the same table. Nothing here is typed twice, which is what
+        // let the Live tiles call RMSSD "Calm Power" while the session detail
+        // called it "Energy Reserve". Breath Rate has a chart but no tile.
         LazyVGrid(columns: cols, spacing: 10) {
-            tile("Vagal Tone",          "DC",     "ms",  .dc,            { $0?.dc })     { String(format: "%.1f", $0) }
-            tile("Adaptive Capacity",   "RCMSE",  "",    .rcmse,         { $0?.rcmse })  { String(format: "%.2f", $0) }
-            tile("Inner Noise",         "PIP",    "%",   .pip,           { $0?.pip })    { String(format: "%.1f", $0) }
-            tile("Harmony",             "DFA α1", "",    .dfa1,          { $0?.dfa1 })   { String(format: "%.2f", $0) }
-            tile("Stress Balance",      "SNS",    "%",   .stressBalance, stressBalance) { String(format: "%.0f", $0) }
-            tile("Breath Rate",         "br/min", "",    .breathBPM,     { $0?.breathBPM }) { String(format: "%.1f", $0) }
-            tile("Conscious Breathing", "RSA",    "ms",  .rsa,           { $0?.rsaMs })  { String(format: "%.1f", $0) }
-            tile("Calm Power",          "RMSSD",  "ms",  .rmssd,         { $0?.rmssd })  { String(format: "%.1f", $0) }
-            tile("Pulse",               "HR",     "bpm", .hr,            { $0?.meanBPM }) { String(format: "%.0f", $0) }
+            ForEach(activityMetricDefs) { tile($0) }
         }
+    }
+
+    /// A metric's value at one tick, read through the shared def so the tile
+    /// and the session detail cannot compute the same metric differently.
+    private func value(_ def: ActivityMetricDef, _ t: MetricsTick?) -> Float? {
+        t.flatMap { def.extract(MetricsHistoryPoint(from: $0)).map(Float.init) }
     }
 
     /// One tile's plumbing: on today, `tick` is live and `dayAvg` is the day;
     /// on past days `tick` IS the day and there is no "now".
-    private func tile(_ label: String, _ tech: String, _ unit: String,
-                      _ metric: LiveMetric,
-                      _ value: (MetricsTick?) -> Float?,
-                      _ fmt: (Float) -> String) -> LiveDeltaTile {
-        let current  = value(tick)
-        let dayValue = dayAvg != nil ? value(dayAvg) : current
+    private func tile(_ def: ActivityMetricDef) -> LiveDeltaTile {
+        let metric   = def.metric
+        let fmt: (Float) -> String = { def.format(Double($0)) }
+        let current  = value(def, tick)
+        let dayValue = dayAvg != nil ? value(def, dayAvg) : current
 
         let delta = dayValue.flatMap { d in
             reference.flatMap { LiveDayDelta.compute(value: d, metric: metric, reference: $0) }
@@ -1193,9 +1192,9 @@ private struct MetricsTableView: View {
         }
 
         return LiveDeltaTile(
-            label:      label,
-            techLabel:  tech,
-            unit:       unit,
+            label:      def.label,
+            techLabel:  def.techLabel,
+            unit:       def.unit,
             valueText:  current.map(fmt) ?? "—",
             todayText:  dayAvg != nil ? dayValue.map(fmt) : nil,
             refText:    reference?.stat(for: metric).map { fmt($0.mean) },
@@ -1205,15 +1204,6 @@ private struct MetricsTableView: View {
         )
     }
 
-    /// Breathing-robust 0–100 stress dial (SNS %), the same signal the Stress
-    /// Balance chart plots — NOT the raw LF/HF ratio, which misleads during
-    /// slow breathing.
-    private func stressBalance(_ t: MetricsTick?) -> Float? {
-        guard let t else { return nil }
-        return AutonomicCompute.balance(rmssd: t.rmssd, lf: t.lfPower, hf: t.hfPower,
-                                        breathBPM: t.breathBPM, meanBPM: t.meanBPM,
-                                        baselineRmssd: nil).map { $0.sns * 100 }
-    }
 }
 
 // MARK: - Preview

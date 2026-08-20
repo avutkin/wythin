@@ -634,7 +634,7 @@ def test_macro_trend_names_avoid_every_banned_token():
         assert key not in text, f"{key!r} leaked into the prompt as a raw key"
 
     # The app's names, matching the card headings the read sits above.
-    for name in ["Vagal Tone", "Energy Reserve", "Conscious Breathing",
+    for name in ["Vagal Tone", "Calm Power", "Conscious Breathing",
                  "Adaptive Capacity", "Harmony", "Inner Noise", "Stress Balance"]:
         assert name in text, (
             f"{name!r} is the app's own card heading and must be the name the "
@@ -823,3 +823,85 @@ async def test_profile_omitting_consent_is_treated_as_no():
         app.dependency_overrides.pop(get_openai_client, None)
 
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# The session read names the metrics the session screen shows
+# ---------------------------------------------------------------------------
+
+_FULL_ACTIVITY_PAYLOAD = {
+    "activity_type": "Breathwork",
+    "activity_subtype": "Breath Hold",
+    "duration_min": 5,
+    "before_hr": 83.0,     "during_hr": 82.0,     "after_hr": 82.0,
+    "before_rmssd": 34.0,  "during_rmssd": 41.0,  "after_rmssd": 38.0,
+    "before_rsa": 24.0,    "during_rsa": 47.0,    "after_rsa": 30.0,
+    "before_dc": 6.1,      "during_dc": 8.4,      "after_dc": 7.0,
+    "before_rcmse": 1.3,   "during_rcmse": 1.5,   "after_rcmse": 1.4,
+    "before_pip": 57.0,    "during_pip": 51.0,    "after_pip": 54.0,
+    "before_dfa1": 0.88,   "during_dfa1": 0.97,   "after_dfa1": 0.93,
+    "before_stress": 55.0, "during_stress": 44.0, "after_stress": 48.0,
+    "before_sdnn": 46.0,   "during_sdnn": 58.0,   "after_sdnn": 50.0,
+}
+
+
+def test_activity_format_names_every_metric_the_session_screen_charts():
+    """The read is printed directly beneath those charts. A read built from a
+    four-metric subset described a session the person could not see."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    text = _format_metrics(InsightRequest(**_FULL_ACTIVITY_PAYLOAD))
+    for name in ["Vagal Tone", "Adaptive Capacity", "Inner Noise", "Harmony",
+                 "Stress Balance", "Conscious Breathing", "Calm Power", "Pulse"]:
+        assert name in text, f"{name!r} is charted on the session screen but not in the read's input"
+
+
+def test_activity_format_hands_the_model_no_name_the_screen_lacks():
+    """Every metric arrives under its consumer name, never as the raw
+    abbreviation — the model can only say back what it was given, and the
+    reply that prompted this said 'RSA and SDNN increased' and cited an
+    'LF/HF ratio' under a screen carrying none of those three words."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    text = _format_metrics(InsightRequest(**_FULL_ACTIVITY_PAYLOAD))
+    for token in ["RMSSD", "SDNN", "LF/HF", "HRV", "RSA:", "DFA", "PIP"]:
+        assert token not in text, f"{token!r} is not a name the app shows anywhere"
+
+
+def test_activity_format_never_feeds_the_raw_lf_hf_ratio():
+    """LF/HF rises during slow paced breathing — the vagal peak moves out of
+    HF into LF — so a coach handed it reads the calmest thing a person can do
+    as sympathetic activation. Stress Balance is what the app uses instead."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    payload = dict(_FULL_ACTIVITY_PAYLOAD)
+    payload.update({"before_lf_hf": 0.7, "during_lf_hf": 4.2, "after_lf_hf": 1.1})
+    text = _format_metrics(InsightRequest(**payload))
+    assert "4.2" not in text
+    assert "Stress Balance" in text
+
+
+def test_activity_format_skips_metrics_the_client_did_not_send():
+    """An older build sends a subset. It gets a thinner read, not a read full
+    of `None`s."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    text = _format_metrics(InsightRequest(**_PAYLOAD))
+    assert "Conscious Breathing" in text
+    assert "Calm Power" not in text
+    assert "None" not in text
+
+
+def test_activity_prompt_forbids_the_abbreviations_the_screen_never_shows():
+    """The macro-trend read has carried this rule since it shipped; the
+    session read had none, which is why its text spoke a vocabulary that
+    appears on no screen in the app."""
+    from server.routers.insights import _SYSTEM_PROMPT
+
+    for token in ["HRV", "RMSSD", "SDNN", "LF/HF", "PIP"]:
+        assert token in _SYSTEM_PROMPT, f"{token!r} must be named as forbidden"
+    assert "Calm Power" in _SYSTEM_PROMPT

@@ -27,13 +27,12 @@ struct ActivityLogRow: View {
 
     /// The after-window keypath per metric. The shared def table carries
     /// before/during only (Track never needs after), so the pairing lives here
-    /// rather than widening a struct nine call sites construct.
+    /// rather than widening a struct every call site constructs.
     private static let afterKeys: [String: KeyPath<ActivityLog, Float?>] = [
         "Vagal Tone": \.afterDC,          "Adaptive Capacity": \.afterRCMSE,
         "Inner Noise": \.afterPIP,        "Harmony": \.afterDFA1,
         "Stress Balance": \.afterStress,  "Conscious Breathing": \.afterRSA,
-        "Calm Power": \.afterVTI,         "Energy Reserve": \.afterRMSSD,
-        "Pulse": \.afterHR,
+        "Calm Power": \.afterRMSSD,       "Pulse": \.afterHR,
     ]
 
     struct Reading: Identifiable {

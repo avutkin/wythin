@@ -60,18 +60,21 @@ enum LiveDayComparison {
         return LiveDayReference(stats: stats, dayCount: days.count)
     }
 
-    /// Which way "better" points for each live metric. Mirrors
-    /// `activityMetricDefs` for the nine tiles; Harmony's optimum is a target,
-    /// not a direction — the old `higherBetter: false` tile flag colored a
-    /// move from 0.7 toward 1.0 as bad.
+    /// Which way "better" points for each live metric. Read from
+    /// `activityMetricDefs` wherever a metric has a def, so a tile and the
+    /// session detail can never disagree about what counts as an improvement;
+    /// the switch spells out the rest. It stays exhaustive on purpose: a new
+    /// `LiveMetric` case must choose a direction, not inherit one. Harmony's
+    /// optimum is a target, not a direction — the old `higherBetter: false`
+    /// tile flag colored a move from 0.7 toward 1.0 as bad.
     static func direction(for metric: LiveMetric) -> BenefitDirection {
         switch metric {
-        case .rsa, .rmssd, .sdnn, .dc, .rcmse, .vti, .coherence, .cbi:
+        case .dc, .rcmse, .pip, .dfa1, .stressBalance, .rsa, .rmssd, .hr:
+            return metricDef(metric).direction
+        case .sdnn, .vti, .coherence, .cbi:
             return .higher
-        case .hr, .pip, .stressBalance, .breathBPM:
+        case .breathBPM:
             return .lower
-        case .dfa1:
-            return .target(1.0)
         }
     }
 }

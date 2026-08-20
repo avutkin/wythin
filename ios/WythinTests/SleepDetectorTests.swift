@@ -125,4 +125,64 @@ final class SleepDetectorTests: XCTestCase {
         XCTAssertGreaterThan(w?.durationSec ?? 0, 7 * 3600,
                              "one night, briefly interrupted — not two short ones")
     }
+
+    func testAQuietEveningPatchDoesNotAnchorTheNight() {
+        // The 17:00 night, exactly as it was recorded.
+        //
+        // The strap went on at 17:00 and the evening was spent awake, but six
+        // quiet minutes on the sofa near the start classified as sleep — long
+        // enough to survive `SleepStages.smooth`, which only absorbs runs under
+        // three minutes. The trim took the FIRST non-wake tick it saw, so the
+        // night anchored to 17:00 and swallowed six hours of evening: a 12 h 37 m
+        // "night" reporting 7 h 15 m awake.
+        //
+        // Sleep onset is a sustained thing. Ten persistent minutes is the
+        // actigraphy convention, and six minutes of sitting still is not it.
+        let points = quietPatch(fromHour: 17, minutes: 6)
+            + awakeStretch(fromHour: 17, fromMinute: 6, hours: 5.9)
+            + night(fromHour: 23, hours: 6.6)
+
+        let w = SleepDetector.detect(points)
+        XCTAssertNotNil(w)
+        XCTAssertEqual(Calendar.current.component(.hour, from: w?.startedAt ?? .distantPast), 23,
+                       "the night starts where sleep is sustained, not at the first quiet tick")
+        XCTAssertEqual(w?.durationSec ?? 0, 6.6 * 3600, accuracy: 600,
+                       "six hours of evening are not part of the night")
+    }
+
+    func testATrueShortDozeStillOpensTheNight() {
+        // The complement, so the fix cannot become "ignore the start of sleep".
+        // Twelve minutes is past the sustained floor, so it IS onset even
+        // though a brief arousal follows it.
+        let points = quietPatch(fromHour: 22, minutes: 12)
+            + awakeStretch(fromHour: 22, fromMinute: 12, hours: 0.1)
+            + night(fromHour: 22, fromMinute: 18, hours: 6.5)
+
+        let w = SleepDetector.detect(points)
+        XCTAssertNotNil(w)
+        XCTAssertEqual(Calendar.current.component(.hour, from: w?.startedAt ?? .distantPast), 22)
+        XCTAssertEqual(Calendar.current.component(.minute, from: w?.startedAt ?? .distantPast), 0,
+                       "onset is the start of the sustained stretch, not after the arousal")
+    }
+
+    func testTrimsAQuietPatchOffTheMorningEndToo() {
+        // The same defect at the other end: a short still spell after getting
+        // up must not extend the night by two hours.
+        let points = night(fromHour: 23, hours: 6.5)
+            + awakeStretch(fromHour: 5, fromMinute: 30, hours: 1.9, day: 21)
+            + quietPatch(fromHour: 7, fromMinute: 24, minutes: 6, day: 21)
+
+        let w = SleepDetector.detect(points)
+        XCTAssertNotNil(w)
+        XCTAssertEqual(Calendar.current.component(.hour, from: w?.endedAt ?? .distantPast), 5,
+                       "the night ends at the last sustained sleep, not the last still moment")
+    }
+
+    /// Still and low-pulsed, but only for a few minutes — sitting quietly,
+    /// not sleeping.
+    private func quietPatch(fromHour: Int, fromMinute: Int = 0, minutes: Double,
+                            day: Int = 20) -> [MetricsHistoryPoint] {
+        night(fromHour: fromHour, fromMinute: fromMinute, hours: minutes / 60,
+              day: day, motion: 4, hr: 52)
+    }
 }

@@ -425,7 +425,7 @@ struct ExerciseDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The nine metrics, unchanged, for when you want the underlying numbers.
+    /// The named metrics, unchanged, for when you want the underlying numbers.
     private var rawMetrics: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button {

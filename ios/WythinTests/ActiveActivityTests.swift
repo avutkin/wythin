@@ -193,4 +193,5 @@ private struct NoopClient: InsightAPIClient {
     struct Stop: Error {}
     func generateInsight(_ payload: InsightPayload) async throws -> InsightResponse { throw Stop() }
     func generateLiveStateInsight(_ payload: LiveStateInsightPayload) async throws -> InsightResponse { throw Stop() }
+    func generateSleepInsight(_ payload: SleepInsightPayload) async throws -> InsightResponse { throw Stop() }
 }

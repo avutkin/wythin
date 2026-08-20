@@ -22,8 +22,16 @@ _SYSTEM_PROMPT = (
     "specific activity (e.g. yoga, meditation, breathwork, a run, strength work, "
     "cold exposure). The activity type and subtype are given — treat them as "
     "central; a good session looks different for meditation than for a hard "
-    "workout. You are given the person's heart-rate and HRV metrics before, "
-    "during, and after the session.\n"
+    "workout. You are given the person's metrics before, during, and after the "
+    "session, each under the name the app shows for it.\n"
+    "\n"
+    "NAMES: your reply is displayed directly beneath the charts these metrics "
+    "come from, so call every metric by the exact name given here — Pulse, Calm "
+    "Power, Conscious Breathing, Vagal Tone, Adaptive Capacity, Inner Noise, "
+    "Harmony, Stress Balance, Overall Variability. NEVER use the underlying "
+    "abbreviation or family: no HRV, RMSSD, SDNN, LF/HF, PIP, DFA, RSA or "
+    "entropy. A name the person cannot find on the screen in front of them "
+    "reads as being about someone else's session.\n"
     "\n"
     "Reply in EXACTLY this plain-text structure — no markdown, no bold, nothing "
     "before or after:\n"
@@ -31,9 +39,9 @@ _SYSTEM_PROMPT = (
     "<3-6 word headline: how this session went>\n"
     "<1-2 sentences: the major insight from the metrics — what the body did, and "
     "whether that fits the goal of THIS activity. For calming practices (yoga, "
-    "meditation, breathwork) the aim is heart rate down and RSA/SDNN up with "
-    "stress balance falling; for a hard workout the aim is a strong sympathetic "
-    "push during and good recovery after.>\n"
+    "meditation, breathwork) the aim is Pulse down, Conscious Breathing and Calm "
+    "Power up, and Stress Balance falling; for a hard workout the aim is a "
+    "strong push during and good recovery after.>\n"
     "Next session: <one specific, calibrated recommendation for the next similar "
     "session — for example go slower and lengthen the exhale, focus on the "
     "breath, hold the pose longer, or push harder / add load — chosen from what "
@@ -148,10 +156,10 @@ _LIVE_STATE_SYSTEM_PROMPT = (
     "First read two axes:\n"
     "— STRESS / OVERLOAD is higher when Inner Noise (PIP), LF/HF and HR are high.\n"
     "— RECOVERY / REGULATION is higher when HRV (RMSSD/SDNN), RSA, Vagal Tone "
-    "(DC) and Calm Power (VTI) are high.\n"
+    "(DC) and ln RMSSD are high.\n"
     "Energy / activation is higher when HRV, HR and Adaptive Capacity (RCMSE) are "
     "higher. IMPORTANT: a high or rising HR with GOOD recovery metrics (solid "
-    "RSA/RMSSD/DC/VTI, balanced LF/HF) is high ENERGY, not stress — do not call "
+    "RSA/RMSSD/DC, balanced LF/HF) is high ENERGY, not stress — do not call "
     "it a stress state.\n"
     "\n"
     "The 9 states — the key on the left is what you put first on line 1:\n"
@@ -179,7 +187,8 @@ _LIVE_STATE_SYSTEM_PROMPT = (
     "improving recovery; recharging, resetting. Signature: HR ↓, HRV/DC ↑. "
     "Focus: rest, nourish, be patient.\n"
     "9. renewed_thriving — Renewed & Thriving — low stress, high energy, very "
-    "high recovery; alive, present, resilient. Signature: RSA ↑↑, VTI ↑↑. Focus: "
+    "high recovery; alive, present, resilient. Signature: RSA ↑↑, RMSSD ↑↑. "
+    "Focus: "
     "purpose, connection, contribute.\n"
     "\n"
     "Line 1 is '<state_key> | <fresh title>'. The bullets interpret the strongest "
@@ -197,6 +206,32 @@ def get_openai_client() -> AsyncOpenAI:
     return AsyncOpenAI(api_key=api_key)
 
 
+# The metrics one session is read from, in the order the session detail shows
+# them, under the names it shows them by. This mirrors the app's
+# `activityMetricDefs` (ios/Wythin/UI/Activities/ActivityMetricsGrid.swift):
+# the read is printed directly beneath those charts, so a read naming a measure
+# the screen does not carry — or naming a charted measure something else — is
+# describing a session the person cannot see.
+#
+# The raw LF/HF ratio is deliberately absent even when a client sends it. It
+# rises during slow paced breathing because the vagal peak moves out of the HF
+# band into LF, so handing it to the model has it read the most calming thing
+# a person can do as sympathetic activation — which is exactly what it did,
+# on a breath-hold session, before this list existed. Stress Balance is the
+# breathing-robust dial the app uses instead, and it is here.
+_ACTIVITY_METRICS = [
+    ("dc",     "Vagal Tone",          "ms",  "relaxation and recovery capacity — how readily the heart slows; higher = a stronger brake"),
+    ("rcmse",  "Adaptive Capacity",   "",    "how flexible the system is across timescales; higher = more resilient and responsive"),
+    ("pip",    "Inner Noise",         "%",   "beat-to-beat jitter — erratic, non-restorative variability; lower = a cleaner, calmer signal"),
+    ("dfa1",   "Harmony",             "",    "the fractal balance of the heartbeat, with ~1.0 the healthy sweet spot"),
+    ("stress", "Stress Balance",      "",    "a breathing-robust 0–100 dial of how revved-up versus calm; lower = shifting into rest-and-digest, and slow paced breathing correctly reads as calmer here"),
+    ("rsa",    "Conscious Breathing", "ms",  "how far heart rate swings with each breath; higher = slow, deep, deliberate breathing is landing"),
+    ("rmssd",  "Calm Power",          "ms",  "core beat-to-beat variability, the headline marker of recovery; higher = a rested, adaptable system"),
+    ("hr",     "Pulse",               "bpm", "the overall load on the heart; lower during a calming practice means stress is being offloaded"),
+    ("sdnn",   "Overall Variability", "ms",  "the total spread of beat-to-beat intervals, every rhythm folded into one number"),
+]
+
+
 def _format_metrics(req: InsightRequest) -> str:
     lines = [f"Activity: {req.activity_type}"]
     if req.activity_subtype:
@@ -204,15 +239,16 @@ def _format_metrics(req: InsightRequest) -> str:
     if req.duration_min is not None:
         lines.append(f"Duration: {req.duration_min} min")
 
-    def metric(label: str, unit: str, before, during, after):
+    for key, name, unit, meaning in _ACTIVITY_METRICS:
+        before = getattr(req, f"before_{key}", None)
+        during = getattr(req, f"during_{key}", None)
+        after  = getattr(req, f"after_{key}", None)
         if before is None and during is None and after is None:
-            return
-        lines.append(f"{label}: before={before}{unit} during={during}{unit} after={after}{unit}")
-
-    metric("HR", "bpm", req.before_hr, req.during_hr, req.after_hr)
-    metric("RSA", "ms", req.before_rsa, req.during_rsa, req.after_rsa)
-    metric("SDNN", "ms", req.before_sdnn, req.during_sdnn, req.after_sdnn)
-    metric("LF/HF", "", req.before_lf_hf, req.during_lf_hf, req.after_lf_hf)
+            continue
+        lines.append(
+            f"{name} ({meaning}): "
+            f"before={before}{unit} during={during}{unit} after={after}{unit}"
+        )
     return "\n".join(lines)
 
 
@@ -231,8 +267,12 @@ _METRIC_NAMES = {
                   "capacity; higher = stronger parasympathetic brake",
     "rcmse":      "Adaptive Capacity (multiscale entropy) — flexibility/resilience "
                   "across timescales; higher = more adaptable",
-    "vti":        "Calm Power (vagal tone index, ln RMSSD) — total restorative "
-                  "parasympathetic drive; higher = stronger recovery drive",
+    # ln of the quantity `rmssd` already carries. It must NOT be glossed
+    # "Calm Power": that is the app's name for raw RMSSD, on the card the
+    # live read is printed beside, and two meanings for one name is exactly
+    # the drift this whole table exists to prevent.
+    "vti":        "ln RMSSD — the log of RMSSD above; the same restorative "
+                  "parasympathetic drive on a compressed scale",
     "pip":        "Inner noise — beat-to-beat fragmentation; a focus proxy "
                   "(lower = smoother, more settled attention; higher = scattered/restless)",
     "dfa1":       "DFA alpha-1 — fractal organization of the rhythm; a focus proxy "
@@ -417,7 +457,7 @@ _PERIOD_LABELS = {
 _MACRO_TREND_METRIC_NAMES = {
     "dc": "Vagal Tone — relaxation and recovery capacity; how readily the "
           "heart slows. Higher = a stronger brake, deeper recovery",
-    "rmssd": "Energy Reserve — core beat-to-beat variability, the headline "
+    "rmssd": "Calm Power — core beat-to-beat variability, the headline "
              "marker of recovery. Higher = a rested, adaptable system",
     "rsa": "Conscious Breathing — how far heart rate swings with each breath. "
            "Higher = slow, deep, deliberate breathing is landing",

@@ -3,7 +3,7 @@ import Foundation
 /// The 0–100 score for a restorative practice — meditation, breathwork, a nap,
 /// thermal work.
 ///
-/// Built from how much the nine metrics improved, and nothing else. The
+/// Built from how much the named metrics improved, and nothing else. The
 /// stronger the improvements, the higher the score. This replaces a signed
 /// average change: "+23 %" answered *which direction* the session went, which
 /// is a different question from *how good it was*, and a diverging meter
