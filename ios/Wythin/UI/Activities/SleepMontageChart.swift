@@ -276,6 +276,13 @@ struct SleepMontageChart: View {
                 drawRibbon(&ctx, size)
             }
             .frame(height: 120)
+            // Directly under the hypnogram, where the reference puts it and
+            // where a reader looking at the night's shape actually asks "when
+            // was that?". One ruler at the foot of eleven stacked channels is
+            // correct for a montage and useless for the chart people read —
+            // the times were a full screen of scrolling away from the only
+            // panel most people look at.
+            axis
             Text("Lanes run Awake at the top to N3 at the bottom; every stage has the same height, so depth is position rather than mass.")
                 .font(.system(size: 9))
                 .foregroundStyle(Theme.dim)
