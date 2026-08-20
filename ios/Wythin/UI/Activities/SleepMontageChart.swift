@@ -117,10 +117,17 @@ struct SleepMontageChart: View {
     /// normal vision and 14.4 under protan simulation. Depth is additionally
     /// carried by lane position and by the labelled legend below, so colour is
     /// never the only thing separating two stages.
+    ///
+    /// Awake is ivory, matching the reference. It was briefly muted to grey
+    /// for a real reason — under the fill-to-baseline shape a wake block was
+    /// also a full-height bar, so the least informative state was the loudest
+    /// thing on the chart. A lane ribbon caps wake at one lane's worth of ink
+    /// whatever share of the night it occupies, so that reason is gone and the
+    /// brighter neutral is safe again.
     private func colour(_ s: SleepStageDetail) -> Color {
         switch s {
         // Awake is not a depth, so it sits outside the blue ramp entirely.
-        case .wake: return Color(hex: "#6B6B6B")
+        case .wake: return Color(hex: "#F0EAE2")
         case .rem:  return Color(hex: "#BCDCF7")
         case .n1:   return Color(hex: "#74AEE4")
         case .n2:   return Color(hex: "#3F7CC0")
@@ -162,6 +169,24 @@ struct SleepMontageChart: View {
 
     private func minutes(_ s: SleepStageDetail) -> Int { night.stageMinutes[s] ?? 0 }
 
+    /// The lanes this night gets, top to bottom.
+    ///
+    /// Only stages that actually occurred. A fixed five-lane grid spends a
+    /// whole rung on N1 even when N1 is nil for the night — which is most
+    /// nights, since N1 is positional and needs a wake bout to sit beside —
+    /// and an always-empty lane reads as missing data rather than as an absent
+    /// stage. The reference shows four lanes for a four-stage night.
+    private var lanes: [SleepStageDetail] {
+        let order: [SleepStageDetail] = [.wake, .rem, .n1, .n2, .n3]
+        let present = order.filter { minutes($0) > 0 }
+        // A night with no staging at all still needs a grid to draw against.
+        return present.isEmpty ? order : present
+    }
+
+    private func lane(of stage: SleepStageDetail) -> Int? {
+        lanes.firstIndex(of: stage)
+    }
+
     private var asleepMinutes: Int {
         SleepStageDetail.allCases.filter(\.isAsleep).reduce(0) { $0 + minutes($1) }
     }
@@ -176,7 +201,6 @@ struct SleepMontageChart: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            bounds
             sleepChannel
             ForEach(activityMetricDefs) { def in
                 traceChannel(def)
@@ -186,39 +210,6 @@ struct SleepMontageChart: View {
             axis
             stageLegend
             positionDetail
-        }
-    }
-
-    // MARK: - The two times that matter
-
-    /// Sleep onset and final wake, named rather than implied.
-    ///
-    /// These used to be two bare `HH:mm` chips at the ends of the axis, which
-    /// says *when the chart starts* and not *what happened then*. Since the
-    /// detector trims the window to sustained sleep, these two moments are the
-    /// night's boundaries by construction — so they are the right thing to
-    /// label, and labelling them is also what makes a mis-detected window
-    /// obvious instead of mysterious.
-    private var bounds: some View {
-        HStack(alignment: .bottom, spacing: 12) {
-            boundMarker("ASLEEP", clock(ruler.startedAt), alignment: .leading)
-            Spacer(minLength: 8)
-            boundMarker("WOKE", clock(ruler.endedAt), alignment: .trailing)
-        }
-        .padding(.bottom, 10)
-    }
-
-    private func boundMarker(_ caption: String,
-                             _ time: String,
-                             alignment: HorizontalAlignment) -> some View {
-        VStack(alignment: alignment, spacing: 1) {
-            Text(caption)
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .tracking(0.9)
-                .foregroundStyle(Theme.dim)
-            Text(time)
-                .font(.system(size: 17, weight: .medium, design: .monospaced))
-                .foregroundStyle(Theme.text)
         }
     }
 
@@ -296,22 +287,13 @@ struct SleepMontageChart: View {
     private func drawRibbon(_ ctx: inout GraphicsContext, _ size: CGSize) {
         let stages = night.stages
         let points = night.points
-        guard stages.count == points.count, !points.isEmpty else { return }
+        let lanes = self.lanes
+        guard stages.count == points.count, !points.isEmpty, !lanes.isEmpty else { return }
 
-        let laneCount = Double(SleepStageDetail.allCases.count)
-        let laneHeight = size.height / laneCount
-        let inset = min(3.0, laneHeight * 0.16)
+        let laneHeight = size.height / Double(lanes.count)
 
-        // Faint lane separators, so the five rungs are readable even where a
-        // lane happens to be empty for hours.
-        for i in 1..<Int(laneCount) {
-            let y = Double(i) * laneHeight
-            ctx.stroke(Path { p in
-                p.move(to: CGPoint(x: 0, y: y))
-                p.addLine(to: CGPoint(x: size.width, y: y))
-            }, with: .color(Theme.dim.opacity(0.10)), lineWidth: 0.5)
-        }
-
+        // Runs first, so the connectors can see both sides of a transition.
+        var runs: [(stage: SleepStageDetail, x0: Double, x1: Double)] = []
         var start = 0
         for i in 1...stages.count {
             guard i == stages.count || stages[i] != stages[start] else { continue }
@@ -319,15 +301,29 @@ struct SleepMontageChart: View {
             let x1 = i < points.count
                 ? ruler.x(points[i].timestamp, width: size.width)
                 : size.width
-            // `SleepStageDetail` is declared wake=0 … n3=4, which is already
-            // top-to-bottom hypnogram order — the lane index IS the raw value.
-            let top = Double(stages[start].rawValue) * laneHeight + inset
-            let rect = CGRect(x: x0, y: top,
-                              width: max(1.2, x1 - x0),
-                              height: laneHeight - inset * 2)
-            ctx.fill(Path(roundedRect: rect, cornerRadius: 1.5),
-                     with: .color(colour(stages[start])))
+            runs.append((stages[start], x0, max(x0 + 1.2, x1)))
             start = i
+        }
+
+        // Blocks fill their lane edge to edge. The reference has no gutter
+        // between vertically adjacent stages — the staircase is continuous, and
+        // an inset breaks it into floating tiles.
+        for run in runs {
+            guard let lane = lane(of: run.stage) else { continue }
+            let rect = CGRect(x: run.x0, y: Double(lane) * laneHeight,
+                              width: run.x1 - run.x0, height: laneHeight)
+            ctx.fill(Path(rect), with: .color(colour(run.stage)))
+        }
+
+        // The risers. Without them the eye reads a column of disconnected
+        // bars; with them it reads one line stepping up and down through the
+        // night, which is what a hypnogram is for.
+        for (a, b) in zip(runs, runs.dropFirst()) {
+            guard let from = lane(of: a.stage), let to = lane(of: b.stage) else { continue }
+            let hi = Double(min(from, to)) * laneHeight
+            let lo = Double(max(from, to) + 1) * laneHeight
+            ctx.fill(Path(CGRect(x: b.x0 - 0.75, y: hi, width: 1.5, height: lo - hi)),
+                     with: .color(colour(from < to ? a.stage : b.stage).opacity(0.55)))
         }
     }
 
@@ -496,23 +492,55 @@ struct SleepMontageChart: View {
     // MARK: - The axis
 
     /// One ruler, drawn once, under every channel it governs.
+    ///
+    /// The two boxed times are the night's own boundaries, and since the
+    /// detector trims the window to sustained sleep they mean sleep onset and
+    /// final wake rather than "when the chart happens to start". Captioned, so
+    /// that is stated instead of inferred.
     private var axis: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
                 Color.clear
-                ForEach(ruler.ticks, id: \.self) { t in
+                // Filtered against measured width, not clock time: a label's
+                // collision with the end chips is a geometry fact, and the
+                // ruler has no width to reason about it with. Gridlines still
+                // run at every tick — only the LABEL is dropped.
+                ForEach(ruler.ticks.filter { t in
+                    let x = ruler.x(t, width: geo.size.width)
+                    return x > Self.chipGuard && x < geo.size.width - Self.chipGuard
+                }, id: \.self) { t in
                     Text(clock(t))
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(Theme.dim)
-                        // Centred ON the gridline it belongs to, which is the
-                        // whole point: the old axis spaced labels evenly and
-                        // let them land wherever that happened to put them.
-                        .position(x: ruler.x(t, width: geo.size.width), y: 9)
+                        // Centred ON its gridline, which is the whole point:
+                        // the old axis spaced labels evenly and let them land
+                        // wherever that happened to put them.
+                        .position(x: ruler.x(t, width: geo.size.width), y: 15)
                 }
             }
         }
-        .frame(height: 20)
-        .padding(.bottom, 16)
+        .frame(height: 34)
+        .overlay(alignment: .topLeading) { chip("ASLEEP", clock(ruler.startedAt)) }
+        .overlay(alignment: .topTrailing) { chip("WOKE", clock(ruler.endedAt)) }
+        .padding(.bottom, 14)
+    }
+
+    /// Half the widest an end chip plus a hair of clearance can be, in points.
+    private static let chipGuard: Double = 74
+
+    private func chip(_ caption: String, _ time: String) -> some View {
+        VStack(spacing: 2) {
+            Text(caption)
+                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                .tracking(0.7)
+                .foregroundStyle(Theme.dim)
+            Text(time)
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundStyle(Theme.text)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 5))
+        }
     }
 
     // MARK: - Legends
