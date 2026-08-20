@@ -416,7 +416,15 @@ final class BLEService: NSObject {
     /// beacon frames but stop producing beats almost immediately.
     private(set) var lastRRIntervalAt: Date?
     var rrIntervalsLive: Bool {
-        lastRRIntervalAt.map { Date().timeIntervalSince($0) < 8 } ?? false
+        lastRRIntervalAt.map { Date().timeIntervalSince($0) < 6 } ?? false
+    }
+    /// The strap's own verdict, at 1 Hz: a worn H10 always reports a human
+    /// bpm; within seconds of doffing it reports 0. Unlike tick-derived ECG
+    /// quality this needs no computation and no foreground, so it is the cue
+    /// that keeps off-body detection fast while the app is backgrounded.
+    private(set) var lastPlausibleBPMAt: Date?
+    var heartbeatLive: Bool {
+        lastPlausibleBPMAt.map { Date().timeIntervalSince($0) < 6 } ?? false
     }
     private var lastECGStartCmd: Data?
     /// True once the fast budget has been spent and `lastError` surfaced —
@@ -1325,6 +1333,7 @@ extension BLEService: CBPeripheralDelegate {
                     // link is alive while ECG and ACC are both stalled.
                     self.lastRRSampleAt = Date()
                     if !frame.rrIntervalsMs.isEmpty { self.lastRRIntervalAt = Date() }
+                    if frame.bpm >= 30 { self.lastPlausibleBPMAt = Date() }
                     self.sensorContact = frame.contact
                     // Paused for off-body: keep watching the contact bit over the
                     // lightweight HR link and resume the moment the strap is worn

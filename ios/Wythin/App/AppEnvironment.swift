@@ -638,12 +638,12 @@ final class AppEnvironment {
     // After `offBodyStandbySeconds` of continuous off-body ticks we drop the
     // strap into low-power standby (auto-reconnects when worn again).
     private var offBodySince: Date?
-    private let offBodyStandbySeconds:     TimeInterval = 60   // borderline consensus (score 2)
-    // 12 s of strong agreement, not 20: rrIntervalsLive already needs 8 s of
-    // silence before it goes false, so doffing reaches standby in ~20 s total —
-    // the budget Alex asked for. The score can't strengthen faster than that
-    // window, so the two constants must be read together.
-    private let offBodyStandbyFastSeconds: TimeInterval = 12   // strong agreement (score ≥ 3)
+    private let offBodyStandbySeconds:     TimeInterval = 45   // borderline consensus (score 2)
+    // Read together with the 6 s liveness windows in BLEService: the cues go
+    // true ~6 s after doffing, plus 8 s of sustained strong agreement lands
+    // standby ~14 s after the strap comes off — in the background too, since
+    // every cue is a liveness flag, none needs a metrics tick.
+    private let offBodyStandbyFastSeconds: TimeInterval = 8    // strong agreement (score ≥ 3)
 
     // Accelerometer motion: worn straps always jitter a little (breathing,
     // ballistocardiogram, posture); a strap set down is dead-still. Rolling
@@ -662,14 +662,17 @@ final class AppEnvironment {
     // Fuse four cues into a confidence score so no single cue can wrongly
     // trip (false positive) or be missed:
     //   • skin-contact bit — authoritative: worn (−1) / off (+3)
-    //   • ECG poor OR the ECG stream dead: +1
-    //   • RR intervals stopped arriving (rrIntervalsLive, 8 s window) or the
+    //   • heart gone — the strap reports bpm 0 (heartbeatLive false), the ECG
+    //     stream died, or the last tick graded the waveform poor: +1
+    //   • RR intervals stopped arriving (rrIntervalsLive, 6 s window) or the
     //     last tick's RR mostly invalid: +1
     //   • accelerometer dead-still AND heartbeat gone (sleepers are still too,
     //     but their RR keeps flowing): +1
-    // score ≥ 2 ⇒ off-body. Strong agreement (≥3) trips in ~12 s, borderline
-    // needs 60 s. Runs on the 2 s loop cadence with no FFT: liveness flags
-    // and an ACC stddev only, so it is background-safe every iteration.
+    // score ≥ 2 ⇒ off-body. Strong agreement (≥3) trips in ~8 s of dwell,
+    // borderline needs 45 s. Every fast cue is a liveness flag refreshed by
+    // the BLE callbacks themselves — deliberately NOT tick-derived, because
+    // background ticks run every 30 s and made doffing take a minute to
+    // notice. Runs on the 2 s loop cadence with no FFT.
     private func evaluateOffBodyStandby() {
         accMotion = computeAccMotion()
         guard case .connected = ble.state else {
@@ -679,7 +682,8 @@ final class AppEnvironment {
         let contact = ble.sensorContact
         // DEAD counts as bad, not as absent: when the strap comes off, data
         // stops entirely — and "no data" once read as "no problem".
-        let ecgPoor = latestTick?.ecgQuality?.tier == .poor || !ble.ecgStreamLive
+        let ecgPoor = !ble.heartbeatLive || !ble.ecgStreamLive
+                      || latestTick?.ecgQuality?.tier == .poor
         let rrBad   = !ble.rrIntervalsLive
                       || (latestTick?.signalQuality.map { $0 < 0.5 } ?? false)
         let still   = accMotion.map { $0 < self.accStillnessThreshold } ?? false
