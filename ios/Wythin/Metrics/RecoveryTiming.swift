@@ -35,6 +35,25 @@ enum RecoveryTiming {
     /// noisy sample crossing the line is not recovery.
     static let holdFraction: Double = 0.9
 
+    /// How long the level must hold after crossing before the crossing counts.
+    ///
+    /// **Bounded, and that is the fix.** The hold used to be tested against
+    /// every remaining sample, and `computeRecoveryTiming` fetches four hours
+    /// after the session — so the rule was "recover, then never dip again for
+    /// four hours". Post-exercise vagal tone is not monotonic; over hours it
+    /// certainly dips. One recorded session came back within four minutes and
+    /// scored zero because of a single sag twenty minutes later, while the
+    /// chart beside the number said it had recovered. The longer the strap
+    /// stayed on, the more certainly the metric reported failure.
+    ///
+    /// Five minutes is long enough to reject the noisy touch the hold exists to
+    /// catch, and short enough that a dip an hour later cannot retroactively
+    /// un-recover you. It sits above the ≥2 min post-exercise window the
+    /// reactivation literature treats as reliable (Stanley, Peake & Buchheit,
+    /// Sports Medicine 2013).
+
+    static let holdMinutes: Double = 5
+
     /// A window shorter than this cannot support "it never got there".
     static let minimumObservationMinutes: Double = 8
 
@@ -60,9 +79,20 @@ enum RecoveryTiming {
         guard let observed = series.last?.minutes, !series.isEmpty else { return .notObserved }
 
         let target = targetLevel(dcPre: dcPre, dcTrough: dcTrough)
-        if let idx = series.firstIndex(where: { $0.dc >= target }),
-           series[idx...].allSatisfy({ $0.dc >= target * holdFraction }) {
-            return .reached(minutes: series[idx].minutes)
+        // Every crossing is tried, not just the first. A brief touch that falls
+        // away is not recovery, but it is also not proof that recovery never
+        // came — the old code took `firstIndex` and gave up on it, so a session
+        // that flickered at three minutes and genuinely returned at twenty
+        // reported never.
+        for idx in series.indices where series[idx].dc >= target {
+            let deadline = series[idx].minutes + holdMinutes
+            let window = series[idx...].prefix { $0.minutes <= deadline }
+            // A recording that stops inside the window is judged on what it
+            // has. Demanding the full five minutes would report failure for a
+            // session that recovered and then had the strap taken off.
+            if window.allSatisfy({ $0.dc >= target * holdFraction }) {
+                return .reached(minutes: series[idx].minutes)
+            }
         }
         return observed >= minimumObservationMinutes
             ? .notReached(observedMinutes: observed)

@@ -502,7 +502,13 @@ final class ActivityLog {
         //     stored under the old label-based rule must be re-evaluated.
         // v8  readinessScore/readinessPeerCount — how you arrived, scored
         //     against your own recent pre-session windows.
-        let currentVersion = 8
+        // v9  the half-recovery hold is bounded. It used to require the level
+        //     to stay up for EVERY remaining sample of a four-hour window, so a
+        //     single sag long after the event discarded a recovery that had
+        //     plainly happened — one session came back inside four minutes and
+        //     scored zero. Every entry stored under v4–v8 carries that verdict
+        //     and has to be re-derived.
+        let currentVersion = 9
         let versionKey = "activityBackfillVersion"
         let migrating = UserDefaults.standard.integer(forKey: versionKey) < currentVersion
 

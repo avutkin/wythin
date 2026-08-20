@@ -10,6 +10,11 @@ struct ExerciseQuestionSections: View {
 
     let entry: ActivityLog
 
+    /// The session's samples, so the recovery curves can be drawn where the
+    /// recovery number lives rather than in a card further down the page.
+    let points: [MetricsHistoryPoint]
+    let windowEnd: Date
+
     var body: some View {
         VStack(spacing: 12) {
             ready
@@ -104,6 +109,28 @@ struct ExerciseQuestionSections: View {
             QuestionCard(number: "3", title: "RECOVERED", subtitle: "how fast it came back") {
                 IndexHeadline(value: index.value, label: "recovery", tint: Theme.accent)
                 Tiles(recoveryTiles)
+
+                // Both curves live here, beside the number they explain. They
+                // used to sit in separate cards further down the screen, which
+                // is how a headline of 0 could sit half a page from a chart
+                // showing a fast return without the two ever being compared.
+                curve("VAGAL REBOUND", channel: .vagalBrake,
+                      pre: entry.beforeDC, extreme: entry.duringDCTrough,
+                      note: dcNote)
+
+                curve("HEART RATE RETURN", channel: .heartRate,
+                      pre: entry.beforeHR, extreme: entry.duringHRPeak,
+                      note: hrNote)
+
+                if let hrr = entry.hrr60Bpm, case let .reached(mins) = entry.recoveryOutcome {
+                    // The finding neither curve shows alone.
+                    Text(String(format: "Your heart rate dropped %d bpm in a minute while your vagal brake took %d minutes to come halfway back. Heart rate settles first; the brake is the slower half of recovery.",
+                                Int(hrr.rounded()), Int(mins.rounded())))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Theme.text.opacity(0.85))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 Logic("""
                 Heart rate is routinely home while vagal tone is still well down, so the two \
                 are kept apart rather than averaged into one "recovered" number. Under 12 bpm \
@@ -115,6 +142,50 @@ struct ExerciseQuestionSections: View {
         }
     }
 
+    /// Deceleration Capacity, named — the card used to say "vagal rebound" and
+    /// leave the reader to guess whether that meant RMSSD or DC.
+    private var dcNote: String {
+        "Deceleration Capacity (DC) — not RMSSD. DC is the vagal brake measured by "
+        + "phase-rectified signal averaging (Bauer, Lancet 2006); after exercise it reactivates "
+        + "over minutes to hours, which is why this is reported as a TIME rather than a level "
+        + "(Stanley, Peake & Buchheit, Sports Medicine 2013)."
+    }
+
+    private var hrNote: String {
+        "The same arc, in heart rate. It needs only heart rate, so it works on sessions where "
+        + "vagal tone cannot be measured at all — and it is the better validated of the two, "
+        + "with test-retest ICC up to 0.99."
+    }
+
+    /// One labelled recovery curve. Absent rather than empty when the level it
+    /// would be measured against was never established.
+    @ViewBuilder
+    private func curve(_ title: String,
+                       channel: RecoveryCurveChart.Channel,
+                       pre: Float?,
+                       extreme: Float?,
+                       note: String) -> some View {
+        if pre != nil, extreme != nil, !points.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .tracking(0.8)
+                    .foregroundStyle(Theme.dim)
+                RecoveryCurveChart(points: points,
+                                   startedAt: entry.startedAt,
+                                   endedAt: windowEnd,
+                                   channel: channel,
+                                   dcPre: pre,
+                                   extreme: extreme)
+                Text(note)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, 6)
+        }
+    }
+
     private var recoveryTiles: [(String, String, String, String)] {
         var out: [(String, String, String, String)] = []
         if let hrr = entry.hrr60Bpm {
@@ -122,9 +193,9 @@ struct ExerciseQuestionSections: View {
         }
         switch entry.recoveryOutcome {
         case let .reached(minutes):
-            out.append(("Vagal rebound", String(format: "%.1f", minutes), "min", "to halfway"))
+            out.append(("Vagal rebound (DC)", String(format: "%.1f", minutes), "min", "to halfway"))
         case let .notReached(observed):
-            out.append(("Vagal rebound", ">\(Int(observed.rounded()))", "min", "not halfway yet"))
+            out.append(("Vagal rebound (DC)", ">\(Int(observed.rounded()))", "min", "not halfway yet"))
         case .notObserved:
             break
         }

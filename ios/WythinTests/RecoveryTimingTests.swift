@@ -143,4 +143,64 @@ extension RecoveryTimingTests {
         XCTAssertEqual(RecoveryTiming.halfRecovery(after: flat, dcPre: 8, dcTrough: 8), .notObserved)
         XCTAssertEqual(RecoveryTiming.halfRecovery(after: flat, dcPre: 8, dcTrough: nil), .notObserved)
     }
+
+    // MARK: - The hold window is bounded
+
+    func testADipLongAfterRecoveryDoesNotUndoIt() {
+        // The photographed session. Vagal tone is back at minute 4 and holds
+        // for the rest of the hour bar one sag at minute 20.
+        //
+        // The hold used to be tested against EVERY remaining sample, over a
+        // four-hour fetch window, so this scored zero while the same screen
+        // said "back within 10% of your resting level 4 minutes after you
+        // stopped". Recovery that already happened cannot be undone by a dip
+        // half an hour later — and the old rule meant the longer you wore the
+        // strap, the more certainly it reported failure.
+        var after = ramp(from: 20, to: 62, minutes: 4)
+        after += stride(from: 4.5, through: 19.5, by: 0.5).map { ($0, 95.0) }
+        after.append((20.0, 52))
+        after += stride(from: 20.5, through: 34.0, by: 0.5).map { ($0, 96.0) }
+
+        let out = RecoveryTiming.halfRecovery(after: after, dcPre: 100, dcTrough: 20)
+        guard case let .reached(m) = out else { return XCTFail("expected reached, got \(out)") }
+        XCTAssertEqual(m, 4, accuracy: 1)
+        XCTAssertGreaterThan(RecoveryTiming.score(out) ?? 0, 80)
+    }
+
+    func testADipInsideTheHoldWindowStillDisqualifies() {
+        // The guard: a touch that immediately falls away is not recovery, and
+        // that is the whole reason a hold exists. Crossing at 4, collapsing at
+        // 5, is inside the confirmation window and must not count.
+        var after = ramp(from: 20, to: 62, minutes: 4)
+        after += stride(from: 4.5, through: 34.0, by: 0.5).map { ($0, 30.0) }
+
+        let out = RecoveryTiming.halfRecovery(after: after, dcPre: 100, dcTrough: 20)
+        XCTAssertEqual(out, .notReached(observedMinutes: 34),
+                       "a crossing that collapses within the hold window is not recovery")
+    }
+
+    func testALaterGenuineRecoveryIsFoundAfterAFailedCrossing() {
+        // A brief touch at 3 that collapses, then a real return at 20. The
+        // first crossing failing must not abandon the search — the session did
+        // recover, just later than its first flicker.
+        var after = ramp(from: 20, to: 62, minutes: 3)
+        after += stride(from: 3.5, through: 19.5, by: 0.5).map { ($0, 30.0) }
+        after += stride(from: 20.0, through: 40.0, by: 0.5).map { ($0, 95.0) }
+
+        let out = RecoveryTiming.halfRecovery(after: after, dcPre: 100, dcTrough: 20)
+        guard case let .reached(m) = out else { return XCTFail("expected reached, got \(out)") }
+        XCTAssertEqual(m, 20, accuracy: 1)
+    }
+
+    func testARecordingThatEndsInsideTheHoldWindowStillCounts() {
+        // Recovery at 4 with the strap coming off at 6: only two minutes of
+        // confirmation exist. Demanding a full five would report failure for a
+        // session that plainly recovered, so what is there must hold.
+        var after = ramp(from: 20, to: 62, minutes: 4)
+        after += stride(from: 4.5, through: 6.0, by: 0.5).map { ($0, 95.0) }
+
+        let out = RecoveryTiming.halfRecovery(after: after, dcPre: 100, dcTrough: 20)
+        guard case let .reached(m) = out else { return XCTFail("expected reached, got \(out)") }
+        XCTAssertEqual(m, 4, accuracy: 1)
+    }
 }

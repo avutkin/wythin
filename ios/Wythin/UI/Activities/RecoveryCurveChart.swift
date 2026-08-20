@@ -9,11 +9,53 @@ import SwiftUI
 /// there. Signed minutes counted back from the end made "−40m" mean a point
 /// before the session began, which read as an error even when it was not.
 struct RecoveryCurveChart: View {
+
+    /// What this curve is a curve OF.
+    ///
+    /// One component rather than two near-identical ones, because the arc is
+    /// the same question asked of two signals that answer it at different
+    /// speeds — and the gap between those speeds is the finding the recovery
+    /// section exists to show.
+    enum Channel {
+        /// Deceleration Capacity, the vagal brake. Recovery is a climb.
+        case vagalBrake
+        /// Heart rate. Recovery is a fall.
+        case heartRate
+
+        var recoversUpward: Bool { self == .vagalBrake }
+
+        var seriesName: String {
+            switch self {
+            case .vagalBrake: return "Vagal brake (DC)"
+            case .heartRate:  return "Heart rate"
+            }
+        }
+
+        var restingLabel: String {
+            switch self {
+            case .vagalBrake: return "your resting level"
+            case .heartRate:  return "your resting heart rate"
+            }
+        }
+    }
+
     let points:    [MetricsHistoryPoint]
     let startedAt: Date
     let endedAt:   Date
-    /// Pre-session DC — the level being returned to.
+    let channel:   Channel
+    /// Pre-session level — what is being returned to.
     let dcPre:     Float?
+    /// Where it bottomed out (DC) or peaked (heart rate) during the session.
+    ///
+    /// **Required, and its absence was a bug.** The dashed "halfway back" line
+    /// used to be drawn at `pre * targetFraction` — half of the RESTING level —
+    /// while `RecoveryTiming` scores against `trough + (pre - trough) / 2`,
+    /// halfway out of the hole. `RecoveryTiming`'s own doc comment calls
+    /// half-of-resting "the first attempt and is wrong"; the chart went on
+    /// drawing it. The drawn line sits lower than the scored one, so a session
+    /// could clear the line on screen while failing the bar being scored —
+    /// which is exactly what a reader would call the number broken.
+    let extreme:   Float?
 
     /// Which window a sample belongs to. Each is its own series, because a
     /// per-point foregroundStyle on one series does not repaint the segments —
@@ -29,34 +71,67 @@ struct RecoveryCurveChart: View {
 
     private var sessionMinutes: Double { endedAt.timeIntervalSince(startedAt) / 60 }
 
+    private func measure(_ p: MetricsHistoryPoint) -> Float? {
+        switch channel {
+        case .vagalBrake: return p.dc
+        case .heartRate:  return p.meanBPM
+        }
+    }
+
     private var dots: [Dot] {
         points
-            .filter { $0.dc != nil }
+            .filter { measure($0) != nil }
             .sorted { $0.timestamp < $1.timestamp }
             .enumerated()
             .map { i, p in
                 let m = p.timestamp.timeIntervalSince(startedAt) / 60
                 let phase: Phase = m < 0 ? .before : (m <= sessionMinutes ? .during : .after)
-                return Dot(id: i, minutes: m, dc: Double(p.dc!), phase: phase)
+                return Dot(id: i, minutes: m, dc: Double(measure(p)!), phase: phase)
             }
     }
 
-    /// Minutes after the end at which vagal tone first came back within 10 % of
-    /// where it started, and held there.
-    private func recoveredAt(_ dots: [Dot], pre: Double) -> Double? {
+    /// The bar being climbed to (or fallen back to) — the SAME one the score
+    /// uses, so the line on the chart and the number beside it agree.
+    private func targetLevel(pre: Double) -> Double? {
+        guard let extreme = extreme.map(Double.init) else { return nil }
+        switch channel {
+        case .vagalBrake:
+            guard pre > extreme else { return nil }
+            return RecoveryTiming.targetLevel(dcPre: pre, dcTrough: extreme)
+        case .heartRate:
+            // Symmetric: halfway down from the peak toward resting.
+            guard extreme > pre else { return nil }
+            return extreme - (extreme - pre) * RecoveryTiming.targetFraction
+        }
+    }
+
+    /// Minutes after the end at which the curve first reached the bar and held
+    /// it for `RecoveryTiming.holdMinutes` — the same bounded confirmation the
+    /// score applies, rather than a rule of its own.
+    private func recoveredAt(_ dots: [Dot], target: Double) -> Double? {
         let after = dots.filter { $0.phase == .after }
         guard !after.isEmpty else { return nil }
-        let target = pre * 0.9
-        guard let idx = after.firstIndex(where: { $0.dc >= target }) else { return nil }
-        guard after[idx...].allSatisfy({ $0.dc >= target * 0.92 }) else { return nil }
-        return after[idx].minutes - sessionMinutes
+        let met: (Double) -> Bool = channel.recoversUpward
+            ? { $0 >= target } : { $0 <= target }
+        let held: (Double) -> Bool = channel.recoversUpward
+            ? { $0 >= target * RecoveryTiming.holdFraction }
+            : { $0 <= target / RecoveryTiming.holdFraction }
+        for idx in after.indices where met(after[idx].dc) {
+            let deadline = after[idx].minutes + RecoveryTiming.holdMinutes
+            let window = after[idx...].prefix { $0.minutes <= deadline }
+            if window.allSatisfy({ held($0.dc) }) {
+                return after[idx].minutes - sessionMinutes
+            }
+        }
+        return nil
     }
 
     var body: some View {
         let d = dots
         if let preF = dcPre, preF > 0, d.count >= 3 {
             let pre = Double(preF)
-            let recovered = recoveredAt(d, pre: pre)
+            let bar = targetLevel(pre: pre)
+            let recovered = bar.flatMap { recoveredAt(d, target: $0) }
             let lastAfter = (d.filter { $0.phase == .after }.map(\.minutes).max() ?? sessionMinutes)
                 - sessionMinutes
 
@@ -65,27 +140,29 @@ struct RecoveryCurveChart: View {
                     RectangleMark(xStart: .value("s", 0), xEnd: .value("e", sessionMinutes))
                         .foregroundStyle(Theme.warn.opacity(0.07))
 
-                    RuleMark(y: .value("Halfway", pre * RecoveryTiming.targetFraction))
-                        .foregroundStyle(Theme.accent.opacity(0.45))
-                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                        .annotation(position: .bottom, alignment: .leading) {
-                            Text("halfway back")
-                                .font(.system(size: 8, design: .monospaced))
-                                .foregroundStyle(Theme.accent.opacity(0.8))
-                        }
+                    if let bar {
+                        RuleMark(y: .value("Halfway", bar))
+                            .foregroundStyle(Theme.accent.opacity(0.45))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                            .annotation(position: .bottom, alignment: .leading) {
+                                Text("halfway back \u{2014} the bar being scored")
+                                    .font(.system(size: 8, design: .monospaced))
+                                    .foregroundStyle(Theme.accent.opacity(0.8))
+                            }
+                    }
 
                     RuleMark(y: .value("Resting", pre))
                         .foregroundStyle(Theme.dim)
                         .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                         .annotation(position: .top, alignment: .leading) {
-                            Text("your resting level")
+                            Text(channel.restingLabel)
                                 .font(.system(size: 8, design: .monospaced))
                                 .foregroundStyle(Theme.dim)
                         }
 
                     ForEach(d) { p in
                         LineMark(x: .value("Minutes", p.minutes),
-                                 y: .value("Vagal brake", p.dc),
+                                 y: .value(channel.seriesName, p.dc),
                                  series: .value("Phase", p.phase.rawValue))
                             .foregroundStyle(color(p.phase))
                             .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
@@ -130,10 +207,14 @@ struct RecoveryCurveChart: View {
                     legend(Theme.accent, "after")
                 }
 
+                // Says the same thing the score says. This line used to
+                // announce "back within 10% of your resting level" — a third
+                // definition of recovered, on a screen that already had two,
+                // and the reason the caption could contradict the headline.
                 Text(recovered.map {
-                        "Back within 10% of your resting level \(Int($0)) minutes after you stopped."
+                        "Halfway back \(Int($0.rounded())) minutes after you stopped."
                      } ?? (lastAfter >= 1
-                        ? "Still below your resting level \(Int(lastAfter)) minutes after you stopped."
+                        ? "Not halfway back yet, \(Int(lastAfter.rounded())) minutes after you stopped."
                         : "The recording ends too soon after this session to see recovery."))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.dim)
