@@ -229,7 +229,7 @@
     <section id="view-activity" style="display:none">
       <div class="kpis" id="activity-kpis"></div>
       <div class="panel">
-        <h2>Before · During · After <span class="sub">— the window around the activity; hover for values</span></h2>
+        <h2>Before · During · After <span class="sub">— the window around the activity; hover to read, click to pin</span></h2>
         <div class="charts" id="activity-charts"></div>
       </div>
       <div class="panel">
@@ -829,8 +829,11 @@
         label += `  ${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(0)}%`;
         pctCls = better ? " better" : " worse";
       }
+      // Keep the label inside the plot: an average near the top would other-
+      // wise render above the frame and be clipped to half a digit.
       const mid = (x1 + x2) / 2;
-      s += `<text class="avg${pctCls}" x="${mid.toFixed(1)}" y="${(y - 4).toFixed(1)}" text-anchor="middle">${label}</text>`;
+      const ly = Math.max(pad.t + 9, y - 4);
+      s += `<text class="avg${pctCls}" x="${mid.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle">${label}</text>`;
       return s;
     };
     el += rule(phases.before, meta.wStart, meta.start, false);
