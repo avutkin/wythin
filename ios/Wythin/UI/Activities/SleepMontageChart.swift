@@ -127,8 +127,13 @@ struct SleepMontageChart: View {
     /// wins the vertical drag too and the page stops scrolling; requiring the
     /// press first is how Live keeps both, and it is what `chartXSelection`
     /// does underneath.
+    ///
+    /// The press is 0.3 s rather than 0.12 s because 0.12 s was short enough
+    /// that an unhurried scroll won it, and the section read as though it had
+    /// stopped scrolling at all. A deliberate hold is the gesture; a swipe is
+    /// always the page.
     private var scrub: some Gesture {
-        LongPressGesture(minimumDuration: 0.12)
+        LongPressGesture(minimumDuration: 0.3)
             .sequenced(before: DragGesture(minimumDistance: 0))
             .onChanged { value in
                 guard case let .second(true, drag?) = value else { return }
@@ -145,14 +150,10 @@ struct SleepMontageChart: View {
     }
 
     private func stage(at moment: Date) -> SleepStageDetail? {
-        guard night.stages.count == night.points.count, !night.points.isEmpty else { return nil }
-        var best = 0
-        for (i, p) in night.points.enumerated()
-        where abs(p.timestamp.timeIntervalSince(moment))
-            < abs(night.points[best].timestamp.timeIntervalSince(moment)) {
-            best = i
-        }
-        return night.stages[best]
+        // Over runs (tens) rather than samples (thousands). This was a linear
+        // scan of the whole night, run on every frame of a drag.
+        night.stageRuns.first { $0.start <= moment && moment <= $0.end }?.stage
+            ?? night.stageRuns.last?.stage
     }
 
     private func position(at moment: Date) -> BodyPosition? {
@@ -363,44 +364,42 @@ struct SleepMontageChart: View {
     }
 
     private func drawRibbon(_ ctx: inout GraphicsContext, _ size: CGSize) {
-        let stages = night.stages
-        let points = night.points
         let lanes = self.lanes
-        guard stages.count == points.count, !points.isEmpty, !lanes.isEmpty else { return }
+        let runs = night.stageRuns
+        guard !runs.isEmpty, !lanes.isEmpty else { return }
 
         let laneHeight = size.height / Double(lanes.count)
 
-        // Runs first, so the connectors can see both sides of a transition.
-        var runs: [(stage: SleepStageDetail, x0: Double, x1: Double)] = []
-        var start = 0
-        for i in 1...stages.count {
-            guard i == stages.count || stages[i] != stages[start] else { continue }
-            let x0 = ruler.x(points[start].timestamp, width: size.width)
-            let x1 = i < points.count
-                ? ruler.x(points[i].timestamp, width: size.width)
-                : size.width
-            runs.append((stages[start], x0, max(x0 + 1.2, x1)))
-            start = i
+        // Faint lane separators, so the rungs are readable even where a lane
+        // happens to be empty for hours.
+        for i in 1..<lanes.count {
+            let y = Double(i) * laneHeight
+            ctx.stroke(Path { p in
+                p.move(to: CGPoint(x: 0, y: y))
+                p.addLine(to: CGPoint(x: size.width, y: y))
+            }, with: .color(Theme.dim.opacity(0.10)), lineWidth: 0.5)
         }
 
-        // Blocks fill their lane edge to edge. The reference has no gutter
-        // between vertically adjacent stages — the staircase is continuous, and
-        // an inset breaks it into floating tiles.
+        // Blocks fill their lane edge to edge — the reference has no gutter
+        // between vertically adjacent stages, and an inset breaks the staircase
+        // into floating tiles.
         for run in runs {
             guard let lane = lane(of: run.stage) else { continue }
-            let rect = CGRect(x: run.x0, y: Double(lane) * laneHeight,
-                              width: run.x1 - run.x0, height: laneHeight)
-            ctx.fill(Path(rect), with: .color(colour(run.stage)))
+            let x0 = ruler.x(run.start, width: size.width)
+            let x1 = max(x0 + 1.2, ruler.x(run.end, width: size.width))
+            ctx.fill(Path(CGRect(x: x0, y: Double(lane) * laneHeight,
+                                 width: x1 - x0, height: laneHeight)),
+                     with: .color(colour(run.stage)))
         }
 
-        // The risers. Without them the eye reads a column of disconnected
-        // bars; with them it reads one line stepping up and down through the
-        // night, which is what a hypnogram is for.
+        // The risers. Without them the eye reads a column of disconnected bars
+        // rather than one line stepping through the night.
         for (a, b) in zip(runs, runs.dropFirst()) {
             guard let from = lane(of: a.stage), let to = lane(of: b.stage) else { continue }
+            let x = ruler.x(b.start, width: size.width)
             let hi = Double(min(from, to)) * laneHeight
             let lo = Double(max(from, to) + 1) * laneHeight
-            ctx.fill(Path(CGRect(x: b.x0 - 0.75, y: hi, width: 1.5, height: lo - hi)),
+            ctx.fill(Path(CGRect(x: x - 0.75, y: hi, width: 1.5, height: lo - hi)),
                      with: .color(colour(from < to ? a.stage : b.stage).opacity(0.55)))
         }
     }
@@ -542,19 +541,16 @@ struct SleepMontageChart: View {
                     p.addLine(to: CGPoint(x: size.width, y: mid))
                 }, with: .color(Theme.dim.opacity(0.25)), lineWidth: 1)
 
-                // Only movement that stands out from this night's own stillness
-                // is worth a tick; drawing every sample would be a grey wash.
-                // The threshold needs a median of the whole night, so it is
-                // computed upstream — doing it here ran it on every redraw.
-                let threshold = night.motionThreshold
-                guard threshold < .greatestFiniteMagnitude else { return }
-                for p in night.points {
-                    guard let m = p.motion, m > threshold else { continue }
-                    let x = ruler.x(p.timestamp, width: size.width)
-                    let scale = min(1, Double(m / (threshold * 4)))
-                    let h = 6 + scale * (mid - 4)
+                // Thresholding, scaling and thinning all happen upstream now.
+                // This loop used to filter every one of ~19,000 samples and
+                // recompute each height on EVERY redraw — and the tracker
+                // redraws continuously while a finger is down, which is what
+                // made the section stutter.
+                for tick in night.motionTicks {
+                    let x = ruler.x(tick.date, width: size.width)
+                    let h = 6 + tick.scale * (mid - 4)
                     ctx.fill(Path(CGRect(x: x, y: mid - h / 2, width: 1.6, height: h)),
-                             with: .color(Color(white: 0.78).opacity(0.5 + scale * 0.5)))
+                             with: .color(Color(white: 0.78).opacity(0.5 + tick.scale * 0.5)))
                 }
                 drawTracker(&ctx, size)
             }

@@ -48,6 +48,26 @@ struct PreparedNight: Sendable {
         let end: Date
     }
 
+    /// One unbroken stretch of a single stage, with the clock times it covers.
+    ///
+    /// Precomputed because the chart rebuilt these from ~19,000 stage labels on
+    /// EVERY redraw, and the tracker re-evaluates the view continuously while a
+    /// finger is down. Runs are a property of the night, not of a frame.
+    struct StageRun: Sendable, Equatable {
+        let stage: SleepStageDetail
+        let start: Date
+        let end: Date
+    }
+
+    /// A movement tick worth drawing, with its height already scaled 0...1.
+    ///
+    /// Same reason: the movement strip filtered all ~19,000 samples against the
+    /// threshold and recomputed each tick's height every frame.
+    struct MotionTick: Sendable, Equatable {
+        let date: Date
+        let scale: Double
+    }
+
     struct PositionBand: Sendable, Equatable {
         let position: BodyPosition
         let start: Date
@@ -56,6 +76,9 @@ struct PreparedNight: Sendable {
 
     /// Stretches the body held one orientation.
     let positionBands: [PositionBand]
+
+    let stageRuns: [StageRun]
+    let motionTicks: [MotionTick]
 
     /// How many ticks carried an orientation at all.
     ///
@@ -139,6 +162,8 @@ struct PreparedNight: Sendable {
             ? .greatestFiniteMagnitude
             : max(motions[motions.count / 2] * 2, 8)
 
+        self.stageRuns = Self.buildStageRuns(stages, points: points)
+        self.motionTicks = Self.buildMotionTicks(points, threshold: self.motionThreshold)
         self.series = Self.buildSeries(points)
         self.wakeBands = Self.buildWakeBands(stages, points: points)
         let bands = Self.positionBands(points)
@@ -184,6 +209,50 @@ struct PreparedNight: Sendable {
             }
         }
         return merged
+    }
+
+    private static func buildStageRuns(_ stages: [SleepStageDetail],
+                                       points: [MetricsHistoryPoint]) -> [StageRun] {
+        guard stages.count == points.count, !points.isEmpty else { return [] }
+        var out: [StageRun] = []
+        var start = 0
+        for i in 1...stages.count {
+            guard i == stages.count || stages[i] != stages[start] else { continue }
+            let end = i < points.count ? points[i].timestamp : points[points.count - 1].timestamp
+            out.append(StageRun(stage: stages[start],
+                                start: points[start].timestamp,
+                                end: max(end, points[start].timestamp)))
+            start = i
+        }
+        return out
+    }
+
+    /// Ticks that stand out from this night's own stillness, thinned so the
+    /// strip cannot cost more than a few hundred draws whatever the cadence.
+    static let maxMotionTicks = 900
+
+    private static func buildMotionTicks(_ points: [MetricsHistoryPoint],
+                                         threshold: Float) -> [MotionTick] {
+        guard threshold < .greatestFiniteMagnitude else { return [] }
+        let hits = points.compactMap { p -> MotionTick? in
+            guard let m = p.motion, m > threshold else { return nil }
+            return MotionTick(date: p.timestamp,
+                              scale: min(1, Double(m / (threshold * 4))))
+        }
+        guard hits.count > maxMotionTicks else { return hits }
+        // Keep the loudest in each slot rather than every nth — thinning by
+        // position would drop the very movements the strip exists to show.
+        let stride = Double(hits.count) / Double(maxMotionTicks)
+        var out: [MotionTick] = []
+        for slot in 0..<maxMotionTicks {
+            let lo = Int(Double(slot) * stride)
+            let hi = min(hits.count, Int(Double(slot + 1) * stride))
+            guard lo < hi else { continue }
+            if let loudest = hits[lo..<hi].max(by: { $0.scale < $1.scale }) {
+                out.append(loudest)
+            }
+        }
+        return out
     }
 
     // MARK: - Lines
