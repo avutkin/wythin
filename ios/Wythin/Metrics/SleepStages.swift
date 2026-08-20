@@ -106,7 +106,7 @@ enum SleepStages {
         for _ in 0..<4 {
             var changed = false
             for run in runs(of: out)
-            where runSeconds(run, points: points, tick: tick) < SleepThresholds.minStageRunSec {
+            where runSeconds(run, points: points, tick: tick) < floor(for: out, run) {
                 guard let replacement = neighbour(of: run, in: out) else { continue }
                 for i in run { out[i] = replacement }
                 changed = true
@@ -114,6 +114,16 @@ enum SleepStages {
             if !changed { break }
         }
         return out
+    }
+
+    /// Wake gets its own, much lower floor. A brief awakening is a real event
+    /// worth counting; a brief stage flicker is not. Sharing one threshold
+    /// erased every awakening under three minutes.
+    private static func floor(for stages: [SleepStage], _ run: [Int]) -> Double {
+        guard let first = run.first else { return SleepThresholds.minStageRunSec }
+        return stages[first] == .wake
+            ? SleepThresholds.minWakeRunSec
+            : SleepThresholds.minStageRunSec
     }
 
     private static func runs(of stages: [SleepStage]) -> [[Int]] {

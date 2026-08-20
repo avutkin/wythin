@@ -238,4 +238,59 @@ final class SleepDetectorTests: XCTestCase {
         XCTAssertGreaterThan(w?.durationSec ?? 0, 7 * 3600,
                              "half an hour up is a bout inside the night, not the end of it")
     }
+
+    // MARK: - Brief awakenings
+
+    func testAShortAwakeningSurvivesIntoTheHypnogram() {
+        // "I woke up several times last night and I don't see those awake."
+        // One threshold governed every stage run, so any wake under three
+        // minutes was absorbed into the sleep around it and erased — from the
+        // chart, from the awake total, and from the bout count continuity is
+        // scored on. Ninety seconds is a real awakening.
+        let points = night(fromHour: 23, hours: 2)
+            + awakeStretch(fromHour: 1, hours: 0.025, day: 21)   // 90 s
+            + night(fromHour: 1, fromMinute: 2, hours: 5, day: 21)
+
+        let stages = SleepStages.classify(points)
+        XCTAssertTrue(stages.contains(.wake),
+                      "a 90-second awakening must survive smoothing")
+    }
+
+    func testAStageFlickerIsStillAbsorbed() {
+        // The other half of the same rule: wake gets a low floor BECAUSE it is
+        // a different kind of event. Stage runs keep the three-minute floor, or
+        // the hypnogram goes back to being confetti.
+        XCTAssertEqual(SleepThresholds.minStageRunSec, 180)
+        XCTAssertLessThan(SleepThresholds.minWakeRunSec, SleepThresholds.minStageRunSec)
+    }
+
+    func testABriefArousalDoesNotMoveSleepOnset() {
+        // The regression the fix could have caused. Once 60-second wakes are
+        // visible they also start breaking the runs that define persistent
+        // sleep, so a stretch that was twelve unbroken minutes becomes two
+        // six-minute pieces and onset slides later — or nothing clears the bar
+        // and the night is never found. An arousal is an event inside sleep.
+        let points = night(fromHour: 23, hours: 0.1)                       // 23:00–23:06
+            + awakeStretch(fromHour: 23, fromMinute: 6, hours: 0.017)      // ~60 s
+            + night(fromHour: 23, fromMinute: 7, hours: 7, day: 20)
+
+        let w = SleepDetector.detect(points)
+        XCTAssertNotNil(w, "a night with an early arousal is still a night")
+        XCTAssertEqual(Calendar.current.component(.hour, from: w?.startedAt ?? .distantPast), 23)
+        XCTAssertEqual(Calendar.current.component(.minute, from: w?.startedAt ?? .distantPast), 0,
+                       "onset is where sleep began, not after the arousal")
+    }
+
+    func testALongWakeStillBreaksPersistentSleep() {
+        // And the bound on that leniency: stepping over brief arousals must not
+        // become stepping over the night's actual end.
+        let points = night(fromHour: 23, hours: 5)
+            + awakeStretch(fromHour: 4, hours: 3.4, day: 21)
+            + night(fromHour: 7, fromMinute: 30, hours: 0.25, day: 21)
+
+        let w = SleepDetector.detect(points)
+        XCTAssertNotNil(w)
+        XCTAssertEqual(w?.durationSec ?? 0, 5 * 3600, accuracy: 600,
+                       "three hours awake is still the end of the night")
+    }
 }

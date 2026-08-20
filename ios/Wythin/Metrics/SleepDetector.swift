@@ -94,11 +94,36 @@ enum SleepThresholds {
     static let deepDepth: Double = 2.2
     static let remDepth: Double = 0.0
 
-    static let algorithmVersion: Int = 8
+    static let algorithmVersion: Int = 9
     /// Shortest run that can stand as its own stage. Sleep changes state on
     /// the scale of minutes; anything briefer is a turn or a dropped estimate,
     /// and leaving it in inflates every count derived from the hypnogram.
     static let minStageRunSec: Double = 180
+
+    /// The same floor, for WAKE — and deliberately much lower.
+    ///
+    /// One threshold used to govern both, which meant any awakening shorter
+    /// than three minutes was absorbed into the sleep around it and vanished:
+    /// out of the hypnogram, out of the awake total, out of the wake-bout count
+    /// continuity is scored on. Someone who woke four times for a minute each
+    /// was shown an unbroken night.
+    ///
+    /// Three minutes is right for stage flicker — N2 and N3 trading places for
+    /// one tick is noise. It is wrong for wake, which is a different kind of
+    /// event: polysomnography scores in 30-second epochs and actigraphy counts
+    /// bouts from about a minute, because a brief awakening is real and worth
+    /// counting even when a stage flicker is not.
+    static let minWakeRunSec: Double = 60
+
+    /// Wake shorter than this does not break a stretch of *persistent* sleep.
+    ///
+    /// The companion to the above, and it has to exist. Showing 60-second
+    /// arousals means they also start splitting the runs `sustainedSleepRuns`
+    /// measures, so a stretch that was twelve unbroken minutes becomes two
+    /// six-minute pieces and sleep onset slides later — or, on a restless
+    /// night, no run clears the bar and the night is not found at all. An
+    /// arousal is not the end of persistent sleep; it is an event inside it.
+    static let briefArousalSec: Double = 120
     /// Regularity is a comparison between days, so it needs at least two.
     /// Published SRI uses a trailing week; two is the floor at which the
     /// number means anything at all, and the UI should say how many it had.
@@ -300,6 +325,19 @@ enum SleepDetector {
         return Array(run[episode])
     }
 
+    /// Index where sleep picks up again after a wake stretch starting at
+    /// `from`, provided that stretch is shorter than `briefArousalSec`.
+    /// Nil when the wake is long enough to genuinely end the run.
+    private static func sleepResumes(_ from: Int,
+                                     _ stages: [SleepStage],
+                                     _ points: [MetricsHistoryPoint]) -> Int? {
+        var k = from
+        while k < stages.count && stages[k] == .wake { k += 1 }
+        guard k < stages.count else { return nil }
+        let gap = points[k].timestamp.timeIntervalSince(points[from].timestamp)
+        return gap < SleepThresholds.briefArousalSec ? k : nil
+    }
+
     /// The night, out of everything in this run that qualifies as sleep.
     ///
     /// Requiring the boundaries to be *sustained* sleep fixed the night that
@@ -363,7 +401,14 @@ enum SleepDetector {
         while i < stages.count {
             guard stages[i] != .wake else { i += 1; continue }
             var j = i
-            while j + 1 < stages.count && stages[j + 1] != .wake { j += 1 }
+            while j + 1 < stages.count {
+                if stages[j + 1] != .wake { j += 1; continue }
+                // A brief arousal does not end persistent sleep. Step over it
+                // if sleep resumes on the far side quickly enough; otherwise
+                // this run really has ended.
+                guard let resume = sleepResumes(j + 1, stages, points) else { break }
+                j = resume - 1
+            }
             // Credit the run up to the next tick, so a stretch that ends at the
             // last sample still has the width its samples actually cover.
             let end = j + 1 < points.count ? points[j + 1].timestamp : points[j].timestamp
