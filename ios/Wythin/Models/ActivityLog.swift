@@ -502,13 +502,27 @@ final class ActivityLog {
         //     stored under the old label-based rule must be re-evaluated.
         // v8  readinessScore/readinessPeerCount — how you arrived, scored
         //     against your own recent pre-session windows.
-        // v9  the half-recovery hold is bounded. It used to require the level
-        //     to stay up for EVERY remaining sample of a four-hour window, so a
-        //     single sag long after the event discarded a recovery that had
-        //     plainly happened — one session came back inside four minutes and
-        //     scored zero. Every entry stored under v4–v8 carries that verdict
-        //     and has to be re-derived.
-        let currentVersion = 9
+        // v9  WITHHELD — see below. The half-recovery hold is bounded now, and
+        //     every entry stored under v4–v8 carries the old verdict, so a
+        //     re-derive IS owed. It cannot be taken this way.
+        //
+        // BUMPING THIS IS NOT FREE, AND BUILD 98 PROVED IT. A bump sets
+        // `migrating`, which selects EVERY finished entry, and the loop below
+        // runs `computeHRVWindows` + `computeExerciseResponse` synchronously on
+        // the main context — a session-span fetch plus a four-hour, 20,000-row
+        // fetch each — from `.task` at launch and again on every foreground.
+        // With a store holding months of continuously-synced samples that
+        // exceeded the ~20 s watchdog, so the app was killed before it drew.
+        //
+        // And it could not recover on its own: the `UserDefaults.set` that
+        // records progress is the LAST statement, after the whole loop. Killed
+        // partway, nothing is written, and the next launch repeats all of it —
+        // a bump that cannot finish is a permanent brick, not a slow start.
+        //
+        // The re-derive returns once this runs off the main thread in bounded
+        // chunks that persist their progress. Until then the bar stays where a
+        // shipped build is known to launch.
+        let currentVersion = 8
         let versionKey = "activityBackfillVersion"
         let migrating = UserDefaults.standard.integer(forKey: versionKey) < currentVersion
 
