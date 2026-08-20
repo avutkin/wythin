@@ -77,4 +77,35 @@ final class SleepRecorderPersistenceTests: XCTestCase {
         XCTAssertTrue(sleepLogs(in: reader).isEmpty,
                       "the stale night is still in the store — the delete was discarded")
     }
+
+    /// The exact upgrade path the phone is on: nights on disk from the old
+    /// share-based pipeline, samples still present, new algorithm version.
+    ///
+    /// This is what "I don't see changes in the app" looks like from the
+    /// store's side — if the old row survives, the user keeps reading numbers
+    /// from an algorithm that was deleted.
+    func testAnOldVersionNightIsReplacedByOneFromTheCurrentPipeline() {
+        let writer = ModelContext(container)
+        seedNight(writer, day: 20)
+
+        // A night already on disk, written by the previous algorithm, covering
+        // the same window the samples describe.
+        let stale = ActivityLog(activityType: ActivityType.sleep.rawValue,
+                                startedAt: at(20, 23))
+        stale.endedAt = at(21, 6)
+        stale.sleepAlgorithmVersion = SleepThresholds.algorithmVersion - 1
+        stale.sleepAsleepMinutes = 999          // an obviously stale marker
+        writer.insert(stale)
+        try! writer.save()
+
+        SleepRecorder.recordIfDue(context: writer, now: at(21, 8))
+
+        let reader = ModelContext(container)
+        let logs = sleepLogs(in: reader)
+        XCTAssertEqual(logs.count, 1, "one night in, one night out")
+        XCTAssertEqual(logs.first?.sleepAlgorithmVersion, SleepThresholds.algorithmVersion,
+                       "the surviving night is still on the old algorithm")
+        XCTAssertNotEqual(logs.first?.sleepAsleepMinutes, 999,
+                          "this is the stale row, not a rebuilt one")
+    }
 }
