@@ -117,6 +117,48 @@ struct SleepMontageChart: View {
         self.ruler = MontageRuler(startedAt: startedAt, endedAt: endedAt)
     }
 
+    /// The moment the tracker is pointing at, shared by every channel — the
+    /// same idea as the Live screen's single `selectedX` across its charts.
+    /// One line, one instant, eleven readings of it.
+    @State private var selectedX: Date?
+    @State private var plotWidth: Double = 0
+
+    /// Press, then drag. A plain `DragGesture` on a chart inside a ScrollView
+    /// wins the vertical drag too and the page stops scrolling; requiring the
+    /// press first is how Live keeps both, and it is what `chartXSelection`
+    /// does underneath.
+    private var scrub: some Gesture {
+        LongPressGesture(minimumDuration: 0.12)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { value in
+                guard case let .second(true, drag?) = value else { return }
+                selectedX = ruler.date(atX: drag.location.x, width: plotWidth)
+            }
+    }
+
+    // MARK: - Reading a single instant
+
+    private func nearest(_ samples: [PreparedNight.Sample], to moment: Date) -> Double? {
+        samples.min { a, b in
+            abs(a.date.timeIntervalSince(moment)) < abs(b.date.timeIntervalSince(moment))
+        }?.value
+    }
+
+    private func stage(at moment: Date) -> SleepStageDetail? {
+        guard night.stages.count == night.points.count, !night.points.isEmpty else { return nil }
+        var best = 0
+        for (i, p) in night.points.enumerated()
+        where abs(p.timestamp.timeIntervalSince(moment))
+            < abs(night.points[best].timestamp.timeIntervalSince(moment)) {
+            best = i
+        }
+        return night.stages[best]
+    }
+
+    private func position(at moment: Date) -> BodyPosition? {
+        night.positionBands.first { $0.start <= moment && moment <= $0.end }?.position
+    }
+
     // MARK: - Palette
 
     /// A sequential depth ramp, plus one neutral that sits outside it.
@@ -210,16 +252,27 @@ struct SleepMontageChart: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // The night's shape first, then what its lanes mean, then the two
+            // strips that describe the same body over the same clock. The nine
+            // metric traces follow — they answer a different question, and
+            // putting them between the hypnogram and its own legend meant
+            // scrolling past nine charts to find out what N2 was.
             sleepChannel
-            ForEach(activityMetricDefs) { def in
-                traceChannel(def)
-            }
+            stageLegend
             movementChannel
             positionChannel
-            axis
-            stageLegend
             positionDetail
+            metricChannels
+            axis
         }
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { plotWidth = geo.size.width }
+                    .onChange(of: geo.size.width) { _, new in plotWidth = new }
+            }
+        )
+        .gesture(scrub)
     }
 
     // MARK: - Shared ink
@@ -239,6 +292,14 @@ struct SleepMontageChart: View {
             ctx.stroke(rule(x: x, height: size.height),
                        with: .color(Theme.dim.opacity(0.45)), lineWidth: 1)
         }
+    }
+
+    /// The tracker line, drawn last in every channel so it sits above the ink.
+    private func drawTracker(_ ctx: inout GraphicsContext, _ size: CGSize) {
+        guard let selectedX else { return }
+        let x = ruler.x(selectedX, width: size.width)
+        ctx.stroke(rule(x: x, height: size.height),
+                   with: .color(Theme.text.opacity(0.8)), lineWidth: 1)
     }
 
     private func rule(x: Double, height: Double) -> Path {
@@ -283,6 +344,7 @@ struct SleepMontageChart: View {
             Canvas { ctx, size in
                 drawGrid(&ctx, size)
                 drawRibbon(&ctx, size)
+                drawTracker(&ctx, size)
             }
             .frame(height: 120)
             // Directly under the hypnogram, where the reference puts it and
@@ -343,6 +405,45 @@ struct SleepMontageChart: View {
         }
     }
 
+    private var metricChannels: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let moment = selectedX {
+                HStack(spacing: 6) {
+                    Text("AT")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Theme.dim)
+                    Text(clock(moment))
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.text)
+                    if let s = stage(at: moment) {
+                        Text("· \(s.label)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.dim)
+                    }
+                    if let p = position(at: moment) {
+                        Text("· \(p.label)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.dim)
+                    }
+                    Spacer()
+                    Button("clear") { selectedX = nil }
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.dim)
+                }
+                .padding(.bottom, 10)
+            } else {
+                Text("Press and drag across any chart to read every metric at one moment.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.dim)
+                    .padding(.bottom, 10)
+            }
+            ForEach(activityMetricDefs) { def in
+                traceChannel(def)
+            }
+        }
+        .padding(.top, 18)
+    }
+
     // MARK: - Metric traces
 
     private func traceChannel(_ def: ActivityMetricDef) -> some View {
@@ -350,13 +451,22 @@ struct SleepMontageChart: View {
         let average = night.averages[def.id]
         let unit = def.unit.isEmpty ? "" : " \(def.unit)"
         return VStack(alignment: .leading, spacing: 4) {
+            // While the tracker is down the header reads THAT moment, not the
+            // night average — otherwise every channel shows the same number
+            // wherever the line is put, which is the opposite of tracking.
             channelHeader(def.label,
                           tech: def.techFull.isEmpty ? def.techLabel : def.techFull,
-                          value: average.map { "\(def.format($0))\(unit)" } ?? "—")
+                          value: {
+                              if let selectedX, let v = nearest(samples, to: selectedX) {
+                                  return "\(def.format(v))\(unit)"
+                              }
+                              return average.map { "\(def.format($0))\(unit)" } ?? "—"
+                          }())
             Canvas { ctx, size in
                 drawWakeBands(&ctx, size)
                 drawGrid(&ctx, size)
                 drawTrace(&ctx, size, samples: samples, average: average, def: def)
+                drawTracker(&ctx, size)
             }
             .frame(height: 48)
             .overlay(alignment: .leading) {
@@ -446,6 +556,7 @@ struct SleepMontageChart: View {
                     ctx.fill(Path(CGRect(x: x, y: mid - h / 2, width: 1.6, height: h)),
                              with: .color(Color(white: 0.78).opacity(0.5 + scale * 0.5)))
                 }
+                drawTracker(&ctx, size)
             }
             .frame(height: 44)
         }
@@ -498,6 +609,7 @@ struct SleepMontageChart: View {
                                  at: CGPoint(x: x0 + w / 2, y: size.height / 2),
                                  anchor: .center)
                     }
+                    drawTracker(&ctx, size)
                 }
                 .frame(height: 28)
             }
@@ -585,6 +697,19 @@ struct SleepMontageChart: View {
                     }
                 }
             }
+            // What the lanes actually are. The legend named them and priced
+            // them in minutes without ever saying what they were, which leaves
+            // "N2 3h 16m 61%" meaning nothing to anyone who has not read a
+            // sleep textbook.
+            VStack(alignment: .leading, spacing: 5) {
+                stageNote("Awake", "Lying awake, in bed. Brief arousals are normal — several an hour is ordinary and not something to fix.")
+                stageNote("REM", "Dreaming sleep. The heart behaves much as it does awake, which is why it is the stage a cardiac signal reads least confidently.")
+                stageNote("N1", "The doorway either side of a wake bout — the descent into sleep, and the settling after an arousal. Positional here, not measured.")
+                stageNote("N2 (light)", "The bulk of a normal night. Genuinely measured: coherence, variability and heart rate, ranked within this night.")
+                stageNote("N3 (deep)", "The deepest, most restorative stretch, front-loaded into the first half of the night. Also measured.")
+            }
+            .padding(.top, 10)
+
             HStack(spacing: 7) {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Color(white: 0.62).opacity(0.16))
@@ -601,13 +726,22 @@ struct SleepMontageChart: View {
         .padding(.top, 4)
     }
 
+    private func stageNote(_ name: String, _ meaning: String) -> some View {
+        (Text(name).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
+         + Text("  " + meaning).font(.system(size: 11)).foregroundStyle(Theme.dim))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     /// The minutes behind the position bands, and then the bands themselves.
     ///
     /// The strip shows *when*; a person asking "how much of the night was I on
     /// my back" is asking something the strip alone cannot answer, and supine
-    /// share is the one number here with a recommendation attached to it. The
-    /// per-band list answers the other half — which turn happened when, and how
-    /// long it lasted — for the bands too narrow to carry their own label.
+    /// share is the one number here with a recommendation attached to it.
+    ///
+    /// There was a row per turn under this. It was asked for and then found to
+    /// be noise — thirty-odd lines of clock ranges is a log, not a picture, and
+    /// the tracker answers "what was I doing at 03:14" far better than a table
+    /// the eye has to search.
     @ViewBuilder
     private var positionDetail: some View {
         if !night.positionBands.isEmpty {
@@ -632,30 +766,6 @@ struct SleepMontageChart: View {
                             }
                             Spacer()
                         }
-                    }
-                }
-
-                Text("EVERY TURN")
-                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .tracking(0.8)
-                    .foregroundStyle(Theme.dim)
-                    .padding(.top, 6)
-
-                ForEach(Array(night.positionBands.enumerated()), id: \.offset) { _, band in
-                    HStack(spacing: 10) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(positionColour(band.position))
-                            .frame(width: 10, height: 10)
-                        Text("\(clock(band.start)) → \(clock(band.end))")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(Theme.dim)
-                        Text(band.position.label)
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.text)
-                        Spacer(minLength: 6)
-                        Text(hm(Int((band.end.timeIntervalSince(band.start) / 60).rounded())))
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(Theme.text)
                     }
                 }
 
