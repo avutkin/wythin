@@ -51,16 +51,13 @@ enum SleepRecorder {
     static func recordIfDue(context: ModelContext, now: Date = .now) {
         // Everything the sessionizer needs, and nothing older. The lookback is
         // generous enough to catch a night the app was not running for.
-        let horizon = now.addingTimeInterval(-SleepThresholds.lookbackSec)
-        var desc = FetchDescriptor<HRVSample>(
-            predicate: #Predicate<HRVSample> { $0.timestamp >= horizon },
-            sortBy: [SortDescriptor(\.timestamp)]
-        )
-        desc.fetchLimit = Int(SleepThresholds.lookbackSec / ActivityLog.minTickIntervalSec) + 1_000
-
-        guard let samples = try? context.fetch(desc), !samples.isEmpty else { return }
-        let points = samples.map(MetricsHistoryPoint.init(from:))
-
+        // Purge first, and independently of whether there are samples.
+        //
+        // This used to sit *after* a `guard !samples.isEmpty else { return }`,
+        // so a store with no recent ticks kept nights written by a pipeline
+        // that no longer exists — the version field is there precisely to stop
+        // that, and it was being skipped in the one case it mattered most.
+        //
         // A fetch that threw is not "no nights recorded". Reading it as one and
         // inserting would duplicate a night that already exists — the same
         // failure `detectAnchorIfDue` guards against, and there is no unique
@@ -75,10 +72,26 @@ enum SleepRecorder {
         // Leaving it would show numbers from an algorithm that no longer exists,
         // with every field the old version never wrote rendering as a dash.
         let sleepLogs = existing.filter { $0.activityType == ActivityType.sleep.rawValue }
+        var purged = 0
         for stale in sleepLogs
         where (stale.sleepAlgorithmVersion ?? 0) < SleepThresholds.algorithmVersion {
             context.delete(stale)
+            purged += 1
         }
+        if purged > 0 {
+            print("🌙 SleepRecorder: purged \(purged) night(s) from an older algorithm")
+            commit(context)
+        }
+
+        let horizon = now.addingTimeInterval(-SleepThresholds.lookbackSec)
+        var desc = FetchDescriptor<HRVSample>(
+            predicate: #Predicate<HRVSample> { $0.timestamp >= horizon },
+            sortBy: [SortDescriptor(\.timestamp)]
+        )
+        desc.fetchLimit = Int(SleepThresholds.lookbackSec / ActivityLog.minTickIntervalSec) + 1_000
+
+        guard let samples = try? context.fetch(desc), !samples.isEmpty else { return }
+        let points = samples.map(MetricsHistoryPoint.init(from:))
         let current = sleepLogs.filter {
             ($0.sleepAlgorithmVersion ?? 0) >= SleepThresholds.algorithmVersion
         }
@@ -105,7 +118,20 @@ enum SleepRecorder {
             written.append(record(night, from: points,
                                   existing: current + written, context: context))
         }
-        if !written.isEmpty { try? context.save() }
+        commit(context)
+    }
+
+    /// Commits pending work, and says so when it cannot.
+    ///
+    /// The save used to be `if !written.isEmpty { try? context.save() }`, which
+    /// was harmless while this ran on `container.mainContext` — that context
+    /// autosaves. A hand-made `ModelContext` does not, so anything it did that
+    /// was not an insert of a new night was thrown away when the context went
+    /// out of scope, silently.
+    private static func commit(_ context: ModelContext) {
+        guard context.hasChanges else { return }
+        do { try context.save() }
+        catch { print("❌ SleepRecorder: save — \(error)") }
     }
 
     @discardableResult
