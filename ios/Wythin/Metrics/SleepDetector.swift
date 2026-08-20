@@ -94,7 +94,7 @@ enum SleepThresholds {
     static let deepDepth: Double = 2.2
     static let remDepth: Double = 0.0
 
-    static let algorithmVersion: Int = 7
+    static let algorithmVersion: Int = 8
     /// Shortest run that can stand as its own stage. Sleep changes state on
     /// the scale of minutes; anything briefer is a turn or a dropped estimate,
     /// and leaving it in inflates every count derived from the hypnogram.
@@ -296,9 +296,58 @@ enum SleepDetector {
            median > SleepThresholds.impossibleSleepMotion { return nil }
         let stages = SleepStages.classify(run)
         let sustained = sustainedSleepRuns(stages, points: run)
-        guard let first = sustained.first?.lowerBound,
-              let last = sustained.last?.upperBound else { return nil }
-        return Array(run[first...last])
+        guard let episode = mainSleepEpisode(sustained, points: run) else { return nil }
+        return Array(run[episode])
+    }
+
+    /// The night, out of everything in this run that qualifies as sleep.
+    ///
+    /// Requiring the boundaries to be *sustained* sleep fixed the night that
+    /// opened at 17:00, but it only asks whether a boundary is real sleep — never
+    /// whether that sleep belongs to the same night. A fifteen-minute doze at
+    /// 07:30, hours after getting up, passes the sustained test and dragged the
+    /// window out with it: one recorded night ran 8 h 26 m and called 3 h 31 m of
+    /// it awake, nearly all of it a morning nobody was in bed for.
+    ///
+    /// Sleep medicine does not define the night as first sleep to last sleep. The
+    /// sleep period runs from onset to the FINAL AWAKENING, and it is terminated
+    /// by a wake bout long enough to mean the person got up for the day; sleep
+    /// after that is a separate episode. `settleSec` is already this codebase's
+    /// name for that threshold — it decides when a night may be written down —
+    /// and the trim simply never consulted it.
+    ///
+    /// So: group sustained sleep into episodes separated by `settleSec` of wake,
+    /// and keep the one holding the most sleep. Interior bouts shorter than that
+    /// stay inside the night, which is what the continuity section counts.
+    private static func mainSleepEpisode(_ sustained: [ClosedRange<Int>],
+                                         points: [MetricsHistoryPoint]) -> ClosedRange<Int>? {
+        guard !sustained.isEmpty else { return nil }
+
+        var episodes: [[ClosedRange<Int>]] = [[sustained[0]]]
+        for run in sustained.dropFirst() {
+            let previousEnd = points[episodes[episodes.count - 1].last!.upperBound].timestamp
+            let gap = points[run.lowerBound].timestamp.timeIntervalSince(previousEnd)
+            if gap >= SleepThresholds.settleSec {
+                episodes.append([run])
+            } else {
+                episodes[episodes.count - 1].append(run)
+            }
+        }
+
+        // Most sleep, not the longest span: a span would let an episode win on
+        // the strength of the wake bouts inside it.
+        let best = episodes.max { a, b in asleepSeconds(a, points) < asleepSeconds(b, points) }
+        guard let best, let lo = best.first?.lowerBound, let hi = best.last?.upperBound else {
+            return nil
+        }
+        return lo...hi
+    }
+
+    private static func asleepSeconds(_ runs: [ClosedRange<Int>],
+                                      _ points: [MetricsHistoryPoint]) -> Double {
+        runs.reduce(0) { total, r in
+            total + points[r.upperBound].timestamp.timeIntervalSince(points[r.lowerBound].timestamp)
+        }
     }
 
     /// Index ranges of unbroken sleep lasting at least `minSustainedSleepSec`.
