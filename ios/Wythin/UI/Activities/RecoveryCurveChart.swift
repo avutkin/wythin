@@ -45,6 +45,38 @@ struct RecoveryCurveChart: View {
             case .heartRate:  return "your heart rate"
             }
         }
+
+        /// The measurement and its unit, printed on the chart itself.
+        ///
+        /// The y-axis used to be labelled in per cent of the resting level, so
+        /// the whole chart read "107 %, 142 %" with nothing naming what was
+        /// 142 % OF — and the reader was left to guess from the caption whether
+        /// "vagal" meant RMSSD, DC or something else. The axis now carries the
+        /// values themselves and this names them.
+        var axisTitle: String {
+            switch self {
+            case .vagalBrake: return "Deceleration Capacity (DC) \u{00B7} ms"
+            case .heartRate:  return "Heart rate \u{00B7} bpm"
+            }
+        }
+
+        var unit: String {
+            switch self {
+            case .vagalBrake: return "ms"
+            case .heartRate:  return "bpm"
+            }
+        }
+
+        /// DC lives around 5-20 ms and moves in tenths; heart rate is whole
+        /// beats and a decimal on it is false precision.
+        func format(_ v: Double) -> String {
+            switch self {
+            case .vagalBrake: return String(format: "%.1f", v)
+            case .heartRate:  return String(format: "%.0f", v)
+            }
+        }
+
+        func formatted(_ v: Double) -> String { "\(format(v)) \(unit)" }
     }
 
     let points:    [MetricsHistoryPoint]
@@ -150,8 +182,14 @@ struct RecoveryCurveChart: View {
             }()
             let lastAfter = (d.filter { $0.phase == .after }.map(\.minutes).max() ?? sessionMinutes)
                 - sessionMinutes
+            let firstMinute = d.map(\.minutes).min() ?? 0
+            let domain = yDomain(dots: d, pre: pre, bar: bar)
 
             VStack(alignment: .leading, spacing: 7) {
+                Text(channel.axisTitle)
+                    .font(.system(size: 8.5, design: .monospaced))
+                    .foregroundStyle(Theme.dim)
+
                 Chart {
                     RectangleMark(xStart: .value("s", 0), xEnd: .value("e", sessionMinutes))
                         .foregroundStyle(Theme.warn.opacity(0.07))
@@ -161,7 +199,10 @@ struct RecoveryCurveChart: View {
                             .foregroundStyle(Theme.accent.opacity(0.45))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                             .annotation(position: .bottom, alignment: .trailing) {
-                                Text("halfway back \u{2014} the bar being scored")
+                                // The level, not just the name. Two dashed lines
+                                // a hair apart is precisely the picture that
+                                // needs the reader to see how far apart.
+                                Text("halfway back \u{2014} the bar being scored \u{00B7} \(channel.formatted(bar))")
                                     .font(.system(size: 8, design: .monospaced))
                                     .foregroundStyle(Theme.accent.opacity(0.8))
                             }
@@ -171,7 +212,7 @@ struct RecoveryCurveChart: View {
                         .foregroundStyle(Theme.dim)
                         .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                         .annotation(position: .top, alignment: .leading) {
-                            Text(channel.restingLabel)
+                            Text("\(channel.restingLabel) \u{00B7} \(channel.formatted(pre))")
                                 .font(.system(size: 8, design: .monospaced))
                                 .foregroundStyle(Theme.dim)
                         }
@@ -191,15 +232,17 @@ struct RecoveryCurveChart: View {
                     }
                 }
                 .chartXAxis {
-                    // The last mark is where the recording actually ends, not a
-                    // fixed "+10m" printed over an hour of trace.
-                    AxisMarks(values: [0, sessionMinutes, sessionMinutes + max(lastAfter, 1)]) { value in
+                    // Start, end, and then real minutes across the recovery —
+                    // three marks over an hour of trace left the whole return
+                    // as one unlabelled stretch with no way to read WHEN
+                    // anything happened in it.
+                    AxisMarks(values: xTicks(sessionMinutes: sessionMinutes,
+                                             lastAfter: lastAfter,
+                                             firstMinute: firstMinute)) { value in
                         AxisGridLine().foregroundStyle(Theme.border.opacity(0.5))
                         AxisValueLabel {
                             if let m = value.as(Double.self) {
-                                Text(m <= 0 ? "start"
-                                     : (abs(m - sessionMinutes) < 0.5 ? "end"
-                                        : "+\(Int(lastAfter.rounded()))m"))
+                                Text(xLabel(m, sessionMinutes: sessionMinutes))
                                     .font(.system(size: 8, design: .monospaced))
                                     .foregroundStyle(Theme.dim)
                             }
@@ -211,14 +254,16 @@ struct RecoveryCurveChart: View {
                         AxisGridLine().foregroundStyle(Theme.border.opacity(0.5))
                         AxisValueLabel {
                             if let v = value.as(Double.self) {
-                                Text("\(Int(v / pre * 100))%")
+                                Text(channel.format(v))
                                     .font(.system(size: 8, design: .monospaced))
                                     .foregroundStyle(Theme.dim)
                             }
                         }
                     }
                 }
-                .frame(height: 132)
+                .chartXScale(domain: firstMinute...(sessionMinutes + max(lastAfter, 1)))
+                .chartYScale(domain: domain)
+                .frame(height: 168)
 
                 HStack(spacing: 14) {
                     legend(Theme.breathe, "before")
@@ -230,12 +275,65 @@ struct RecoveryCurveChart: View {
                 // announce "back within 10% of your resting level" — a third
                 // definition of recovered, on a screen that already had two,
                 // and the reason the caption could contradict the headline.
-                Text(RecoveryTiming.summary(outcome, subject: channel.subject))
+                //
+                // `bar == nil` means the session never moved the signal far
+                // enough to score, and that is a different sentence from "not
+                // enough recording" — printing the recording one blamed the
+                // strap for a session that simply did not tax anything.
+                Text(bar == nil
+                     ? RecoveryTiming.noExcursionNote(subject: channel.subject,
+                                                      direction: direction)
+                     : RecoveryTiming.summary(outcome, subject: channel.subject))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// A range that shows the SHAPE of the trace.
+    ///
+    /// Charts' automatic domain reached down to zero, so a DC line living
+    /// between 13 and 21 ms was drawn inside the top third of the frame with
+    /// two thirds of empty axis under it — every wobble that matters flattened
+    /// into a straight line. The domain is the data and the two scored lines
+    /// plus a margin, and nothing else.
+    private func yDomain(dots: [Dot], pre: Double, bar: Double?) -> ClosedRange<Double> {
+        var values = dots.map(\.dc) + [pre]
+        if let bar { values.append(bar) }
+        guard let lo = values.min(), let hi = values.max() else { return 0...1 }
+        // A flat trace has no span of its own to pad, so the pad falls back to a
+        // share of the level — without it the domain collapses to a point and
+        // the line vanishes.
+        let pad = max((hi - lo) * 0.15, abs(hi) * 0.03, 0.001)
+        return (lo - pad)...(hi + pad)
+    }
+
+    /// Session boundaries plus a readable grid across the recovery.
+    private func xTicks(sessionMinutes: Double,
+                        lastAfter: Double,
+                        firstMinute: Double) -> [Double] {
+        var ticks: [Double] = [0, sessionMinutes]
+        // The five minutes before are drawn, so they get a mark rather than
+        // being an unlabelled stretch to the left of "start".
+        if firstMinute < -1 { ticks.insert(firstMinute, at: 0) }
+        let span = max(lastAfter, 1)
+        // Whole minutes people count in, so a tick never lands on "+7m".
+        let step = [5.0, 10, 15, 30, 60].first { span / $0 <= 4 } ?? 120
+        var t = step
+        while t < span - step * 0.4 {
+            ticks.append(sessionMinutes + t)
+            t += step
+        }
+        ticks.append(sessionMinutes + span)
+        return ticks
+    }
+
+    private func xLabel(_ m: Double, sessionMinutes: Double) -> String {
+        if abs(m) < 0.5 { return "start" }
+        if abs(m - sessionMinutes) < 0.5 { return "end" }
+        if m < 0 { return "\u{2212}\(Int(-m.rounded()))m" }
+        return "+\(Int((m - sessionMinutes).rounded()))m"
     }
 
     private func color(_ p: Phase) -> Color {

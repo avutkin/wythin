@@ -896,6 +896,17 @@ final class ActivityLog {
     /// centimetre apart.
     static let recoveryWindowSeconds: TimeInterval = 3600
 
+    /// How far past the session the vagal rebound is looked for — and now also
+    /// how far the recovery curves are drawn.
+    ///
+    /// The brake reactivates over minutes to HOURS (Stanley, Peake & Buchheit,
+    /// Sports Medicine 2013), so the number has always been computed over four
+    /// of them while the chart under it was drawn over one. A return at
+    /// seventy minutes was therefore scored and then drawn off the right-hand
+    /// edge, which is the same class of disagreement this file keeps having to
+    /// fix. One constant, one window.
+    static let recoveryScoringWindowSeconds: TimeInterval = 4 * 3600
+
     /// This person's recent T30 values, for ranking today's against.
     private func t30Peers(context: ModelContext) -> [Double] {
         let start = startedAt
@@ -970,7 +981,7 @@ final class ActivityLog {
         // Looks past the stored 10-minute window: recovery that takes longer is
         // exactly the case worth reporting, and cutting it off at ten minutes
         // would report "never" for a session that came back at twelve.
-        let horizon = end.addingTimeInterval(4 * 3600)
+        let horizon = end.addingTimeInterval(ActivityLog.recoveryScoringWindowSeconds)
         let predicate = #Predicate<HRVSample> {
             $0.timestamp >= end && $0.timestamp <= horizon
         }
@@ -1082,9 +1093,19 @@ final class ActivityLog {
     var recoveryAxis: AxisValue {
         let outcome = recoveryOutcome
         guard let score = RecoveryTiming.score(outcome) else {
-            return .unavailable(reason: "not enough recording after")
+            // A session that never withdrew the brake is not a session with a
+            // short recording, and saying so blamed the strap for a quiet hour.
+            return .unavailable(reason: vagalExcursionScorable
+                                ? "not enough recording after"
+                                : "the brake barely dipped")
         }
         return .score(score, word: ExerciseResponse.word(for: score))
+    }
+
+    /// Whether the brake fell far enough for "how fast did it come back" to be
+    /// a measurable question. One rule, shared with the chart and the score.
+    var vagalExcursionScorable: Bool {
+        RecoveryTiming.Direction.upward.movedEnough(pre: beforeDC, extreme: duringDCTrough)
     }
 
     /// The heart-rate arc, in the shape the views and the index consume.

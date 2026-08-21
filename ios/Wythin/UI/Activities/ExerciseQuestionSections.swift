@@ -13,6 +13,11 @@ struct ExerciseQuestionSections: View {
     /// The session's samples, so the recovery curves can be drawn where the
     /// recovery number lives rather than in a card further down the page.
     let points: [MetricsHistoryPoint]
+    /// The recovery card's window — four hours past the end, the span the
+    /// stored vagal rebound was scored over. Falls back to `points` when it has
+    /// not loaded yet, so the card never renders off a window narrower than the
+    /// number printed above it.
+    var recoveryPoints: [MetricsHistoryPoint] = []
     let windowEnd: Date
 
     var body: some View {
@@ -175,10 +180,13 @@ struct ExerciseQuestionSections: View {
     /// Deceleration Capacity, named — the card used to say "vagal rebound" and
     /// leave the reader to guess whether that meant RMSSD or DC.
     private var dcNote: String {
-        "Deceleration Capacity (DC) — not RMSSD. DC is the vagal brake measured by "
-        + "phase-rectified signal averaging (Bauer, Lancet 2006); after exercise it reactivates "
-        + "over minutes to hours, which is why this is reported as a TIME rather than a level "
-        + "(Stanley, Peake & Buchheit, Sports Medicine 2013)."
+        let base = "Deceleration Capacity (DC), in milliseconds — not RMSSD. DC is the vagal brake "
+        + "measured by phase-rectified signal averaging (Bauer, Lancet 2006); after exercise it "
+        + "reactivates over minutes to hours, which is why this is reported as a TIME rather than "
+        + "a level (Stanley, Peake & Buchheit, Sports Medicine 2013)."
+        guard !vagalMoved else { return base }
+        return base + " The rebound is timed against how far the brake FELL, so a session that "
+        + "barely dipped it is left unscored rather than credited with an instant recovery."
     }
 
     private var hrNote: String {
@@ -196,13 +204,14 @@ struct ExerciseQuestionSections: View {
                        pre: Float?,
                        extreme: Float?,
                        note: String) -> some View {
-        if pre != nil, extreme != nil, !points.isEmpty {
+        let curvePoints = recoveryPoints.isEmpty ? points : recoveryPoints
+        if pre != nil, extreme != nil, !curvePoints.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .tracking(0.8)
                     .foregroundStyle(Theme.dim)
-                RecoveryCurveChart(points: points,
+                RecoveryCurveChart(points: curvePoints,
                                    startedAt: entry.startedAt,
                                    endedAt: windowEnd,
                                    channel: channel,
@@ -222,7 +231,7 @@ struct ExerciseQuestionSections: View {
     /// below are drawn from — so the header and the pictures cannot disagree.
     private var profile: RecoveryProfile.Result {
         let end = windowEnd
-        let after = points
+        let after = (recoveryPoints.isEmpty ? points : recoveryPoints)
             .filter { $0.timestamp > end }
             .map { RecoveryProfile.Sample(minutes: $0.timestamp.timeIntervalSince(end) / 60,
                                           hr: $0.meanBPM.map(Double.init),
@@ -277,7 +286,12 @@ struct ExerciseQuestionSections: View {
                         .foregroundStyle(Theme.dim)
                 }
             case .notObserved:
-                Text("not enough recording after this session")
+                // Two unrelated reasons land on this case, and blaming the
+                // strap for the quiet one is how a session that simply did not
+                // tax anything reads as a broken recording.
+                Text(vagalMoved || heartRateMoved
+                     ? "not enough recording after this session"
+                     : "this session did not push either channel far enough to have a return to time")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(Theme.dim)
             }
@@ -370,6 +384,30 @@ struct ExerciseQuestionSections: View {
         .padding(.top, 2)
     }
 
+    /// Did the session actually withdraw the vagal brake far enough to ask how
+    /// fast it came back? The same rule the score, the chart's dashed bar and
+    /// the neural percentage use, so all four agree in one direction.
+    private var vagalMoved: Bool {
+        RecoveryTiming.Direction.upward.movedEnough(pre: entry.beforeDC,
+                                                    extreme: entry.duringDCTrough)
+    }
+
+    private var heartRateMoved: Bool {
+        RecoveryTiming.Direction.downward.movedEnough(pre: entry.beforeHR,
+                                                      extreme: entry.duringHRPeak)
+    }
+
+    /// How far the brake actually fell, in words — the number the reader was
+    /// being asked to take on trust behind "vagal rebound".
+    private var vagalExcursion: String? {
+        guard let pre = entry.beforeDC.map(Double.init),
+              let low = entry.duringDCTrough.map(Double.init),
+              let frac = RecoveryTiming.Direction.upward
+                  .drawdownFraction(pre: pre, extreme: low)
+        else { return nil }
+        return String(format: "%+.0f%% from resting", -frac * 100)
+    }
+
     private var recoveryTiles: [(String, String, String, String)] {
         var out: [(String, String, String, String)] = []
         if let hrr = entry.hrr60Bpm {
@@ -390,6 +428,14 @@ struct ExerciseQuestionSections: View {
             out.append(("Heart rate return", ">\(Int(observed.rounded()))", "min", "not halfway yet"))
         case .notObserved:
             break
+        }
+        if let low = entry.duringDCTrough {
+            // The level the rebound is measured FROM. Without it the card
+            // reported how fast the brake came back from a hole whose depth it
+            // never showed — and on a session where that hole was a rounding
+            // error, "0.2 min to halfway" read as a perfect recovery.
+            out.append(("Brake low point", String(format: "%.1f", Double(low)), "ms",
+                        vagalExcursion ?? "during the session"))
         }
         if let tail = entry.afterTailDC {
             out.append(("Brake at 10 min", String(format: "%.1f", Double(tail)), "ms", "where it settled"))

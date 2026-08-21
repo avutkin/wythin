@@ -92,7 +92,10 @@ extension ActivityLog {
             // "not halfway in 240 min" reads as an alarm rather than a bound.
             detail = observed > 30 ? "not halfway while recorded"
                                    : "not halfway in \(Int(observed.rounded())) min"
-        case .notObserved:              detail = hrr60Bpm.map { "\(Int($0.rounded())) bpm shed" } ?? ""
+        case .notObserved:
+            detail = vagalExcursionScorable
+                ? (hrr60Bpm.map { "\(Int($0.rounded())) bpm shed" } ?? "")
+                : "brake barely dipped"
         }
 
         return ScoredIndex(name: BounceBackIndex.displayName,

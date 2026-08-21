@@ -72,7 +72,11 @@ enum RecoveryProfile {
     static func cardiovascularPercent(_ series: [Sample],
                                       restingHR: Double?,
                                       peakHR: Double?) -> Int? {
-        guard let restingHR, let peakHR, peakHR > restingHR,
+        // The same floor the timing channels use, and for the same reason: this
+        // is a share OF the excursion, so a pulse that rose two beats makes the
+        // denominator two and hands back a percentage built out of noise.
+        guard let restingHR, let peakHR,
+              RecoveryTiming.Direction.downward.movedEnough(pre: restingHR, extreme: peakHR),
               let hr = value(series, at: profileMinutes, \.hr) else { return nil }
         return clamped((peakHR - hr) / (peakHR - restingHR))
     }
@@ -81,7 +85,8 @@ enum RecoveryProfile {
     static func neuralPercent(_ series: [Sample],
                               dcPre: Double?,
                               dcTrough: Double?) -> Int? {
-        guard let dcPre, let dcTrough, dcPre > dcTrough,
+        guard let dcPre, let dcTrough,
+              RecoveryTiming.Direction.upward.movedEnough(pre: dcPre, extreme: dcTrough),
               let dc = value(series, at: profileMinutes, \.dc) else { return nil }
         return clamped((dc - dcTrough) / (dcPre - dcTrough))
     }

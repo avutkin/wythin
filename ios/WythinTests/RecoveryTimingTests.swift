@@ -204,3 +204,104 @@ extension RecoveryTimingTests {
         XCTAssertEqual(m, 4, accuracy: 1)
     }
 }
+
+// MARK: - The excursion has to clear the noise before it can be scored
+
+/// The photographed yoga session. Its vagal brake went from 14.6 ms resting to
+/// a 14.4 ms trough — a 1.4 % dip, less than the measurement's own scatter —
+/// and the halfway bar landed at 14.5 ms, which the first sample after the
+/// session was already above. The card printed `0.2 min to halfway` and scored
+/// the session **100 / 100 · recovery**, above a chart whose "during" line had
+/// gone *up*.
+extension RecoveryTimingTests {
+
+    private func flatAfter(_ level: Double,
+                           minutes: Double = 12) -> [(minutes: Double, dc: Double)] {
+        stride(from: 0.0, through: minutes, by: 0.5).map { ($0, level) }
+    }
+
+    func testANoiseSizedDipIsNotAPerfectRecovery() {
+        let out = RecoveryTiming.halfRecovery(after: flatAfter(14.6),
+                                              dcPre: 14.6, dcTrough: 14.4)
+        XCTAssertEqual(out, .notObserved,
+                       "a 1.4 % dip is not a hole to climb out of, got \(out)")
+        XCTAssertNil(RecoveryTiming.score(out),
+                     "an unscorable excursion must leave the checkpoint absent, never 100")
+    }
+
+    func testTheOldRuleWouldHaveScoredThatSessionOneHundred() {
+        // Pins what changed: the crossing rule itself still says "instantly",
+        // so the fix has to be the bar's existence, not the crossing.
+        let bar = RecoveryTiming.targetLevel(dcPre: 14.6, dcTrough: 14.4)
+        let out = RecoveryTiming.crossing(
+            flatAfter(14.6).map { (minutes: $0.minutes, value: $0.dc) },
+            target: bar, direction: .upward)
+        XCTAssertEqual(RecoveryTiming.score(out), 100,
+                       "precondition: without the floor this session scores full marks")
+    }
+
+    func testTheFloorSitsExactlyWhereItIsDocumented() {
+        let up = RecoveryTiming.Direction.upward
+        // Ten per cent of a resting 10 is a trough of 9.
+        XCTAssertNotNil(up.target(pre: 10, extreme: 9.0), "exactly a tenth is scorable")
+        XCTAssertNil(up.target(pre: 10, extreme: 9.05), "just under a tenth is not")
+        XCTAssertEqual(RecoveryTiming.minimumDrawdownFraction, 0.10, accuracy: 0.0001)
+    }
+
+    func testABrakeThatROSEDuringTheSessionHasNoRebound() {
+        // Exactly the photographed chart: the "during" line above resting.
+        let up = RecoveryTiming.Direction.upward
+        XCTAssertNil(up.target(pre: 14.6, extreme: 20.8))
+        XCTAssertEqual(up.drawdownFraction(pre: 14.6, extreme: 20.8)!, -0.4247, accuracy: 0.001,
+                       "a rise is a negative drawdown, not a small one")
+    }
+
+    func testTheSameFloorAppliesToHeartRate() {
+        let down = RecoveryTiming.Direction.downward
+        XCTAssertNil(down.target(pre: 60, extreme: 63), "three beats is not an excursion")
+        XCTAssertNotNil(down.target(pre: 60, extreme: 66), "ten per cent is")
+        // Any session that reaches the exercise screen at all clears this: the
+        // activation threshold is a 15 bpm rise in the MEAN, and the peak is
+        // higher still.
+        XCTAssertNotNil(down.target(pre: 60, extreme: 60 + ActivityClass.activatingHRRise))
+    }
+
+    func testADeepSessionIsUnaffectedByTheFloor() {
+        // Everything this analysis exists for falls far further than a tenth.
+        let out = RecoveryTiming.halfRecovery(after: ramp(from: 2, to: 6, minutes: 10),
+                                              dcPre: 8, dcTrough: 2)
+        guard case .reached = out else { return XCTFail("expected reached, got \(out)") }
+    }
+
+    func testTheDrawdownFractionIsAShareOfResting() {
+        let up = RecoveryTiming.Direction.upward
+        XCTAssertEqual(up.drawdownFraction(pre: 8, extreme: 2)!, 0.75, accuracy: 0.0001)
+        XCTAssertNil(up.drawdownFraction(pre: 0, extreme: 2), "no resting level, no share of it")
+    }
+
+    /// The floor must reach every consumer through the one function, or the
+    /// card goes back to disagreeing with itself: a dashed bar drawn where no
+    /// bar is scored, or a neural percentage built from a denominator of noise.
+    func testTheProfilePercentagesFallSilentTogether() {
+        let after = (0...24).map {
+            RecoveryProfile.Sample(minutes: Double($0) * 0.5, hr: 61, dc: 14.5)
+        }
+        let out = RecoveryProfile.build(after: after,
+                                        restingHR: 60, peakHR: 62,
+                                        dcPre: 14.6, dcTrough: 14.4)
+        XCTAssertNil(out.neural, "a 1.4 % dip has no share of itself to have climbed back")
+        XCTAssertNil(out.cardiovascular, "nor does a two-beat rise")
+        XCTAssertEqual(out.timeToStable, .notObserved)
+    }
+
+    func testTheProfileStillReadsARealSession() {
+        let after = (0...24).map {
+            RecoveryProfile.Sample(minutes: Double($0) * 0.5, hr: 70, dc: 5)
+        }
+        let out = RecoveryProfile.build(after: after,
+                                        restingHR: 60, peakHR: 170,
+                                        dcPre: 8, dcTrough: 2)
+        XCTAssertNotNil(out.neural)
+        XCTAssertNotNil(out.cardiovascular)
+    }
+}

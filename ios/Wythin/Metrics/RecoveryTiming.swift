@@ -26,10 +26,41 @@ enum RecoveryTiming {
     /// hardest sessions.
     static let targetFraction: Double = 0.5
 
-    /// The level being climbed to, given where it started and where it fell to.
+    /// The bar's arithmetic alone, with no check that there is a fall worth
+    /// measuring.
+    ///
+    /// **Not the function to score with** — `Direction.target(pre:extreme:)` is,
+    /// and it applies `minimumDrawdownFraction`. This one exists so a test can
+    /// state the arithmetic on its own, and so the two can be shown to differ
+    /// on the session that made the floor necessary.
     static func targetLevel(dcPre: Double, dcTrough: Double) -> Double {
         dcTrough + (dcPre - dcTrough) * targetFraction
     }
+
+    /// The smallest excursion that makes "how fast did it come back" a
+    /// question at all, as a share of the pre-session level.
+    ///
+    /// **Without it the bar collapses onto the trace.** The bar being scored
+    /// sits halfway across the excursion, so a session whose vagal brake dipped
+    /// 1 % puts that bar half a per cent below resting — inside the
+    /// sample-to-sample scatter of the measurement itself. The first sample
+    /// after the session clears it, `crossing` returns 0.2 minutes, and the
+    /// section prints a perfect 100 for a recovery that never had to happen.
+    ///
+    /// A photographed yoga session did exactly that: the card read "0.2 min to
+    /// halfway" and "100 / 100 · recovery" above a chart whose resting line and
+    /// halfway line were drawn a hair apart — and whose "during" curve had gone
+    /// *up*. The brake settled at 14.5 ms; the trough it was scored against sat
+    /// a fraction under resting, which is a reconstruction of that geometry
+    /// rather than a value read back off the device.
+    ///
+    /// A tenth costs nothing on the sessions this analysis is for: real vagal
+    /// withdrawal takes the trough to a fraction of resting, not a percent off
+    /// it, and every fixture in `RecoveryTimingTests` falls by a quarter or
+    /// more. It only removes the reading where there was never anything to
+    /// read, which is the honest outcome — reported as "barely moved", never
+    /// as a missing recording and never as a hundred.
+    static let minimumDrawdownFraction: Double = 0.10
 
     /// Once reached, it must hold above this share of the target — a single
     /// noisy sample crossing the line is not recovery.
@@ -77,15 +108,39 @@ enum RecoveryTiming {
         case upward     // Deceleration Capacity
         case downward   // heart rate
 
+        /// How far the session pushed the signal away from resting, as a share
+        /// of resting. Zero or negative when it moved the *other* way — a
+        /// session that raised the vagal brake has no fall to climb out of.
+        func drawdownFraction(pre: Double, extreme: Double) -> Double? {
+            guard pre > 0 else { return nil }
+            let excursion = self == .upward ? pre - extreme : extreme - pre
+            return excursion / pre
+        }
+
+        /// Whether the session moved the signal far enough that coming back is
+        /// a measurable event rather than a restatement of the noise.
+        func movedEnough(pre: Double, extreme: Double) -> Bool {
+            (drawdownFraction(pre: pre, extreme: extreme) ?? -1) >= minimumDrawdownFraction
+        }
+
+        /// The same question from a view, which holds optional `Float`s.
+        func movedEnough(pre: Float?, extreme: Float?) -> Bool {
+            guard let pre, let extreme else { return false }
+            return movedEnough(pre: Double(pre), extreme: Double(extreme))
+        }
+
         /// Halfway from where it ended up back toward where it started.
+        ///
+        /// Nil when the excursion was too small to score — see
+        /// `minimumDrawdownFraction`. Every caller routes through here, so the
+        /// dashed line on the chart, the stored time, the neural percentage and
+        /// the composite all fall silent together rather than one of them
+        /// inventing a number the others cannot see.
         func target(pre: Double, extreme: Double) -> Double? {
+            guard movedEnough(pre: pre, extreme: extreme) else { return nil }
             switch self {
-            case .upward:
-                guard pre > extreme else { return nil }
-                return extreme + (pre - extreme) * targetFraction
-            case .downward:
-                guard extreme > pre else { return nil }
-                return extreme - (extreme - pre) * targetFraction
+            case .upward:   return extreme + (pre - extreme) * targetFraction
+            case .downward: return extreme - (extreme - pre) * targetFraction
             }
         }
 
@@ -184,6 +239,21 @@ enum RecoveryTiming {
         case .notObserved:
             return nil
         }
+    }
+
+    /// What to say when the session never moved the signal far enough to have
+    /// anything to come back from.
+    ///
+    /// Separate from `summary` on purpose. `.notObserved` reaches the screen
+    /// for two unrelated reasons — nothing was recorded, or nothing happened —
+    /// and printing "not enough recording after this session" for the second
+    /// blames the strap for a quiet session.
+    static func noExcursionNote(subject: String, direction: Direction) -> String {
+        let verb = direction == .upward ? "drop" : "rise"
+        let head = subject.prefix(1).uppercased() + subject.dropFirst()
+        return "\(head) did not \(verb) more than a tenth from where it started, "
+             + "so there is no rebound to time. That is a reading about the session, "
+             + "not a gap in the recording."
     }
 
     /// The sentence shown under the chart.
