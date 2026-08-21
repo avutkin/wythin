@@ -31,7 +31,7 @@ enum TimeWindow: String, CaseIterable, Identifiable {
 
 // MARK: - Reference Line
 
-private struct RefLine {
+struct RefLine {
     let value: Double
     let label: String
     let color: Color
@@ -92,7 +92,7 @@ enum ChartSegmenter {
 
 // MARK: - Bucketed Data Point
 
-private struct ChartPoint: Identifiable {
+struct ChartPoint: Identifiable {
     let id:      Int    // bucket key — stable across re-renders
     let date:    Date
     let val:     Double
@@ -108,7 +108,7 @@ private struct ChartPoint: Identifiable {
 
 /// A contiguous time span where raw ticks existed but every tick failed the quality filter —
 /// indicating sensor removal or severe contact noise.
-private struct AnomalyBand: Identifiable {
+struct AnomalyBand: Identifiable {
     let id:    Int    // index
     let start: Date
     let end:   Date
@@ -116,7 +116,7 @@ private struct AnomalyBand: Identifiable {
 
 // MARK: - Metric Info
 
-private struct MetricInfo {
+struct MetricInfo {
     let description: String
     let calculation: String?   // the actual method, in plain words
     let physical:    String
@@ -142,7 +142,7 @@ private struct MetricInfo {
 
 // MARK: - Metric Info Sheet
 
-private struct MetricInfoSheet: View {
+struct MetricInfoSheet: View {
     let title: String
     let color: Color
     let info:  MetricInfo
@@ -205,7 +205,20 @@ private struct MetricInfoSheet: View {
 
 // MARK: - Generic Chart Card
 
-private struct MetricChartCard: View {
+/// Shared, despite living here. Sleep needs the *same* card, not one that
+/// merely looks like it: the ask was to press a night's charts and read the
+/// numbers off "the same charts I have in Live", and behaviour parity written
+/// twice is behaviour parity until the next change to one of them. It stays in
+/// this file because moving it means a hand-edited `project.pbxproj`, and a
+/// bad merge of that file is what left `main` uncompilable once already.
+///
+/// Two modes, selected by `night`:
+///
+/// - **nil** — Live's own: a `TimeWindow` slid over a day via `panOffset`.
+/// - **set** — a fixed span with no panning, so every chart in a sleep detail
+///   shares one clock with the hypnogram above it.
+
+struct MetricChartCard: View {
     let title:         String   // consumer name — shown in white
     let technicalName: String   // short technical name — shown in gray after title
     let technicalFull: String   // spelled-out technical name — its own line under the title
@@ -236,6 +249,11 @@ private struct MetricChartCard: View {
     let bucketTransform:  ((Double) -> Double)?
 
     let win: TimeWindow                    // shared window, chosen at the Today header
+    /// A fixed span to draw instead of `win` — set by callers that own their
+    /// own clock. A night is the case that forced it: `TimeWindow` offers 30 m,
+    /// 2 h and 24 h anchored to midnight, and a night crosses midnight, so
+    /// none of the three can frame one.
+    let night: ClosedRange<Date>?
     @Binding var selectedX: Date?
     @Binding var panOffset: TimeInterval   // seconds the window is panned from its newest edge (≤ 0)
     @State private var showInfo = false
@@ -245,6 +263,7 @@ private struct MetricChartCard: View {
          color: Color, windows: [TimeWindow], refs: [RefLine],
          yDomain: ClosedRange<Double>,
          win: TimeWindow,
+         night: ClosedRange<Date>? = nil,
          selectedX: Binding<Date?>,
          panOffset: Binding<TimeInterval>,
          smooth: Bool = false,
@@ -277,6 +296,7 @@ private struct MetricChartCard: View {
         self.bucketTransform = bucketTransform
         self.extract         = extract
         self.win   = win
+        self.night = night
         _selectedX = selectedX
         _panOffset = panOffset
     }
@@ -288,7 +308,7 @@ private struct MetricChartCard: View {
     private var poorQualityBands: [AnomalyBand] {
         guard !history.isEmpty else { return [] }
         let (wStart, wEnd) = windowDates
-        let bucket = win.bucketSeconds
+        let bucket = bucketSeconds
 
         // Accumulate per-bucket quality sums
         var sums:   [Int: Float] = [:]
@@ -328,7 +348,7 @@ private struct MetricChartCard: View {
     private var anomalyBands: [AnomalyBand] {
         guard !rawHistory.isEmpty else { return [] }
         let (wStart, wEnd) = windowDates
-        let bucket = win.bucketSeconds
+        let bucket = bucketSeconds
 
         var rawCounts: [Int: Int]  = [:]
         var qualCounts: [Int: Int] = [:]
@@ -367,6 +387,7 @@ private struct MetricChartCard: View {
     /// Data bucketing range — always loads the full day so selection-based
     /// panning can reach any point without a data gap.
     private var bucketDates: (start: Date, end: Date) {
+        if let night { return (night.lowerBound, night.upperBound) }
         let cal = Calendar.current
         if cal.isDateInToday(date) {
             return (cal.startOfDay(for: date), Date())
@@ -378,16 +399,34 @@ private struct MetricChartCard: View {
     /// Newest edge the window can reach (right edge at pan 0): now for today,
     /// end-of-day for a past day.
     private var anchorEnd: Date {
+        if let night { return night.upperBound }
         let cal = Calendar.current
         return cal.isDateInToday(date)
             ? Date()
             : cal.startOfDay(for: date).addingTimeInterval(86_400)
     }
 
+    /// How wide the drawn window is. `win.seconds` unless a caller pinned a
+    /// span of its own.
+    private var spanSeconds: TimeInterval {
+        night.map { $0.upperBound.timeIntervalSince($0.lowerBound) } ?? win.seconds
+    }
+
+    /// Same target as `TimeWindow.bucketSeconds` — about 120 points across
+    /// whatever is being shown — so a pinned span gets the same granularity
+    /// per pixel that the live windows do.
+    private var bucketSeconds: TimeInterval {
+        night == nil ? win.bucketSeconds : max(1, spanSeconds / 120)
+    }
+
     /// Allowed pan range in seconds (≤ 0). Panning back is bounded by the
     /// earliest data; you can't pan past the newest edge (0).
     private var panBounds: ClosedRange<TimeInterval> {
-        let span = anchorEnd.timeIntervalSince(bucketDates.start) - win.seconds
+        // A pinned span is already exactly the thing being looked at; there is
+        // nothing to pan to, and allowing it would slide the sleep charts out
+        // of register with the hypnogram they sit under.
+        if night != nil { return 0...0 }
+        let span = anchorEnd.timeIntervalSince(bucketDates.start) - spanSeconds
         return min(0, -span)...0
     }
 
@@ -397,10 +436,17 @@ private struct MetricChartCard: View {
     private var windowDates: (start: Date, end: Date) {
         let clamped = min(max(panOffset, panBounds.lowerBound), panBounds.upperBound)
         let end     = anchorEnd.addingTimeInterval(clamped)
-        return (end.addingTimeInterval(-win.seconds), end)
+        return (end.addingTimeInterval(-spanSeconds), end)
     }
 
     private var windowLabel: String {
+        if night != nil {
+            let fmt = DateFormatter()
+            fmt.dateFormat = "HH:mm"
+            let mins = Int(bucketSeconds / 60)
+            let grain = mins < 1 ? "\(Int(bucketSeconds))s avg" : "\(mins) min avg"
+            return "\(fmt.string(from: windowDates.start))–\(fmt.string(from: windowDates.end))  ·  \(grain)"
+        }
         // Panned back from the newest edge → show the window's start time.
         if panOffset < -1 {
             let fmt = DateFormatter()
@@ -415,7 +461,7 @@ private struct MetricChartCard: View {
 
     private var points: [ChartPoint] {
         let (start, end) = bucketDates
-        let bucket = win.bucketSeconds
+        let bucket = bucketSeconds
         var sums:    [Int: Double] = [:]
         var counts:  [Int: Int]    = [:]
         var qualSum: [Int: Float]  = [:]
@@ -478,6 +524,12 @@ private struct MetricChartCard: View {
     /// aren't shown as dead space; the shorter live windows keep their sliding
     /// window unchanged.
     private var visibleDates: (start: Date, end: Date) {
+        // A pinned span is drawn exactly as given. Clamping it to each metric's
+        // own data envelope is what would break the alignment the sleep detail
+        // is built on: heart rate and breath rate start and stop at different
+        // ticks, so each chart would silently get a slightly different
+        // x-domain and the crosshair would point at a different moment in each.
+        if night != nil { return windowDates }
         guard win == .h24 else { return windowDates }
         let pts = points
         guard let first = pts.first?.date, let last = pts.last?.date, last > first else {

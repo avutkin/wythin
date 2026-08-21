@@ -178,6 +178,12 @@ enum SleepStages {
     /// 29–52% — so anything built on this must carry that uncertainty forward
     /// rather than presenting a wake count as fact.
     private static func isWake(_ p: MetricsHistoryPoint, _ base: Baseline) -> Bool {
+        // Upright is not a posture anyone sleeps in — the least ambiguous cue
+        // the strap has, and until now the only one the classifier ignored.
+        // The gravity vector was computed every tick, stored on the sample and
+        // drawn in the montage's own position channel, and never once consulted
+        // when deciding whether that tick was awake.
+        if p.bodyPosition == .upright { return true }
         // Either channel alone is enough, and that is deliberate. Getting up
         // shows as motion; lying awake in bed before sleep shows only as an
         // elevated heart rate, with motion no higher than during sleep.
@@ -187,6 +193,13 @@ enum SleepStages {
            motion >= base.motion * SleepThresholds.wakeMotionMultiple { return true }
         if let hr = p.meanBPM, base.hr > 0,
            hr >= base.hr + SleepThresholds.wakeHRRise { return true }
+        // Neither channel clears its own bar, but both are raised at once.
+        // Two independent signals agreeing is its own evidence, and it is the
+        // only thing that catches the quiet awakening that moves each of them
+        // a little and neither a lot.
+        if let motion = p.motion, let hr = p.meanBPM, base.motion > 0, base.hr > 0,
+           motion >= base.motion * SleepThresholds.stirMotionMultiple,
+           hr >= base.hr + SleepThresholds.stirHRRise { return true }
         return false
     }
 
