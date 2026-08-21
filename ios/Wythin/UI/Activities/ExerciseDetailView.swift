@@ -33,7 +33,10 @@ struct ExerciseDetailView: View {
 
     private func loadChartPoints() {
         let beforeStart = entry.startedAt.addingTimeInterval(-300)
-        let afterEnd    = windowEnd.addingTimeInterval(600)
+        // The same hour the recovery checkpoints are computed over. At ten
+        // minutes the curve ended before the answer did, so the chart and the
+        // number beside it were reading different recordings.
+        let afterEnd    = windowEnd.addingTimeInterval(ActivityLog.recoveryWindowSeconds)
         let predicate = #Predicate<HRVSample> {
             $0.timestamp >= beforeStart && $0.timestamp <= afterEnd
         }

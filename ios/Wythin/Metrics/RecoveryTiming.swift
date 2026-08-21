@@ -66,37 +66,102 @@ enum RecoveryTiming {
         case notObserved
     }
 
+    /// Which way the signal travels as it recovers.
+    ///
+    /// The vagal brake was pushed down and climbs back; heart rate was pushed
+    /// up and falls back. Same question, mirrored — so it is one function with
+    /// a direction rather than two implementations that can disagree, which is
+    /// how the chart came to print "halfway back 0 minutes" beneath a headline
+    /// of ">34 min".
+    enum Direction {
+        case upward     // Deceleration Capacity
+        case downward   // heart rate
+
+        /// Halfway from where it ended up back toward where it started.
+        func target(pre: Double, extreme: Double) -> Double? {
+            switch self {
+            case .upward:
+                guard pre > extreme else { return nil }
+                return extreme + (pre - extreme) * targetFraction
+            case .downward:
+                guard extreme > pre else { return nil }
+                return extreme - (extreme - pre) * targetFraction
+            }
+        }
+
+        func met(_ value: Double, target: Double) -> Bool {
+            self == .upward ? value >= target : value <= target
+        }
+
+        /// The tolerance band around the bar, on the correct side of it.
+        func held(_ value: Double, target: Double) -> Bool {
+            self == .upward ? value >= target * holdFraction
+                            : value <= target / holdFraction
+        }
+    }
+
+    /// The one crossing rule. Every caller — the stored score, both charts —
+    /// goes through here, so a number and the picture under it cannot be
+    /// computed two different ways.
+    ///
+    /// - Parameter series: (minutes since the session ended, value), any order.
+    static func crossing(_ series: [(minutes: Double, value: Double)],
+                         target: Double,
+                         direction: Direction) -> Outcome {
+        let s = series.filter { $0.minutes >= 0 }.sorted { $0.minutes < $1.minutes }
+        guard let observed = s.last?.minutes, !s.isEmpty else { return .notObserved }
+
+        // Every crossing is tried, not just the first. A brief touch that falls
+        // away is not recovery, but it is also not proof that recovery never
+        // came — taking `firstIndex` and giving up on it reported "never" for a
+        // session that flickered at three minutes and genuinely returned at
+        // twenty.
+        for idx in s.indices where direction.met(s[idx].value, target: target) {
+            let deadline = s[idx].minutes + holdMinutes
+            let window = s[idx...].prefix { $0.minutes <= deadline }
+            // A recording that stops inside the window is judged on what it
+            // has. Demanding the full five minutes would report failure for a
+            // session that recovered and then had the strap taken off.
+            if window.allSatisfy({ direction.held($0.value, target: target) }) {
+                return .reached(minutes: s[idx].minutes)
+            }
+        }
+        return observed >= minimumObservationMinutes
+            ? .notReached(observedMinutes: observed)
+            : .notObserved
+    }
+
     /// - Parameter after: (minutes since the session ended, DC), any order.
     /// - Parameter dcTrough: the lowest vagal tone reached during the session.
     ///   Without it there is no fall to measure the climb against.
     static func halfRecovery(after: [(minutes: Double, dc: Double)],
                              dcPre: Double?,
                              dcTrough: Double?) -> Outcome {
-        guard let dcPre, dcPre > 0, let dcTrough else { return .notObserved }
-        // A session that never suppressed has no hole to climb out of.
-        guard dcPre > dcTrough else { return .notObserved }
-        let series = after.filter { $0.minutes >= 0 }.sorted { $0.minutes < $1.minutes }
-        guard let observed = series.last?.minutes, !series.isEmpty else { return .notObserved }
+        guard let dcPre, dcPre > 0, let dcTrough,
+              // A session that never suppressed has no hole to climb out of.
+              let target = Direction.upward.target(pre: dcPre, extreme: dcTrough)
+        else { return .notObserved }
+        return crossing(after.map { (minutes: $0.minutes, value: $0.dc) },
+                        target: target, direction: .upward)
+    }
 
-        let target = targetLevel(dcPre: dcPre, dcTrough: dcTrough)
-        // Every crossing is tried, not just the first. A brief touch that falls
-        // away is not recovery, but it is also not proof that recovery never
-        // came — the old code took `firstIndex` and gave up on it, so a session
-        // that flickered at three minutes and genuinely returned at twenty
-        // reported never.
-        for idx in series.indices where series[idx].dc >= target {
-            let deadline = series[idx].minutes + holdMinutes
-            let window = series[idx...].prefix { $0.minutes <= deadline }
-            // A recording that stops inside the window is judged on what it
-            // has. Demanding the full five minutes would report failure for a
-            // session that recovered and then had the strap taken off.
-            if window.allSatisfy({ $0.dc >= target * holdFraction }) {
-                return .reached(minutes: series[idx].minutes)
-            }
-        }
-        return observed >= minimumObservationMinutes
-            ? .notReached(observedMinutes: observed)
-            : .notObserved
+    /// The same arc in heart rate: how long to fall halfway back from the peak
+    /// toward the pre-session level.
+    ///
+    /// Scored beside the vagal brake rather than instead of it. Heart rate is
+    /// routinely home while vagal tone is still well down, and it needs only
+    /// heart rate — so it produces a reading on the sessions where DC cannot be
+    /// computed at all, which is exactly when the vagal channel goes blank and
+    /// leaves the section with nothing.
+    static func heartRateReturn(after: [(minutes: Double, hr: Double)],
+                                hrPre: Double?,
+                                hrPeak: Double?) -> Outcome {
+        guard let hrPre, hrPre > 0, let hrPeak,
+              // A session that never raised the pulse has nothing to come down from.
+              let target = Direction.downward.target(pre: hrPre, extreme: hrPeak)
+        else { return .notObserved }
+        return crossing(after.map { (minutes: $0.minutes, value: $0.hr) },
+                        target: target, direction: .downward)
     }
 
     /// 0–100 for the overall score, from the time taken.
@@ -122,10 +187,15 @@ enum RecoveryTiming {
     }
 
     /// The sentence shown under the chart.
-    static func summary(_ outcome: Outcome) -> String {
+    ///
+    /// - Parameter subject: what came back — "your vagal brake", "your heart
+    ///   rate". Both channels print this line, and one of them saying "vagal
+    ///   brake" under a heart-rate curve is how a caption starts describing a
+    ///   different measurement from the one drawn above it.
+    static func summary(_ outcome: Outcome, subject: String = "your vagal brake") -> String {
         switch outcome {
         case let .reached(minutes) where minutes < 1:
-            return "Your vagal brake was already halfway back when you stopped."
+            return "\(subject.prefix(1).uppercased() + subject.dropFirst()) was already halfway back when you stopped."
         case let .reached(minutes):
             return "Halfway back to your resting level \(Int(minutes.rounded())) minutes after you stopped."
         case let .notReached(observed):

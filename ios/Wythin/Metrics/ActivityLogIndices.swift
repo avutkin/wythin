@@ -56,23 +56,34 @@ extension ActivityLog {
     /// Decoupling is passed a history count of zero until it is stored, which
     /// keeps it out of the mean rather than letting an unscored construct
     /// silently weight the result.
-    var bounceBackIndex: ScoredIndex? {
-        let fromParts = BounceBackIndex.score(hrr60Bpm: hrr60Bpm,
-                                              halfRecoveryMinutes: halfRecoveryMinutes,
-                                              decoupling: nil,
-                                              decouplingMean: nil,
-                                              decouplingHistoryCount: 0)
-        // Fall back to the recovery axis. It also scores a session where the
-        // brake never reached halfway inside the recording — `.notReached` —
-        // which the three-part mean has no input for. Without this the index is
-        // stricter than the chip it replaced, and a real session that had a
-        // recovery reading shows an empty grid.
-        let value = fromParts ?? {
-            if case let .score(v, _) = recoveryAxis { return v }
-            return nil
-        }()
-        guard let value else { return nil }
+    var recoveryComposite: RecoveryIndex.Result? {
+        RecoveryIndex.compose(hrr60: hrr60Bpm,
+                              t30Seconds: t30Seconds,
+                              t30Peers: [],          // ranked at derive time; see `t30Score`
+                              rmssdBefore: beforeRMSSD.map(Double.init),
+                              rmssdAfter: afterRMSSD.map(Double.init),
+                              vagal: recoveryOutcome,
+                              heartRate: heartRateReturnOutcome,
+                              t30Ranked: t30Score)
+    }
 
+    /// How fast the system came back, from every checkpoint that has arrived.
+    ///
+    /// It used to be a mean of three readings, and fell back to the vagal
+    /// timing alone when none of them resolved — which is how a session with a
+    /// four-minute heart-rate return and a brake still down at thirty-four
+    /// printed **0**. A lone checkpoint can no longer be the score:
+    /// `RecoveryIndex` returns nothing below two, and the card shows its
+    /// checkpoints instead of a number it cannot support.
+    var bounceBackIndex: ScoredIndex? {
+        guard let composite = recoveryComposite else { return nil }
+        let value = composite.value
+
+        // The detail keeps quoting the measurement rather than the firmness
+        // label. How complete the cascade is belongs beside the headline, where
+        // the card can show it with the checkpoint list; a row that swapped
+        // "halfway in 9.0 min" for "provisional · 2 of 5" would have traded a
+        // fact for bookkeeping.
         let detail: String
         switch recoveryOutcome {
         case let .reached(minutes):    detail = String(format: "halfway in %.1f min", minutes)
@@ -83,14 +94,14 @@ extension ActivityLog {
                                    : "not halfway in \(Int(observed.rounded())) min"
         case .notObserved:              detail = hrr60Bpm.map { "\(Int($0.rounded())) bpm shed" } ?? ""
         }
+
         return ScoredIndex(name: BounceBackIndex.displayName,
                            value: value,
                            verdict: value >= IndexBand.keepAbove ? "came back fast"
                                   : value >= IndexBand.actBelow  ? "came back slowly"
-                                                                 : "still not back",
+                                                                 : "still coming back",
                            detail: detail)
     }
-
 
     /// The four implemented index slots, every one always present: a slot with
     /// no reading carries the reason instead of vanishing. Asked for twice —

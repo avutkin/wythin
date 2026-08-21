@@ -105,9 +105,35 @@ struct ExerciseQuestionSections: View {
 
     @ViewBuilder
     private var recovered: some View {
-        if let index = entry.bounceBackIndex {
+        // The card no longer depends on there being a score. A session with one
+        // checkpoint has no number the app can defend, but it still has curves
+        // worth looking at — and hiding the whole section would take the
+        // evidence away along with the verdict.
+        if entry.bounceBackIndex != nil || !recoveryTiles.isEmpty {
             QuestionCard(number: "3", title: "RECOVERED", subtitle: "how fast it came back") {
-                IndexHeadline(value: index.value, label: "recovery", tint: Theme.accent)
+                // The hero is a TIME, not a score. "Vagal Rebound 11.2 min" is a
+                // property of the person; "DC 8.6 ms" is a reading off an
+                // instrument. The 0-100 composite still exists — one level down,
+                // where a number nobody can feel belongs.
+                stableRecoveryHeadline
+                profileRows
+
+                if let index = entry.bounceBackIndex, let composite = entry.recoveryComposite {
+                    Divider().overlay(Theme.border)
+                    IndexHeadline(value: index.value,
+                                  label: "recovery · \(composite.firmness.label)",
+                                  tint: Theme.accent)
+                    checkpointBreakdown(composite)
+                } else {
+                    Text("NOT ENOUGH CHECKPOINTS YET TO SCORE")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .tracking(1.2)
+                        .foregroundStyle(Theme.domainHeavy)
+                    Text("Recovery is read from several checkpoints arriving over the hour after you stop. One on its own is a reading, not a score — so the measurements are below and the number waits.")
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .foregroundStyle(Theme.dim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Tiles(recoveryTiles)
 
                 // Both curves live here, beside the number they explain. They
@@ -115,10 +141,12 @@ struct ExerciseQuestionSections: View {
                 // is how a headline of 0 could sit half a page from a chart
                 // showing a fast return without the two ever being compared.
                 curve("VAGAL REBOUND", channel: .vagalBrake,
+                      outcome: entry.recoveryOutcome,
                       pre: entry.beforeDC, extreme: entry.duringDCTrough,
                       note: dcNote)
 
                 curve("HEART RATE RETURN", channel: .heartRate,
+                      outcome: entry.heartRateReturnOutcome,
                       pre: entry.beforeHR, extreme: entry.duringHRPeak,
                       note: hrNote)
 
@@ -132,11 +160,13 @@ struct ExerciseQuestionSections: View {
                 }
 
                 Logic("""
-                Heart rate is routinely home while vagal tone is still well down, so the two \
-                are kept apart rather than averaged into one "recovered" number. Under 12 bpm \
-                in the first minute is flagged in the literature, 20–30 healthy, 30–50 \
-                well-trained — from standardised treadmill tests, so a band to sit inside \
-                rather than a verdict.
+                A weighted mean of the checkpoints that have arrived, renormalised over those \
+                present — **a checkpoint that has not landed is absent, never zero**, and one on \
+                its own never becomes the score. Heart rate is routinely home while vagal tone \
+                is still well down, so the two timing channels carry equal weight and the gap \
+                between them stays visible rather than being averaged away. Under 12 bpm in the \
+                first minute is flagged in the literature, 20–30 healthy, 30–50 well-trained — \
+                from standardised treadmill tests, so a band to sit inside rather than a verdict.
                 """)
             }
         }
@@ -162,6 +192,7 @@ struct ExerciseQuestionSections: View {
     @ViewBuilder
     private func curve(_ title: String,
                        channel: RecoveryCurveChart.Channel,
+                       outcome: RecoveryTiming.Outcome,
                        pre: Float?,
                        extreme: Float?,
                        note: String) -> some View {
@@ -175,6 +206,7 @@ struct ExerciseQuestionSections: View {
                                    startedAt: entry.startedAt,
                                    endedAt: windowEnd,
                                    channel: channel,
+                                   outcome: outcome,
                                    dcPre: pre,
                                    extreme: extreme)
                 Text(note)
@@ -184,6 +216,158 @@ struct ExerciseQuestionSections: View {
             }
             .padding(.top, 6)
         }
+    }
+
+    /// The three layers and the one time, from the same samples the curves
+    /// below are drawn from — so the header and the pictures cannot disagree.
+    private var profile: RecoveryProfile.Result {
+        let end = windowEnd
+        let after = points
+            .filter { $0.timestamp > end }
+            .map { RecoveryProfile.Sample(minutes: $0.timestamp.timeIntervalSince(end) / 60,
+                                          hr: $0.meanBPM.map(Double.init),
+                                          dc: $0.dc.map(Double.init)) }
+        return RecoveryProfile.build(after: after,
+                                     restingHR: entry.beforeHR.map(Double.init),
+                                     peakHR: entry.duringHRPeak.map(Double.init),
+                                     dcPre: entry.beforeDC.map(Double.init),
+                                     dcTrough: entry.duringDCTrough.map(Double.init))
+    }
+
+    private var expectation: String? {
+        RecoveryExpectation.band(moderateSec: entry.domainModerateSec ?? 0,
+                                 heavySec: entry.domainHeavySec ?? 0,
+                                 severeSec: entry.domainSevereSec ?? 0)
+            .map(RecoveryExpectation.sentence(for:))
+    }
+
+    /// Minutes until BOTH channels were home together and held.
+    ///
+    /// It often ends as a bound, which is the honest answer for a hard session
+    /// — and a bound is never shown alone. ">34 min" on its own is what made
+    /// this screen read as a failure; ">34 min, typical for a heavy session is
+    /// 15–45" is a finding.
+    @ViewBuilder
+    private var stableRecoveryHeadline: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("TIME TO STABLE RECOVERY")
+                .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
+                .tracking(1.3)
+                .foregroundStyle(Theme.dim)
+
+            switch profile.timeToStable {
+            case let .reached(minutes):
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(String(format: "%.1f", minutes))
+                        .font(.system(size: 32, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Theme.accent)
+                        .monospacedDigit()
+                    Text("min · heart rate home and the brake back together")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(Theme.dim)
+                }
+            case let .notReached(observed):
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(">\(Int(observed.rounded()))")
+                        .font(.system(size: 32, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Theme.domainHeavy)
+                        .monospacedDigit()
+                    Text("min · still recalibrating when the recording ended")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(Theme.dim)
+                }
+            case .notObserved:
+                Text("not enough recording after this session")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Theme.dim)
+            }
+
+            if let expectation {
+                Text(expectation)
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(Theme.dim.opacity(0.85))
+            }
+        }
+    }
+
+    /// Three layers, always all three — the empty one included.
+    ///
+    /// Physical recovery is invisible to an ECG. Showing the two it can see and
+    /// omitting the one it cannot invites "Cardiovascular 92%" to be read as
+    /// ready to train, which the measurement does not support.
+    @ViewBuilder
+    private var profileRows: some View {
+        let p = profile
+        VStack(alignment: .leading, spacing: 4) {
+            layerRow("CARDIOVASCULAR", p.cardiovascular, Theme.rsa, "load came down")
+            layerRow("NEURAL", p.neural, Theme.hrv, "regulation came back")
+            layerRow("STABILITY", p.stability, Theme.breathe, "came back and stayed")
+            HStack(spacing: 6) {
+                Text("PHYSICAL")
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundStyle(Theme.dim)
+                    .frame(width: 92, alignment: .leading)
+                Text("—")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Theme.dim)
+                    .frame(width: 34, alignment: .trailing)
+                Text("not measurable from ECG")
+                    .font(.system(size: 8, design: .monospaced))
+                    .foregroundStyle(Theme.dim.opacity(0.7))
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private func layerRow(_ name: String, _ value: Int?, _ tint: Color, _ caption: String) -> some View {
+        HStack(spacing: 6) {
+            Text(name)
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundStyle(Theme.dim)
+                .frame(width: 92, alignment: .leading)
+            Text(value.map { "\($0)%" } ?? "—")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(value == nil ? Theme.dim : Theme.text)
+                .monospacedDigit()
+                .frame(width: 34, alignment: .trailing)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Theme.surface).frame(height: 3)
+                    Capsule().fill(tint)
+                        .frame(width: geo.size.width * CGFloat(value ?? 0) / 100, height: 3)
+                }
+                .frame(height: 3)
+                .frame(maxHeight: .infinity, alignment: .center)
+            }
+            .frame(height: 10)
+            Text(caption)
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundStyle(Theme.dim.opacity(0.7))
+                .frame(width: 108, alignment: .leading)
+        }
+    }
+
+    /// Every checkpoint that counted, with its own score and its share of the
+    /// weight. An index nobody can check is worse than a raw number, and this
+    /// one is a weighted mean of five things — so it prints its working.
+    private func checkpointBreakdown(_ composite: RecoveryIndex.Result) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(composite.components, id: \.checkpoint) { c in
+                HStack(spacing: 6) {
+                    Text(c.checkpoint.displayName)
+                        .foregroundStyle(Theme.dim)
+                    Spacer(minLength: 6)
+                    Text("\(c.score)")
+                        .foregroundStyle(Theme.text.opacity(0.9))
+                        .monospacedDigit()
+                    Text("× \(String(format: "%.2f", c.weight))")
+                        .foregroundStyle(Theme.dim.opacity(0.7))
+                }
+                .font(.system(size: 8.5, design: .monospaced))
+            }
+        }
+        .padding(.top, 2)
     }
 
     private var recoveryTiles: [(String, String, String, String)] {
@@ -196,6 +380,14 @@ struct ExerciseQuestionSections: View {
             out.append(("Vagal rebound (DC)", String(format: "%.1f", minutes), "min", "to halfway"))
         case let .notReached(observed):
             out.append(("Vagal rebound (DC)", ">\(Int(observed.rounded()))", "min", "not halfway yet"))
+        case .notObserved:
+            break
+        }
+        switch entry.heartRateReturnOutcome {
+        case let .reached(minutes):
+            out.append(("Heart rate return", String(format: "%.1f", minutes), "min", "to halfway"))
+        case let .notReached(observed):
+            out.append(("Heart rate return", ">\(Int(observed.rounded()))", "min", "not halfway yet"))
         case .notObserved:
             break
         }

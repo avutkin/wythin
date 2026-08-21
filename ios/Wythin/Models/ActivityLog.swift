@@ -306,6 +306,24 @@ final class ActivityLog {
     /// How much recording there was after the session, in minutes.
     var recoveryObservedMinutes: Double?
 
+    /// The same arc in heart rate: minutes until it had fallen halfway back
+    /// from its peak toward the pre-session level, and how long we watched.
+    ///
+    /// Stored beside the vagal timing rather than derived from it. Heart rate
+    /// needs no DC, so it produces a reading on the sessions where every vagal
+    /// measure goes blank — which is precisely when the recovery section would
+    /// otherwise be left with one checkpoint and print it as the whole score.
+    var hrReturnMinutes:         Double?
+    var hrReturnObservedMinutes: Double?
+
+    /// T30 ranked against this person's own recent sessions, 0-100.
+    ///
+    /// Stored rather than computed on demand because ranking needs a fetch and
+    /// the row has no context. `nil` until there are enough peers to rank
+    /// against — T30 has no published range this app can defend, so it
+    /// contributes nothing rather than being scored against a made-up anchor.
+    var t30Score:                Int?
+
     /// Vagal tone rose with heart rate rather than falling — yoga, mobility,
     /// anything where the brake comes on. Not a failure to measure.
     var vagalRoseDuring:       Bool = false
@@ -481,7 +499,7 @@ final class ActivityLog {
     /// The stored-shape version every finished entry must have been computed
     /// under. Bumping it schedules a re-derive; see `migrateInBackground` for
     /// what that costs and why it is not done on the main thread.
-    static let currentBackfillVersion = 9
+    static let currentBackfillVersion = 10
 
     static func backfillMissingWindows(context: ModelContext) {
         // Bump when the stored metric set changes. v2 adds DC / DFA1 / RCMSE / PIP,
@@ -518,6 +536,13 @@ final class ActivityLog {
         //     It is safe now only because `migrateInBackground` owns the work:
         //     detached, chunked, and banking its cursor after every slice.
         //     Do not move a migration back onto this path.
+        //
+        // v10 the recovery section is a composite, so every entry needs the
+        //     checkpoints it is composed from: hrReturnMinutes /
+        //     hrReturnObservedMinutes (the heart-rate arc, previously drawn but
+        //     never scored) and t30Score. Entries stored under v4-v9 carry a
+        //     single-checkpoint verdict — including the pickleball session
+        //     showing 0 above a chart of a four-minute return.
         let currentVersion = ActivityLog.currentBackfillVersion
         let versionKey = "activityBackfillVersion"
         let migrating = UserDefaults.standard.integer(forKey: versionKey) < currentVersion
@@ -856,6 +881,27 @@ final class ActivityLog {
         afterTailDC = vals.isEmpty ? afterDC : vals.reduce(0, +) / Float(vals.count)
     }
 
+    /// How long after a session the recovery channels keep being read.
+    ///
+    /// One constant for the stored numbers and the charts alike. They used to
+    /// disagree — the score looked four hours out, the chart ten minutes — so
+    /// the caption under a curve could say "halfway back 0 minutes" while the
+    /// headline above it said ">34 min". Two windows, two answers, printed a
+    /// centimetre apart.
+    static let recoveryWindowSeconds: TimeInterval = 3600
+
+    /// This person's recent T30 values, for ranking today's against.
+    private func t30Peers(context: ModelContext) -> [Double] {
+        let start = startedAt
+        let predicate = #Predicate<ActivityLog> { $0.startedAt < start && $0.t30Seconds != nil }
+        var desc = FetchDescriptor<ActivityLog>(predicate: predicate,
+                                                sortBy: [SortDescriptor(\.startedAt, order: .reverse)])
+        desc.fetchLimit = 60
+        return ((try? context.fetch(desc)) ?? [])
+            .filter { $0.measuredClass == .activating }
+            .compactMap { $0.t30Seconds }
+    }
+
     /// How fast heart rate fell once the session ended.
     ///
     /// Separate from the vagal measures on purpose: it needs only heart rate,
@@ -863,7 +909,13 @@ final class ActivityLog {
     /// computed and every vagal measure goes blank.
     private func computeHeartRateRecovery(context: ModelContext) {
         guard let end = endedAt else { return }
-        let horizon = end.addingTimeInterval(300)
+        // An hour, not the five minutes this used to take. HRR60 and T30 both
+        // land inside the first minute, but the heart-rate RETURN — halfway
+        // back from the peak — routinely takes longer than five, and a window
+        // that ends before the answer does reports "never came back" for a
+        // session that came back at seven. It is also the span the chart now
+        // draws, so the picture and the number see the same recording.
+        let horizon = end.addingTimeInterval(ActivityLog.recoveryWindowSeconds)
         let predicate = #Predicate<HRVSample> {
             $0.timestamp >= end && $0.timestamp <= horizon
         }
@@ -883,6 +935,25 @@ final class ActivityLog {
                                            hrAtEnd: after.first?.hr ?? duringHR.map(Double.init),
                                            restingHR: resting, peakHR: peak)
         t30Seconds = HeartRateRecovery.t30(after: after, restingHR: resting, peakHR: peak)
+
+        // The heart-rate arc, scored the same way the vagal one is: a time to
+        // come halfway back, through the one crossing rule both charts and both
+        // numbers now share.
+        switch RecoveryTiming.heartRateReturn(
+                after: after.map { (minutes: $0.seconds / 60, hr: $0.hr) },
+                hrPre: resting, hrPeak: peak) {
+        case let .reached(minutes):
+            hrReturnMinutes = minutes
+            hrReturnObservedMinutes = after.last.map { $0.seconds / 60 }
+        case let .notReached(observed):
+            hrReturnMinutes = nil
+            hrReturnObservedMinutes = observed
+        case .notObserved:
+            hrReturnMinutes = nil
+            hrReturnObservedMinutes = nil
+        }
+
+        t30Score = RecoveryIndex.t30Score(t30Seconds, peers: t30Peers(context: context))
     }
 
     /// Time for the vagal brake to come halfway back, which is what "recovery"
@@ -1008,6 +1079,14 @@ final class ActivityLog {
             return .unavailable(reason: "not enough recording after")
         }
         return .score(score, word: ExerciseResponse.word(for: score))
+    }
+
+    /// The heart-rate arc, in the shape the views and the index consume.
+    var heartRateReturnOutcome: RecoveryTiming.Outcome {
+        if let m = hrReturnMinutes { return .reached(minutes: m) }
+        if let o = hrReturnObservedMinutes,
+           o >= RecoveryTiming.minimumObservationMinutes { return .notReached(observedMinutes: o) }
+        return .notObserved
     }
 
     /// The stored timing, back in the shape the views and the score consume.

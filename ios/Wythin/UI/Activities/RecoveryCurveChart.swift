@@ -37,12 +37,29 @@ struct RecoveryCurveChart: View {
             case .heartRate:  return "your resting heart rate"
             }
         }
+
+        /// What the caption underneath calls the thing that came back.
+        var subject: String {
+            switch self {
+            case .vagalBrake: return "your vagal brake"
+            case .heartRate:  return "your heart rate"
+            }
+        }
     }
 
     let points:    [MetricsHistoryPoint]
     let startedAt: Date
     let endedAt:   Date
     let channel:   Channel
+    /// The outcome the score was computed from.
+    ///
+    /// Passed in rather than re-derived here. This view used to run its own
+    /// crossing rule over its own ten-minute slice of samples while the stored
+    /// number came from a four-hour fetch, so the caption could read "Halfway
+    /// back 0 minutes after you stopped" directly beneath a headline of
+    /// ">34 min · not halfway yet". One rule, one window, one answer.
+    let outcome:   RecoveryTiming.Outcome
+
     /// Pre-session level — what is being returned to.
     let dcPre:     Float?
     /// Where it bottomed out (DC) or peaked (heart rate) during the session.
@@ -90,40 +107,36 @@ struct RecoveryCurveChart: View {
             }
     }
 
-    /// The bar being climbed to (or fallen back to) — the SAME one the score
-    /// uses, so the line on the chart and the number beside it agree.
-    private func targetLevel(pre: Double) -> Double? {
-        guard let extreme = extreme.map(Double.init) else { return nil }
-        switch channel {
-        case .vagalBrake:
-            guard pre > extreme else { return nil }
-            return RecoveryTiming.targetLevel(dcPre: pre, dcTrough: extreme)
-        case .heartRate:
-            // Symmetric: halfway down from the peak toward resting.
-            guard extreme > pre else { return nil }
-            return extreme - (extreme - pre) * RecoveryTiming.targetFraction
-        }
+    private var direction: RecoveryTiming.Direction {
+        channel.recoversUpward ? .upward : .downward
     }
 
-    /// Minutes after the end at which the curve first reached the bar and held
-    /// it for `RecoveryTiming.holdMinutes` — the same bounded confirmation the
-    /// score applies, rather than a rule of its own.
-    private func recoveredAt(_ dots: [Dot], target: Double) -> Double? {
-        let after = dots.filter { $0.phase == .after }
-        guard !after.isEmpty else { return nil }
-        let met: (Double) -> Bool = channel.recoversUpward
-            ? { $0 >= target } : { $0 <= target }
-        let held: (Double) -> Bool = channel.recoversUpward
-            ? { $0 >= target * RecoveryTiming.holdFraction }
-            : { $0 <= target / RecoveryTiming.holdFraction }
-        for idx in after.indices where met(after[idx].dc) {
-            let deadline = after[idx].minutes + RecoveryTiming.holdMinutes
-            let window = after[idx...].prefix { $0.minutes <= deadline }
-            if window.allSatisfy({ held($0.dc) }) {
-                return after[idx].minutes - sessionMinutes
+    /// The bar being climbed to (or fallen back to) — the SAME one the score
+    /// uses, from the same function, so the line on the chart and the number
+    /// beside it cannot disagree.
+    private func targetLevel(pre: Double) -> Double? {
+        guard let extreme = extreme.map(Double.init) else { return nil }
+        return direction.target(pre: pre, extreme: extreme)
+    }
+
+    /// Each phase is its own series so the colours repaint per segment — but a
+    /// series that merely starts where the last one ended leaves a gap at every
+    /// boundary, which is the break visible where blue meets red and red meets
+    /// green. Each segment therefore opens with the previous segment's final
+    /// sample: the line is continuous, and the colour still changes on the
+    /// boundary rather than across a hole in it.
+    private func joined(_ d: [Dot]) -> [Dot] {
+        var out: [Dot] = []
+        var nextID = d.count
+        for (i, dot) in d.enumerated() {
+            if i > 0, d[i - 1].phase != dot.phase {
+                out.append(Dot(id: nextID, minutes: d[i - 1].minutes,
+                               dc: d[i - 1].dc, phase: dot.phase))
+                nextID += 1
             }
+            out.append(dot)
         }
-        return nil
+        return out
     }
 
     var body: some View {
@@ -131,7 +144,10 @@ struct RecoveryCurveChart: View {
         if let preF = dcPre, preF > 0, d.count >= 3 {
             let pre = Double(preF)
             let bar = targetLevel(pre: pre)
-            let recovered = bar.flatMap { recoveredAt(d, target: $0) }
+            let recovered: Double? = {
+                if case let .reached(minutes) = outcome { return minutes }
+                return nil
+            }()
             let lastAfter = (d.filter { $0.phase == .after }.map(\.minutes).max() ?? sessionMinutes)
                 - sessionMinutes
 
@@ -144,7 +160,7 @@ struct RecoveryCurveChart: View {
                         RuleMark(y: .value("Halfway", bar))
                             .foregroundStyle(Theme.accent.opacity(0.45))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                            .annotation(position: .bottom, alignment: .leading) {
+                            .annotation(position: .bottom, alignment: .trailing) {
                                 Text("halfway back \u{2014} the bar being scored")
                                     .font(.system(size: 8, design: .monospaced))
                                     .foregroundStyle(Theme.accent.opacity(0.8))
@@ -160,7 +176,7 @@ struct RecoveryCurveChart: View {
                                 .foregroundStyle(Theme.dim)
                         }
 
-                    ForEach(d) { p in
+                    ForEach(joined(d)) { p in
                         LineMark(x: .value("Minutes", p.minutes),
                                  y: .value(channel.seriesName, p.dc),
                                  series: .value("Phase", p.phase.rawValue))
@@ -175,12 +191,15 @@ struct RecoveryCurveChart: View {
                     }
                 }
                 .chartXAxis {
-                    AxisMarks(values: [0, sessionMinutes, sessionMinutes + 10]) { value in
+                    // The last mark is where the recording actually ends, not a
+                    // fixed "+10m" printed over an hour of trace.
+                    AxisMarks(values: [0, sessionMinutes, sessionMinutes + max(lastAfter, 1)]) { value in
                         AxisGridLine().foregroundStyle(Theme.border.opacity(0.5))
                         AxisValueLabel {
                             if let m = value.as(Double.self) {
                                 Text(m <= 0 ? "start"
-                                     : (abs(m - sessionMinutes) < 0.5 ? "end" : "+10m"))
+                                     : (abs(m - sessionMinutes) < 0.5 ? "end"
+                                        : "+\(Int(lastAfter.rounded()))m"))
                                     .font(.system(size: 8, design: .monospaced))
                                     .foregroundStyle(Theme.dim)
                             }
@@ -211,11 +230,7 @@ struct RecoveryCurveChart: View {
                 // announce "back within 10% of your resting level" — a third
                 // definition of recovered, on a screen that already had two,
                 // and the reason the caption could contradict the headline.
-                Text(recovered.map {
-                        "Halfway back \(Int($0.rounded())) minutes after you stopped."
-                     } ?? (lastAfter >= 1
-                        ? "Not halfway back yet, \(Int(lastAfter.rounded())) minutes after you stopped."
-                        : "The recording ends too soon after this session to see recovery."))
+                Text(RecoveryTiming.summary(outcome, subject: channel.subject))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)
