@@ -72,7 +72,24 @@ final class RealNightTests: XCTestCase {
         }
         XCTAssertEqual(stage(at: "07:30"), .wake, "motion 30 mg, HR 77 — up for the day")
         XCTAssertNotEqual(stage(at: "03:00"), .wake, "mid-night must not read as awake")
-        XCTAssertNotEqual(stage(at: "05:45"), .wake, "a brief stir is not a wake bout")
+        // 05:45 used to be asserted as a stir rather than a wake bout, and that
+        // was a misreading of this trace. Against a 58 bpm / 5.3 mg night,
+        // 05:45 is 64 bpm at 14.4 mg and 05:50 is 73 bpm at 10.6 mg — and 05:50
+        // already cleared the single-channel heart-rate gate on its own, so a
+        // wake bout was being reported here either way. The only question was
+        // whether it started at 05:45 or 05:50, and the corroborated-stir rule
+        // says 05:45, which is the leading edge of the same arousal.
+        //
+        // Measured across this whole night, that rule moves exactly two
+        // five-minute buckets — 21:45 and 05:45 — and both are immediately
+        // adjacent to a bucket that was already wake. It completes awakenings;
+        // it does not invent them.
+        XCTAssertEqual(stage(at: "05:45"), .wake, "the leading edge of the 05:50 arousal")
+        // The guard the old assertion was really there to provide: quiet ticks
+        // beside an arousal must stay asleep. 05:40 is 57 bpm at 3.8 mg —
+        // squarely this night's own resting signature — and a rule that smeared
+        // wake outward from a real arousal would take it.
+        XCTAssertNotEqual(stage(at: "05:40"), .wake, "wake must not bleed into the quiet beside it")
     }
 
     // MARK: - Onset, breathing, and the duration rule
