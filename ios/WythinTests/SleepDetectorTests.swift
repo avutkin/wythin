@@ -188,6 +188,105 @@ final class SleepDetectorTests: XCTestCase {
 
     // MARK: - Where the night actually ends
 
+    /// Awake, but still in bed: pulse and movement up enough to be scored
+    /// wake, nowhere near enough to be scored *upright*.
+    private func awakeInBed(fromHour: Int, fromMinute: Int = 0, hours: Double,
+                            day: Int = 20) -> [MetricsHistoryPoint] {
+        night(fromHour: fromHour, fromMinute: fromMinute, hours: hours,
+              day: day, motion: 14, hr: 60)
+    }
+
+    /// Out of bed and on your feet: the gravity vector says upright, and the
+    /// accelerometer agrees.
+    private func onYourFeet(fromHour: Int, fromMinute: Int = 0, hours: Double,
+                            day: Int = 20) -> [MetricsHistoryPoint] {
+        let base = night(fromHour: fromHour, fromMinute: fromMinute, hours: hours,
+                         day: day, motion: 40, hr: 72)
+        return base.map {
+            MetricsHistoryPoint(anchorTestTimestamp: $0.timestamp,
+                                meanBPM: $0.meanBPM, vti: $0.vti, dc: $0.dc,
+                                pip: $0.pip, dfa1: $0.dfa1, breathBPM: $0.breathBPM,
+                                motion: $0.motion, bodyPosition: .upright,
+                                signalQuality: $0.signalQuality,
+                                rrInvalidRate: $0.rrInvalidRate,
+                                ecgQualityTier: $0.ecgQualityTier)
+        }
+    }
+
+    func testAMorningReturnToSleepStaysInsideTheSameNight() {
+        // The photographed night, as reported: 20:56 → 05:08, 8 h 11 m in bed.
+        // What actually happened is that the sleeper woke around five, stayed
+        // in bed for an hour, slept again, and got up at 08:30 — one night of
+        // 11 h 34 m with a long wake bout in the middle of it.
+        //
+        // The old rule split on the hour alone and kept the larger half, so
+        // three and a half hours of night, and every awakening inside them,
+        // were discarded before the score ever saw them.
+        let points = night(fromHour: 20, fromMinute: 56, hours: 8.2)
+            + awakeInBed(fromHour: 5, fromMinute: 8, hours: 1.03, day: 21)
+            + night(fromHour: 6, fromMinute: 10, hours: 2.33, day: 21)
+
+        let w = SleepDetector.detect(points)
+        XCTAssertNotNil(w)
+        let rose = Calendar.current.date(from: DateComponents(
+            year: 2026, month: 7, day: 21, hour: 8, minute: 30))!
+        XCTAssertEqual(w?.endedAt.timeIntervalSince(rose) ?? .infinity, 0, accuracy: 120,
+                       "an hour awake in bed is a wake bout, not the end of the night")
+        XCTAssertEqual(Calendar.current.component(.hour, from: w?.startedAt ?? .distantPast), 20)
+    }
+
+    func testGettingUpForTheDayStillEndsTheNight() {
+        // The guard on the test above, and the reason the evidence has to be
+        // read rather than the clock. Same shape, same gap, same later sleep —
+        // but this hour was spent upright and moving, so the night ended at
+        // 05:08 and the later sleep is a morning nap.
+        let points = night(fromHour: 20, fromMinute: 56, hours: 8.2)
+            + onYourFeet(fromHour: 5, fromMinute: 8, hours: 1.03, day: 21)
+            + night(fromHour: 6, fromMinute: 10, hours: 2.33, day: 21)
+
+        let w = SleepDetector.detect(points)
+        XCTAssertNotNil(w)
+        let got = Calendar.current.date(from: DateComponents(
+            year: 2026, month: 7, day: 21, hour: 5, minute: 8))!
+        XCTAssertEqual(w?.endedAt.timeIntervalSince(got) ?? .infinity, 0, accuracy: 120,
+                       "upright and moving for an hour is getting up, and it ends the night")
+    }
+
+    func testGettingUpBrieflyAndComingBackToBedKeepsTheNight() {
+        // The case a five-minute bar got wrong, and the reason the bar is
+        // twenty. Ten minutes upright in the middle of an hour awake is a trip
+        // to the kitchen, not a morning — and a chest strap reads sitting up in
+        // bed and standing at the counter exactly the same way, so the only
+        // thing separating them is how long it lasts.
+        let points = night(fromHour: 20, fromMinute: 56, hours: 8.2)
+            + awakeInBed(fromHour: 5, fromMinute: 8, hours: 0.33, day: 21)
+            + onYourFeet(fromHour: 5, fromMinute: 28, hours: 0.17, day: 21)
+            + awakeInBed(fromHour: 5, fromMinute: 38, hours: 0.53, day: 21)
+            + night(fromHour: 6, fromMinute: 10, hours: 2.33, day: 21)
+
+        let w = SleepDetector.detect(points)
+        XCTAssertNotNil(w)
+        let rose = Calendar.current.date(from: DateComponents(
+            year: 2026, month: 7, day: 21, hour: 8, minute: 30))!
+        XCTAssertEqual(w?.endedAt.timeIntervalSince(rose) ?? .infinity, 0, accuracy: 120,
+                       "a ten-minute trip out of bed does not end the night")
+    }
+
+    func testWithoutAPositionChannelALongWakeStillSplitsTheNight() {
+        // Every night recorded before `bodyPosition` existed has no out-of-bed
+        // evidence available at all, so the evidence test can only ever return
+        // false. `maxInBedWakeSec` is the backstop that keeps those nights from
+        // swallowing the following morning whole.
+        let points = night(fromHour: 22, hours: 5)
+            + awakeInBed(fromHour: 3, hours: 3.5, day: 21)
+            + night(fromHour: 6, fromMinute: 30, hours: 2, day: 21)
+
+        let w = SleepDetector.detect(points)
+        XCTAssertNotNil(w)
+        XCTAssertEqual(w?.durationSec ?? 0, 5 * 3600, accuracy: 600,
+                       "past three hours awake, the next sleep is a separate episode")
+    }
+
     func testAMorningDozeDoesNotExtendTheNight() {
         // The recorded night, as photographed: sleep, then hours up, then a
         // doze. The doze is real sustained sleep, so the ten-minute rule

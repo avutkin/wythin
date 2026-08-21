@@ -189,7 +189,17 @@ enum SleepThresholds {
     /// Sleep medicine ends the sleep period at the **final awakening**, and
     /// defines that by leaving the sleep opportunity, not by a stopwatch. This
     /// is how long the leaving has to look like leaving.
-    static let outOfBedSec: Double = 5 * 60
+    ///
+    /// **Twenty minutes, not five.** Five was the first number here and it
+    /// would have recreated the very complaint this work exists to fix. A chest
+    /// strap cannot tell sitting up in bed from standing in the kitchen — both
+    /// read `upright` — so a five-minute bar ends the night on a trip to make
+    /// coffee, and the sleep after it becomes a separate episode and is thrown
+    /// away. Getting up briefly and coming back to bed is ordinary, and it must
+    /// survive. Twenty continuous minutes is the difference between a trip and
+    /// a morning, and it still clears every case that should end a night: the
+    /// recorded morning-doze night is up for three and a half hours.
+    static let outOfBedSec: Double = 20 * 60
 
     /// Motion, as a multiple of this recording's own median, that means moving
     /// about rather than lying awake.
