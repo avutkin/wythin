@@ -69,12 +69,10 @@ enum LiveDayComparison {
     /// tile flag colored a move from 0.7 toward 1.0 as bad.
     static func direction(for metric: LiveMetric) -> BenefitDirection {
         switch metric {
-        case .dc, .rcmse, .pip, .dfa1, .stressBalance, .rsa, .rmssd, .hr:
+        case .dc, .rcmse, .pip, .dfa1, .stressBalance, .breathBPM, .rsa, .rmssd, .hr:
             return metricDef(metric).direction
         case .sdnn, .vti, .coherence, .cbi:
             return .higher
-        case .breathBPM:
-            return .lower
         }
     }
 }

@@ -168,6 +168,7 @@ extension ImpactDeltaTests {
         e.beforePIP = 40;     e.duringPIP = 34
         e.beforeDC = 6;       e.duringDC = 9
         e.beforeDFA1 = 0.9;   e.duringDFA1 = 1.0
+        e.beforeBreath = 14;  e.duringBreath = 6.5
 
         let coverage = e.impactCoverage
         XCTAssertTrue(coverage.isComplete, "missing: \(coverage.missing.map(\.label))")
@@ -204,7 +205,7 @@ extension ImpactDeltaTests {
     func testSummaryNamesBothSidesOfTheFraction() {
         let e = ActivityLog(activityType: "Breathwork")
         e.beforeHR = 70; e.duringHR = 63
-        XCTAssertEqual(e.impactCoverage.summary, "avg of 1/8 metrics")
+        XCTAssertEqual(e.impactCoverage.summary, "avg of 1/9 metrics")
     }
 
     /// A zero baseline is a distinct exclusion from a missing one — the reading

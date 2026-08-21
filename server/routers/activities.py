@@ -16,7 +16,7 @@ router = APIRouter(prefix="/activities", tags=["activities"])
 
 # before/during/after column names for every stored metric, in a fixed order.
 _METRICS = ("hr", "rmssd", "sdnn", "rsa", "vti", "lfhf", "stress",
-            "rcmse", "pip", "dc", "dfa1")
+            "rcmse", "pip", "dc", "dfa1", "breath")
 _METRIC_COLS = [f"{w}_{m}" for m in _METRICS for w in ("before", "during", "after")]
 
 

@@ -52,10 +52,15 @@ extension ActivityMetricDef {
             .map { min(max($0, -Self.deltaBound), Self.deltaBound) }
     }
 
-    /// The bound `benefitDelta` clamps to. Exposed so a display can tell a real
-    /// doubling from a value that ran off the end of the scale — printing a
-    /// clamped number as though it were measured is how two very different
-    /// changes end up reading as the same "+100%".
+    /// The bound `benefitDelta` clamps to.
+    ///
+    /// It exists for the MEAN — `impactDeltaPct` averages all nine metrics, and
+    /// one ill-conditioned `.target` metric could otherwise decide the whole
+    /// number. The Activities card does NOT use it: a session's per-metric
+    /// change is printed raw, because a clamped "+100%" is a marker and the
+    /// reader has no way to tell it from a measurement. Track's period-over-
+    /// period delta is the one display that keeps it, and for the `.target`
+    /// reason rather than the mean one — see `TrackSeriesBuilder`.
     static let deltaBound: Double = 100
 
     /// The same change, unclamped. Only for deciding whether a value was
@@ -118,6 +123,8 @@ let activityMetricDefs: [ActivityMetricDef] = [
                                        baselineRmssd: nil).map { Double($0.sns) * 100 }
           }, format: f0,                                 beforeKey: \.beforeStress, duringKey: \.duringStress,
           why: "Stress Balance is a breathing-robust 0–100 dial of how revved-up vs calm you are — the same one the Live view shows. It is built from RMSSD against your baseline, so paced breaths correctly read as calmer. Lower means you’re shifting into rest-and-digest; expect it to drop through the session."),
+    .init(label: "Breath Rate",         metric: .breathBPM,     techLabel: "BR",     techFull: "Breaths per minute (br/min)", unit: "br/min", direction: .lower, extract: { $0.breathBPM.map(Double.init) }, format: f1,          beforeKey: \.beforeBreath, duringKey: \.duringBreath,
+          why: "Breath Rate is how fast you are breathing — the one measure on this screen you can change on purpose, right now. Slower gives the vagal brake more of each out-breath to work with; expect it to fall toward about 6 br/min as a paced practice lands."),
     .init(label: "Conscious Breathing", metric: .rsa,           techLabel: "RSA",    techFull: "Respiratory Sinus Arrhythmia (RSA)", unit: "ms",  direction: .higher,      extract: { $0.rsaMs.map(Double.init) },   format: { fFloat($0, MetricFormat.ms) },    beforeKey: \.beforeRSA,   duringKey: \.duringRSA,
           why: "Conscious Breathing (Respiratory Sinus Arrhythmia) is the swing of heart rate with each breath — the clearest sign of vagal tone. Higher means slow, deep breathing is landing; expect it to rise with paced diaphragmatic breaths."),
     .init(label: "Calm Power",          metric: .rmssd,         techLabel: "RMSSD",  techFull: "Root Mean Square of Successive Differences (RMSSD)", unit: "ms",  direction: .higher,      extract: { $0.rmssd.map(Double.init) },   format: { fFloat($0, MetricFormat.ms) },    beforeKey: \.beforeRMSSD, duringKey: \.duringRMSSD,

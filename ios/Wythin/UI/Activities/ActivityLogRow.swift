@@ -33,6 +33,7 @@ struct ActivityLogRow: View {
         "Inner Noise": \.afterPIP,        "Harmony": \.afterDFA1,
         "Stress Balance": \.afterStress,  "Conscious Breathing": \.afterRSA,
         "Calm Power": \.afterRMSSD,       "Pulse": \.afterHR,
+        "Breath Rate": \.afterBreath,
     ]
 
     struct Reading: Identifiable {
@@ -40,24 +41,31 @@ struct ActivityLogRow: View {
         let label: String
         let durPct: Double?
         let durValue: String
-        let durClamped: Bool
         let aftPct: Double?
         let aftValue: String
-        let aftClamped: Bool
     }
 
-    private var readings: [Reading] {
+    /// Percentages here are the measured change, unrounded and unbounded.
+    ///
+    /// They used to come through `benefitDelta`, which stops at ±100 % and made
+    /// the cell print ">+100%" — a marker, not a measurement, and one that read
+    /// as an error beside a value that plainly said otherwise. The bound exists
+    /// to keep one ill-conditioned metric from swamping the `impactDeltaPct`
+    /// *mean*; nothing about it belongs on a single metric's own number.
+    ///
+    /// The score is unaffected by the switch: `RestorativeScore.credit` already
+    /// caps every metric at `fullMarks` (+20 %), far below where the bound sat,
+    /// so +140 % and a clamped +100 % were always worth exactly the same to it.
+    var readings: [Reading] {
         activityMetricDefs.map { def in
             let before = entry[keyPath: def.beforeKey].map(Double.init)
             let during = entry[keyPath: def.duringKey].map(Double.init)
             let after  = Self.afterKeys[def.label].flatMap { entry[keyPath: $0] }.map(Double.init)
             return Reading(label: def.label,
-                           durPct: def.benefitDelta(current: during, base: before),
+                           durPct: def.rawBenefitDelta(current: during, base: before),
                            durValue: def.format(during),
-                           durClamped: def.isClamped(current: during, base: before),
-                           aftPct: def.benefitDelta(current: after, base: before),
-                           aftValue: def.format(after),
-                           aftClamped: def.isClamped(current: after, base: before))
+                           aftPct: def.rawBenefitDelta(current: after, base: before),
+                           aftValue: def.format(after))
         }
     }
 
@@ -260,10 +268,8 @@ private struct MetricCell: View {
                 .frame(minHeight: 20)
 
             HStack(spacing: 5) {
-                phase(pct: reading.durPct, value: reading.durValue,
-                      clamped: reading.durClamped, tag: "DUR")
-                phase(pct: reading.aftPct, value: reading.aftValue,
-                      clamped: reading.aftClamped, tag: "AFT")
+                phase(pct: reading.durPct, value: reading.durValue, tag: "DUR")
+                phase(pct: reading.aftPct, value: reading.aftValue, tag: "AFT")
             }
         }
         .frame(maxWidth: .infinity)
@@ -272,14 +278,16 @@ private struct MetricCell: View {
         .background(Theme.surface.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
     }
 
-    private func phase(pct: Double?, value: String, clamped: Bool, tag: String) -> some View {
+    private func phase(pct: Double?, value: String, tag: String) -> some View {
         VStack(spacing: 1) {
-            Text(pctString(pct, clamped: clamped))
+            Text(pctString(pct))
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundStyle(color(pct))
                 .monospacedDigit()
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                // An uncapped percentage can run to four digits, and the cell
+                // is a third of a phone wide with two of them side by side.
+                .minimumScaleFactor(0.5)
             Text(value)
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(Theme.dim)
@@ -293,15 +301,14 @@ private struct MetricCell: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// A clamped change is marked, not printed as if it were measured. Without
-    /// this, a metric that doubled and one that went up eightfold both read
-    /// "+100%" while their absolute values plainly disagreed.
-    private func pctString(_ pct: Double?, clamped: Bool) -> String {
+    /// The measured change, at whatever size it came out. There is no ceiling
+    /// and no ">" marker: a metric that went up eightfold prints +700 %, and a
+    /// metric that doubled prints +100 %, because those are two different
+    /// sessions and the card has to be able to say so.
+    private func pctString(_ pct: Double?) -> String {
         guard let pct else { return "—" }
         let rounded = Int(pct.rounded())
-        let body = rounded > 0 ? "+\(rounded)%" : "\(rounded)%"
-        guard clamped else { return body }
-        return (rounded > 0 ? ">" : "<") + body
+        return rounded > 0 ? "+\(rounded)%" : "\(rounded)%"
     }
 
     private func color(_ pct: Double?) -> Color {

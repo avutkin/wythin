@@ -1157,7 +1157,8 @@ private struct MetricsTableView: View {
         // names, same units, same formatting, same benefit directions, because
         // they are the same table. Nothing here is typed twice, which is what
         // let the Live tiles call RMSSD "Calm Power" while the session detail
-        // called it "Energy Reserve". Breath Rate has a chart but no tile.
+        // called it "Energy Reserve". Breath Rate is in the table too, so the
+        // measure you can steer on purpose has a tile beside the ones it moves.
         LazyVGrid(columns: cols, spacing: 10) {
             ForEach(activityMetricDefs) { tile($0) }
         }

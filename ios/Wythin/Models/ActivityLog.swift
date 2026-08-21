@@ -176,6 +176,11 @@ final class ActivityLog {
     var beforePIP:   Float?;  var duringPIP:   Float?;  var afterPIP:   Float?
     var beforeDC:    Float?;  var duringDC:    Float?;  var afterDC:    Float?
     var beforeDFA1:  Float?;  var duringDFA1:  Float?;  var afterDFA1:  Float?
+    /// Breaths per minute, the ninth named metric. Stored like the rest
+    /// because the list row holds no sample series to recompute from.
+    /// Nil on every session recorded before this field existed — those rows
+    /// show a dash rather than a fabricated number.
+    var beforeBreath: Float?;  var duringBreath: Float?;  var afterBreath: Float?
 
     // MARK: Sleep
     //
@@ -716,6 +721,7 @@ final class ActivityLog {
         beforePIP   = avg(before, \.pip);        duringPIP   = avg(during, \.pip);        afterPIP   = avg(after, \.pip)
         beforeDC    = avg(before, \.dc);         duringDC    = avg(during, \.dc);         afterDC    = avg(after, \.dc)
         beforeDFA1  = avg(before, \.dfa1);       duringDFA1  = avg(during, \.dfa1);       afterDFA1  = avg(after, \.dfa1)
+        beforeBreath = avg(before, \.breathBPM);  duringBreath = avg(during, \.breathBPM);  afterBreath = avg(after, \.breathBPM)
     }
 
     // MARK: Exercise response computation

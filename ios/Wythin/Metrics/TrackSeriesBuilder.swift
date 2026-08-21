@@ -225,6 +225,11 @@ enum TrackSeriesBuilder {
 
         // Reuses the shared benefit-signed formula so a fall in Inner Noise
         // reads as an improvement.
+        //
+        // Bounded, unlike the Activities card, which prints the raw change: this
+        // is a period-over-period delta and Harmony is a `.target` metric, so a
+        // prior average sitting near 1.0 collapses the denominator — 0.99 → 0.89
+        // is arithmetically -1000 %. See `testDeltaIsClampedNearTheTarget`.
         let delta = spec.def.benefitDelta(current: average, base: priorAverage)
 
         let (reference, isPersonal) = baseline(spec: spec, rollups: rollups,

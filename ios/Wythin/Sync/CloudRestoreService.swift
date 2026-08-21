@@ -173,6 +173,7 @@ final class CloudRestoreService {
             log.beforePIP   = p.beforePIP;   log.duringPIP   = p.duringPIP;   log.afterPIP   = p.afterPIP
             log.beforeDC    = p.beforeDC;    log.duringDC    = p.duringDC;    log.afterDC    = p.afterDC
             log.beforeDFA1  = p.beforeDFA1;  log.duringDFA1  = p.duringDFA1;  log.afterDFA1  = p.afterDFA1
+            log.beforeBreath = p.beforeBreath; log.duringBreath = p.duringBreath; log.afterBreath = p.afterBreath
             context.insert(log)
             inserted += 1
         }

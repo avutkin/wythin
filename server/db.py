@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS activities (
     before_pip    REAL, during_pip    REAL, after_pip    REAL,
     before_dc     REAL, during_dc     REAL, after_dc     REAL,
     before_dfa1   REAL, during_dfa1   REAL, after_dfa1   REAL,
+    before_breath REAL, during_breath REAL, after_breath REAL,
     created_at         TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -173,6 +174,10 @@ CREATE INDEX IF NOT EXISTS usage_events_user_ts ON usage_events(user_id, ts);
 -- added to a CREATE TABLE body above only reach a database that does not yet
 -- exist; existing deployments need them stated here as well.
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS impact_delta_pct REAL;
+-- Breath Rate, the ninth named metric, added once it earned a tile of its own.
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS before_breath REAL;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS during_breath REAL;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS after_breath  REAL;
 
 -- Onboarding v2: name, body metrics and the self-reported baseline.
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS first_name          TEXT;

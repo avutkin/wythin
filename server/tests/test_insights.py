@@ -842,6 +842,10 @@ _FULL_ACTIVITY_PAYLOAD = {
     "before_dfa1": 0.88,   "during_dfa1": 0.97,   "after_dfa1": 0.93,
     "before_stress": 55.0, "during_stress": 44.0, "after_stress": 48.0,
     "before_sdnn": 46.0,   "during_sdnn": 58.0,   "after_sdnn": 50.0,
+    # Values chosen to share no digit-substring with the LF/HF sentinels
+    # (0.7 / 4.2 / 1.1) that `test_activity_format_never_feeds_the_raw_lf_hf_ratio`
+    # searches the whole prompt for.
+    "before_breath": 15.6, "during_breath": 6.5,  "after_breath": 9.3,
 }
 
 
@@ -853,8 +857,23 @@ def test_activity_format_names_every_metric_the_session_screen_charts():
 
     text = _format_metrics(InsightRequest(**_FULL_ACTIVITY_PAYLOAD))
     for name in ["Vagal Tone", "Adaptive Capacity", "Inner Noise", "Harmony",
-                 "Stress Balance", "Conscious Breathing", "Calm Power", "Pulse"]:
+                 "Stress Balance", "Breath Rate", "Conscious Breathing",
+                 "Calm Power", "Pulse"]:
         assert name in text, f"{name!r} is charted on the session screen but not in the read's input"
+
+
+def test_activity_format_carries_breath_rate_through_all_three_windows():
+    """Breath Rate is the ninth tile on the card the read is printed beside,
+    and the only measure on it the person steers on purpose — a read that
+    cannot see it cannot say the one thing they did deliberately."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    text = _format_metrics(InsightRequest(**_FULL_ACTIVITY_PAYLOAD))
+    line = next(l for l in text.splitlines() if l.startswith("Breath Rate"))
+    assert "before=15.6br/min" in line
+    assert "during=6.5br/min" in line
+    assert "after=9.3br/min" in line
 
 
 def test_activity_format_hands_the_model_no_name_the_screen_lacks():

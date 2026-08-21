@@ -226,6 +226,7 @@ _ACTIVITY_METRICS = [
     ("pip",    "Inner Noise",         "%",   "beat-to-beat jitter — erratic, non-restorative variability; lower = a cleaner, calmer signal"),
     ("dfa1",   "Harmony",             "",    "the fractal balance of the heartbeat, with ~1.0 the healthy sweet spot"),
     ("stress", "Stress Balance",      "",    "a breathing-robust 0–100 dial of how revved-up versus calm; lower = shifting into rest-and-digest, and slow paced breathing correctly reads as calmer here"),
+    ("breath", "Breath Rate",         "br/min", "how fast the person was breathing; lower means slower, and slow breathing is the one thing here they steer on purpose"),
     ("rsa",    "Conscious Breathing", "ms",  "how far heart rate swings with each breath; higher = slow, deep, deliberate breathing is landing"),
     ("rmssd",  "Calm Power",          "ms",  "core beat-to-beat variability, the headline marker of recovery; higher = a rested, adaptable system"),
     ("hr",     "Pulse",               "bpm", "the overall load on the heart; lower during a calming practice means stress is being offloaded"),

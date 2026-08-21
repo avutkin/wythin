@@ -13,6 +13,7 @@
 		8BA1A9E7E7D761F4235EA36D /* HeartRateZonesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6969DBAA3AA4BCFDCF9905B3 /* HeartRateZonesTests.swift */; };
 		F376098B5A3EB6A45FE89D91 /* HeartRateRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96F0176DC46EC1784607A99 /* HeartRateRecoveryTests.swift */; };
 		E6B3958DF1401633E29E088B /* RestorativeScoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DFCB08D15274CC0BA39121F /* RestorativeScoreTests.swift */; };
+		A1DB0274993DE6B0F5C8F7BF /* BreathRateMetricTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0D5FC2B9913C35C98E8109 /* BreathRateMetricTests.swift */; };
 		32D9A8EE081061038298DB68 /* RecoveryTimingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4688AA2E13CE6C34D295CC0 /* RecoveryTimingTests.swift */; };
 		32D9A8EE081061038298DBBB /* RecoveryProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4688AA2E13CE6C34D295CBB /* RecoveryProfileTests.swift */; };
 		32D9A8EE081061038298DBAA /* RecoveryIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4688AA2E13CE6C34D295CAA /* RecoveryIndexTests.swift */; };
@@ -310,6 +311,7 @@
 		6969DBAA3AA4BCFDCF9905B3 /* HeartRateZonesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateZonesTests.swift; sourceTree = "<group>"; };
 		D96F0176DC46EC1784607A99 /* HeartRateRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateRecoveryTests.swift; sourceTree = "<group>"; };
 		8DFCB08D15274CC0BA39121F /* RestorativeScoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorativeScoreTests.swift; sourceTree = "<group>"; };
+		FE0D5FC2B9913C35C98E8109 /* BreathRateMetricTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathRateMetricTests.swift; sourceTree = "<group>"; };
 		A4688AA2E13CE6C34D295CC0 /* RecoveryTimingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryTimingTests.swift; sourceTree = "<group>"; };
 		A4688AA2E13CE6C34D295CBB /* RecoveryProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryProfileTests.swift; sourceTree = "<group>"; };
 		A4688AA2E13CE6C34D295CAA /* RecoveryIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryIndexTests.swift; sourceTree = "<group>"; };
@@ -998,6 +1000,7 @@
 				6969DBAA3AA4BCFDCF9905B3 /* HeartRateZonesTests.swift */,
 				D96F0176DC46EC1784607A99 /* HeartRateRecoveryTests.swift */,
 				8DFCB08D15274CC0BA39121F /* RestorativeScoreTests.swift */,
+				FE0D5FC2B9913C35C98E8109 /* BreathRateMetricTests.swift */,
 				A4688AA2E13CE6C34D295CC0 /* RecoveryTimingTests.swift */,
 				A4688AA2E13CE6C34D295CBB /* RecoveryProfileTests.swift */,
 				A4688AA2E13CE6C34D295CAA /* RecoveryIndexTests.swift */,
@@ -1393,6 +1396,7 @@
 				8BA1A9E7E7D761F4235EA36D /* HeartRateZonesTests.swift in Sources */,
 				F376098B5A3EB6A45FE89D91 /* HeartRateRecoveryTests.swift in Sources */,
 				E6B3958DF1401633E29E088B /* RestorativeScoreTests.swift in Sources */,
+				A1DB0274993DE6B0F5C8F7BF /* BreathRateMetricTests.swift in Sources */,
 				32D9A8EE081061038298DB68 /* RecoveryTimingTests.swift in Sources */,
 				32D9A8EE081061038298DBBB /* RecoveryProfileTests.swift in Sources */,
 				32D9A8EE081061038298DBAA /* RecoveryIndexTests.swift in Sources */,

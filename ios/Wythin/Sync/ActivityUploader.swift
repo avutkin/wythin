@@ -29,6 +29,7 @@ struct ActivityUploadPayload: Codable {
     let beforePIP: Float?;    let duringPIP: Float?;    let afterPIP: Float?
     let beforeDC: Float?;     let duringDC: Float?;     let afterDC: Float?
     let beforeDFA1: Float?;   let duringDFA1: Float?;   let afterDFA1: Float?
+    let beforeBreath: Float?; let duringBreath: Float?; let afterBreath: Float?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -51,6 +52,7 @@ struct ActivityUploadPayload: Codable {
         case beforePIP = "before_pip",       duringPIP = "during_pip",       afterPIP = "after_pip"
         case beforeDC = "before_dc",         duringDC = "during_dc",         afterDC = "after_dc"
         case beforeDFA1 = "before_dfa1",     duringDFA1 = "during_dfa1",     afterDFA1 = "after_dfa1"
+        case beforeBreath = "before_breath", duringBreath = "during_breath", afterBreath = "after_breath"
     }
 
     init(from e: ActivityLog) {
@@ -75,6 +77,7 @@ struct ActivityUploadPayload: Codable {
         beforePIP = e.beforePIP;       duringPIP = e.duringPIP;       afterPIP = e.afterPIP
         beforeDC = e.beforeDC;         duringDC = e.duringDC;         afterDC = e.afterDC
         beforeDFA1 = e.beforeDFA1;     duringDFA1 = e.duringDFA1;     afterDFA1 = e.afterDFA1
+        beforeBreath = e.beforeBreath; duringBreath = e.duringBreath; afterBreath = e.afterBreath
     }
 }
 

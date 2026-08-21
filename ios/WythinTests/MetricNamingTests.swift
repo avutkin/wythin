@@ -39,7 +39,7 @@ final class MetricNamingTests: XCTestCase {
     /// the Track charts all read this table rather than typing their own.
     func testTheRegistryCoversExactlyTheMetricsWithATile() {
         XCTAssertEqual(activityMetricDefs.map(\.metric),
-                       [.dc, .rcmse, .pip, .dfa1, .stressBalance, .rsa, .rmssd, .hr],
+                       [.dc, .rcmse, .pip, .dfa1, .stressBalance, .breathBPM, .rsa, .rmssd, .hr],
                        "the tiled metrics, in LiveMetric declaration order")
     }
 

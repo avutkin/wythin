@@ -125,3 +125,46 @@ async def test_reupload_without_impact_score_does_not_clobber_it():
         mine = next(a for a in acts if a["client_activity_id"] == payload["id"])
         assert mine["impact_score"] == 55, "absent impact_score must not clobber the stored value"
         assert mine["impact_delta_pct"] == -3.0, "impact_delta_pct should still update normally"
+
+
+@pytest.mark.asyncio
+async def test_breath_rate_round_trips():
+    """Breath Rate is the ninth stored metric. A phone restoring its history
+    from the server has to get it back, or the tile reads "—" on every session
+    that predates the reinstall while the card still counts nine."""
+    async with _client() as client:
+        payload = dict(_PAYLOAD)
+        payload["id"] = "00000000-0000-0000-0000-0000000000c8"
+        payload["before_breath"] = 14.2
+        payload["during_breath"] = 6.4
+        payload["after_breath"]  = 9.1
+
+        up = await client.post("/activities", json=payload,
+                               headers={"X-User-ID": "test-breath-user"})
+        assert up.status_code == 200
+
+        back = await client.get("/activities", headers={"X-User-ID": "test-breath-user"})
+        assert back.status_code == 200
+        row = next(a for a in back.json() if a["id"] == payload["id"])
+        assert row["before_breath"] == pytest.approx(14.2)
+        assert row["during_breath"] == pytest.approx(6.4)
+        assert row["after_breath"]  == pytest.approx(9.1)
+
+
+@pytest.mark.asyncio
+async def test_an_upload_without_breath_rate_is_still_accepted():
+    """Older builds send no breath columns at all. Absence has to stay absence
+    rather than becoming an error or a zero."""
+    async with _client() as client:
+        payload = dict(_PAYLOAD)
+        payload["id"] = "00000000-0000-0000-0000-0000000000c9"
+
+        up = await client.post("/activities", json=payload,
+                               headers={"X-User-ID": "test-breath-legacy-user"})
+        assert up.status_code == 200
+
+        back = await client.get("/activities", headers={"X-User-ID": "test-breath-legacy-user"})
+        row = next(a for a in back.json() if a["id"] == payload["id"])
+        assert row["before_breath"] is None
+        assert row["during_breath"] is None
+        assert row["after_breath"] is None

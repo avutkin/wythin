@@ -79,6 +79,7 @@ enum ActivityRestore {
         entry.beforePIP = p.beforePIP;       entry.duringPIP = p.duringPIP;       entry.afterPIP = p.afterPIP
         entry.beforeDC = p.beforeDC;         entry.duringDC = p.duringDC;         entry.afterDC = p.afterDC
         entry.beforeDFA1 = p.beforeDFA1;     entry.duringDFA1 = p.duringDFA1;     entry.afterDFA1 = p.afterDFA1
+        entry.beforeBreath = p.beforeBreath; entry.duringBreath = p.duringBreath; entry.afterBreath = p.afterBreath
 
         return entry
     }

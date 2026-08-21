@@ -57,6 +57,7 @@ struct InsightPayload: Codable {
     let beforePIP: Float?;   let duringPIP: Float?;   let afterPIP: Float?
     let beforeDFA1: Float?;  let duringDFA1: Float?;  let afterDFA1: Float?
     let beforeStress: Float?; let duringStress: Float?; let afterStress: Float?
+    let beforeBreath: Float?; let duringBreath: Float?; let afterBreath: Float?
 
     enum CodingKeys: String, CodingKey {
         case activityType    = "activity_type"
@@ -71,6 +72,7 @@ struct InsightPayload: Codable {
         case beforePIP = "before_pip"; case duringPIP = "during_pip"; case afterPIP = "after_pip"
         case beforeDFA1 = "before_dfa1"; case duringDFA1 = "during_dfa1"; case afterDFA1 = "after_dfa1"
         case beforeStress = "before_stress"; case duringStress = "during_stress"; case afterStress = "after_stress"
+        case beforeBreath = "before_breath"; case duringBreath = "during_breath"; case afterBreath = "after_breath"
     }
 }
 
@@ -714,6 +716,7 @@ extension InsightPayload {
         self.beforePIP = entry.beforePIP; self.duringPIP = entry.duringPIP; self.afterPIP = entry.afterPIP
         self.beforeDFA1 = entry.beforeDFA1; self.duringDFA1 = entry.duringDFA1; self.afterDFA1 = entry.afterDFA1
         self.beforeStress = entry.beforeStress; self.duringStress = entry.duringStress; self.afterStress = entry.afterStress
+        self.beforeBreath = entry.beforeBreath; self.duringBreath = entry.duringBreath; self.afterBreath = entry.afterBreath
     }
 }
 

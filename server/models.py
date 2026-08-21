@@ -58,6 +58,7 @@ class ActivitySchema(BaseModel):
     before_pip:    Optional[float] = None; during_pip:    Optional[float] = None; after_pip:    Optional[float] = None
     before_dc:     Optional[float] = None; during_dc:     Optional[float] = None; after_dc:     Optional[float] = None
     before_dfa1:   Optional[float] = None; during_dfa1:   Optional[float] = None; after_dfa1:   Optional[float] = None
+    before_breath: Optional[float] = None; during_breath: Optional[float] = None; after_breath: Optional[float] = None
 
 
 class MetricSample(BaseModel):
@@ -272,6 +273,7 @@ class InsightRequest(BaseModel):
     before_pip:    Optional[float] = None; during_pip:    Optional[float] = None; after_pip:    Optional[float] = None
     before_dfa1:   Optional[float] = None; during_dfa1:   Optional[float] = None; after_dfa1:   Optional[float] = None
     before_stress: Optional[float] = None; during_stress: Optional[float] = None; after_stress: Optional[float] = None
+    before_breath: Optional[float] = None; during_breath: Optional[float] = None; after_breath: Optional[float] = None
 
     # "live_state" mode fields
     window_minutes: Optional[int] = None
