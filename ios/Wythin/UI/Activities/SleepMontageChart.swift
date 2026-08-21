@@ -143,12 +143,6 @@ struct SleepMontageChart: View {
 
     // MARK: - Reading a single instant
 
-    private func nearest(_ samples: [PreparedNight.Sample], to moment: Date) -> Double? {
-        samples.min { a, b in
-            abs(a.date.timeIntervalSince(moment)) < abs(b.date.timeIntervalSince(moment))
-        }?.value
-    }
-
     private func stage(at moment: Date) -> SleepStageDetail? {
         // Over runs (tens) rather than samples (thousands). This was a linear
         // scan of the whole night, run on every frame of a drag.
@@ -258,22 +252,30 @@ struct SleepMontageChart: View {
             // metric traces follow — they answer a different question, and
             // putting them between the hypnogram and its own legend meant
             // scrolling past nine charts to find out what N2 was.
-            sleepChannel
-            stageLegend
-            movementChannel
-            positionChannel
-            positionDetail
-            metricChannels
-            axis
-        }
-        .background(
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear { plotWidth = geo.size.width }
-                    .onChange(of: geo.size.width) { _, new in plotWidth = new }
+            VStack(alignment: .leading, spacing: 0) {
+                sleepChannel
+                stageLegend
+                movementChannel
+                positionChannel
+                positionDetail
+                axis
             }
-        )
-        .gesture(scrub)
+            .background(
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear { plotWidth = geo.size.width }
+                        .onChange(of: geo.size.width) { _, new in plotWidth = new }
+                }
+            )
+            // Only the hand-drawn channels take this. The metric cards below
+            // are Live's `MetricChartCard`, which brings its own
+            // `chartXSelection` — two scrub gestures over one subtree means
+            // neither gets the drag reliably. They still share `selectedX`, so
+            // the crosshair remains one instant across all of them.
+            .gesture(scrub)
+
+            metricChannels
+        }
     }
 
     // MARK: - Shared ink
@@ -436,97 +438,43 @@ struct SleepMontageChart: View {
                     .foregroundStyle(Theme.dim)
                     .padding(.bottom, 10)
             }
-            ForEach(activityMetricDefs) { def in
-                traceChannel(def)
+            VStack(spacing: 10) {
+                ForEach(activityMetricDefs) { def in
+                    MetricChartCard(
+                        title: def.label,
+                        technicalName: def.techFull.isEmpty ? def.techLabel : def.techFull,
+                        subtitle: def.why,
+                        yLabel: def.unit,
+                        color: colour(def),
+                        windows: [],
+                        refs: [],
+                        // Only ever consulted when a metric has no values at
+                        // all in the window — and the card draws its
+                        // no-data placeholder in that case rather than a
+                        // chart. Every drawn domain is auto-fitted to what is
+                        // actually visible.
+                        yDomain: 0...1,
+                        win: .h24,               // unused: `night` pins the span
+                        night: ruler.startedAt...ruler.endedAt,
+                        selectedX: $selectedX,
+                        panOffset: $cardPan,
+                        smooth: true,
+                        dynamicY: true,
+                        history: night.points,
+                        rawHistory: night.points,
+                        date: ruler.endedAt,
+                        extract: def.extract
+                    )
+                }
             }
         }
         .padding(.top, 18)
     }
 
-    // MARK: - Metric traces
-
-    private func traceChannel(_ def: ActivityMetricDef) -> some View {
-        let samples = night.series[def.id] ?? []
-        let average = night.averages[def.id]
-        let unit = def.unit.isEmpty ? "" : " \(def.unit)"
-        return VStack(alignment: .leading, spacing: 4) {
-            // While the tracker is down the header reads THAT moment, not the
-            // night average — otherwise every channel shows the same number
-            // wherever the line is put, which is the opposite of tracking.
-            channelHeader(def.label,
-                          tech: def.techFull.isEmpty ? def.techLabel : def.techFull,
-                          value: {
-                              if let selectedX, let v = nearest(samples, to: selectedX) {
-                                  return "\(def.format(v))\(unit)"
-                              }
-                              return average.map { "\(def.format($0))\(unit)" } ?? "—"
-                          }())
-            Canvas { ctx, size in
-                drawWakeBands(&ctx, size)
-                drawGrid(&ctx, size)
-                drawTrace(&ctx, size, samples: samples, average: average, def: def)
-                drawTracker(&ctx, size)
-            }
-            .frame(height: 48)
-            .overlay(alignment: .leading) {
-                if samples.isEmpty {
-                    Text("not measured")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(Theme.dim)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-        }
-        .padding(.bottom, 14)
-    }
-
-    private func drawTrace(_ ctx: inout GraphicsContext,
-                           _ size: CGSize,
-                           samples: [PreparedNight.Sample],
-                           average: Double?,
-                           def: ActivityMetricDef) {
-        guard samples.count > 1 else { return }
-        let values = samples.map(\.value)
-        guard let lo = values.min(), let hi = values.max() else { return }
-        // A flat channel is a real result, not a divide-by-zero: give it a
-        // nominal range so the line lands mid-height instead of at an edge.
-        let range = hi - lo > 1e-9 ? hi - lo : 1
-        let pad = 5.0
-        func y(_ v: Double) -> Double {
-            size.height - pad - (v - lo) / range * (size.height - pad * 2)
-        }
-
-        if let average, average >= lo, average <= hi {
-            ctx.stroke(Path { p in
-                p.move(to: CGPoint(x: 0, y: y(average)))
-                p.addLine(to: CGPoint(x: size.width, y: y(average)))
-            }, with: .color(Theme.dim.opacity(0.55)),
-               style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-        }
-
-        var path = Path()
-        for (i, s) in samples.enumerated() {
-            let point = CGPoint(x: ruler.x(s.date, width: size.width), y: y(s.value))
-            if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
-        }
-        ctx.stroke(path, with: .color(colour(def)),
-                   style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
-
-        // The nadir, on the pulse channel only. How far heart rate falls and
-        // WHEN it bottoms out is the single most readable thing in a night's
-        // autonomic trace, and it was annotated in the agreed montage before
-        // the traces were split off into their own card and lost it.
-        guard def.techLabel == "HR",
-              let bottom = samples.min(by: { $0.value < $1.value }) else { return }
-        let at = CGPoint(x: ruler.x(bottom.date, width: size.width), y: y(bottom.value))
-        ctx.fill(Path(ellipseIn: CGRect(x: at.x - 2.5, y: at.y - 2.5, width: 5, height: 5)),
-                 with: .color(colour(def)))
-        ctx.draw(Text("nadir \(def.format(bottom.value)) · \(clock(bottom.date))")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(Theme.dim),
-                 at: CGPoint(x: min(max(at.x, 52), size.width - 52), y: max(at.y - 8, 6)),
-                 anchor: .bottom)
-    }
+    /// Required by the card and deliberately never moved. Panning is disabled
+    /// for a pinned span — the night is already the whole window — but the
+    /// binding is part of the shared card's contract.
+    @State private var cardPan: TimeInterval = 0
 
     // MARK: - MOVEMENT
 
