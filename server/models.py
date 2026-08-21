@@ -189,8 +189,63 @@ class MacroTrend(BaseModel):
     direction:  Optional[str] = None
 
 
+class SleepStageMinutes(BaseModel):
+    """Minutes in each stage. Cut at typical adult shares upstream, so these
+    are the night's SHAPE and must not be read as a clinical hypnogram."""
+    wake: Optional[int] = None
+    rem:  Optional[int] = None
+    n1:   Optional[int] = None
+    n2:   Optional[int] = None
+    n3:   Optional[int] = None
+
+
+class SleepPositionShare(BaseModel):
+    """How long the body held one orientation, over the whole night."""
+    position: str            # "Supine" | "Prone" | "Left side" | "Right side" | "Upright"
+    minutes:  int
+
+
+class SleepArc(BaseModel):
+    """One metric's first half against its second half.
+
+    A night average is a single number for eight hours and hides the only
+    thing worth acting on: whether recovery arrived, and WHEN. The halves are
+    the smallest honest way to carry that.
+    """
+    first_half:  Optional[float] = None
+    second_half: Optional[float] = None
+    night_avg:   Optional[float] = None
+
+
+class SleepNight(BaseModel):
+    """One measured night. Every number is computed on-device; the model
+    receives them and supplies language only."""
+    bedtime:     Optional[str] = None     # "22:05" local
+    wake_time:   Optional[str] = None     # "07:30" local
+    in_bed_min:  Optional[int] = None
+    asleep_min:  Optional[int] = None
+    score:       Optional[int] = None
+    # Section name -> 0-100, as the SECTIONS card shows them.
+    section_scores: Optional[dict[str, int]] = None
+    stages:      Optional[SleepStageMinutes] = None
+    wake_bouts:      Optional[int] = None
+    longest_wake_min: Optional[int] = None
+    # Sleep Regularity Index, 0-100 — how alike this night's timing is to the
+    # nights before it.
+    regularity:  Optional[float] = None
+    # Absent on nights recorded before orientation was stored at all. False
+    # means "the sensor never recorded it", NOT "the person never moved" —
+    # the two must never be described alike.
+    position_recorded: bool = False
+    positions:   Optional[list[SleepPositionShare]] = None
+    arcs:        Optional[dict[str, SleepArc]] = None
+    breath_bpm:  Optional[float] = None
+    lowest_hr:    Optional[float] = None
+    lowest_hr_at: Optional[str] = None    # "03:40" local
+
+
 class InsightRequest(BaseModel):
-    mode: str = "activity"            # "activity" | "live_state" | "day_potential" | "macro_trend"
+    mode: str = "activity"            # "activity" | "live_state" | "day_potential" | "macro_trend" | "sleep"
 
     # "activity" mode fields
     activity_type:    Optional[str] = None
@@ -248,6 +303,9 @@ class InsightRequest(BaseModel):
     period:      Optional[str] = None    # "week" | "month" | "six_month"
     range_label: Optional[str] = None
     trends:      Optional[dict[str, MacroTrend]] = None
+
+    # "sleep" mode fields
+    sleep: Optional[SleepNight] = None
 
 
 class InsightResponse(BaseModel):

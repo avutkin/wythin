@@ -905,3 +905,187 @@ def test_activity_prompt_forbids_the_abbreviations_the_screen_never_shows():
     for token in ["HRV", "RMSSD", "SDNN", "LF/HF", "PIP"]:
         assert token in _SYSTEM_PROMPT, f"{token!r} must be named as forbidden"
     assert "Calm Power" in _SYSTEM_PROMPT
+
+
+# --- sleep mode -------------------------------------------------------------
+
+_SLEEP_PAYLOAD = {
+    "mode": "sleep",
+    "sleep": {
+        "bedtime": "22:05",
+        "wake_time": "07:30",
+        "in_bed_min": 565,
+        "asleep_min": 400,
+        "score": 71,
+        "section_scores": {"Timing": 82, "Duration": 74, "Continuity": 48,
+                           "Autonomic": 80, "Breathing": 66},
+        "stages": {"wake": 165, "rem": 80, "n1": 14, "n2": 275, "n3": 31},
+        "wake_bouts": 7,
+        "longest_wake_min": 38,
+        "regularity": 74.0,
+        "position_recorded": True,
+        "positions": [{"position": "Supine", "minutes": 250},
+                      {"position": "Left side", "minutes": 96},
+                      {"position": "Right side", "minutes": 54}],
+        "arcs": {
+            "dc":    {"first_half": 6.1,  "second_half": 8.4,  "night_avg": 7.2},
+            "rmssd": {"first_half": 34.0, "second_half": 44.0, "night_avg": 39.1},
+            "hr":    {"first_half": 60.0, "second_half": 56.0, "night_avg": 58.0},
+            "pip":   {"first_half": 41.0, "second_half": 33.0, "night_avg": 37.0},
+        },
+        "breath_bpm": 13.4,
+        "lowest_hr": 49.0,
+        "lowest_hr_at": "03:40",
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_sleep_success():
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
+        content="  A broken night that still recovered\n"
+                "• Recovery **arrived late**.\n"
+                "→ Hold a fixed wake time this week.  "
+    )
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights", json=_SLEEP_PAYLOAD)
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
+
+    assert r.status_code == 200
+    text = r.json()["text"]
+    assert text.startswith("A broken night")     # stripped
+    assert "→" in text
+
+
+@pytest.mark.asyncio
+async def test_sleep_requires_a_night():
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights", json={"mode": "sleep"})
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
+
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_sleep_requires_time_asleep():
+    """A night with no asleep minutes is not a night to interpret — refuse it
+    rather than invite the model to narrate an empty window."""
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights",
+                                  json={"mode": "sleep", "sleep": {"bedtime": "22:05"}})
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
+
+    assert r.status_code == 422
+
+
+def test_sleep_format_carries_the_night_shape():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_sleep
+
+    text = _format_sleep(InsightRequest(**_SLEEP_PAYLOAD))
+
+    assert "22:05" in text and "07:30" in text
+    assert "6h 40m asleep" in text          # 400 min, in the unit the app shows
+    assert "9h 25m in bed" in text          # 565 min
+    assert "71%" in text                    # efficiency, derived not invented
+    assert "7 wake bouts" in text
+    assert "longest 38m" in text
+    assert "Continuity 48" in text
+
+
+def test_sleep_format_uses_screen_names_not_abbreviations():
+    """The read is printed under the very charts these metrics come from, so a
+    name the person cannot find on that screen describes someone else's night."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_sleep
+
+    text = _format_sleep(InsightRequest(**_SLEEP_PAYLOAD))
+
+    assert "Vagal Tone" in text
+    assert "Calm Power" in text
+    assert "Inner Noise" in text
+    assert "Pulse" in text
+    for banned in ("RMSSD", "HRV", "PIP", "DFA", "entropy"):
+        assert banned not in text, banned
+
+
+def test_sleep_format_reports_the_arc_not_just_the_average():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_sleep
+
+    text = _format_sleep(InsightRequest(**_SLEEP_PAYLOAD))
+
+    assert "first half" in text and "second half" in text
+    assert "34.0" in text and "44.0" in text
+
+
+def test_sleep_format_reports_supine_share():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_sleep
+
+    text = _format_sleep(InsightRequest(**_SLEEP_PAYLOAD))
+
+    assert "Supine" in text
+    assert "250m" in text
+    # 250 of 400 asleep minutes
+    assert "63%" in text
+
+
+def test_sleep_format_states_position_was_not_recorded_rather_than_omitting_it():
+    """Silence reads as 'the person never lay on their back'. A night that
+    predates orientation storage has to say so, or the model will fill the
+    gap with a claim the sensor never made."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_sleep
+
+    payload = {"mode": "sleep", "sleep": dict(_SLEEP_PAYLOAD["sleep"])}
+    payload["sleep"].pop("positions")
+    payload["sleep"]["position_recorded"] = False
+
+    text = _format_sleep(InsightRequest(**payload))
+
+    assert "not recorded" in text.lower()
+    assert "Supine" not in text
+
+
+def test_sleep_prompt_forbids_diagnosis_and_stage_precision():
+    from server.routers.insights import _SLEEP_SYSTEM_PROMPT
+
+    low = _SLEEP_SYSTEM_PROMPT.lower()
+    assert "apnea" in low          # named, in order to be forbidden
+    assert "diagnos" in low
+    assert "shape" in low          # stage minutes are a shape, not a hypnogram
+
+
+def test_sleep_prompt_specifies_bullets_and_recommendations():
+    from server.routers.insights import _SLEEP_SYSTEM_PROMPT
+
+    assert "•" in _SLEEP_SYSTEM_PROMPT
+    assert "→" in _SLEEP_SYSTEM_PROMPT
+    assert "**" in _SLEEP_SYSTEM_PROMPT      # same bold convention as the other reads
+
+
+def test_sleep_prompt_names_avoid_every_banned_token():
+    """Same rule the macro read is held to: a banned word must not reach the
+    model as a metric's only available name."""
+    from server.routers.insights import _SLEEP_METRIC_NAMES
+
+    for key, label in _SLEEP_METRIC_NAMES.items():
+        for banned in ("HRV", "RMSSD", "LF/HF", "entropy", "PIP"):
+            assert banned not in label, (key, banned)
+    # "Vagal Tone" is the app's name for `dc` and for nothing else.
+    assert sum("Vagal Tone" in v for v in _SLEEP_METRIC_NAMES.values()) == 1

@@ -8,6 +8,7 @@ with anyone.
 """
 from __future__ import annotations
 
+import math
 import os
 from fastapi import APIRouter, Depends, Header, HTTPException
 from openai import AsyncOpenAI, OpenAIError
@@ -475,6 +476,209 @@ _MACRO_TREND_METRIC_NAMES = {
 }
 
 
+# --- sleep ------------------------------------------------------------------
+
+# The night is read under the names the night screen uses, for the same reason
+# the macro read is: this text is printed on the same screen as the charts,
+# directly under `SleepMetricChart`, which titles every line from
+# `activityMetricDefs`. A read naming a measure the screen does not carry is
+# describing a night the person cannot see.
+#
+# Same two hard constraints as `_MACRO_TREND_METRIC_NAMES`, guarded by
+# `test_sleep_prompt_names_avoid_every_banned_token`: no token the prompt bans
+# in the output may appear in the input, and "Vagal Tone" names `dc` alone.
+_SLEEP_METRIC_NAMES = {
+    "dc": "Vagal Tone — how readily the heart slows; the recovery brake. "
+          "Rising through a night is what restorative sleep looks like",
+    "rmssd": "Calm Power — core beat-to-beat variability, the headline marker "
+             "of recovery. Higher = a rested, adaptable system",
+    "rsa": "Conscious Breathing — how far heart rate swings with each breath. "
+           "Higher = slow, deep breathing",
+    "rcmse": "Adaptive Capacity — flexibility across timescales. Higher = more "
+             "resilient",
+    "dfa1": "Harmony — the fractal balance of the heartbeat, ~1.0 the sweet spot",
+    "pip": "Inner Noise — beat-to-beat jitter; erratic, non-restorative "
+           "variability. Lower is better",
+    "stress_balance": "Stress Balance — a breathing-robust 0-100 arousal dial. "
+                      "Lower = further into rest-and-digest",
+    "hr": "Pulse — the load on the heart. It should fall into the night and "
+          "bottom out somewhere in the middle of it",
+    "sdnn": "Overall Variability — the total spread of beat-to-beat intervals",
+    "breath_bpm": "Breath Rate — breaths per minute",
+}
+
+_SLEEP_SYSTEM_PROMPT = (
+    "You are a sleep physiologist reading ONE measured night from a chest "
+    "strap, written for the person who slept it. Every number was computed "
+    "on-device and is given to you: never compute a new one, restate one more "
+    "precisely than it is given, contradict one, or mention a measure you were "
+    "not handed.\n"
+    "\n"
+    "WHAT THE NUMBERS ARE AND ARE NOT:\n"
+    "— Stage minutes are a SHAPE, not a clinical hypnogram. They come from a "
+    "cardiac signal cut at typical adult shares, so read the pattern (was deep "
+    "sleep early, did REM get its late blocks) and never treat a stage total as "
+    "exact or compare it to a textbook target to the minute.\n"
+    "— Awake time is the least reliable channel any wearable has. Treat wake "
+    "minutes and wake-bout counts as approximate.\n"
+    "— You are NOT diagnosing. Never name or imply a condition — no apnea, no "
+    "insomnia, no restless legs, no disorder of any kind, and no diagnosis or "
+    "diagnostic language even hedged. Breathing steadiness is not an event "
+    "rate. If the night looks unusual, say what the numbers show and suggest "
+    "the person raise it with a clinician; do not name the thing.\n"
+    "— Body position: when the input says position was NOT recorded, that means "
+    "the sensor never stored it on this night. It does NOT mean the person "
+    "never lay on their back. Say nothing about position at all in that case.\n"
+    "— Left versus right side depends on which way round the strap was "
+    "fastened, so never build a recommendation on which SIDE they lay on; "
+    "supine (on the back) is reliable and is the one worth acting on.\n"
+    "\n"
+    "NAMES: call every measure by the exact name given in the input — Vagal "
+    "Tone, Calm Power, Conscious Breathing, Adaptive Capacity, Inner Noise, "
+    "Harmony, Stress Balance, Pulse, Overall Variability, Breath Rate. NEVER "
+    "use the underlying abbreviation or family: no HRV, RMSSD, SDNN, LF/HF, "
+    "PIP, DFA, RSA or entropy.\n"
+    "\n"
+    "Reply in EXACTLY this plain-text structure — nothing before or after, no "
+    "headings, no greeting, no markdown beyond the bold spans:\n"
+    "<3-6 word headline naming what kind of night this was>\n"
+    "\u2022 <the most important thing the night shows>\n"
+    "\u2022 <a second, genuinely separate one>\n"
+    "\u2022 <a third, if there is one>\n"
+    "\u2192 <one concrete thing to change tonight>\n"
+    "\u2192 <a second, for the week>\n"
+    "\n"
+    "BULLETS — at most THREE, one line each, one specific idea per bullet, "
+    "plain everyday language. Ground each in the ARC of the night — what moved, "
+    "WHEN it moved, and whether it held — not in a night average, and connect "
+    "it to how the person would have felt. Wrap the single key takeaway of each "
+    "bullet in **double asterisks**, exactly one short bold span per bullet.\n"
+    "ACTIONS — one or two '\u2192' lines. Each must be specific, doable "
+    "tonight or this week, and follow from a bullet: a fixed wake time, an "
+    "earlier last meal or last drink, a darker or cooler room, winding down "
+    "earlier, cutting caffeine past a certain hour, going to bed only when "
+    "sleepy, getting light within an hour of waking, or sleeping off the back "
+    "when supine dominated the night. Choose from what the numbers actually "
+    "show; never give generic advice the data does not support.\n"
+    "\n"
+    "Keep the whole reply under 85 words. Speak directly to the person ('you'), "
+    "warm and direct, no throat-clearing."
+)
+
+
+def _hm(minutes: int) -> str:
+    return f"{minutes // 60}h {minutes % 60:02d}m"
+
+
+def _pct(part: int, whole: int) -> int:
+    """Half away from zero, not Python's half-to-even.
+
+    The model quotes these shares back into text printed beside the app's own
+    legend, which rounds with `Int(round(_))` — half away from zero. Banker's
+    rounding would put 62% in the prose next to a 63% on the very same screen.
+    """
+    return int(math.floor(part / whole * 100 + 0.5))
+
+
+def _format_sleep(req: InsightRequest) -> str:
+    n = req.sleep
+    assert n is not None      # guarded by the endpoint
+
+    lines: list[str] = []
+
+    when = []
+    if n.bedtime:   when.append(f"asleep window opened {n.bedtime}")
+    if n.wake_time: when.append(f"closed {n.wake_time}")
+    if when:
+        lines.append("Night: " + ", ".join(when))
+
+    # The pair, never the single number — the gap between them IS the wake
+    # time, which is the disclosure the whole screen exists to make.
+    if n.asleep_min is not None:
+        span = f"{_hm(n.asleep_min)} asleep"
+        if n.in_bed_min:
+            eff = _pct(n.asleep_min, n.in_bed_min)
+            span += f" of {_hm(n.in_bed_min)} in bed ({eff}% of the time in bed)"
+        lines.append(span)
+
+    if n.score is not None:
+        lines.append(f"Sleep score {n.score}/100 (the app's own, already shown)")
+    if n.section_scores:
+        lines.append("Sections (0-100, the app's own): " + ", ".join(
+            f"{k} {v}" for k, v in n.section_scores.items()))
+
+    if n.stages:
+        st = [("Deep (N3)", n.stages.n3), ("Light (N2)", n.stages.n2),
+              ("REM", n.stages.rem), ("N1", n.stages.n1), ("Awake", n.stages.wake)]
+        parts = []
+        for label, mins in st:
+            if mins is None:
+                continue
+            share = (f" ({_pct(mins, n.asleep_min)}% of sleep)"
+                     if n.asleep_min and label != "Awake" else "")
+            parts.append(f"{label} {mins}m{share}")
+        if parts:
+            lines.append("Stage shape (approximate, cut at typical adult "
+                         "shares): " + ", ".join(parts))
+
+    cont = []
+    if n.wake_bouts is not None:
+        cont.append(f"{n.wake_bouts} wake bouts")
+    if n.longest_wake_min is not None:
+        cont.append(f"longest {n.longest_wake_min}m")
+    if cont:
+        lines.append("Continuity: " + ", ".join(cont) + " (approximate)")
+
+    if n.regularity is not None:
+        lines.append(f"Sleep Regularity {n.regularity:.0f}/100 — how alike this "
+                     f"night's timing is to the recent nights before it")
+
+    if n.lowest_hr is not None:
+        at = f" at {n.lowest_hr_at}" if n.lowest_hr_at else ""
+        lines.append(f"Lowest Pulse {n.lowest_hr:.0f} bpm{at}")
+    if n.breath_bpm is not None:
+        lines.append(f"Breath Rate {n.breath_bpm:.1f} breaths/min across the night")
+
+    # Position, stated either way. An omission would read as "never on their
+    # back", which is a claim the sensor did not make.
+    if not n.position_recorded or not n.positions:
+        lines.append("Body position: NOT RECORDED on this night — the strap "
+                     "stored no orientation, so nothing whatever is known about "
+                     "how they lay. Do not mention position.")
+    else:
+        shares = []
+        for p in n.positions:
+            share = (f" ({_pct(p.minutes, n.asleep_min)}% of sleep)"
+                     if n.asleep_min else "")
+            shares.append(f"{p.position} {p.minutes}m{share}")
+        lines.append("Body position: " + ", ".join(shares) +
+                     " — supine means on the back; left/right is unreliable "
+                     "because it depends on strap orientation")
+
+    if n.arcs:
+        lines.append("Through the night — each measure's first half against its "
+                     "second half, which is where the recovery story is:")
+        for key, arc in n.arcs.items():
+            label = _SLEEP_METRIC_NAMES.get(key, key)
+            bits = []
+            if arc.first_half is not None:
+                bits.append(f"first half {arc.first_half:.1f}")
+            if arc.second_half is not None:
+                bits.append(f"second half {arc.second_half:.1f}")
+            if arc.night_avg is not None:
+                bits.append(f"night average {arc.night_avg:.1f}")
+            if bits:
+                # Name and gloss on their own line, values indented under it —
+                # the same two-line shape `_format_macro_trend` uses, because a
+                # sentence-long gloss followed by a colon and four numbers is
+                # one long run-on the model has to unpick.
+                lines.append(f"  {label}")
+                lines.append("    " + " | ".join(bits))
+
+    return "\n".join(lines)
+
+
+
 def _format_macro_trend(req: InsightRequest) -> str:
     span = _PERIOD_LABELS.get(req.period or "", "this period")
     unit = "months" if req.period == "six_month" else "days"
@@ -556,6 +760,19 @@ async def generate_insight(
         system_prompt = _LIVE_STATE_SYSTEM_PROMPT
         user_content = _format_live_state(req)
         max_tokens = 260   # arc phrasing needs a little more room
+    elif req.mode == "sleep":
+        # A night with no measured sleep is not a night to interpret. Refusing
+        # here beats handing the model an empty window and letting it narrate
+        # one anyway.
+        if req.sleep is None or not req.sleep.asleep_min:
+            raise HTTPException(status_code=422,
+                                detail="sleep.asleep_min is required for sleep mode")
+        system_prompt = _SLEEP_SYSTEM_PROMPT
+        user_content = _format_sleep(req)
+        # The night read is the longest of the four: a headline, up to three
+        # bullets with bold spans, and two actions. Its own cap ("under 85
+        # words") is the real limit; this only has to not cut it off first.
+        max_tokens = 300
     elif req.mode == "macro_trend":
         if not req.trends:
             raise HTTPException(status_code=422, detail="trends is required for macro_trend mode")
