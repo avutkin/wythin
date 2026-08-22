@@ -231,6 +231,24 @@ final class SleepDetectorTests: XCTestCase {
                       "stillness without a fall in pulse is rest, not sleep")
     }
 
+    func testAnHourAtADeskIsNotANap() {
+        // The bug as shipped, and the reason the baseline changed. A day's
+        // median heart rate is lifted by every minute spent walking about, so
+        // simply sitting down puts a person well under it. Compared against the
+        // day, this desk hour reads as sleep; compared against rest — which is
+        // the state a nap actually has to be distinguished from — it is
+        // indistinguishable from the rest of the sitting, because that is what
+        // it is.
+        let walking = night(fromHour: 9, hours: 3, motion: 60, hr: 85)
+        let desk = night(fromHour: 12, hours: 1, motion: 5, hr: 68)
+        let more = night(fromHour: 13, hours: 3, motion: 5, hr: 68)
+        let walkingAgain = night(fromHour: 16, hours: 2, motion: 60, hr: 85)
+
+        XCTAssertTrue(NapDetector.detect(walking + desk + more + walkingAgain,
+                                         excluding: []).isEmpty,
+                      "sitting is not sleeping, however far below a walking average it sits")
+    }
+
     func testAStretchTooShortIsNotANap() {
         let points = daytime(fromHour: 9, hours: 5)
             + napping(fromHour: 14, hours: 0.1)      // six minutes

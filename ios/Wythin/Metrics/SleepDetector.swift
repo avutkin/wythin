@@ -623,25 +623,36 @@ enum NapThresholds {
     /// the same stretch is how one afternoon becomes two entries.
     static let maxNapSec: Double = SleepThresholds.minNightSec
 
-    /// How far below the surrounding day's own pulse a nap has to sit, in bpm.
+    /// How far below **quiet waking** the pulse has to sit, in bpm.
     ///
-    /// **This is the whole discriminator, and low motion is not.** Sitting
-    /// still, reading, watching something, meditating — every one of them is as
-    /// motionless as sleep, and a detector built on stillness alone reports all
-    /// of them as naps. What separates sleep is that the pulse *drops*: heart
-    /// rate falls several beats below quiet wakefulness at sleep onset, and it
-    /// does not do that merely because someone stopped moving.
+    /// The discriminator, and low motion is not: sitting still, reading,
+    /// watching something and meditating are all as motionless as sleep. What
+    /// separates sleep is that the pulse drops below where it sits at rest.
     ///
-    /// Five rather than ten, because the comparison here is against the waking
-    /// day — already a lower bar than the night's median-of-a-night — and
-    /// because a twenty-minute nap does not reach the depth an eight-hour night
-    /// does. It is a smaller claim about a smaller thing.
-    static let hrDropBPM: Float = 5
+    /// **Against rest — not against the day.** The first version of this
+    /// compared to the day's median heart rate and shipped, and it was wrong in
+    /// a way that made the gate meaningless: a day's median is lifted by every
+    /// minute spent walking about, so simply sitting down puts a person five to
+    /// fifteen beats under it without being remotely asleep. It reported a
+    /// "Power Nap" for an afternoon at a desk. The comparison has to be against
+    /// quiet wakefulness, which is the state a nap actually has to be
+    /// distinguished from.
+    static let hrDropBPM: Float = 4
 
-    /// Motion ceiling, as a share of the surrounding day's median. A supporting
-    /// condition rather than the deciding one: it is here to reject the pulse
-    /// drop that happens while someone is walking downhill, not to find sleep.
+    /// Motion ceiling, as a share of the surrounding day's median. This is what
+    /// proposes a candidate; `hrDropBPM` is what decides it. Stillness is
+    /// necessary for sleep and nowhere near sufficient, and the two jobs are
+    /// kept apart deliberately.
     static let motionFraction: Float = 0.75
+
+    /// Ticks quiet enough to stand for "at rest but awake", as a share of the
+    /// day's median motion. The pool `hrDropBPM` is measured against.
+    static let restingMotionFraction: Float = 1.0
+
+    /// Fewest resting ticks outside a candidate before the comparison means
+    /// anything. Under this there is no honest baseline and no nap is claimed —
+    /// silence beats a guess.
+    static let minRestingTicks: Int = 60
 
     /// A brief stir does not end a nap, for the same reason it does not end a
     /// night — see `SleepThresholds.briefArousalSec`. Shorter here because the
@@ -709,24 +720,47 @@ enum NapDetector {
     private static func napsWithin(_ waking: [MetricsHistoryPoint]) -> [SleepWindow] {
         guard let first = waking.first, let last = waking.last,
               last.timestamp.timeIntervalSince(first.timestamp) >= NapThresholds.minWakingSpanSec,
-              let dayHR = median(waking.compactMap(\.meanBPM)),
+              median(waking.compactMap(\.meanBPM)) != nil,
               let dayMotion = median(waking.compactMap(\.motion)) else { return [] }
 
-        let asleep = waking.map { p -> Bool in
-            guard let hr = p.meanBPM else { return false }
-            guard hr <= dayHR - NapThresholds.hrDropBPM else { return false }
-            // Motion is allowed to be missing. It is the supporting condition,
-            // and refusing to call a nap because the accelerometer dropped out
-            // would lose the nap over the weaker of the two signals.
+        // Stillness proposes; the pulse disposes. Motion alone picks the
+        // candidates — every nap is still, so nothing asleep is missed here —
+        // and each candidate then has to show a real fall in heart rate before
+        // it is called sleep.
+        let still = waking.map { p -> Bool in
             guard let motion = p.motion else { return true }
             return motion <= dayMotion * NapThresholds.motionFraction
         }
+        // Everything quiet, as the pool that stands for "at rest but awake".
+        let restingIdx = waking.indices.filter { i in
+            (waking[i].motion ?? 0) <= dayMotion * NapThresholds.restingMotionFraction
+                && waking[i].meanBPM != nil
+        }
 
-        return runs(of: asleep, in: waking)
+        return runs(of: still, in: waking)
             .filter { span(waking, $0) >= NapThresholds.minNapSec }
             .filter { span(waking, $0) <= NapThresholds.maxNapSec }
+            .filter { asleepByPulse($0, waking, resting: restingIdx) }
             .map { SleepWindow(startedAt: waking[$0.lowerBound].timestamp,
                                endedAt: waking[$0.upperBound].timestamp) }
+    }
+
+    /// Whether a still stretch is actually *asleep*, judged by pulse.
+    ///
+    /// The baseline is built from the day's other quiet minutes — explicitly
+    /// **excluding the candidate itself**. Including it is self-defeating: a
+    /// long nap is a large share of the day's quiet time, so it drags the very
+    /// median it is being compared against down towards itself, and the deeper
+    /// the sleep the more it hides. Comparing a stretch to everything except
+    /// that stretch is the only version of this question that is well posed.
+    private static func asleepByPulse(_ run: ClosedRange<Int>,
+                                      _ waking: [MetricsHistoryPoint],
+                                      resting: [Int]) -> Bool {
+        let outside = resting.filter { !run.contains($0) }.compactMap { waking[$0].meanBPM }
+        guard outside.count >= NapThresholds.minRestingTicks,
+              let restingHR = median(outside),
+              let napHR = median(waking[run].compactMap(\.meanBPM)) else { return false }
+        return napHR <= restingHR - NapThresholds.hrDropBPM
     }
 
     /// Index ranges of sustained daytime sleep, stepping over brief stirs.

@@ -232,7 +232,7 @@ enum SleepRecorder {
         log.sleepAlgorithmVersion = SleepThresholds.algorithmVersion
 
         let tick = tickSeconds(nightPoints)
-        apply(stages: SleepStages.classify(nightPoints), to: log, points: nightPoints, tickSec: tick)
+        apply(stages: SleepStages.withinSleep(nightPoints), to: log, points: nightPoints, tickSec: tick)
         apply(detail: SleepStages.detailed(nightPoints), to: log, points: nightPoints, tickSec: tick)
         let scored = score(night: night, points: nightPoints, existing: existing)
         apply(score: scored, to: log)
@@ -313,7 +313,11 @@ enum SleepRecorder {
                               existing: [ActivityLog]) -> SleepScore {
         let hrs = points.compactMap { $0.meanBPM }
         let rmssds = points.compactMap { $0.rmssd }
-        let stages = SleepStages.classify(points)
+        // The same interior rule the reported minutes use. Continuity is scored
+        // on wake bouts, so scoring it from a different classification than the
+        // one displayed would print a continuity that contradicts the awake
+        // total printed beside it.
+        let stages = SleepStages.withinSleep(points)
         let tick = tickSeconds(points)
 
         // Nadir depth and placement — the shape evening load actually moves.

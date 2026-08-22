@@ -48,6 +48,57 @@ enum SleepStages {
         return smooth(raw, points: points)
     }
 
+    /// Classification for *reporting*, inside a window already known to be
+    /// sleep. This is what the hypnogram and the awake total are built from.
+    ///
+    /// `classify` is tuned to find the edges of a night, and it has to be
+    /// generous to do that: heart rate alone, or breathing alone, is enough to
+    /// call a tick awake, because lying awake before sleep shows up in nothing
+    /// else — motion is already at sleeping levels, and if those channels did
+    /// not count on their own the night would open hours too early.
+    ///
+    /// **The same generosity is wrong once the edges are known**, and it was
+    /// being used for both. Heart rate and breathing are precisely the two
+    /// channels REM imitates: this file already records that RMSSD and HF
+    /// "barely separate deep sleep from REM", and REM is the stage whose pulse
+    /// and breathing look awake. REM is a fifth to a quarter of a night. Scored
+    /// by those two channels alone it reads as wake, and the night comes back
+    /// with hours of awake in it that the sleeper did not experience.
+    ///
+    /// What separates REM from wake is **movement**. REM has muscle atonia —
+    /// the body does not move — while being awake for any length of time
+    /// involves shifting. So inside the night a wake bout has to be
+    /// corroborated by the accelerometer or by posture; heart rate and
+    /// breathing may raise the question and no longer settle it alone.
+    ///
+    /// Deliberately not applied by `SleepDetector`, which still needs the
+    /// generous rule to find the boundaries in the first place.
+    static func withinSleep(_ points: [MetricsHistoryPoint]) -> [SleepStage] {
+        let raw = classify(points)
+        let base = Baseline(points)
+        var out = raw
+        for run in runs(of: raw) where raw[run[0]] == .wake && !moved(run, points, base) {
+            // Not "asleep" by fiat — re-asked as the sleep question it now is.
+            for i in run { out[i] = quietVotes(points[i], base) >= 2 ? .quiet : .active }
+        }
+        return out
+    }
+
+    /// Whether anything in this run actually moved.
+    ///
+    /// A low bar on purpose — `stirMotionMultiple`, not `wakeMotionMultiple`.
+    /// The question is not "was this vigorous", it is "did the body move at
+    /// all", because the state being excluded is one in which it cannot.
+    private static func moved(_ run: [Int],
+                              _ points: [MetricsHistoryPoint],
+                              _ base: Baseline) -> Bool {
+        run.contains { i in
+            if points[i].bodyPosition == .upright { return true }
+            guard base.motion > 0, let motion = points[i].motion else { return false }
+            return motion >= base.motion * SleepThresholds.stirMotionMultiple
+        }
+    }
+
     /// What this recording's own signal looks like.
     ///
     /// The published per-stage tables do not transfer. Measured against one

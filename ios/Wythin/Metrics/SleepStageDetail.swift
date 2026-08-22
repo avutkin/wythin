@@ -133,7 +133,10 @@ extension SleepStages {
 
     static func detailed(_ points: [MetricsHistoryPoint]) -> [SleepStageDetail] {
         guard !points.isEmpty else { return [] }
-        let coarse = classify(points)
+        // `withinSleep`, not `classify`: this is only ever called on a window
+        // already established to be sleep, and inside one the generous
+        // edge-finding rule reports REM as wake. See `SleepStages.withinSleep`.
+        let coarse = withinSleep(points)
         let tick = medianInterval(points)
         let depth = depthAxis(points)
 
