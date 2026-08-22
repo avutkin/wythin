@@ -43,6 +43,87 @@ final class SleepRecorderPersistenceTests: XCTestCase {
         return all.filter { $0.activityType == ActivityType.sleep.rawValue }
     }
 
+    // MARK: - Naps
+
+    /// A working day with half an hour of real sleep in the middle of it.
+    private func seedDayWithNap(_ context: ModelContext, day: Int) {
+        var comps = DateComponents(year: 2026, month: 7, day: day)
+        comps.hour = 9
+        let start = Calendar.current.date(from: comps)!
+        for i in 0..<Int(8 * 120) {          // 09:00 → 17:00 at 30 s
+            let t = start.addingTimeInterval(Double(i) * 30)
+            let hour = Calendar.current.component(.hour, from: t)
+            let minute = Calendar.current.component(.minute, from: t)
+            let napping = hour == 14 && minute < 30
+            let s = HRVSample(anchorTestTimestamp: t,
+                              meanBPM: napping ? 58 : 70, vti: 3.9, dc: 8, pip: 45,
+                              dfa1: 1.0, breathBPM: 13, motion: napping ? 5 : 30,
+                              signalQuality: 0.97, rrInvalidRate: 0.01)
+            context.insert(s)
+        }
+        try! context.save()
+    }
+
+    private func napLogs(in context: ModelContext) -> [ActivityLog] {
+        let all = (try? context.fetch(FetchDescriptor<ActivityLog>())) ?? []
+        return all.filter { $0.activityType == ActivityType.nap.rawValue }
+    }
+
+    func testAnAfternoonNapIsRecorded() {
+        let writer = ModelContext(container)
+        seedDayWithNap(writer, day: 20)
+        SleepRecorder.recordIfDue(context: writer, now: at(20, 17))
+
+        let reader = ModelContext(container)
+        let naps = napLogs(in: reader)
+        XCTAssertEqual(naps.count, 1, "half an hour of daytime sleep was never written down")
+        XCTAssertEqual(Calendar.current.component(.hour, from: naps.first?.startedAt ?? .distantPast), 14)
+        XCTAssertEqual(naps.first?.isManual, false)
+        XCTAssertEqual(naps.first?.activitySubtype, "Power Nap")
+    }
+
+    func testASecondPassDoesNotWriteTheNapTwice() {
+        let writer = ModelContext(container)
+        seedDayWithNap(writer, day: 20)
+        SleepRecorder.recordIfDue(context: writer, now: at(20, 17))
+        SleepRecorder.recordIfDue(context: writer, now: at(20, 18))
+
+        XCTAssertEqual(napLogs(in: ModelContext(container)).count, 1,
+                       "the pass runs every few minutes; it must not stack duplicates")
+    }
+
+    func testALoggedPracticeIsNotRefiledAsANap() {
+        // The false positive the signal cannot resolve. A meditation is still,
+        // and the pulse drops — from a chest strap that is precisely what a nap
+        // looks like. The user already said what it was, and the detector does
+        // not get to overwrite that with a guess.
+        let writer = ModelContext(container)
+        seedDayWithNap(writer, day: 20)
+        let logged = ActivityLog(activityType: ActivityType.meditation.rawValue,
+                                 startedAt: at(20, 14))
+        logged.endedAt = Calendar.current.date(byAdding: .minute, value: 30, to: at(20, 14))
+        logged.isManual = true
+        writer.insert(logged)
+        try! writer.save()
+
+        SleepRecorder.recordIfDue(context: writer, now: at(20, 17))
+
+        XCTAssertTrue(napLogs(in: ModelContext(container)).isEmpty,
+                      "those minutes were already accounted for, by the person who lived them")
+    }
+
+    func testANapStillInProgressIsNotWrittenDown() {
+        // Same rule the nights follow: the detector trims to the last sleeping
+        // tick, so a nap in progress ends at roughly now. Written then, it
+        // records half a nap and never corrects itself.
+        let writer = ModelContext(container)
+        seedDayWithNap(writer, day: 20)
+        SleepRecorder.recordIfDue(context: writer, now: at(20, 15))
+
+        XCTAssertTrue(napLogs(in: ModelContext(container)).isEmpty,
+                      "not settled yet — 14:30 was only half an hour ago")
+    }
+
     func testARecordedNightSurvivesTheBackgroundContext() {
         let writer = ModelContext(container)
         seedNight(writer, day: 20)

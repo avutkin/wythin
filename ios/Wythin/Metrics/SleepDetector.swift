@@ -600,3 +600,173 @@ enum SleepDetector {
         return l.timestamp.timeIntervalSince(f.timestamp)
     }
 }
+
+// MARK: - Naps
+
+/// Every gate a stretch of *daytime* sleep has to clear.
+///
+/// Deliberately its own set, and deliberately not `SleepThresholds`. The night
+/// detector's gates are all relative to a recording that is mostly one thing —
+/// a night — and a nap is the opposite case by construction: a short quiet
+/// island in a long noisy day. Sharing constants between the two would drag the
+/// night's assumptions somewhere they are false, which is the same mistake
+/// `SleepThresholds` documents about `AnchorThresholds`.
+enum NapThresholds {
+    /// Shortest daytime sleep worth recording. Ten minutes is the actigraphy
+    /// floor for a scored nap, and it is also about where the restorative
+    /// literature starts finding an effect — a ten-minute nap improves alertness
+    /// measurably, a five-minute one barely does.
+    static let minNapSec: Double = 10 * 60
+
+    /// Longest. Above this it is not a nap and this detector must not claim it:
+    /// `SleepDetector` owns anything that long, and two detectors both writing
+    /// the same stretch is how one afternoon becomes two entries.
+    static let maxNapSec: Double = SleepThresholds.minNightSec
+
+    /// How far below the surrounding day's own pulse a nap has to sit, in bpm.
+    ///
+    /// **This is the whole discriminator, and low motion is not.** Sitting
+    /// still, reading, watching something, meditating — every one of them is as
+    /// motionless as sleep, and a detector built on stillness alone reports all
+    /// of them as naps. What separates sleep is that the pulse *drops*: heart
+    /// rate falls several beats below quiet wakefulness at sleep onset, and it
+    /// does not do that merely because someone stopped moving.
+    ///
+    /// Five rather than ten, because the comparison here is against the waking
+    /// day — already a lower bar than the night's median-of-a-night — and
+    /// because a twenty-minute nap does not reach the depth an eight-hour night
+    /// does. It is a smaller claim about a smaller thing.
+    static let hrDropBPM: Float = 5
+
+    /// Motion ceiling, as a share of the surrounding day's median. A supporting
+    /// condition rather than the deciding one: it is here to reject the pulse
+    /// drop that happens while someone is walking downhill, not to find sleep.
+    static let motionFraction: Float = 0.75
+
+    /// A brief stir does not end a nap, for the same reason it does not end a
+    /// night — see `SleepThresholds.briefArousalSec`. Shorter here because the
+    /// whole event is shorter: two minutes is a fifth of the smallest nap this
+    /// will report, where it is a rounding error in a night.
+    static let briefStirSec: Double = 2 * 60
+
+    /// How far a nap must sit clear of a recorded night. Guards the boundary
+    /// where the night detector's trim let go — the quiet half hour after the
+    /// final awakening is the tail of the night, not a nap at breakfast.
+    static let nightClearanceSec: Double = 30 * 60
+
+    /// How much waking data is needed before the day's own baseline means
+    /// anything. Without a floor, a recording that is *only* a nap makes that
+    /// nap its own baseline, finds no drop against itself, and reports nothing —
+    /// or worse, on a slightly longer one, reports the surrounding minutes as
+    /// the nap. Three hours of day is enough to know what this person's day
+    /// looks like.
+    static let minWakingSpanSec: Double = 3 * 3600
+
+    /// Bumped whenever nap detection changes shape, so stored naps are rebuilt
+    /// rather than left behind by a pipeline that no longer exists.
+    static let algorithmVersion: Int = 1
+}
+
+/// Finds sleep that happened during the day.
+///
+/// The counterpart to `SleepDetector`, not a variant of it. That detector
+/// searches for the single quietest night-length stretch and throws away
+/// everything shorter than three hours — which is correct for its job and means
+/// a nap has never been visible to this app at all, however plainly it is
+/// written in the trace.
+enum NapDetector {
+
+    /// Every nap in a span of recorded ticks, oldest first.
+    ///
+    /// - Parameters:
+    ///   - points: tick history; sorted here, so order in is irrelevant.
+    ///   - nights: already-detected nights, which are excluded along with a
+    ///     clearance either side. Pass what the night detector found, not what
+    ///     is stored, or the first run finds naps inside every night.
+    static func detect(_ points: [MetricsHistoryPoint],
+                       excluding nights: [SleepWindow]) -> [SleepWindow] {
+        let all = points.sorted { $0.timestamp < $1.timestamp }
+        let waking = all.filter { p in
+            !nights.contains { night in
+                p.timestamp >= night.startedAt.addingTimeInterval(-NapThresholds.nightClearanceSec)
+                    && p.timestamp <= night.endedAt.addingTimeInterval(NapThresholds.nightClearanceSec)
+            }
+        }
+        // One day at a time, because "the surrounding day" is the entire
+        // comparison this detector makes. Handed three weeks of history in one
+        // array — which is exactly what the recorder's lookback provides — the
+        // baseline becomes a three-week median rather than today's, and
+        // `minWakingSpanSec` compares the first tick to the last across the
+        // whole span and therefore always passes, which is the opposite of
+        // what it is for.
+        let cal = Calendar.current
+        return Dictionary(grouping: waking) { cal.startOfDay(for: $0.timestamp) }
+            .sorted { $0.key < $1.key }
+            .flatMap { napsWithin($0.value) }
+    }
+
+    /// The naps inside a single day, judged against that day's own signal.
+    private static func napsWithin(_ waking: [MetricsHistoryPoint]) -> [SleepWindow] {
+        guard let first = waking.first, let last = waking.last,
+              last.timestamp.timeIntervalSince(first.timestamp) >= NapThresholds.minWakingSpanSec,
+              let dayHR = median(waking.compactMap(\.meanBPM)),
+              let dayMotion = median(waking.compactMap(\.motion)) else { return [] }
+
+        let asleep = waking.map { p -> Bool in
+            guard let hr = p.meanBPM else { return false }
+            guard hr <= dayHR - NapThresholds.hrDropBPM else { return false }
+            // Motion is allowed to be missing. It is the supporting condition,
+            // and refusing to call a nap because the accelerometer dropped out
+            // would lose the nap over the weaker of the two signals.
+            guard let motion = p.motion else { return true }
+            return motion <= dayMotion * NapThresholds.motionFraction
+        }
+
+        return runs(of: asleep, in: waking)
+            .filter { span(waking, $0) >= NapThresholds.minNapSec }
+            .filter { span(waking, $0) <= NapThresholds.maxNapSec }
+            .map { SleepWindow(startedAt: waking[$0.lowerBound].timestamp,
+                               endedAt: waking[$0.upperBound].timestamp) }
+    }
+
+    /// Index ranges of sustained daytime sleep, stepping over brief stirs.
+    private static func runs(of asleep: [Bool],
+                             in points: [MetricsHistoryPoint]) -> [ClosedRange<Int>] {
+        var out: [ClosedRange<Int>] = []
+        var i = 0
+        while i < asleep.count {
+            guard asleep[i] else { i += 1; continue }
+            var j = i
+            while j + 1 < asleep.count {
+                if asleep[j + 1] { j += 1; continue }
+                guard let resume = resumes(after: j + 1, asleep, points) else { break }
+                j = resume - 1
+            }
+            out.append(i...j)
+            i = j + 1
+        }
+        return out
+    }
+
+    /// Where sleep picks up again after a stir starting at `from`, provided the
+    /// stir is brief enough not to have ended the nap.
+    private static func resumes(after from: Int,
+                                _ asleep: [Bool],
+                                _ points: [MetricsHistoryPoint]) -> Int? {
+        var k = from
+        while k < asleep.count && !asleep[k] { k += 1 }
+        guard k < asleep.count else { return nil }
+        let gap = points[k].timestamp.timeIntervalSince(points[from].timestamp)
+        return gap < NapThresholds.briefStirSec ? k : nil
+    }
+
+    private static func span(_ points: [MetricsHistoryPoint], _ r: ClosedRange<Int>) -> Double {
+        points[r.upperBound].timestamp.timeIntervalSince(points[r.lowerBound].timestamp)
+    }
+
+    private static func median(_ v: [Float]) -> Float? {
+        guard !v.isEmpty else { return nil }
+        let s = v.sorted()
+        return s[s.count / 2]
+    }
+}
