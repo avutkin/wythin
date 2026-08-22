@@ -129,7 +129,7 @@ enum SleepThresholds {
     static let deepDepth: Double = 2.2
     static let remDepth: Double = 0.0
 
-    static let algorithmVersion: Int = 10
+    static let algorithmVersion: Int = 11
     /// Shortest run that can stand as its own stage. Sleep changes state on
     /// the scale of minutes; anything briefer is a turn or a dropped estimate,
     /// and leaving it in inflates every count derived from the hypnogram.
@@ -675,7 +675,7 @@ enum NapThresholds {
 
     /// Bumped whenever nap detection changes shape, so stored naps are rebuilt
     /// rather than left behind by a pipeline that no longer exists.
-    static let algorithmVersion: Int = 1
+    static let algorithmVersion: Int = 2
 }
 
 /// Finds sleep that happened during the day.
