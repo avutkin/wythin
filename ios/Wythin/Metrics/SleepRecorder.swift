@@ -82,6 +82,12 @@ enum SleepRecorder {
             print("🌙 SleepRecorder: purged \(purged) night(s) from an older algorithm")
             commit(context)
         }
+        // Here, beside the stale-night purge, and for the same reason it sits
+        // before the early return below: a store with no recent ticks must
+        // still have its leftovers cleaned up. Withdrawn entries do not stop
+        // being wrong just because the strap has been off for a week.
+        purgeDetectedNaps(existing, context: context)
+        commit(context)
 
         let horizon = now.addingTimeInterval(-SleepThresholds.lookbackSec)
         var desc = FetchDescriptor<HRVSample>(
@@ -118,89 +124,36 @@ enum SleepRecorder {
             written.append(record(night, from: points,
                                   existing: current + written, context: context))
         }
-        // Naps last, and only once the nights are known: the exclusion they
-        // need is the set of nights, and detecting a nap inside one would
-        // report the same sleep twice under two names.
-        recordNaps(points: points,
-                   nights: priorWindows(current + written),
-                   existing: existing + written,
-                   now: now,
-                   context: context)
         commit(context)
     }
 
     // MARK: - Naps
 
-    /// Writes down the daytime sleep in this window.
+    /// Deletes naps this app detected on its own.
     ///
-    /// Kept deliberately thinner than `record(_:from:existing:context:)`. A
-    /// night gets a five-section score; a nap gets its duration and the metrics
-    /// every activity gets, and nothing more. The sleep score's sections are
-    /// calibrated against a night — a regularity index over wake dates, a
-    /// duration judged against a nightly need, a continuity built from wake
-    /// bouts — and none of them mean anything about twenty-five minutes after
-    /// lunch. Scoring a nap on them would put a number on the screen that looks
-    /// like the night score and is not comparable to it.
-    private static func recordNaps(points: [MetricsHistoryPoint],
-                                   nights: [SleepWindow],
-                                   existing: [ActivityLog],
-                                   now: Date,
-                                   context: ModelContext) {
-        // A nap written by an older pipeline is rebuilt, exactly as a night is.
-        // Only the ones this detector wrote: a nap the user logged by hand is
-        // theirs, and deleting it because a threshold moved would be destroying
-        // data the app was merely storing.
-        let stale = existing.filter {
-            $0.activityType == ActivityType.nap.rawValue
-                && !$0.isManual
-                && ($0.sleepAlgorithmVersion ?? 0) < NapThresholds.algorithmVersion
+    /// Automatic nap detection shipped and was withdrawn: it was built to
+    /// answer a question about *sleep* accuracy that it turned out not to
+    /// answer, and it was wrong besides — it compared heart rate to the day's
+    /// median, which every minute of walking about lifts, so an afternoon at a
+    /// desk sat far enough under it to be filed as a "Power Nap".
+    ///
+    /// Removing the detector is not enough on its own. The entries it already
+    /// wrote are in the store, and nothing else would ever revisit them, so
+    /// they would sit on the timeline permanently — a withdrawn feature's
+    /// leftovers, indistinguishable to the reader from something the app still
+    /// believes.
+    ///
+    /// **Only the ones it detected.** `isManual` naps are the user's own
+    /// entries, and deleting those because the app changed its mind about a
+    /// feature would be destroying data the app was merely holding.
+    private static func purgeDetectedNaps(_ existing: [ActivityLog],
+                                          context: ModelContext) {
+        let detected = existing.filter {
+            $0.activityType == ActivityType.nap.rawValue && !$0.isManual
         }
-        for log in stale { context.delete(log) }
-
-        // Everything still on the timeline over these minutes, of any kind —
-        // not just other naps. Nights are already excluded by window, so they
-        // are dropped here to avoid vetoing on the clearance either side.
-        let discarded = Set(stale.map(ObjectIdentifier.init))
-        let occupied = existing.filter {
-            !discarded.contains(ObjectIdentifier($0))
-                && $0.activityType != ActivityType.sleep.rawValue
-        }
-
-        for nap in NapDetector.detect(points, excluding: nights) {
-            // Settled, for the same reason a night must be: the detector trims
-            // to the last sleeping tick, so a nap still in progress ends at
-            // roughly now. Writing it then records half a nap and — being
-            // idempotent afterwards — never corrects itself.
-            guard now.timeIntervalSince(nap.endedAt) >= SleepThresholds.settleSec else { continue }
-            // Anything already on the timeline over these minutes wins, of any
-            // kind. A logged meditation is the false positive this detector
-            // cannot separate on signal alone — it is still, and the pulse
-            // drops, which is the whole of what a nap looks like from a chest
-            // strap. The difference is that the user already said what it was,
-            // and re-filing it as sleep would overwrite their word with a
-            // guess. The same guard makes the pass idempotent: a nap this
-            // detector wrote on an earlier run occupies its own minutes.
-            guard !occupied.contains(where: { overlaps($0, nap) }) else { continue }
-
-            let log = ActivityLog(activityType: ActivityType.nap.rawValue,
-                                  startedAt: nap.startedAt)
-            log.endedAt = nap.endedAt
-            log.isManual = false
-            log.sleepAlgorithmVersion = NapThresholds.algorithmVersion
-            log.sleepAsleepMinutes = Int(nap.durationSec / 60)
-            // The two shapes the literature separates, and the two this type
-            // already offers: a short nap taken before deep sleep begins, and
-            // one long enough to come back around through a full cycle.
-            log.activitySubtype = nap.durationSec <= 30 * 60 ? "Power Nap" : "Full Cycle"
-            context.insert(log)
-            log.computeHRVWindows(context: context)
-        }
-    }
-
-    /// Whether a stored entry covers any of the same minutes as a candidate.
-    private static func overlaps(_ log: ActivityLog, _ nap: SleepWindow) -> Bool {
-        guard let end = log.endedAt else { return false }
-        return log.startedAt < nap.endedAt && nap.startedAt < end
+        guard !detected.isEmpty else { return }
+        for log in detected { context.delete(log) }
+        print("🌙 SleepRecorder: removed \(detected.count) auto-detected nap(s)")
     }
 
     /// Commits pending work, and says so when it cannot.

@@ -123,22 +123,20 @@ struct SleepMontageChart: View {
     @State private var selectedX: Date?
     @State private var plotWidth: Double = 0
 
-    /// Press, then drag. A plain `DragGesture` on a chart inside a ScrollView
-    /// wins the vertical drag too and the page stops scrolling; requiring the
-    /// press first is how Live keeps both, and it is what `chartXSelection`
-    /// does underneath.
+    /// Tap to place the tracker. Deliberately a tap and not a drag.
     ///
-    /// The press is 0.3 s rather than 0.12 s because 0.12 s was short enough
-    /// that an unhurried scroll won it, and the section read as though it had
-    /// stopped scrolling at all. A deliberate hold is the gesture; a swipe is
-    /// always the page.
-    private var scrub: some Gesture {
-        LongPressGesture(minimumDuration: 0.3)
-            .sequenced(before: DragGesture(minimumDistance: 0))
-            .onChanged { value in
-                guard case let .second(true, drag?) = value else { return }
-                selectedX = ruler.date(atX: drag.location.x, width: plotWidth)
-            }
+    /// Two attempts at a drag-based scrub both cost the page its scrolling. A
+    /// plain `DragGesture` takes the vertical drag as well as the horizontal
+    /// one; putting a `LongPressGesture` in front of it was supposed to leave
+    /// swipes to the ScrollView, and did not — the section arrived on a phone
+    /// simply unable to scroll. A gesture that competes with the scroll view
+    /// for the same touch will keep finding new ways to win it.
+    ///
+    /// A tap competes with nothing, and it is also what was actually asked
+    /// for: press a chart, read every channel at that instant. Tapping again
+    /// moves the line; the header carries a control to clear it.
+    private func place(_ x: Double) {
+        selectedX = ruler.date(atX: x, width: plotWidth)
     }
 
     // MARK: - Reading a single instant
@@ -269,10 +267,11 @@ struct SleepMontageChart: View {
             )
             // Only the hand-drawn channels take this. The metric cards below
             // are Live's `MetricChartCard`, which brings its own
-            // `chartXSelection` — two scrub gestures over one subtree means
-            // neither gets the drag reliably. They still share `selectedX`, so
-            // the crosshair remains one instant across all of them.
-            .gesture(scrub)
+            // `chartXSelection`. They still share `selectedX`, so the crosshair
+            // remains one instant across every channel either way.
+            // `.onTapGesture` rather than `.gesture`: it yields to the scroll
+            // view instead of arbitrating against it.
+            .onTapGesture { location in place(location.x) }
 
             metricChannels
         }
@@ -433,7 +432,7 @@ struct SleepMontageChart: View {
                 }
                 .padding(.bottom, 10)
             } else {
-                Text("Press and drag across any chart to read every metric at one moment.")
+                Text("Tap any chart to read every metric at that moment.")
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.dim)
                     .padding(.bottom, 10)

@@ -93,7 +93,10 @@ enum SleepStages {
                               _ points: [MetricsHistoryPoint],
                               _ base: Baseline) -> Bool {
         run.contains { i in
-            if points[i].bodyPosition == .upright { return true }
+        // The accelerometer only. Posture used to corroborate here too, which
+        // quietly disabled this entire rule: a channel reporting `upright` for
+        // a quarter of the night corroborates nearly every bout it is asked
+        // about, so nothing was ever downgraded and REM stayed scored as wake.
             guard base.motion > 0, let motion = points[i].motion else { return false }
             return motion >= base.motion * SleepThresholds.stirMotionMultiple
         }
@@ -229,12 +232,19 @@ enum SleepStages {
     /// 29–52% — so anything built on this must carry that uncertainty forward
     /// rather than presenting a wake count as fact.
     private static func isWake(_ p: MetricsHistoryPoint, _ base: Baseline) -> Bool {
-        // Upright is not a posture anyone sleeps in — the least ambiguous cue
-        // the strap has, and until now the only one the classifier ignored.
-        // The gravity vector was computed every tick, stored on the sample and
-        // drawn in the montage's own position channel, and never once consulted
-        // when deciding whether that tick was awake.
-        if p.bodyPosition == .upright { return true }
+        // Posture is deliberately NOT consulted here, and the reason is
+        // measured. Wiring `upright` in as a wake cue looked unarguable —
+        // nobody sleeps standing up — and on a real night it reported the
+        // sleeper upright for 1 h 42 m, a quarter of the night, with prone at
+        // another 37 %. Those shares do not describe anyone's night in bed;
+        // they describe a classifier that cannot tell which way up a chest
+        // strap is. Fed into wake detection they produced 4 h 37 m of "awake"
+        // out of 11 h in bed.
+        //
+        // The channel may well be recoverable — the left/right axis is already
+        // known to need calibration, and this looks like the same fault along a
+        // different axis. Until it is calibrated it does not get a vote, and
+        // certainly not a casting one.
         // Either channel alone is enough, and that is deliberate. Getting up
         // shows as motion; lying awake in bed before sleep shows only as an
         // elevated heart rate, with motion no higher than during sleep.
