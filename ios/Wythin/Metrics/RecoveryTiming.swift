@@ -77,13 +77,21 @@ enum RecoveryTiming {
     /// chart beside the number said it had recovered. The longer the strap
     /// stayed on, the more certainly the metric reported failure.
     ///
-    /// Five minutes is long enough to reject the noisy touch the hold exists to
-    /// catch, and short enough that a dip an hour later cannot retroactively
-    /// un-recover you. It sits above the ≥2 min post-exercise window the
-    /// reactivation literature treats as reliable (Stanley, Peake & Buchheit,
-    /// Sports Medicine 2013).
-
-    static let holdMinutes: Double = 5
+    /// **One minute, not five.** Five was chosen to reject a noisy touch, and
+    /// it went on rejecting real recoveries: a treadmill session whose vagal
+    /// brake crossed the bar at about twelve minutes, peaked, and then eased
+    /// back a little was reported as ">19 min · still recalibrating" — with the
+    /// chart directly beneath it showing the trace plainly above the line it
+    /// was said not to have reached. A five-minute hold asks the signal to
+    /// cross *and stay*, which is a stricter question than the one being
+    /// reported, and post-exercise vagal tone oscillates on exactly that scale.
+    ///
+    /// The measure being reported is a crossing time, so the crossing is what
+    /// should end it — every standard index of this shape (HRR60, T30, half-
+    /// recovery time) is read at a moment, not sustained. One minute keeps the
+    /// only thing the hold was ever needed for, which is refusing a single
+    /// noisy sample.
+    static let holdMinutes: Double = 1
 
     /// A window shorter than this cannot support "it never got there".
     static let minimumObservationMinutes: Double = 8

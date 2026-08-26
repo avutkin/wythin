@@ -48,6 +48,33 @@ final class RecoveryTimingTests: XCTestCase {
         XCTAssertEqual(RecoveryTiming.score(out), 0)
     }
 
+    func testCrossingCountsEvenIfItEasesBackAfterwards() {
+        // The photographed treadmill session. The vagal brake climbed out of
+        // its hole, crossed the halfway bar at about twelve minutes, peaked,
+        // and then eased off a little — and the section reported ">19 min ·
+        // still recalibrating", directly above a chart showing the trace
+        // plainly above the line it was said not to have reached.
+        //
+        // A five-minute hold asks the signal to cross AND STAY, which is a
+        // stricter question than the one being reported. Post-exercise vagal
+        // tone oscillates on exactly that scale, and every standard index of
+        // this shape — HRR60, T30, half-recovery time — is read at a moment.
+        var trace: [(minutes: Double, dc: Double)] = []
+        for i in 0...24 {                       // 0 → 12 min, climbing to the bar
+            trace.append((minutes: Double(i) * 0.5, dc: 1.3 + Double(i) * 0.19))
+        }
+        for i in 1...10 {                       // then easing back
+            trace.append((minutes: 12 + Double(i) * 0.5, dc: 5.85 - Double(i) * 0.06))
+        }
+        let out = RecoveryTiming.halfRecovery(after: trace, dcPre: 10.1, dcTrough: 1.3)
+        guard case let .reached(minutes) = out else {
+            return XCTFail("crossed the bar at ~12 min; got \(out)")
+        }
+        XCTAssertEqual(minutes, 12, accuracy: 2)
+        XCTAssertGreaterThan(RecoveryTiming.score(out) ?? 0, 40,
+                             "a crossing at twelve minutes is a real recovery, not a 3")
+    }
+
     func testATouchThatDoesNotHoldIsNotRecovery() {
         var s = ramp(from: 2, to: 3, minutes: 10)
         s.append((minutes: 4.0, dc: 9.0))   // one spike over the bar

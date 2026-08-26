@@ -304,11 +304,17 @@ struct ExerciseQuestionSections: View {
         }
     }
 
-    /// Three layers, always all three — the empty one included.
+    /// The layers this recording can actually speak to.
     ///
-    /// Physical recovery is invisible to an ECG. Showing the two it can see and
-    /// omitting the one it cannot invites "Cardiovascular 92%" to be read as
-    /// ready to train, which the measurement does not support.
+    /// A PHYSICAL row used to sit here permanently empty, captioned "not
+    /// measurable from ECG". The intent was honest — muscular recovery is
+    /// invisible to a chest strap, and listing it was meant to stop
+    /// "CARDIOVASCULAR 82 %" being read as *ready to train*. In use it did not
+    /// read as a caveat; it read as a broken row, and a row that can never hold
+    /// a value is a permanent apology rather than information.
+    ///
+    /// The caveat itself is kept — it belongs in the section's prose, where it
+    /// is a sentence rather than an empty measurement.
     @ViewBuilder
     private var profileRows: some View {
         let p = profile
@@ -316,19 +322,10 @@ struct ExerciseQuestionSections: View {
             layerRow("CARDIOVASCULAR", p.cardiovascular, Theme.rsa, "load came down")
             layerRow("NEURAL", p.neural, Theme.hrv, "regulation came back")
             layerRow("STABILITY", p.stability, Theme.breathe, "came back and stayed")
-            HStack(spacing: 6) {
-                Text("PHYSICAL")
-                    .font(.system(size: 8, design: .monospaced))
-                    .foregroundStyle(Theme.dim)
-                    .frame(width: 92, alignment: .leading)
-                Text("—")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(Theme.dim)
-                    .frame(width: 34, alignment: .trailing)
-                Text("not measurable from ECG")
-                    .font(.system(size: 8, design: .monospaced))
-                    .foregroundStyle(Theme.dim.opacity(0.7))
-            }
+            Text("Autonomic recovery only — muscular recovery is not visible to a chest strap.")
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundStyle(Theme.dim.opacity(0.7))
+                .padding(.top, 2)
         }
         .padding(.top, 4)
     }
