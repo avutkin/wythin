@@ -166,11 +166,25 @@ cmd_testflight() {
   run_suite
 
   say "querying ASC build high-water mark"
-  local top next
+  local top next repo
   top=$(asc_latest_builds 1 | awk '{print $2}')
   [ -n "$top" ] || die "could not read latest ASC build number"
   next=$((top + 1))
-  ok "ASC is at $top → uploading as $next"
+  # **Never let the number go backwards.** ASC's high-water mark is the
+  # authority on what it will accept, but it is NOT the authority on what this
+  # repo has already called itself: builds installed straight to a phone never
+  # reach ASC, so the repo can run well ahead. On 2026-08-19 the repo was at 96
+  # while ASC had seen only 90, and this line reset it to 91 — leaving a build
+  # 39 commits NEWER carrying a lower number than one already on the phone,
+  # which reads as a regression and prompted exactly that question.
+  repo=$(grep -m1 -oE 'CURRENT_PROJECT_VERSION = [0-9]+;' \
+           "$RELEASE_WT/ios/Wythin.xcodeproj/project.pbxproj" | grep -oE '[0-9]+')
+  if [ -n "$repo" ] && [ "$repo" -ge "$next" ]; then
+    next=$((repo + 1))
+    ok "ASC is at $top, repo at $repo → uploading as $next (kept monotonic)"
+  else
+    ok "ASC is at $top → uploading as $next"
+  fi
 
   sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9]*;/CURRENT_PROJECT_VERSION = $next;/g" \
     "$RELEASE_WT/ios/Wythin.xcodeproj/project.pbxproj"
