@@ -504,7 +504,7 @@ final class ActivityLog {
     /// The stored-shape version every finished entry must have been computed
     /// under. Bumping it schedules a re-derive; see `migrateInBackground` for
     /// what that costs and why it is not done on the main thread.
-    static let currentBackfillVersion = 10
+    static let currentBackfillVersion = 11
 
     static func backfillMissingWindows(context: ModelContext) {
         // Bump when the stored metric set changes. v2 adds DC / DFA1 / RCMSE / PIP,
