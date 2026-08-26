@@ -174,9 +174,16 @@ cmd_testflight() {
 
   sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9]*;/CURRENT_PROJECT_VERSION = $next;/g" \
     "$RELEASE_WT/ios/Wythin.xcodeproj/project.pbxproj"
+  # Tolerate the number already being right. `sed` is a no-op when the repo
+  # already carries $next, so `git commit` finds nothing staged and exits
+  # non-zero — and under `set -e` that aborted the entire upload *after* the
+  # archive-worthy work had been decided. It happened: a build number bumped by
+  # hand to match ASC's next value killed the TestFlight run at this line, with
+  # "nothing to commit, working tree clean" as the only clue.
   git -C "$RELEASE_WT" commit -aqm "chore: build $next
 
-Co-Authored-By: ship.sh <noreply@anthropic.com>"
+Co-Authored-By: ship.sh <noreply@anthropic.com>" \
+    || say "build number already $next in the repo — nothing to record"
   # Record the number on origin/main so parallel sessions see it. A racing
   # push loses gracefully: the upload still carries the right number.
   git -C "$RELEASE_WT" push origin HEAD:main --quiet 2>/dev/null \
