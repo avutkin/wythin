@@ -15,7 +15,7 @@ struct WythinApp: App {
     @State private var showSplash = true
 
     init() {
-        let schema = Schema([HRVSession.self, HRVSample.self, ResonanceResult.self, TrainSession.self, ActivityLog.self, DailyAnchor.self, UsageEventLog.self, FeltStateLog.self])
+        let schema = Schema([HRVSession.self, HRVSample.self, ResonanceResult.self, TrainSession.self, ActivityLog.self, DailyAnchor.self, UsageEventLog.self, FeltStateLog.self, SleepWindowOverride.self])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         // Attempt to open the store; if the schema can't migrate, set the store
         // ASIDE and recreate so the app still launches — but never delete it.

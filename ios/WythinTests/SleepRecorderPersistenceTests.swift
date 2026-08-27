@@ -12,7 +12,7 @@ final class SleepRecorderPersistenceTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        let schema = Schema([ActivityLog.self, HRVSample.self, HRVSession.self, DailyAnchor.self])
+        let schema = Schema([ActivityLog.self, HRVSample.self, HRVSession.self, DailyAnchor.self, SleepWindowOverride.self])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
         container = try! ModelContainer(for: schema, configurations: [config])
     }
@@ -41,6 +41,101 @@ final class SleepRecorderPersistenceTests: XCTestCase {
     private func sleepLogs(in context: ModelContext) -> [ActivityLog] {
         let all = (try? context.fetch(FetchDescriptor<ActivityLog>())) ?? []
         return all.filter { $0.activityType == ActivityType.sleep.rawValue }
+    }
+
+    // MARK: - The sleeper's own correction
+
+    func testACorrectionMovesTheRecordedNight() {
+        // The detector proposes; the sleeper corrects. A chest strap cannot see
+        // you close your eyes, so the boundary is genuinely ambiguous for the
+        // one person who can settle it.
+        let writer = ModelContext(container)
+        seedNight(writer, day: 20)
+        SleepRecorder.recordIfDue(context: writer, now: at(21, 8))
+        guard let before = sleepLogs(in: writer).first else { return XCTFail("no night") }
+        let day = Calendar.current.startOfDay(for: before.endedAt!)
+
+        // "I was actually awake from seven."
+        let corrected = Calendar.current.date(bySettingHour: 7, minute: 0, second: 0,
+                                              of: before.endedAt!)!
+        writer.insert(SleepWindowOverride(day: day, endedAt: corrected))
+        try! writer.save()
+        SleepRecorder.recordIfDue(context: writer, now: at(21, 9))
+
+        let after = sleepLogs(in: ModelContext(container))
+        XCTAssertEqual(after.count, 1, "correcting a night must not create a second one")
+        XCTAssertEqual(after.first?.endedAt?.timeIntervalSince(corrected) ?? .infinity, 0,
+                       accuracy: 60, "the night should end where the sleeper said")
+    }
+
+    func testACorrectionSurvivesAnAlgorithmBump() {
+        // The reason the correction is stored beside the night rather than on
+        // it. Every algorithm bump purges stored nights and re-detects them; a
+        // correction living on the night would be deleted with it, and the
+        // sleeper would have to make the same drag again after every release.
+        let writer = ModelContext(container)
+        seedNight(writer, day: 20)
+        SleepRecorder.recordIfDue(context: writer, now: at(21, 8))
+        guard let before = sleepLogs(in: writer).first, let end = before.endedAt else {
+            return XCTFail("no night")
+        }
+        let day = Calendar.current.startOfDay(for: end)
+        let corrected = Calendar.current.date(bySettingHour: 7, minute: 0, second: 0, of: end)!
+        writer.insert(SleepWindowOverride(day: day, endedAt: corrected))
+        try! writer.save()
+        SleepRecorder.recordIfDue(context: writer, now: at(21, 9))
+
+        // Simulate the bump: the stored night is from an older pipeline.
+        for log in sleepLogs(in: writer) { log.sleepAlgorithmVersion = 0 }
+        try! writer.save()
+        SleepRecorder.recordIfDue(context: writer, now: at(21, 10))
+
+        let after = sleepLogs(in: ModelContext(container))
+        XCTAssertEqual(after.count, 1)
+        XCTAssertEqual(after.first?.endedAt?.timeIntervalSince(corrected) ?? .infinity, 0,
+                       accuracy: 60, "the correction must outlive the night it corrected")
+    }
+
+    func testAnUncorrectedNightIsNotRewrittenEveryPass() {
+        // The guard on the rebuild rule. Comparing stored dates for exact
+        // equality would find a disagreement every pass and delete-and-rewrite
+        // the night forever.
+        let writer = ModelContext(container)
+        seedNight(writer, day: 20)
+        SleepRecorder.recordIfDue(context: writer, now: at(21, 8))
+        guard let first = sleepLogs(in: writer).first, let end = first.endedAt else {
+            return XCTFail("no night")
+        }
+        let day = Calendar.current.startOfDay(for: end)
+        // A correction that agrees with what was detected.
+        writer.insert(SleepWindowOverride(day: day, endedAt: end))
+        try! writer.save()
+        SleepRecorder.recordIfDue(context: writer, now: at(21, 9))
+
+        let after = sleepLogs(in: ModelContext(container))
+        XCTAssertEqual(after.count, 1)
+        XCTAssertEqual(after.first?.endedAt?.timeIntervalSince(end) ?? .infinity, 0, accuracy: 1)
+    }
+
+    func testACorrectionCannotInvertTheNight() {
+        // A handle dragged past its opposite number. The window is divided by
+        // everywhere downstream — durations, stage shares, efficiency, the
+        // score — so an inverted one does not fail loudly, it quietly poisons
+        // every number derived from it.
+        let start = at(20, 23)
+        let end = Calendar.current.date(byAdding: .hour, value: 7, to: start)!
+        let night = SleepWindow(startedAt: start, endedAt: end)
+
+        let backwards = SleepWindowOverride(day: Calendar.current.startOfDay(for: end),
+                                            startedAt: end.addingTimeInterval(3600))
+        XCTAssertEqual(backwards.applied(to: night), night,
+                       "an inverted correction is refused, not stored")
+
+        let sane = SleepWindowOverride(day: Calendar.current.startOfDay(for: end),
+                                       endedAt: end.addingTimeInterval(-3600))
+        XCTAssertEqual(sane.applied(to: night).endedAt, end.addingTimeInterval(-3600))
+        XCTAssertEqual(sane.applied(to: night).startedAt, start,
+                       "an untouched edge keeps whatever the detector found")
     }
 
     // MARK: - Naps

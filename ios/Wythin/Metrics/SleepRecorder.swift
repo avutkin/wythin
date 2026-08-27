@@ -87,6 +87,18 @@ enum SleepRecorder {
         // still have its leftovers cleaned up. Withdrawn entries do not stop
         // being wrong just because the strap has been off for a week.
         purgeDetectedNaps(existing, context: context)
+        // A night that no longer matches its correction is deleted so the pass
+        // below rebuilds it. Without this the correction is inert: the night is
+        // already recorded, so `nightsToRecord` filters its date out and the
+        // drag has no visible effect until the next algorithm bump happens to
+        // purge it for unrelated reasons.
+        // Only the ones that survived the version purge above — `sleepLogs`
+        // still holds the entries just deleted, and handing a deleted model
+        // back to `context.delete` is not a thing to find out about in the
+        // field.
+        let rebuilt = purgeCorrectedNights(
+            sleepLogs.filter { ($0.sleepAlgorithmVersion ?? 0) >= SleepThresholds.algorithmVersion },
+            corrections(in: context), context: context)
         commit(context)
 
         let horizon = now.addingTimeInterval(-SleepThresholds.lookbackSec)
@@ -98,8 +110,13 @@ enum SleepRecorder {
 
         guard let samples = try? context.fetch(desc), !samples.isEmpty else { return }
         let points = samples.map(MetricsHistoryPoint.init(from:))
+        // `sleepLogs` is a snapshot taken before both purges, so anything just
+        // deleted is still in it. Left in, its date stays in `recordedDays`,
+        // `nightsToRecord` filters that night out as already-recorded, and the
+        // correction deletes the night without ever rebuilding it.
         let current = sleepLogs.filter {
             ($0.sleepAlgorithmVersion ?? 0) >= SleepThresholds.algorithmVersion
+                && !rebuilt.contains(ObjectIdentifier($0))
         }
         let recordedDays = Set(
             current.compactMap { $0.endedAt.map { Calendar.current.startOfDay(for: $0) } }
@@ -116,11 +133,18 @@ enum SleepRecorder {
         // written moments earlier in the same pass — otherwise a first run
         // backfills three weeks and every single night still reports "needs a
         // second night".
+        // Corrections the sleeper has made, keyed by wake date. Fetched once
+        // and applied to every night written in this pass — including the ones
+        // being rebuilt after an algorithm bump, which is the case the whole
+        // model exists for.
+        let overrides = corrections(in: context)
+
         var written: [ActivityLog] = []
-        for night in SleepSessionizer.nightsToRecord(from: points,
-                                                     now: now,
-                                                     recordedDays: recordedDays)
+        for detected in SleepSessionizer.nightsToRecord(from: points,
+                                                        now: now,
+                                                        recordedDays: recordedDays)
         where written.count < SleepThresholds.maxNightsPerPass {
+            let night = overrides[detected.day]?.applied(to: detected) ?? detected
             written.append(record(night, from: points,
                                   existing: current + written, context: context))
         }
@@ -154,6 +178,53 @@ enum SleepRecorder {
         guard !detected.isEmpty else { return }
         for log in detected { context.delete(log) }
         print("🌙 SleepRecorder: removed \(detected.count) auto-detected nap(s)")
+    }
+
+    /// Deletes stored nights whose boundaries disagree with the sleeper's
+    /// correction for that date, so they are rebuilt from the correction.
+    ///
+    /// Compared to the minute. The stored window comes back through SwiftData
+    /// and the correction was written from a drag, so exact equality on `Date`
+    /// is the wrong test — a sub-second difference is not a disagreement, and
+    /// treating it as one would delete and rewrite every corrected night on
+    /// every pass, forever.
+    @discardableResult
+    private static func purgeCorrectedNights(_ nights: [ActivityLog],
+                                             _ corrections: [Date: SleepWindowOverride],
+                                             context: ModelContext) -> Set<ObjectIdentifier> {
+        guard !corrections.isEmpty else { return [] }
+        let cal = Calendar.current
+        var removed: Set<ObjectIdentifier> = []
+        for log in nights {
+            guard let end = log.endedAt else { continue }
+            let day = cal.startOfDay(for: end)
+            guard let want = corrections[day] else { continue }
+            let corrected = want.applied(to: SleepWindow(startedAt: log.startedAt, endedAt: end))
+            let sameStart = abs(corrected.startedAt.timeIntervalSince(log.startedAt)) < 60
+            let sameEnd = abs(corrected.endedAt.timeIntervalSince(end)) < 60
+            guard !(sameStart && sameEnd) else { continue }
+            removed.insert(ObjectIdentifier(log))
+            context.delete(log)
+        }
+        if !removed.isEmpty {
+            print("🌙 SleepRecorder: rebuilding \(removed.count) night(s) from the sleeper's correction")
+        }
+        return removed
+    }
+
+    /// Every stored correction, by the wake date it belongs to.
+    ///
+    /// Latest wins where there is more than one for a night — a sleeper who
+    /// drags a handle twice means the second drag, and nothing guarantees only
+    /// one row per day at the storage layer.
+    private static func corrections(in context: ModelContext) -> [Date: SleepWindowOverride] {
+        let rows = (try? context.fetch(FetchDescriptor<SleepWindowOverride>())) ?? []
+        var out: [Date: SleepWindowOverride] = [:]
+        for row in rows {
+            if let existing = out[row.day], existing.correctedAt >= row.correctedAt { continue }
+            out[row.day] = row
+        }
+        return out
     }
 
     /// Commits pending work, and says so when it cannot.

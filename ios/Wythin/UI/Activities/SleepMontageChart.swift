@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 // MARK: - The clock
 
@@ -122,6 +123,29 @@ struct SleepMontageChart: View {
     /// One line, one instant, eleven readings of it.
     @State private var selectedX: Date?
     @State private var plotWidth: Double = 0
+
+    @Environment(\.modelContext) private var modelContext
+
+    /// Where the sleeper is proposing the boundary should be, while a handle is
+    /// under their finger. Nil when nothing is being dragged.
+    ///
+    /// Deliberately separate from the stored window: the ribbon behind it is
+    /// what the detector found, and it keeps saying so until the correction is
+    /// committed and the night rebuilt. Redrawing the whole hypnogram live
+    /// under a finger would be claiming the reclassification has already
+    /// happened, which it has not.
+    @State private var dragStart: Date?
+    @State private var dragEnd: Date?
+
+    /// The boundaries as currently proposed — the stored ones unless a handle
+    /// is being dragged.
+    private var shownStart: Date { dragStart ?? ruler.startedAt }
+    private var shownEnd: Date { dragEnd ?? ruler.endedAt }
+
+    /// The narrowest a corrected night may be. A handle dragged past its
+    /// opposite number would otherwise store an inverted window, and every
+    /// duration, share and score downstream divides by that.
+    private static let minWindowSec: Double = 30 * 60
 
     /// Tap to place the tracker. Deliberately a tap and not a drag.
     ///
@@ -349,6 +373,14 @@ struct SleepMontageChart: View {
                 drawTracker(&ctx, size)
             }
             .frame(height: 120)
+            .overlay {
+                GeometryReader { geo in
+                    ZStack(alignment: .topLeading) {
+                        handle(.start, in: geo.size)
+                        handle(.end, in: geo.size)
+                    }
+                }
+            }
             // Directly under the hypnogram, where the reference puts it and
             // where a reader looking at the night's shape actually asks "when
             // was that?". One ruler at the foot of eleven stacked channels is
@@ -568,6 +600,86 @@ struct SleepMontageChart: View {
     /// detector trims the window to sustained sleep they mean sleep onset and
     /// final wake rather than "when the chart happens to start". Captioned, so
     /// that is stated instead of inferred.
+    private enum Edge { case start, end }
+
+    /// A draggable boundary marker.
+    ///
+    /// **Why this exists.** The detector is inference and will stay inference:
+    /// a chest strap cannot see you close your eyes. It opened one night in the
+    /// evening it was recorded in, and ended another three hours early. Both
+    /// were real bugs and both were fixed, but the ambiguity itself does not go
+    /// away — so the app proposes and the sleeper corrects, which is what was
+    /// asked for: "you propose and I fix them".
+    ///
+    /// The grab area is a narrow strip rather than the whole chart. Two earlier
+    /// attempts at a drag gesture over the full width each cost the page its
+    /// scrolling; a gesture that only claims touches starting on a 26-point
+    /// column cannot do that, and everywhere else still taps to place the
+    /// tracker.
+    @ViewBuilder
+    private func handle(_ edge: Edge, in size: CGSize) -> some View {
+        let moment = edge == .start ? shownStart : shownEnd
+        let x = ruler.x(moment, width: size.width)
+        let live = (edge == .start ? dragStart : dragEnd) != nil
+        ZStack {
+            Rectangle()
+                .fill(Color.clear)
+                .frame(width: 26, height: size.height)
+                .contentShape(Rectangle())
+            Rectangle()
+                .fill(live ? Theme.accent : Theme.dim.opacity(0.55))
+                .frame(width: live ? 2 : 1, height: size.height)
+            VStack {
+                Circle()
+                    .fill(live ? Theme.accent : Theme.dim.opacity(0.7))
+                    .frame(width: 9, height: 9)
+                Spacer()
+                Circle()
+                    .fill(live ? Theme.accent : Theme.dim.opacity(0.7))
+                    .frame(width: 9, height: 9)
+            }
+            .frame(height: size.height)
+        }
+        .position(x: x, y: size.height / 2)
+        .gesture(
+            DragGesture(minimumDistance: 2)
+                .onChanged { g in
+                    let proposed = ruler.date(atX: g.location.x, width: size.width)
+                    switch edge {
+                    case .start:
+                        dragStart = min(proposed,
+                                        shownEnd.addingTimeInterval(-Self.minWindowSec))
+                    case .end:
+                        dragEnd = max(proposed,
+                                      shownStart.addingTimeInterval(Self.minWindowSec))
+                    }
+                }
+                .onEnded { _ in saveCorrection() }
+        )
+    }
+
+    /// Writes the correction down, keyed by the night's wake date.
+    ///
+    /// Only the edges that actually moved are stored. Recording a start the
+    /// sleeper never touched would freeze whatever the detector happened to
+    /// find today, and every later improvement to onset detection would then be
+    /// overridden by a number nobody chose.
+    private func saveCorrection() {
+        guard dragStart != nil || dragEnd != nil else { return }
+        let day = Calendar.current.startOfDay(for: shownEnd)
+        let existing = (try? modelContext.fetch(FetchDescriptor<SleepWindowOverride>()))?
+            .filter { Calendar.current.isDate($0.day, inSameDayAs: day) } ?? []
+        for row in existing { modelContext.delete(row) }
+        modelContext.insert(SleepWindowOverride(day: day,
+                                                startedAt: dragStart,
+                                                endedAt: dragEnd))
+        try? modelContext.save()
+        // Left in place, not cleared: the ribbon behind still shows the old
+        // boundaries until the recorder rebuilds the night, and snapping the
+        // marker back to them would read as the correction having been
+        // rejected.
+    }
+
     private var axis: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
@@ -591,8 +703,8 @@ struct SleepMontageChart: View {
             }
         }
         .frame(height: 34)
-        .overlay(alignment: .topLeading) { chip("ASLEEP", clock(ruler.startedAt)) }
-        .overlay(alignment: .topTrailing) { chip("WOKE", clock(ruler.endedAt)) }
+        .overlay(alignment: .topLeading) { chip("ASLEEP", clock(shownStart)) }
+        .overlay(alignment: .topTrailing) { chip("WOKE", clock(shownEnd)) }
         .padding(.bottom, 14)
     }
 
