@@ -99,4 +99,55 @@ final class AdvancedHRVComputeTests: XCTestCase {
         let dc = try! XCTUnwrap(result).dc
         XCTAssertGreaterThan(dc, 0, "DC > 0 is the normal resting case")
     }
+
+    // MARK: Acceleration Capacity
+
+    /// AC is DC's mirror: PRSA anchored on the beats where the heart *sped
+    /// up*, so it is negative wherever DC is positive. The Live chart plots
+    /// its magnitude, and that flip is only correct while the raw sign stays
+    /// negative — so the convention is pinned here rather than assumed.
+    ///
+    /// Sign only, for the same reason as the DC test above.
+    func testRestingSeriesYieldsNegativeAC() {
+        let result = AdvancedHRVCompute.computeDC(rrMs: restingRR(count: 400))
+        let ac = try! XCTUnwrap(result).ac
+        XCTAssertLessThan(ac, 0, "AC < 0 is the normal resting case — it mirrors DC")
+    }
+
+    /// AC was computed and thrown away: `MetricsEngine` took `dcResult.dc` and
+    /// dropped `.ac` on the floor, so no chart could ever draw it. The tick is
+    /// the first link in the chain to the Live chart.
+    func testEngineKeepsACOnTheTick() {
+        let rr = restingRR(count: 400)
+        let tick = MetricsEngine.compute(from: DataSnapshot(ecg: [], accZ: [], accXYZ: [],
+                                                            rr: rr, bpm: []))
+        let ac = try! XCTUnwrap(tick.ac, "the engine must forward AC, not discard it")
+        XCTAssertLessThan(ac, 0)
+    }
+
+    /// The 30 m window reads live ticks, but 2 h and 24 h read the store — so
+    /// AC only reaches the chart if it survives the round trip through
+    /// `HRVSample`. Persisted as an optional attribute, so old stores migrate.
+    func testACSurvivesTheRoundTripThroughTheStore() {
+        let rr = restingRR(count: 400)
+        let tick = MetricsEngine.compute(from: DataSnapshot(ecg: [], accZ: [], accXYZ: [],
+                                                            rr: rr, bpm: []))
+        let restored = MetricsHistoryPoint(from: HRVSample(from: tick))
+        XCTAssertEqual(restored.ac ?? .nan, try! XCTUnwrap(tick.ac), accuracy: 0.0001)
+    }
+
+    /// The chart draws AC as a magnitude — higher means a stronger
+    /// acceleration — while the stored value keeps the true negative sign the
+    /// literature reports. `activationCapacity` is the one place that flip
+    /// happens, so the Live card cannot drift from Track or the raw data.
+    func testActivationCapacityIsChartedAsMagnitude() {
+        let point = MetricsHistoryPoint(timestamp: Date(), ac: -6.2)
+        XCTAssertEqual(point.activationCapacity ?? .nan, 6.2, accuracy: 0.0001)
+    }
+
+    /// No reading is not a reading of zero: a nil AC must leave a gap in the
+    /// line, not plant a point on the axis.
+    func testActivationCapacityIsNilWhenACIsMissing() {
+        XCTAssertNil(MetricsHistoryPoint(timestamp: Date()).activationCapacity)
+    }
 }

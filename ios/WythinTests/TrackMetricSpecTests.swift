@@ -97,8 +97,9 @@ final class TrackMetricSpecTests: XCTestCase {
     func testWhyCopyIsInheritedNotRetyped() {
         for spec in TrackMetrics.all {
             guard let shared = activityMetricDefs.first(where: { $0.label == spec.def.label }) else {
-                // Track-only metrics (Overall Variability) have no Activities
-                // surface, so they own their copy instead of inheriting it.
+                // Overall Variability has no Activities surface, so it is not
+                // in the registry — it owns its copy in `sdnnMetricDef`, which
+                // Live's chart reads too. See the test below.
                 XCTAssertFalse(spec.def.why.isEmpty)
                 continue
             }
@@ -155,6 +156,41 @@ final class TrackMetricSpecTests: XCTestCase {
         for spec in TrackMetrics.all {
             XCTAssertFalse(spec.def.techFull.isEmpty, "\(spec.def.label) has no spelled-out name")
         }
+    }
+
+
+    // MARK: Overall Variability (SDNN)
+
+    /// SDNN is charted on two screens — Track's daily trend and, since
+    /// 2026-08-21, the Live history charts — and both must name it the same
+    /// thing. It is deliberately *not* in `activityMetricDefs`: the Activities
+    /// grid keeps its nine slots, so the def lives beside the registry and both
+    /// screens read it from there rather than each typing its own.
+    func testOverallVariabilityIsSharedFromOneDefOutsideTheGridRegistry() {
+        XCTAssertFalse(activityMetricDefs.contains { $0.metric == .sdnn },
+                       "SDNN belongs beside `activityMetricDefs`, not in it — the grid has nine slots")
+        guard let spec = TrackMetrics.all.first(where: { $0.def.metric == .sdnn }) else {
+            return XCTFail("TrackMetrics no longer charts Overall Variability")
+        }
+        XCTAssertEqual(spec.def.label,    sdnnMetricDef.label)
+        XCTAssertEqual(spec.def.techFull, sdnnMetricDef.techFull)
+        XCTAssertEqual(spec.def.unit,     sdnnMetricDef.unit)
+        XCTAssertEqual(spec.def.why,      sdnnMetricDef.why)
+    }
+
+    /// The Live chart draws through this extractor, so it has to read the SDNN
+    /// field and nothing else — a copy-paste onto `rmssd` would chart Calm
+    /// Power twice under two names, which is exactly the drift the shared
+    /// registry exists to prevent.
+    func testSdnnDefExtractsTheSdnnField() {
+        let pt = MetricsHistoryPoint(timestamp: Date(timeIntervalSince1970: 1_750_000_000),
+                                     rmssd: 40, sdnn: 47.5)
+        XCTAssertEqual(sdnnMetricDef.extract(pt) ?? .nan, 47.5, accuracy: 0.001)
+        XCTAssertEqual(sdnnMetricDef.metric, .sdnn)
+        XCTAssertEqual(sdnnMetricDef.unit, "ms")
+        // Higher spread is the better direction, as on Track.
+        XCTAssertGreaterThan(sdnnMetricDef.direction.benefit(60),
+                             sdnnMetricDef.direction.benefit(30))
     }
 
 }

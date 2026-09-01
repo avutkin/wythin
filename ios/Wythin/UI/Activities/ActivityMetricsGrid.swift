@@ -133,6 +133,22 @@ let activityMetricDefs: [ActivityMetricDef] = [
           why: "Pulse (Heart Rate) reflects the overall load on your heart. A lower rate during practice means you’re offloading stress and settling; expect it to fall as you relax."),
 ]
 
+/// Overall Variability, deliberately *outside* the registry above.
+///
+/// SDNN is a named, charted metric — the Track day-level trend and the Live
+/// history chart both draw it — but it is not an Activities-grid metric: the
+/// grid keeps its nine slots, and a session's before/during uplift is not the
+/// reading SDNN is for. It still lives here, beside the registry, so its
+/// consumer name and unit are typed once and Track and Live cannot drift.
+let sdnnMetricDef = ActivityMetricDef(
+    label: "Overall Variability", metric: .sdnn, techLabel: "SDNN",
+    techFull: "Standard Deviation of NN intervals (SDNN)", unit: "ms",
+    direction: .higher,
+    extract: { $0.sdnn.map(Double.init) },
+    format: f1,
+    beforeKey: \.beforeSDNN, duringKey: \.duringSDNN,
+    why: "Overall Variability (SDNN) is the total spread of your beat-to-beat intervals — every rhythm, fast and slow, folded into one number.")
+
 /// The name and presentation for one measurement. Every screen resolves its
 /// title through this instead of typing one, so a metric cannot end up
 /// called two different things on two screens.

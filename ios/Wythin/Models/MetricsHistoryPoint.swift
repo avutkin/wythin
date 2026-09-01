@@ -82,6 +82,7 @@ struct MetricsHistoryPoint {
     let pip:           Float?   // HR Fragmentation: % inflection points
     let ials:          Float?   // HR Fragmentation: inverse avg segment length
     let dc:            Float?   // Deceleration Capacity (ms)
+    let ac:            Float?   // Acceleration Capacity (ms) — negative; DC's mirror
     let motion:        Float?   // SD of ACC vector magnitude (mg) — stillness
     /// Which way the body was facing. Nil where unknown — while moving, or on
     /// any night recorded before position was stored at all.
@@ -116,6 +117,7 @@ struct MetricsHistoryPoint {
         pip           = tick.pip
         ials          = tick.ials
         dc            = tick.dc
+        ac            = tick.ac
         motion        = tick.motion
         bodyPosition  = tick.bodyPosition
         breathSource  = tick.breathSource
@@ -147,6 +149,7 @@ struct MetricsHistoryPoint {
         pip           = sample.pip
         ials          = sample.ials
         dc            = sample.dc
+        ac            = sample.ac
         motion        = sample.motion
         bodyPosition  = sample.bodyPositionRaw.flatMap(BodyPosition.init(rawValue:))
         breathSource  = sample.breathSourceRaw.flatMap(BreathSource.init(rawValue:))
@@ -169,6 +172,7 @@ struct MetricsHistoryPoint {
         rcmse:     Float? = nil,
         pip:       Float? = nil,
         dc:        Float? = nil,
+        ac:        Float? = nil,
         motion:    Float? = nil,
         bodyPosition: BodyPosition? = nil,
         signalQuality:  Float? = nil,
@@ -199,6 +203,7 @@ struct MetricsHistoryPoint {
         self.pip = pip
         self.ials = nil
         self.dc = dc
+        self.ac = ac
         self.motion = motion
         self.bodyPosition = bodyPosition
     }
@@ -246,7 +251,15 @@ struct MetricsHistoryPoint {
         self.pip = pip
         self.ials = nil
         self.dc = dc
+        self.ac = nil
         self.motion = motion
         self.bodyPosition = bodyPosition
     }
+
+    /// Acceleration Capacity as the Live chart draws it: a magnitude, so a
+    /// bigger number means a stronger acceleration, like every other chart in
+    /// the stack. `ac` itself keeps the negative sign the literature reports
+    /// (Bauer et al. 2006) — this is the single place the flip happens, so the
+    /// card cannot quietly disagree with the stored data.
+    var activationCapacity: Double? { ac.map { Double(abs($0)) } }
 }

@@ -81,6 +81,11 @@ struct MetricsTick {
     let pip:   Float?   // HR Fragmentation: % inflection points (higher = more fragmented)
     let ials:  Float?   // HR Fragmentation: inverse avg segment length
     let dc:    Float?   // Deceleration Capacity in ms (Bauer 2006, PRSA)
+    /// Acceleration Capacity in ms — DC's mirror, from the same PRSA pass, so
+    /// it costs nothing extra to carry. Negative for a resting series; the
+    /// Live chart flips it to a magnitude, the stored value keeps the sign.
+    /// Defaulted so the preview constructors compile unchanged.
+    var ac:    Float? = nil
 
     // Phase info (for UI breathing ring)
     let breathPhases: BreathPhases?
@@ -215,6 +220,7 @@ enum MetricsEngine {
             pip:            hrfResult?.pip,
             ials:           hrfResult?.ials,
             dc:             dcResult?.dc,
+            ac:             dcResult?.ac,
             breathPhases:   phases,
             psdFreqs:        hrv?.psdFreqs,
             psdValues:       hrv?.psdValues,

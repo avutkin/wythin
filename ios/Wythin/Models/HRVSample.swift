@@ -25,6 +25,11 @@ final class HRVSample {
     var pip:            Float?
     var ials:           Float?
     var dc:             Float?
+    /// Acceleration Capacity (ms), DC's mirror. Optional attribute on a plain
+    /// @Model, so SwiftData migrates existing stores automatically — nil on
+    /// every sample recorded before this existed. Not synced to the server
+    /// yet, so a cloud restore leaves it nil; can be added without migration.
+    var ac:             Float?
     var motion:         Float?   // SD of ACC vector magnitude (mg) — stillness
     /// Body position from the gravity direction (`BodyPosition.rawValue`), and
     /// the confidence of that call. Optional so existing stores migrate without
@@ -65,6 +70,7 @@ final class HRVSample {
         self.pip           = tick.pip
         self.ials          = tick.ials
         self.dc            = tick.dc
+        self.ac            = tick.ac
         self.motion        = tick.motion
         self.bodyPositionRaw    = tick.bodyPosition?.rawValue
         self.positionConfidence = tick.positionConfidence
@@ -101,6 +107,7 @@ final class HRVSample {
         self.dc        = dc
         self.vti       = vti
 
+        self.ac = nil
         self.rsaIdx = nil; self.ieRatio = nil; self.signalQuality = nil
         self.breathSourceRaw = nil
         self.rrInvalidRate = nil; self.rrCorrectedRate = nil; self.ecgQualityTier = nil
@@ -134,6 +141,7 @@ final class HRVSample {
         self.rmssd     = rmssd
         self.sdnn      = sdnn
         self.dc        = dc
+        self.ac        = nil
         self.pip       = pip
         self.dfa1      = dfa1
         self.breathBPM = breathBPM

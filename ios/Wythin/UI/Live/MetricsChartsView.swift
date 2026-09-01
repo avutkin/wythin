@@ -891,6 +891,8 @@ struct MetricsChartsView: View, Equatable {
             rsaCard           // Conscious Breathing
             rmssdCard         // Calm Power
             hrCard            // Pulse
+            sdnnCard          // Overall Variability
+            acCard            // Activation Capacity
 
             signalQualitySection
         }
@@ -1156,6 +1158,85 @@ struct MetricsChartsView: View, Equatable {
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.rmssd.map(Double.init) }
+    }
+
+    // MARK: SDNN
+
+    /// Overall Variability. Track charts SDNN as a *daily* average, where it
+    /// approximates the classic 24-hour clinical measure; here it is the raw
+    /// per-window spread, which is a different — smaller — number, so the
+    /// reference lines below are short-window ones and the info sheet says so.
+    /// Both screens take the name from `sdnnMetricDef`.
+    private var sdnnCard: some View {
+        MetricChartCard(
+            title:   sdnnMetricDef.label,
+            technicalName: sdnnMetricDef.techFull,
+            subtitle: "The full spread of your beat-to-beat intervals",
+            yLabel:  "ms",
+            color:   Theme.ulf,
+            windows: TimeWindow.allCases,
+            refs: [
+                RefLine(value:  20, label: "20  narrow",  color: Theme.warn),
+                RefLine(value:  50, label: "50  typical", color: Theme.rsa),
+                RefLine(value: 100, label: "100  broad",  color: Theme.coh),
+            ],
+            yDomain: 0...150,
+            win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
+            dynamicY: true,
+            info: MetricInfo(
+                "The total spread of your beat-to-beat intervals — every rhythm your heart is running at once, fast and slow, folded into one number. Calm Power (RMSSD) hears only the fast, breath-linked rhythms; this hears all of them.",
+                calculation: "Standard deviation of the NN (artifact-free RR) intervals across the current window. Because it is a standard deviation, it grows with the length of the window: slow rhythms only show up once the window is long enough to contain them.",
+                physical:    "How much the gap between one heartbeat and the next drifts over the whole stretch you're looking at — not just from beat to beat, but across minutes.",
+                physiology:  "A wide spread means your nervous system has room to move: it speeds up, slows down, and responds to what the day asks of it. A narrow one means something is holding the heart to a fixed rhythm — stress, illness, alcohol, or hard training you haven't recovered from.",
+                training:    "Read it as range rather than recovery. Calm Power answers “am I recovered right now”; this answers “how much range does my system have”. It is most meaningful over a long window, so prefer 24h — and Track’s daily version, averaged across a whole day of wear, is the one that lines up with the published research.",
+                sensitivity: "Window-dependent above all — the same body reads far higher over 24h than over 30 minutes, so only compare like with like. Within a window it moves with posture, breathing, and any burst of effort.",
+                levels:      "Over a 30m or 2h window\nNarrow:  under 20 ms\nTypical: 20–80 ms\nBroad:   80+ ms\n\nThe familiar clinical cut-offs (50 ms, 100 ms) are 24-hour numbers and do not apply to a short window.",
+                notes:       "A single big artifact inflates it more than any other metric here, since one wrong interval enters the sum squared. Trust it most where the Signal Artifacts chart below is low."
+            ),
+            history: history, rawHistory: rawHistory, date: date
+        ) { $0.sdnn.map(Double.init) }
+    }
+
+    // MARK: AC
+
+    /// Activation Capacity — Vagal Tone's mirror, and free: the same PRSA pass
+    /// that yields DC yields AC, and the engine simply used to drop it.
+    ///
+    /// Drawn as a magnitude via `activationCapacity`. AC is negative by
+    /// definition (Bauer 2006 reports ~-6 ms), but a chart whose line falls as
+    /// the thing it measures gets stronger reads backwards against every other
+    /// card in this stack, so the sign is flipped for display only — the
+    /// stored `ac` keeps it. The reference lines mirror the DC card's for the
+    /// same reason the two metrics share a scale: they come off one curve.
+    private var acCard: some View {
+        MetricChartCard(
+            title:    "Activation Capacity",
+            technicalName: "Acceleration Capacity (AC)",
+            subtitle: "How sharply your heart can speed up",
+            yLabel:   "ms",
+            color:    Color(red: 0.95, green: 0.45, blue: 0.75),
+            windows:  TimeWindow.allCases,
+            refs: [
+                RefLine(value: 4.5,  label: "Reduced",    color: Theme.warn),
+                RefLine(value: 6.1,  label: "Developing", color: Color(hex: "#FCD34D")),
+                RefLine(value: 10.0, label: "Strong",     color: Theme.coh),
+            ],
+            yDomain: 0...20,
+            win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
+            smooth: true,
+            dynamicY: true,
+            info: MetricInfo(
+                "How readily your heart speeds up \u{2014} the accelerating half of the same machinery Vagal Tone measures. Vagal Tone is the brake; this is the throttle.",
+                calculation: "Phase-Rectified Signal Averaging (Bauer et al., 2006) \u{2014} the same pass that produces Vagal Tone, anchored on the opposite beats: every beat where the heart sped up becomes an anchor, the beats around all anchors are averaged into one curve, and a Haar wavelet reads the characteristic acceleration from it. The published value is negative (about \u{2212}6 ms); this chart plots its size, so a bigger number means a stronger acceleration.",
+                physical:    "Every time your heart nudges itself faster between beats \u{2014} reacting to a breath in, a movement, a thought \u{2014} that is the throttle. This tracks how big and how consistent those pushes are.",
+                physiology:  "Acceleration is the vagal brake easing off, plus sympathetic drive on top. A system with range has both a strong brake and a strong throttle. A throttle that is strong while the brake is weak is the signature of a body stuck in go-mode; both weak means range has gone altogether.",
+                training:    "Read it beside Vagal Tone rather than on its own \u{2014} the pair is the point. Both climbing over weeks means widening range; the two drifting apart says more than either number does alone.",
+                sensitivity: "Moves slowly, like Vagal Tone \u{2014} read it as a trend over days and weeks. It needs a couple of minutes of clean signal, and at least 20 accelerating beats inside the window, before it reports anything at all.",
+                levels:      "Building: under 4.5\nTypical:  around 6\nStrong:   10+\nShown as size, so higher = a stronger throttle.\n(Short readings aren\u{2019}t directly comparable to overnight ones.)",
+                notes:       "Blank before 2026-08-31: AC was computed and discarded until then, so no earlier history holds a value. It shares Vagal Tone\u{2019}s gate of ~192 clean intervals, so the two appear and disappear together."
+            ),
+            history: history, rawHistory: rawHistory, date: date
+        ) { $0.activationCapacity }
     }
 
     // MARK: Breath Rate
