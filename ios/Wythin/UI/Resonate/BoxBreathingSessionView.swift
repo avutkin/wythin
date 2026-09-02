@@ -25,6 +25,10 @@ struct BoxBreathingSessionView: View {
     @AppStorage private var bpm:     Int      // box only: metronome tempo
     /// Hold-free breaths are set in seconds instead, in halves — see EvenCadence.
     @AppStorage private var halfSeconds: Int
+    // Clicks-and-note breaths set all three of these, and the seconds follow.
+    @AppStorage private var noteDenominator: Int   // NoteValue.rawValue
+    @AppStorage private var inhaleCounts:    Int
+    @AppStorage private var exhaleCounts:    Int
 
     @State private var engine:   BoxBreathEngine
     @State private var cue     = MetronomeCue()
@@ -41,6 +45,9 @@ struct BoxBreathingSessionView: View {
     private let beatRange   = 2...12
     private let bpmRange    = 40...120
     private let bpmStep     = 5
+    /// Counts run further than beats do: at an eighth of a beat a phase needs
+    /// twice as many of them to cover the same seconds.
+    private let countRange  = 2...24
 
     init(practice: Practice) {
         self.practice = practice
@@ -49,8 +56,21 @@ struct BoxBreathingSessionView: View {
         let cadence = EvenCadence(beats: base.inhale, bpm: practice.defaultBPM)
         _minutes     = AppStorage(wrappedValue: practice.defaultDurationMins, "pacer.\(defaults).minutes")
         _beats       = AppStorage(wrappedValue: base.inhale,                  "pacer.\(defaults).beats")
-        _bpm         = AppStorage(wrappedValue: practice.defaultBPM,          "pacer.\(defaults).bpm")
+        // A clicks-and-note session stores its tempo under a different key on
+        // purpose. Build 111 shipped this practice setting `.bpm` to the click
+        // RATE (120); read back as a tempo with an eighth-note count that would
+        // run the breath at twice the speed, silently, for anyone who had opened
+        // it once. A new key lets the old value lie there harmlessly.
+        let tempoKey: String = {
+            if case .clicksAndNote = practice.paceControl { return "pacer.\(defaults).tempo" }
+            return "pacer.\(defaults).bpm"
+        }()
+        _bpm         = AppStorage(wrappedValue: practice.defaultBPM,          tempoKey)
         _halfSeconds = AppStorage(wrappedValue: cadence.halfSeconds,          "pacer.\(defaults).halfSeconds")
+        _noteDenominator = AppStorage(wrappedValue: practice.defaultNote.rawValue,
+                                      "pacer.\(defaults).note")
+        _inhaleCounts    = AppStorage(wrappedValue: base.inhale, "pacer.\(defaults).inhaleCounts")
+        _exhaleCounts    = AppStorage(wrappedValue: base.exhale, "pacer.\(defaults).exhaleCounts")
         _engine  = State(initialValue: BoxBreathEngine(pattern: base, bpm: practice.defaultBPM))
     }
 
@@ -58,23 +78,50 @@ struct BoxBreathingSessionView: View {
     /// decides the pacer (box or ring), never the controls.
     private var hasHolds: Bool { practice.breathPattern?.hasHolds ?? true }
 
-    /// Whether the pace is set in clicks and a tempo rather than in seconds. A
-    /// box always is; a hold-free breath is only when it asks to be, which
-    /// Coherent Breathing does.
+    /// Whether the pace is set in beats against a tempo. A box always is.
     private var setInBeats: Bool { practice.paceControl == .beatsAndTempo }
 
+    /// Whether the pace is set as tempo + note value + a count for each phase,
+    /// which is Coherent Breathing's way of being set.
+    private var setInCounts: Bool {
+        if case .clicksAndNote = practice.paceControl { return true }
+        return false
+    }
+
     private var cadence: EvenCadence { EvenCadence(halfSeconds: halfSeconds) }
+
+    private var note: NoteValue { NoteValue(rawValue: noteDenominator) ?? .quarter }
 
     /// The pattern the controls describe — the practice's own shape, resized to
     /// the chosen pace. A box stays a box; a hold-free breath stays hold-free.
     private var pattern: BreathPattern {
         if hasHolds { return .box(beats: beats) }
+        if setInCounts {
+            return BreathPattern(inhale: inhaleCounts, holdIn: 0,
+                                 exhale: exhaleCounts, holdOut: 0)
+        }
         return setInBeats ? .even(beats: beats) : cadence.pattern
     }
 
-    /// The tempo that pattern runs at — chosen when the pace is set in clicks,
-    /// derived from the seconds when it is not.
-    private var tempo: Int { setInBeats ? bpm : cadence.bpm }
+    /// The rate the engine actually ticks at. Chosen outright when the pace is
+    /// set in beats; the tempo times the note's clicks-per-beat when it is set in
+    /// counts; derived from the seconds otherwise.
+    private var tempo: Int {
+        if setInCounts { return bpm * note.clicksPerBeat }
+        return setInBeats ? bpm : cadence.bpm
+    }
+
+    /// What a phase of `counts` comes to in seconds at the current tempo and
+    /// note — the number the three controls exist to produce.
+    private func phaseSeconds(_ counts: Int) -> Double {
+        Double(counts) * 60.0 / Double(max(1, tempo))
+    }
+
+    /// "5.5s", "6s" — no trailing zero on a whole number.
+    private func secondsLabel(_ seconds: Double) -> String {
+        seconds == seconds.rounded() ? "\(Int(seconds))s"
+                                     : String(format: "%.1fs", seconds)
+    }
 
     private var target:    TimeInterval { TimeInterval(minutes) * 60 }
     private var remaining: TimeInterval { max(0, target - sessionElapsed) }
@@ -130,6 +177,9 @@ struct BoxBreathingSessionView: View {
         .onChange(of: beats)       { engine.reconfigure(pattern: pattern, bpm: tempo) }
         .onChange(of: bpm)         { engine.reconfigure(pattern: pattern, bpm: tempo) }
         .onChange(of: halfSeconds) { engine.reconfigure(pattern: pattern, bpm: tempo) }
+        .onChange(of: noteDenominator) { engine.reconfigure(pattern: pattern, bpm: tempo) }
+        .onChange(of: inhaleCounts)    { engine.reconfigure(pattern: pattern, bpm: tempo) }
+        .onChange(of: exhaleCounts)    { engine.reconfigure(pattern: pattern, bpm: tempo) }
     }
 
     // MARK: Pacer
@@ -202,8 +252,11 @@ struct BoxBreathingSessionView: View {
 
     /// The one line you can read without opening the panel.
     private var summary: String {
-        setInBeats ? "\(minutes) MIN · \(pattern.label) · \(bpm) BPM"
-                   : "\(minutes) MIN · \(cadence.label) EACH WAY"
+        if setInCounts {
+            return "\(minutes) MIN · \(inhaleCounts)–\(exhaleCounts) · \(note.label) · \(bpm) BPM"
+        }
+        return setInBeats ? "\(minutes) MIN · \(pattern.label) · \(bpm) BPM"
+                          : "\(minutes) MIN · \(cadence.label) EACH WAY"
     }
 
     private func mmss(_ seconds: TimeInterval) -> String {
@@ -245,7 +298,33 @@ struct BoxBreathingSessionView: View {
                            canRaise: minutes < minuteRange.upperBound,
                            lower: { minutes -= 1 }, raise: { minutes += 1 })
                 Divider().background(Theme.border)
-                if setInBeats {
+                if setInCounts {
+                    stepperRow(label: "TEMPO", value: "\(bpm) BPM",
+                               canLower: bpm > bpmRange.lowerBound,
+                               canRaise: bpm < bpmRange.upperBound,
+                               lower: { bpm = max(bpmRange.lowerBound, bpm - bpmStep) },
+                               raise: { bpm = min(bpmRange.upperBound, bpm + bpmStep) })
+                    Divider().background(Theme.border)
+                    // What one count is worth. Two values, so the steppers read
+                    // as "slower / faster count" rather than a list to scroll.
+                    stepperRow(label: "NOTE", value: note.label,
+                               canLower: note != .quarter,
+                               canRaise: note != .eighth,
+                               lower: { noteDenominator = NoteValue.quarter.rawValue },
+                               raise: { noteDenominator = NoteValue.eighth.rawValue })
+                    Divider().background(Theme.border)
+                    stepperRow(label: "INHALE",
+                               value: "\(inhaleCounts) · \(secondsLabel(phaseSeconds(inhaleCounts)))",
+                               canLower: inhaleCounts > countRange.lowerBound,
+                               canRaise: inhaleCounts < countRange.upperBound,
+                               lower: { inhaleCounts -= 1 }, raise: { inhaleCounts += 1 })
+                    Divider().background(Theme.border)
+                    stepperRow(label: "EXHALE",
+                               value: "\(exhaleCounts) · \(secondsLabel(phaseSeconds(exhaleCounts)))",
+                               canLower: exhaleCounts > countRange.lowerBound,
+                               canRaise: exhaleCounts < countRange.upperBound,
+                               lower: { exhaleCounts -= 1 }, raise: { exhaleCounts += 1 })
+                } else if setInBeats {
                     stepperRow(label: "PACE", value: pattern.label,
                                canLower: beats > beatRange.lowerBound,
                                canRaise: beats < beatRange.upperBound,

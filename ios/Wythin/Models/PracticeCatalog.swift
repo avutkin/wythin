@@ -112,24 +112,25 @@ enum PracticeCatalog {
             kind: .pacer(EvenCadence.resonance.pattern)),
 
         Practice(
-            id: "coherent-breathing", title: "Coherent Breathing", subtitle: "Counted in clicks, at a tempo you set",
+            id: "coherent-breathing", title: "Coherent Breathing", subtitle: "Counted to a metronome you set",
             category: .breathwork, states: [.focus, .stress],
             activityType: .breathwork, subtype: "Coherent Breathing",
-            defaultDurationMins: 12, defaultBPM: 120,
-            description: "The same even breath as Resonance, worked the other way round: you set how many metronome clicks each phase gets and how fast they run, and the seconds fall out of that. It opens on eleven clicks at 120 BPM — five and a half seconds a side, about five and a half breaths a minute. Counting the clicks is the practice; the pace is what you tune.",
+            defaultDurationMins: 12, defaultBPM: 60,
+            description: "The same even breath as Resonance, worked the other way round. You set the tempo, what a count is worth against it, and how many counts the inhale and the exhale each get — and the seconds fall out of those three. It opens on eleven eighth-note counts at 60 BPM: five and a half seconds a side, about five and a half breaths a minute. Counting to the click is the practice.",
             howItWorks: [
                 "At around five and a half seconds each way the breath sits in the band where heart and blood-pressure control lock together, and heart rate variability reaches its widest swing.",
-                "Counting clicks rather than watching a clock gives attention something concrete to hold. The accented click opens each phase, so the change of direction is heard rather than read.",
-                "Tempo and count are separate on purpose: the same five and a half seconds can run as eleven quick clicks or as a slower, sparser count, and which one holds your attention is personal.",
+                "Counting to a click rather than watching a clock gives attention something concrete to hold, and the accented click opens each phase — so the turn is heard rather than read.",
+                "The inhale and the exhale are counted separately, so a longer exhale is a matter of counting further rather than a different practice. A longer out-breath than in-breath leans the balance further toward the vagal side.",
                 "On the honest side of the ledger: the physiological effect is well evidenced, and better decisions after slow breathing have been measured directly. Creative output specifically has not — the link there rests on correlations between heart rate variability and divergent thinking, not on trials. Treat the creative framing as the reason to try it, not as a finding.",
             ],
             evidence: [decouck2019, laborde2022, zaccaro2018],
             tags: ["Coherence", "Loose Attention", "Ideas"],
             art: practiceArt,
-            // 11 clicks at 120 BPM is exactly 5.5 s a phase. Whole beats are what
-            // keep the accent on the phase change at any tempo.
+            // Eleven counts at an eighth of a 60 BPM beat: 0.5 s a count, so
+            // 5.5 s a phase. Counts are whole by construction, which is what
+            // keeps the accent exactly on the turn at any tempo.
             kind: .pacer(.even(beats: 11)),
-            paceControl: .beatsAndTempo),
+            paceControl: .clicksAndNote(defaultNote: .eighth)),
 
         Practice(
             id: "hold-breath", title: "Hold Breath", subtitle: "Holds on empty, in sets",

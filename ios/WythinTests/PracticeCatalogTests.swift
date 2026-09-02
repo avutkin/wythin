@@ -135,38 +135,59 @@ final class PracticeCatalogTests: XCTestCase {
         XCTAssertFalse(cohPattern.hasHolds)
 
         XCTAssertEqual(res.paceControl, .seconds)
-        XCTAssertEqual(coh.paceControl, .beatsAndTempo)
+        XCTAssertEqual(coh.paceControl, .clicksAndNote(defaultNote: .eighth))
         XCTAssertNotEqual(res.paceControl, coh.paceControl,
                           "two hold-free pacers set the same way are one practice with two tiles")
 
-        // Both land on 5.5 s a side — reached from opposite directions.
+        // Both land on 5.5 s a side — reached from opposite directions. Coherent's
+        // defaultBPM is the tempo, not the click rate: the note supplies the rest.
         XCTAssertEqual(EvenCadence(beats: resPattern.inhale, bpm: res.defaultBPM).seconds,
                        5.5, accuracy: 0.0001)
-        XCTAssertEqual(Double(cohPattern.inhale) * 60.0 / Double(coh.defaultBPM),
+        let cohClickRate = coh.defaultBPM * coh.defaultNote.clicksPerBeat
+        XCTAssertEqual(Double(cohPattern.inhale) * 60.0 / Double(cohClickRate),
                        5.5, accuracy: 0.0001)
     }
 
-    /// Coherent's whole point is the click count, so the numbers it ships with
-    /// have to be the ones its own two steppers can express.
-    func testCoherentShipsOnElevenClicksAtOneTwentyBPM() {
+    /// Coherent ships as eleven eighth-note counts at 60 BPM. Those three numbers
+    /// have to multiply out to the 5.5 s the practice claims, or its own copy is
+    /// wrong the moment the session opens.
+    func testCoherentShipsOnElevenEighthsAtSixtyBPM() {
         guard let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing" }),
               let pattern = coh.breathPattern else {
             return XCTFail("coherent-breathing missing from the catalog")
         }
         XCTAssertEqual(pattern.inhale, 11)
         XCTAssertEqual(pattern.exhale, 11)
-        XCTAssertEqual(coh.defaultBPM, 120)
-        XCTAssertEqual(pattern.breathsPerMinute(bpm: coh.defaultBPM), 60.0 / 11.0, accuracy: 0.0001)
+        XCTAssertEqual(coh.defaultBPM, 60)
+        XCTAssertEqual(coh.defaultNote, .eighth)
+
+        let clickRate = coh.defaultBPM * coh.defaultNote.clicksPerBeat      // 120 clicks/min
+        XCTAssertEqual(Double(pattern.inhale) * 60.0 / Double(clickRate), 5.5, accuracy: 0.0001)
+        XCTAssertEqual(pattern.breathsPerMinute(bpm: clickRate), 60.0 / 11.0, accuracy: 0.0001)
     }
 
     /// A pacer set in seconds derives its tempo, so a practice that wants the
-    /// tempo control has to say so — and only Coherent does.
-    func testOnlyCoherentAsksForTheClicksAndTempoControls() {
-        let inBeats = PracticeCatalog.practices
-            .filter { if case .pacer(let p) = $0.kind { return !p.hasHolds } else { return false } }
-            .filter { $0.paceControl == .beatsAndTempo }
+    /// tempo, note and per-phase counts has to say so — and only Coherent does.
+    func testOnlyCoherentAsksForTheClicksAndNoteControls() {
+        let inCounts = PracticeCatalog.practices
+            .filter { if case .clicksAndNote = $0.paceControl { return true } else { return false } }
             .map(\.id)
-        XCTAssertEqual(inBeats, ["coherent-breathing"])
+        XCTAssertEqual(inCounts, ["coherent-breathing"])
+    }
+
+    /// Every count the session can reach has to resolve to a whole number of
+    /// clicks at a whole click rate, or the accent stops landing on the turn.
+    func testEveryNoteValueGivesAWholeClickRateAcrossTheTempoRange() {
+        for note in NoteValue.allCases {
+            for bpm in stride(from: 40, through: 120, by: 5) {
+                let rate = bpm * note.clicksPerBeat
+                XCTAssertGreaterThan(rate, 0, "\(note.label) at \(bpm) BPM")
+                // A count is a whole click by construction, so a phase of n
+                // counts is exactly n click-lengths.
+                XCTAssertEqual(Double(7) * 60.0 / Double(rate),
+                               7 * (60.0 / Double(rate)), accuracy: 0.0001)
+            }
+        }
     }
 
     /// A breath with holds is counted against a metronome by definition, so it
@@ -197,8 +218,14 @@ final class PracticeCatalogTests: XCTestCase {
     func testEveryPacerPatternIsReachableFromTheSessionControls() {
         for practice in PracticeCatalog.practices {
             guard let pattern = practice.breathPattern else { continue }   // hold trainers have no pace
-            XCTAssertTrue((2...12).contains(pattern.inhale),
-                          "\(practice.id): \(pattern.inhale) beats is outside the pace stepper's range")
+            // A clicks-and-note session counts further than a beat stepper does:
+            // at an eighth of a beat a phase needs twice as many counts.
+            let paceRange = { if case .clicksAndNote = practice.paceControl { return 2...24 }
+                              else { return 2...12 } }()
+            XCTAssertTrue(paceRange.contains(pattern.inhale),
+                          "\(practice.id): \(pattern.inhale) counts is outside its own pace stepper's range")
+            XCTAssertTrue(paceRange.contains(pattern.exhale),
+                          "\(practice.id): \(pattern.exhale) counts is outside its own pace stepper's range")
             XCTAssertTrue((40...120).contains(practice.defaultBPM),
                           "\(practice.id): \(practice.defaultBPM) BPM is outside the tempo stepper's range")
             XCTAssertEqual(practice.defaultBPM % 5, 0,
@@ -250,7 +277,9 @@ final class PracticeCatalogTests: XCTestCase {
         XCTAssertEqual(coh.activityType, .breathwork)
         XCTAssertEqual(coh.subtype, "Coherent Breathing")
         XCTAssertFalse(pattern.hasHolds, "the coherent breath pauses at neither end")
-        XCTAssertEqual(pattern.breathsPerMinute(bpm: coh.defaultBPM), 60.0 / 11.0, accuracy: 0.0001)
+        // Read at the click rate the note produces, not at the tempo alone.
+        XCTAssertEqual(pattern.breathsPerMinute(bpm: coh.defaultBPM * coh.defaultNote.clicksPerBeat),
+                       60.0 / 11.0, accuracy: 0.0001)
     }
 
     func testBoxBreathingIsAPacerOnTheBoxPattern() {

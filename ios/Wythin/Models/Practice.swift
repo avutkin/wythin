@@ -71,6 +71,10 @@ enum BiofeedbackMode: Equatable, Hashable { case resonance, workout }
 enum PaceControl: Equatable, Hashable {
     case seconds          // seconds a side, in halves; tempo derived
     case beatsAndTempo    // beats (clicks) a phase + metronome BPM
+    /// Tempo, note value, and a count for each phase set separately. The seconds
+    /// fall out of those three, which is the point: the click you hear and the
+    /// count you keep are what you work with, not a duration.
+    case clicksAndNote(defaultNote: NoteValue)
 }
 
 enum PracticeKind: Equatable, Hashable {
@@ -185,6 +189,13 @@ struct Practice: Identifiable, Hashable {
         } else {
             self.paceControl = .seconds
         }
+    }
+
+    /// The note value a clicks-and-note session opens on. Meaningless for the
+    /// other pace controls, which have no note to set.
+    var defaultNote: NoteValue {
+        if case .clicksAndNote(let note) = paceControl { return note }
+        return .quarter
     }
 
     /// The featured practice, shown with a ★ above the grid.
