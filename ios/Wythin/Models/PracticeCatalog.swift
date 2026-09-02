@@ -137,18 +137,19 @@ enum PracticeCatalog {
             category: .breathwork, states: [.stress, .anxiety],
             activityType: .breathwork, subtype: "Relaxing Breathing",
             defaultDurationMins: 10, defaultBPM: 60,
-            description: "The same clock as Coherent Breathing 5×5 — one count a second, ten seconds a cycle — with the weight moved onto the out-breath: four counts in, six counts out. Same rate, opposite intent. Prolonged exhalation is what the literature calls it, and this is the one to reach for when you want to come down rather than sharpen up. It works comfortably with the eyes closed.",
+            description: "Four counts in, six counts out, one count a second. The out-breath is half as long again as the in-breath — prolonged exhalation, and the shape that turns slow breathing into a way down. Expect the pulse to settle within the first minute or two and the edge to come off; ten minutes leaves most people calmer than it found them. Eyes closed is fine.",
             howItWorks: [
-                "Heart rate falls while you breathe out, as the vagal brake is reapplied. Making the exhale half as long again as the inhale spends more of every cycle on that side of the swing, which is why a lengthened out-breath is the oldest instruction in the calming repertoire.",
-                "The cycle still totals ten seconds, so this sits on the same tenth-of-a-hertz wave the even version does — it leans the ratio without leaving the band.",
-                "Nothing is held at either end. A 4–6 breath asks for no breath-holding and no effort on the inhale, which is what makes twenty minutes of it possible where a more strenuous pattern would not be.",
-                "Honest limits: the head-to-head trial below found exhale-focused breathing improved mood the most of the styles it tested. The specific claim that a longer exhale raises heart rate variability more than an even breath does is not settled — the ratio is better supported for how the practice feels than for a bigger number.",
+                "Heart rate falls on every out-breath, as the vagal brake comes back on. Weighting the exhale spends more of each cycle on that side of the swing, so the pulse settles and vagally-mediated heart rate variability rises — the two markers that move first when arousal comes down.",
+                "Ten seconds a cycle is six breaths a minute. That is the slow-breathing band where the shift toward the parasympathetic side is best documented, and where the effect carries past the end of the session rather than stopping with it.",
+                "This is the pattern to reach for after something stressful, or when anxious arousal is higher than the situation calls for. In the month-long trial below, breathwork weighted toward the exhale improved mood more than the other breathing patterns tested — and lowered anxiety along with it.",
+                "Nothing is held at either end and the inhale is unforced, which is what makes ten or twenty minutes sustainable where a more strenuous pattern would not be.",
+                "Honest limits: a longer exhale is better evidenced for how it feels — mood, anxiety, perceived calm — than for producing a larger heart-rate-variability number than an even breath would. Take the ratio as the reliable route to the state, not as a bigger reading.",
             ],
             evidence: [balban2023, zaccaro2018, laborde2022],
             tags: ["Longer Exhale", "Down-regulate", "Calm"],
             art: practiceArt,
             // 4 in, 6 out at one quarter-note count a second: a 10 s cycle, so
-            // still six breaths a minute — the weight moved, not the rate.
+            // six breaths a minute with the weight on the out-breath.
             kind: .pacer(BreathPattern(inhale: 4, holdIn: 0, exhale: 6, holdOut: 0)),
             paceControl: .clicksAndNote(defaultNote: .quarter)),
 
