@@ -81,6 +81,8 @@ struct MetricsHistoryPoint {
     let rcmse:         Float?   // RCMSE mean entropy (scales 1–5)
     let pip:           Float?   // HR Fragmentation: % inflection points
     let ials:          Float?   // HR Fragmentation: inverse avg segment length
+    let pss:           Float?   // HR Fragmentation: % beats in short segments
+    let hra:           Float?   // Heart Rate Asymmetry (Guzik's Index, %)
     let dc:            Float?   // Deceleration Capacity (ms)
     let ac:            Float?   // Acceleration Capacity (ms) — negative; DC's mirror
     let motion:        Float?   // SD of ACC vector magnitude (mg) — stillness
@@ -116,6 +118,8 @@ struct MetricsHistoryPoint {
         rcmse         = tick.rcmse
         pip           = tick.pip
         ials          = tick.ials
+        pss           = tick.pss
+        hra           = tick.hra
         dc            = tick.dc
         ac            = tick.ac
         motion        = tick.motion
@@ -148,6 +152,8 @@ struct MetricsHistoryPoint {
         rcmse         = sample.rcmse
         pip           = sample.pip
         ials          = sample.ials
+        pss           = sample.pss
+        hra           = sample.hra
         dc            = sample.dc
         ac            = sample.ac
         motion        = sample.motion
@@ -173,6 +179,8 @@ struct MetricsHistoryPoint {
         pip:       Float? = nil,
         dc:        Float? = nil,
         ac:        Float? = nil,
+        pss:       Float? = nil,
+        hra:       Float? = nil,
         motion:    Float? = nil,
         bodyPosition: BodyPosition? = nil,
         signalQuality:  Float? = nil,
@@ -204,6 +212,8 @@ struct MetricsHistoryPoint {
         self.ials = nil
         self.dc = dc
         self.ac = ac
+        self.pss = pss
+        self.hra = hra
         self.motion = motion
         self.bodyPosition = bodyPosition
     }
@@ -252,6 +262,8 @@ struct MetricsHistoryPoint {
         self.ials = nil
         self.dc = dc
         self.ac = nil
+        self.pss = nil
+        self.hra = nil
         self.motion = motion
         self.bodyPosition = bodyPosition
     }
@@ -262,4 +274,12 @@ struct MetricsHistoryPoint {
     /// (Bauer et al. 2006) — this is the single place the flip happens, so the
     /// card cannot quietly disagree with the stored data.
     var activationCapacity: Double? { ac.map { Double(abs($0)) } }
+
+    /// Rhythm Stability as the Live chart draws it.
+    ///
+    /// `pss` counts fragmentation, so it rises as the rhythm gets *worse*. A
+    /// chart named for stability whose line falls as things improve reads
+    /// backwards against every other card, so the sense is flipped here — one
+    /// place, tested — while the stored value keeps the published convention.
+    var rhythmStability: Double? { pss.map { 100 - Double($0) } }
 }

@@ -114,6 +114,79 @@ final class AdvancedHRVComputeTests: XCTestCase {
         XCTAssertLessThan(ac, 0, "AC < 0 is the normal resting case — it mirrors DC")
     }
 
+    // MARK: Heart Rate Asymmetry (Guzik's Index)
+
+    /// A perfectly alternating series: every deceleration is matched by an
+    /// acceleration of the same size, so decelerations own exactly half the
+    /// short-term variance. This is the definition of the 50 % midpoint, and
+    /// the whole chart is read as distance from it.
+    func testGuzikIndexIsFiftyForAPerfectlySymmetricSeries() {
+        // 401 values → 400 differences, exactly 200 up and 200 down. An even
+        // count matters: 400 values would leave 399 differences and read
+        // 50.125 %, which is correct arithmetic on a lopsided fixture.
+        let rr = (0..<401).map { $0 % 2 == 0 ? 800 : 810 }
+        let gi = try! XCTUnwrap(AdvancedHRVCompute.computeHRA(rrMs: rr))
+        XCTAssertEqual(gi, 50, accuracy: 0.001)
+    }
+
+    /// One big deceleration paid back by three small accelerations: the
+    /// slowing side contributes 900 of the 1200 total squared variance, so
+    /// Guzik's index must read 75 %. Pins the direction of the ratio — the
+    /// easy mistake is to divide by the accelerations and invert the meaning.
+    func testGuzikIndexRisesWhenDecelerationsCarryTheVariance() {
+        // Closed with a trailing 800 so the differences form exactly 100
+        // complete +30/-10/-10/-10 groups: 900 of every 1200 squared units.
+        var rr: [Int] = []
+        for _ in 0..<100 { rr.append(contentsOf: [800, 830, 820, 810]) }
+        rr.append(800)
+        let gi = try! XCTUnwrap(AdvancedHRVCompute.computeHRA(rrMs: rr))
+        XCTAssertEqual(gi, 75, accuracy: 0.001)
+    }
+
+    /// Asymmetry is a distribution statistic — a handful of beats cannot
+    /// support one, so it reports nothing rather than a number built on ten
+    /// intervals.
+    func testHRAReturnsNilBelowItsMinimum() {
+        XCTAssertNil(AdvancedHRVCompute.computeHRA(rrMs: Array(repeating: 800, count: 20)))
+    }
+
+    // MARK: Rhythm Stability (PSS)
+
+    /// `pss` was the third fragmentation index and the engine dropped it, the
+    /// same way it dropped AC: `computeHRF` returns pip, ials AND pss, and
+    /// only the first two were ever read. Both new values must ride the tick.
+    func testEngineKeepsHRAAndFragmentationOnTheTick() {
+        let rr = restingRR(count: 400)
+        let tick = MetricsEngine.compute(from: DataSnapshot(ecg: [], accZ: [], accXYZ: [],
+                                                            rr: rr, bpm: []))
+        XCTAssertNotNil(tick.hra, "the engine must forward Heart Rate Asymmetry")
+        XCTAssertNotNil(tick.pss, "the engine must forward PSS, not discard it")
+    }
+
+    /// 2 h and 24 h read the store, not live ticks, so both values only reach
+    /// their charts if they survive `HRVSample`.
+    func testHRAAndPSSSurviveTheRoundTripThroughTheStore() {
+        let rr = restingRR(count: 400)
+        let tick = MetricsEngine.compute(from: DataSnapshot(ecg: [], accZ: [], accXYZ: [],
+                                                            rr: rr, bpm: []))
+        let restored = MetricsHistoryPoint(from: HRVSample(from: tick))
+        XCTAssertEqual(restored.hra ?? .nan, try! XCTUnwrap(tick.hra), accuracy: 0.0001)
+        XCTAssertEqual(restored.pss ?? .nan, try! XCTUnwrap(tick.pss), accuracy: 0.0001)
+    }
+
+    /// PSS counts fragmentation — higher is worse. The chart is named for
+    /// stability and must therefore rise as the rhythm steadies, so the flip
+    /// lives in one place and is pinned here rather than repeated in the card.
+    func testRhythmStabilityIsTheInverseOfFragmentation() {
+        let point = MetricsHistoryPoint(timestamp: Date(), pss: 62)
+        XCTAssertEqual(point.rhythmStability ?? .nan, 38, accuracy: 0.0001)
+    }
+
+    /// No reading is not a reading of zero — a missing PSS must leave a gap.
+    func testRhythmStabilityIsNilWhenFragmentationIsMissing() {
+        XCTAssertNil(MetricsHistoryPoint(timestamp: Date()).rhythmStability)
+    }
+
     /// AC was computed and thrown away: `MetricsEngine` took `dcResult.dc` and
     /// dropped `.ac` on the floor, so no chart could ever draw it. The tick is
     /// the first link in the chain to the Live chart.

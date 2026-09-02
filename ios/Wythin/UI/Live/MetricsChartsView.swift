@@ -893,6 +893,8 @@ struct MetricsChartsView: View, Equatable {
             hrCard            // Pulse
             sdnnCard          // Overall Variability
             acCard            // Throttle
+            hraCard           // Brake Bias
+            rhythmStabilityCard
 
             signalQualitySection
         }
@@ -1237,6 +1239,85 @@ struct MetricsChartsView: View, Equatable {
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.activationCapacity }
+    }
+
+    // MARK: HRA
+
+    /// Brake Bias — Heart Rate Asymmetry (Guzik's Index).
+    ///
+    /// The third member of the brake/throttle set: Vagal Tone is how hard the
+    /// brake pulls, Throttle is how hard the accelerator pushes, and this is
+    /// which of the two is doing more of the work. Unlike either, it survives
+    /// a change in overall variability — a system can halve its RMSSD and keep
+    /// the same bias, which is exactly the independence this chart is for.
+    ///
+    /// 50 is the axis, not the floor, so the domain is centred on it and the
+    /// reference lines mark the even point rather than a good/bad boundary.
+    private var hraCard: some View {
+        MetricChartCard(
+            title:    "Brake Bias",
+            technicalName: "Heart Rate Asymmetry (Guzik's Index)",
+            subtitle: "Which side of the rhythm does the work",
+            yLabel:   "%",
+            color:    Color(red: 0.45, green: 0.85, blue: 0.75),
+            windows:  TimeWindow.allCases,
+            refs: [
+                RefLine(value: 50, label: "50  even", color: Theme.dim),
+            ],
+            yDomain: 35...65,
+            win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
+            smooth: true,
+            dynamicY: true,
+            info: MetricInfo(
+                "Your heart does not slow and speed up in equal steps. This is the share of your beat-to-beat variation that comes from slowing down rather than speeding up \u{2014} the balance between the brake and the throttle, rather than the strength of either.",
+                calculation: "Guzik\u{2019}s Index: each beat-to-beat change is squared, and the ones where the heart slowed are taken as a percentage of all of them. Squaring is what makes it a share of variance rather than a count \u{2014} one large deceleration counts for more than several small ones.",
+                physical:    "Watch your pulse over a minute and it does not wobble evenly: the slowdowns and the speed-ups come in different sizes. This measures which of the two carries more of that wobble.",
+                physiology:  "A healthy heart is lopsided on purpose \u{2014} decelerations tend to carry slightly more than half the variance. The asymmetry appears to come from the vagus acting faster than sympathetic drive can. Losing it, and drifting toward a flat 50, is the pattern seen with age and with illness.",
+                training:    "Read it beside Vagal Tone and Throttle rather than alone. Those two say how much brake and throttle you have; this says which one is shaping your rhythm. It is a slow measure \u{2014} weeks, not sessions.",
+                sensitivity: "Needs at least 100 clean beats before it reports at all, and moves slowly after that. Distance from 50 is the signal; small wanders around it are noise.",
+                levels:      "Even:              50\nSlightly braked:   52\u{2013}56  (typical at rest)\nStrongly braked:   56+\nThrottle-led:      under 48\n\nRead the distance from 50, in either direction, rather than a target."
+            ),
+            history: history, rawHistory: rawHistory, date: date
+        ) { $0.hra.map(Double.init) }
+    }
+
+    // MARK: Rhythm Stability
+
+    /// The fragmentation dimension's other half. Inner Noise (PIP) counts how
+    /// often the rhythm changes direction; this counts how much of it is made
+    /// of very short runs \u{2014} the difference between a rhythm that wanders and
+    /// one that is chopped into pieces.
+    ///
+    /// Deliberately without reference lines. The literature\u{2019}s cut-offs are
+    /// for 24-hour Holter recordings and the source comment\u{2019}s "~62 %" could
+    /// not be verified, so drawing bands here would invent a threshold rather
+    /// than report one. Personal trend only, like VLF Power \u{2014} bands can be
+    /// added once there is enough stored history to know the real spread.
+    private var rhythmStabilityCard: some View {
+        MetricChartCard(
+            title:    "Rhythm Stability",
+            technicalName: "Percentage of Short Segments (PSS), inverted",
+            subtitle: "How much of the rhythm holds together",
+            yLabel:   "%",
+            color:    Color(red: 0.6, green: 0.75, blue: 1.0),
+            windows:  TimeWindow.allCases,
+            refs: [],
+            yDomain: 0...100,
+            win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
+            smooth: true,
+            dynamicY: true,
+            info: MetricInfo(
+                "How much of your heart rhythm runs in sustained stretches rather than being chopped into very short pieces. Higher means the rhythm holds a line; lower means it keeps breaking up.",
+                calculation: "The percentage of beats sitting in runs of two or fewer before the rhythm changes direction \u{2014} then flipped, so the number rises as the rhythm steadies. The published measure (PSS) counts the fragmentation itself and runs the other way.",
+                physical:    "Between changes of direction, your heart rate travels in short runs. This asks how long those runs are: a steady rhythm moves in long sweeps, a fragmented one in constant tiny reversals.",
+                physiology:  "Fragmentation is not the same thing as low variability, which is why it earns its own chart \u{2014} a rhythm can be wide and still be chopped up. It rises with age and with disease of the sinus node, and it is thought to reflect the pacemaker itself misbehaving rather than the nerves that steer it.",
+                training:    "Not something to chase in a session. Watch it across weeks, and read it beside Inner Noise \u{2014} the two describe the same dimension from different angles, and they should broadly agree.",
+                sensitivity: "Needs a couple of minutes of clean signal. Artifacts inflate fragmentation directly, so trust it least where the Signal Artifacts chart below is high.",
+                levels:      "No fixed bands \u{2014} the published cut-offs are for 24-hour recordings and do not transfer to a short window. Compare against your own trend under similar conditions.",
+                notes:       "Blank before this shipped: the value was computed and discarded until now, so no earlier history holds one."
+            ),
+            history: history, rawHistory: rawHistory, date: date
+        ) { $0.rhythmStability }
     }
 
     // MARK: Breath Rate

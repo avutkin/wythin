@@ -154,6 +154,48 @@ enum AdvancedHRVCompute {
         return DCResult(dc: Float(dc), ac: Float(ac), anchorCount: decAnchors.count)
     }
 
+    // MARK: - Heart Rate Asymmetry
+
+    /// Asymmetry is a distribution statistic. Below this it would be reporting
+    /// the shape of a handful of beats, so it reports nothing instead. Matched
+    /// to `rcmseMinIntervals` — the same "enough beats to have a shape" bar.
+    static let hraMinIntervals = 100
+
+    /// Guzik's Index: the share of short-term variance carried by
+    /// decelerations, as a percentage (Guzik et al. 2006).
+    ///
+    /// Every other metric here reads the tachogram's *size*; this reads its
+    /// *lopsidedness*. A heart that slows in big steps and speeds up in small
+    /// ones is doing something different from one that does the reverse, even
+    /// when both produce identical RMSSD.
+    ///
+    /// 50 % means decelerations and accelerations contribute equally. Health
+    /// tends to sit a little above it; the reading is the distance from 50,
+    /// not the raw number.
+    ///
+    /// Returns nil below `hraMinIntervals`, and on a perfectly flat series
+    /// where there is no variance to apportion.
+    static func computeHRA(rrMs: [Int]) -> Float? {
+        let rr = HRVCompute.cleanRR(rrMs)
+        guard rr.count >= hraMinIntervals else { return nil }
+
+        // A deceleration is the heart slowing: the next interval is LONGER,
+        // so the difference is positive. Getting this backwards inverts the
+        // metric's meaning while leaving it in range, which no range check
+        // would catch — hence the test that pins 75 %, not just "> 50".
+        var decelSquares = 0.0
+        var totalSquares = 0.0
+        for (a, b) in zip(rr, rr.dropFirst()) {
+            let d = Double(b - a)
+            guard d != 0 else { continue }     // unchanged beats belong to neither side
+            let sq = d * d
+            totalSquares += sq
+            if d > 0 { decelSquares += sq }
+        }
+        guard totalSquares > 0 else { return nil }
+        return Float(decelSquares / totalSquares * 100)
+    }
+
     // MARK: - Private helpers
 
     /// PRSA averaging and Haar wavelet extraction.

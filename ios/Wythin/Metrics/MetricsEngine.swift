@@ -80,6 +80,13 @@ struct MetricsTick {
     let rcmse: Float?   // Refined Composite Multiscale Entropy mean (scales 1–5)
     let pip:   Float?   // HR Fragmentation: % inflection points (higher = more fragmented)
     let ials:  Float?   // HR Fragmentation: inverse avg segment length
+    /// HR Fragmentation: % of beats in short segments. The third index
+    /// `computeHRF` returns, and the one the engine used to drop.
+    /// Defaulted so the preview constructors compile unchanged.
+    var pss:   Float? = nil
+    /// Heart Rate Asymmetry (Guzik's Index, %) — the share of short-term
+    /// variance carried by decelerations. 50 % is even.
+    var hra:   Float? = nil
     let dc:    Float?   // Deceleration Capacity in ms (Bauer 2006, PRSA)
     /// Acceleration Capacity in ms — DC's mirror, from the same PRSA pass, so
     /// it costs nothing extra to carry. Negative for a resting series; the
@@ -219,6 +226,8 @@ enum MetricsEngine {
             rcmse:          rcmseResult?.meanEntropy,
             pip:            hrfResult?.pip,
             ials:           hrfResult?.ials,
+            pss:            hrfResult?.pss,
+            hra:            AdvancedHRVCompute.computeHRA(rrMs: rrMs),
             dc:             dcResult?.dc,
             ac:             dcResult?.ac,
             breathPhases:   phases,
