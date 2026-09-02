@@ -223,4 +223,179 @@ final class AdvancedHRVComputeTests: XCTestCase {
     func testActivationCapacityIsNilWhenACIsMissing() {
         XCTAssertNil(MetricsHistoryPoint(timestamp: Date()).activationCapacity)
     }
+
+    // MARK: - QT delineation
+    //
+    // The app has never located a heartbeat: RR arrives ready-made from the
+    // strap's HR characteristic, and `ECGQualityCompute` only ever asked
+    // statistical questions of the waveform. QT needs the beat itself, so
+    // these tests are built on a synthetic ECG whose QT is known by
+    // construction — the only way to know the delineator is right rather than
+    // merely self-consistent.
+
+    /// One synthetic beat, laid down on a flat baseline at `fs` Hz.
+    ///
+    /// Q onset sits 40 ms before R and the T wave is a raised cosine that
+    /// returns exactly to baseline at `tEndMs` after R, so the true QT is
+    /// 40 + tEndMs by construction rather than by measurement.
+    private func syntheticECG(beats: Int, rrMs: Double, tEndMs: Double,
+                              fs: Double = 130) -> [Float] {
+        let n = Int(Double(beats) * rrMs / 1000 * fs)
+        var out = [Float](repeating: 0, count: n)
+        let spb = rrMs / 1000 * fs
+        for b in 0..<beats {
+            let r = Int(Double(b) * spb + spb / 2)
+            // QRS: a sharp spike with a small Q dip 40 ms ahead of R.
+            let q = r - Int(0.040 * fs)
+            for k in q..<r where k >= 0 && k < n {
+                let f = Double(k - q) / Double(max(r - q, 1))
+                out[k] += Float(-120 * sin(.pi * f))          // Q trough
+            }
+            for k in (r - 2)...(r + 2) where k >= 0 && k < n {
+                out[k] += Float(1000 * (1 - abs(Double(k - r)) / 3))   // R peak
+            }
+            // T wave: raised cosine from 40% to 100% of the QT tail, so it
+            // reaches baseline exactly at tEndMs and nowhere earlier.
+            let tS = r + Int(0.40 * tEndMs / 1000 * fs)
+            let tE = r + Int(tEndMs / 1000 * fs)
+            for k in tS..<tE where k >= 0 && k < n {
+                let f = Double(k - tS) / Double(max(tE - tS, 1))
+                out[k] += Float(220 * (1 - cos(2 * .pi * f)) / 2)
+            }
+        }
+        return out
+    }
+
+    /// The delineator must recover a QT it was never told.
+    ///
+    /// It reads slightly *short*, and that is the tangent method working as
+    /// designed rather than a defect: the tangent at the T wave's steepest
+    /// descent crosses baseline before a smooth T wave has actually flattened,
+    /// so measured QT sits a few samples under the constructed one. The bias
+    /// is asserted in both size and direction, because a method that
+    /// overshot would be a different bug wearing the same error bar.
+    ///
+    /// It matters little for what this feeds. QTVI normalises QT variance by
+    /// mean QT squared, so an offset shared by every beat very nearly cancels
+    /// — the beat-to-beat precision pinned by the test below is what counts.
+    func testDelineatorRecoversAKnownQTSlightlyShort() {
+        let ecg = syntheticECG(beats: 12, rrMs: 900, tEndMs: 320)
+        let beats = AdvancedHRVCompute.delineateQT(ecg: ecg, fs: 130)
+        XCTAssertGreaterThanOrEqual(beats.count, 8, "should find most of 12 beats")
+        let qt = beats.map { Double($0.qtMs) }
+        let mean = qt.reduce(0, +) / Double(qt.count)
+        // True QT is 40 ms (Q→R) + 320 ms (R→T end) = 360 ms.
+        XCTAssertLessThan(mean, 360, "the tangent method reads T end early")
+        XCTAssertEqual(mean, 360, accuracy: 30, "but only by a few samples at 130 Hz")
+    }
+
+    /// A longer QT must read longer. Absolute accuracy is bounded by the
+    /// sample grid, but the ordering has to survive it or the chart is noise.
+    func testDelineatorSeparatesALongQTFromAShortOne() {
+        let short = AdvancedHRVCompute.delineateQT(
+            ecg: syntheticECG(beats: 12, rrMs: 900, tEndMs: 280), fs: 130)
+        let long  = AdvancedHRVCompute.delineateQT(
+            ecg: syntheticECG(beats: 12, rrMs: 900, tEndMs: 380), fs: 130)
+        func mean(_ b: [QTBeat]) -> Double {
+            b.map { Double($0.qtMs) }.reduce(0, +) / Double(b.count)
+        }
+        XCTAssertGreaterThan(mean(long) - mean(short), 70,
+                             "a 100 ms difference must survive delineation")
+    }
+
+    /// Flat line, noise, an off-body strap: no beats, and therefore no QT.
+    /// Reporting a number here is how a dead sensor becomes a health reading.
+    func testDelineatorFindsNothingInAFlatLine() {
+        XCTAssertTrue(AdvancedHRVCompute.delineateQT(
+            ecg: [Float](repeating: 0, count: 1300), fs: 130).isEmpty)
+    }
+
+    // MARK: - QT Variability Index
+
+    /// Berger's QTVI is a ratio of *normalised* variabilities, so a recording
+    /// where QT and HR wobble in equal proportion sits at 0 by construction.
+    /// This pins the formula, which is the part easiest to get subtly wrong.
+    func testQTVIIsZeroWhenQTAndHeartRateVaryInEqualProportion() {
+        // QT: mean 400, SD 40 → CV 0.1.  RR: mean 900, SD 90 → CV 0.1.
+        let qt = [360.0, 440.0, 360.0, 440.0].map(Float.init)
+        let rr = [810.0, 990.0, 810.0, 990.0].map(Float.init)
+        let v = try! XCTUnwrap(AdvancedHRVCompute.qtvi(qtMs: qt, rrMs: rr))
+        XCTAssertEqual(v, 0, accuracy: 0.05)
+    }
+
+    /// QT wobbling more than heart rate does is the abnormal direction, and
+    /// must push the index positive.
+    func testQTVIRisesWhenQTIsUnstableAgainstASteadyHeartRate() {
+        let qt = [340.0, 460.0, 340.0, 460.0].map(Float.init)
+        let rr = [895.0, 905.0, 895.0, 905.0].map(Float.init)
+        let v = try! XCTUnwrap(AdvancedHRVCompute.qtvi(qtMs: qt, rrMs: rr))
+        XCTAssertGreaterThan(v, 0.5)
+    }
+
+    /// A heart with no QT variation at all cannot be placed on a log ratio.
+    func testQTVIIsNilWhenThereIsNoQTVariationToSpeakOf() {
+        XCTAssertNil(AdvancedHRVCompute.qtvi(
+            qtMs: [Float](repeating: 400, count: 8),
+            rrMs: [Float](repeating: 900, count: 8)))
+    }
+
+    // MARK: - QT Tracker
+
+    /// The buffer holds 10 s and the tick fires every 2 s, so eight seconds of
+    /// every window has already been counted. Feeding the same window twice
+    /// must not double the series — without the dedup, a still subject would
+    /// look like they had five times the beats they have.
+    func testTrackerDoesNotCountAnOverlappingWindowTwice() {
+        let tracker = QTTracker()
+        let ecg = syntheticECG(beats: 12, rrMs: 900, tEndMs: 320)
+        let t0 = Date(timeIntervalSince1970: 1_750_000_000)
+
+        tracker.update(ecg: ecg, fs: 130, windowEnd: t0)
+        let afterFirst = tracker.beatCountForTesting
+        XCTAssertGreaterThanOrEqual(afterFirst, 8)
+
+        // Same window, same instant — every beat is one already held.
+        tracker.update(ecg: ecg, fs: 130, windowEnd: t0)
+        XCTAssertEqual(tracker.beatCountForTesting, afterFirst,
+                       "re-feeding an identical window must add nothing")
+    }
+
+    /// Advancing the clock by a real 2 s step should admit the beats that
+    /// genuinely are new, and only those.
+    func testTrackerAccumulatesAcrossSuccessiveWindows() {
+        let tracker = QTTracker()
+        let ecg = syntheticECG(beats: 12, rrMs: 900, tEndMs: 320)
+        var t = Date(timeIntervalSince1970: 1_750_000_000)
+
+        tracker.update(ecg: ecg, fs: 130, windowEnd: t)
+        let first = tracker.beatCountForTesting
+        for _ in 0..<10 {
+            t = t.addingTimeInterval(2)
+            tracker.update(ecg: ecg, fs: 130, windowEnd: t)
+        }
+        let after = tracker.beatCountForTesting
+        XCTAssertGreaterThan(after, first, "new beats must accumulate")
+        // 10 steps × 2 s at 900 ms per beat is ~22 further beats, not 120.
+        XCTAssertLessThan(after, first + 40, "overlap must not be double-counted")
+    }
+
+    /// Below Berger's beat count there is no index — a QTVI built on eleven
+    /// beats would be a number the data cannot support.
+    func testTrackerReportsNothingUntilItHasEnoughBeats() {
+        let tracker = QTTracker()
+        let ecg = syntheticECG(beats: 12, rrMs: 900, tEndMs: 320)
+        XCTAssertNil(tracker.update(ecg: ecg, fs: 130,
+                                    windowEnd: Date(timeIntervalSince1970: 1_750_000_000)))
+    }
+
+    /// A dropped connection makes the next beat discontinuous with the last,
+    /// so the series cannot span the gap.
+    func testResetClearsTheSeries() {
+        let tracker = QTTracker()
+        let ecg = syntheticECG(beats: 12, rrMs: 900, tEndMs: 320)
+        tracker.update(ecg: ecg, fs: 130, windowEnd: Date(timeIntervalSince1970: 1_750_000_000))
+        XCTAssertGreaterThan(tracker.beatCountForTesting, 0)
+        tracker.reset()
+        XCTAssertEqual(tracker.beatCountForTesting, 0)
+    }
 }

@@ -30,6 +30,8 @@ final class HRVSample {
     /// before these existed. Not synced, so a cloud restore leaves them nil.
     var pss:            Float?
     var hra:            Float?
+    /// QT Variability Index. Optional attribute, so SwiftData migrates.
+    var qtvi:           Float?
     var dc:             Float?
     /// Acceleration Capacity (ms), DC's mirror. Optional attribute on a plain
     /// @Model, so SwiftData migrates existing stores automatically — nil on
@@ -77,6 +79,7 @@ final class HRVSample {
         self.ials          = tick.ials
         self.pss           = tick.pss
         self.hra           = tick.hra
+        self.qtvi          = tick.qtvi
         self.dc            = tick.dc
         self.ac            = tick.ac
         self.motion        = tick.motion
@@ -120,7 +123,7 @@ final class HRVSample {
         self.breathSourceRaw = nil
         self.rrInvalidRate = nil; self.rrCorrectedRate = nil; self.ecgQualityTier = nil
         self.ials = nil; self.motion = nil
-        self.pss = nil; self.hra = nil
+        self.pss = nil; self.hra = nil; self.qtvi = nil
         self.bodyPositionRaw = nil; self.positionConfidence = nil
         self.ulfPower = nil; self.vlfPower = nil; self.lfPower = nil; self.hfPower = nil
     }
@@ -162,7 +165,7 @@ final class HRVSample {
         self.pnn50 = nil; self.lfHF = nil; self.rsaMs = nil; self.rsaIdx = nil
         self.coherence = nil; self.cbi = nil; self.ieRatio = nil
         self.rrCorrectedRate = nil; self.rcmse = nil; self.ials = nil
-        self.pss = nil; self.hra = nil
+        self.pss = nil; self.hra = nil; self.qtvi = nil
         self.breathSourceRaw = nil
         self.ulfPower = nil; self.vlfPower = nil; self.lfPower = nil; self.hfPower = nil
     }

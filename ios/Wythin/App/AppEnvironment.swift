@@ -387,6 +387,11 @@ final class AppEnvironment {
     /// Temporal filter over the per-tick breathing estimates — see
     /// `BreathRateTracker`. Lives here because the metrics engine is pure.
     private var breathTracker = BreathRateTracker()
+    /// Accumulates QT across ticks so QTVI has enough beats to mean anything.
+    /// Stateful for the same reason `breathTracker` is: the engine is a pure
+    /// per-snapshot function, and one ECG window holds ~11 beats where
+    /// Berger's index wants hundreds.
+    private let qtTracker = QTTracker()
     private var lastBreathTickAt: Date?
 
     // MARK: Init
@@ -799,6 +804,9 @@ final class AppEnvironment {
         ble.connectionGapSubject
             .sink { [weak self] in
                 guard let self else { return }
+                // The beats either side of a gap are not consecutive, so the
+                // QT series cannot span it any more than the RR buffer can.
+                self.qtTracker.reset()
                 Task { await self.dataBuffer.clear() }
             }
             .store(in: &cancellables)
@@ -823,6 +831,7 @@ final class AppEnvironment {
                     // Whatever breathing resumes later belongs to a different
                     // stretch of time — don't drag the old rate across the gap.
                     self.breathTracker.reset()
+                    self.qtTracker.reset()
                     continue
                 }
 
@@ -859,6 +868,17 @@ final class AppEnvironment {
                 tick.breathBPM = self.breathTracker.update(
                     tick.breathBPM.map { [.init(bpm: $0, confidence: tick.breathConfidence ?? 3)] } ?? [],
                     dt: dt)
+
+                // QT needs the waveform, not the tachogram, and more beats
+                // than one window holds — so it accumulates here rather than
+                // in the engine. Skipped when the ECG stream is dead, since
+                // delineating silence just burns CPU.
+                if !snapshot.ecg.isEmpty {
+                    tick.qtvi = self.qtTracker.update(
+                        ecg: snapshot.ecg,
+                        fs: Float(PolarH10Profile.ecgSampleRate),
+                        windowEnd: tick.timestamp)
+                }
 
                 // Keep the chart history current in BOTH foreground and background
                 // so the charts are already up-to-date the instant the app is

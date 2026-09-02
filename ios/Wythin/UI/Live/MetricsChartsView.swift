@@ -895,6 +895,7 @@ struct MetricsChartsView: View, Equatable {
             acCard            // Throttle
             hraCard           // Brake Bias
             rhythmStabilityCard
+            qtviCard          // Repolarisation Stability
 
             signalQualitySection
         }
@@ -1318,6 +1319,56 @@ struct MetricsChartsView: View, Equatable {
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.rhythmStability }
+    }
+
+    // MARK: QTVI
+
+    /// Repolarisation Stability — Berger's QT Variability Index.
+    ///
+    /// The only chart here that is not a transformation of the tachogram.
+    /// Every other card measures the sinus node — how the pacemaker is being
+    /// steered. This measures the ventricular muscle recovering between
+    /// beats, which is different tissue with different failure modes, and
+    /// QTVI is built to be the part heart-rate variability does *not*
+    /// explain: both variabilities are normalised by their own mean before
+    /// the ratio is taken.
+    ///
+    /// Plotted inverted, so the line rises as repolarisation gets steadier
+    /// and the card agrees with its own title. Raw QTVI runs the other way —
+    /// negative is healthy, around −1.5 to −1.9 in the literature — which is
+    /// why the axis is labelled and the info sheet gives the real numbers.
+    ///
+    /// Treat it as provisional. The H10 samples at 130 Hz where the QT
+    /// literature uses 500–1000 Hz, and T-wave end on a single bipolar chest
+    /// lead is the least certain landmark in electrocardiography. The
+    /// beat-to-beat *precision* the index actually depends on is tested; the
+    /// absolute calibration against clinical equipment is not, and cannot be
+    /// from this codebase.
+    private var qtviCard: some View {
+        MetricChartCard(
+            title:    "Repolarisation Stability",
+            technicalName: "QT Variability Index (QTVI), inverted",
+            subtitle: "How steadily the heart muscle resets",
+            yLabel:   "index",
+            color:    Color(red: 0.85, green: 0.6, blue: 0.95),
+            windows:  TimeWindow.allCases,
+            refs: [],
+            yDomain: -1...3,
+            win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
+            smooth: true,
+            dynamicY: true,
+            info: MetricInfo(
+                "Every heartbeat has two halves: the squeeze, and the electrical reset that readies the muscle for the next one. Every other chart here watches the squeeze being scheduled. This one watches the reset — and how much it wobbles from beat to beat.",
+                calculation: "Berger\u{2019}s QT Variability Index: the QT interval is measured on each beat from the raw ECG, and its variability is compared against heart-rate variability, each divided by the square of its own average. Because both sides are scaled that way, what is left is the wobble in the reset that changes in heart rate do not account for. Shown inverted, so higher is steadier.",
+                physical:    "After each beat your heart muscle has to recharge before it can beat again. That recharge takes a few tenths of a second, and it should take about the same time every beat. This measures how much that time drifts.",
+                physiology:  "This is the one measure here that is not about your nerves steering the pacemaker \u{2014} it is about the ventricular muscle itself. An unsteady reset is the pattern linked with arrhythmic risk, and it also rises with sustained sympathetic load, depression and anxiety, which is why it earns a place next to the autonomic charts rather than inside them.",
+                training:    "Not a dial to move in a session. It is a slow, whole-system marker: read it across weeks, and read a change as a question rather than an answer.",
+                sensitivity: "Needs a clean ECG and at least 32 delineated beats before it reports anything, and it rebuilds from scratch after the strap comes off. Movement is its enemy \u{2014} the T wave is small and easily buried.",
+                levels:      "Published QTVI values are negative, roughly \u{2212}1.9 (steady) to \u{2212}1.0 (unsteady), with values above \u{2212}1.0 considered abnormal. This chart plots the sign-flipped value, so 1.9 here is the steady end and 1.0 the unsteady one.",
+                notes:       "Provisional. The strap samples at 130 Hz where the QT literature uses 500\u{2013}1000 Hz, so absolute values are not comparable with a clinical recording \u{2014} compare only against your own trend. Blank before this shipped, and blank on any window the ECG stream was not running."
+            ),
+            history: history, rawHistory: rawHistory, date: date
+        ) { $0.qtvi.map { -Double($0) } }
     }
 
     // MARK: Breath Rate

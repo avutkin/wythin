@@ -20,6 +20,13 @@ struct HRFragResult {
     let pss:  Float
 }
 
+/// One delineated beat: where R landed in the supplied window, and the QT
+/// interval measured from QRS onset to T-wave end.
+struct QTBeat {
+    let rIndex: Int
+    let qtMs:   Float
+}
+
 struct DCResult {
     /// Deceleration Capacity in ms. Healthy 5-min range: ~6–9 ms. <4.5 ms = high risk (24h norm).
     let dc: Float
@@ -196,6 +203,164 @@ enum AdvancedHRVCompute {
         return Float(decelSquares / totalSquares * 100)
     }
 
+    // MARK: - QT delineation
+    //
+    // Everything else in this file reads the tachogram — a series the strap
+    // hands us already made. QT is the one measure that needs the waveform,
+    // so this is the app's only beat delineator.
+    //
+    // Two honest limits, both surfaced in the chart's copy rather than hidden
+    // here. The H10 samples at 130 Hz, so one sample is 7.7 ms and QT can
+    // never be more precise than roughly that. And T-wave end on a single
+    // bipolar chest lead is the least reliable landmark in electrocardio-
+    // graphy — this uses the tangent method, which is standard, not exact.
+
+    /// Plausible QT range in ms. Outside this the delineation failed rather
+    /// than the heart doing something interesting, so the beat is dropped.
+    private static let qtPlausible: ClosedRange<Float> = 200...600
+
+    /// Locate every beat in an ECG window and measure its QT interval.
+    ///
+    /// Returns one entry per beat that could be delineated with confidence;
+    /// a window with no clean beats returns empty rather than guessing.
+    static func delineateQT(ecg: [Float], fs: Float) -> [QTBeat] {
+        let rPeaks = detectRPeaks(ecg: ecg, fs: fs)
+        guard rPeaks.count >= 2 else { return [] }
+
+        var out: [QTBeat] = []
+        for (i, r) in rPeaks.enumerated() {
+            // The T wave has to fit before the next beat starts.
+            let nextR = i + 1 < rPeaks.count ? rPeaks[i + 1] : r + Int(fs)
+            guard let qt = measureQT(ecg: ecg, fs: fs, r: r, nextR: nextR) else { continue }
+            guard qtPlausible.contains(qt) else { continue }
+            out.append(QTBeat(rIndex: r, qtMs: qt))
+        }
+        return out
+    }
+
+    /// Pan-Tompkins in miniature: differentiate, square, integrate over a
+    /// QRS-width window, then take peaks above a threshold set from the
+    /// window's own energy — no absolute microvolt constant, for the same
+    /// reason `ECGQualityCompute` avoids one.
+    private static func detectRPeaks(ecg: [Float], fs: Float) -> [Int] {
+        guard ecg.count > Int(fs) else { return [] }
+
+        var energy = [Float](repeating: 0, count: ecg.count)
+        for i in 1..<ecg.count {
+            let d = ecg[i] - ecg[i - 1]
+            energy[i] = d * d
+        }
+        let w = max(Int(0.100 * fs), 3)          // ~100 ms, a QRS width
+        var integrated = [Float](repeating: 0, count: energy.count)
+        var running: Float = 0
+        for i in 0..<energy.count {
+            running += energy[i]
+            if i >= w { running -= energy[i - w] }
+            integrated[i] = running / Float(w)
+        }
+
+        // A flat or noise-only window has no peak standing above its own mean;
+        // requiring a real multiple of it is what keeps a dead strap silent.
+        let mean = integrated.reduce(0, +) / Float(integrated.count)
+        guard let peak = integrated.max(), mean > 0, peak > 8 * mean else { return [] }
+        let threshold = 0.25 * peak
+
+        let refractory = Int(0.200 * fs)         // no two beats inside 200 ms
+        var peaks: [Int] = []
+        var i = 1
+        while i < integrated.count - 1 {
+            if integrated[i] >= threshold,
+               integrated[i] >= integrated[i - 1], integrated[i] > integrated[i + 1],
+               peaks.last.map({ i - $0 >= refractory }) ?? true {
+                // The integrator lags the true R by about half its window;
+                // refine to the largest deflection nearby.
+                let lo = max(0, i - w), hi = min(ecg.count - 1, i + 2)
+                var best = lo
+                for k in lo...hi where abs(ecg[k]) > abs(ecg[best]) { best = k }
+                if peaks.last.map({ best - $0 >= refractory }) ?? true { peaks.append(best) }
+            }
+            i += 1
+        }
+        return peaks
+    }
+
+    /// QRS onset to T-wave end for one beat, by the tangent method.
+    private static func measureQT(ecg: [Float], fs: Float, r: Int, nextR: Int) -> Float? {
+        // Baseline from the PQ segment — the flattest stretch of a beat.
+        let bLo = r - Int(0.120 * fs), bHi = r - Int(0.080 * fs)
+        guard bLo >= 0, bHi > bLo else { return nil }
+        let baseline = ecg[bLo..<bHi].reduce(0, +) / Float(bHi - bLo)
+
+        // QRS onset: walk back from R to where the trace last sat on baseline.
+        let qLimit = max(0, r - Int(0.080 * fs))
+        var qOnset = qLimit
+        var k = r
+        while k > qLimit {
+            if abs(ecg[k] - baseline) < abs(ecg[r] - baseline) * 0.05 { qOnset = k; break }
+            k -= 1
+        }
+
+        // T search: past the QRS, and stopping short of the next beat.
+        let tLo = r + Int(0.100 * fs)
+        let tHi = min(min(r + Int(0.500 * fs), nextR - Int(0.050 * fs)), ecg.count - 1)
+        guard tHi > tLo + 3 else { return nil }
+
+        var tPeak = tLo
+        for i in tLo...tHi where abs(ecg[i] - baseline) > abs(ecg[tPeak] - baseline) { tPeak = i }
+        guard tPeak < tHi - 1 else { return nil }
+
+        // Steepest descent off the T peak, then that tangent's baseline crossing.
+        var steepest = tPeak, maxSlope: Float = 0
+        for i in tPeak..<tHi {
+            let slope = abs(ecg[i + 1] - ecg[i])
+            if slope > maxSlope { maxSlope = slope; steepest = i }
+        }
+        guard maxSlope > 0 else { return nil }
+
+        let signedSlope = ecg[steepest + 1] - ecg[steepest]
+        guard signedSlope != 0 else { return nil }
+        let toBaseline  = baseline - ecg[steepest]
+        let extraSamples = toBaseline / signedSlope
+        guard extraSamples.isFinite, extraSamples >= 0 else { return nil }
+        let tEnd = Float(steepest) + min(extraSamples, Float(tHi - steepest))
+
+        return (tEnd - Float(qOnset)) / fs * 1000
+    }
+
+    // MARK: - QT Variability Index
+
+    /// Berger's QT Variability Index (Berger et al. 1997):
+    ///
+    ///     QTVI = log10[ (QTv / QTm²) / (HRv / HRm²) ]
+    ///
+    /// Both variabilities are normalised by the square of their own mean, so
+    /// the index is a ratio of *relative* wobble: 0 means QT and heart rate
+    /// are equally unsteady, and positive means repolarisation is doing
+    /// something the heart rate does not explain. That normalisation is the
+    /// whole point of the measure — it is what makes it more than a second
+    /// view of HRV.
+    ///
+    /// Nil when either side has no variance to speak of, since the log of a
+    /// zero ratio is not a reading.
+    static func qtvi(qtMs: [Float], rrMs: [Float]) -> Float? {
+        guard qtMs.count >= 3, rrMs.count >= 3 else { return nil }
+
+        func meanVar(_ xs: [Float]) -> (mean: Double, variance: Double) {
+            let m = xs.reduce(0) { $0 + Double($1) } / Double(xs.count)
+            let v = xs.reduce(0) { $0 + (Double($1) - m) * (Double($1) - m) } / Double(xs.count)
+            return (m, v)
+        }
+
+        let (qtM, qtV) = meanVar(qtMs)
+        // Heart rate, not interval: the index is defined on HR.
+        let (hrM, hrV) = meanVar(rrMs.map { $0 > 0 ? 60_000 / $0 : 0 })
+
+        guard qtM > 0, hrM > 0, qtV > 0, hrV > 0 else { return nil }
+        let ratio = (qtV / (qtM * qtM)) / (hrV / (hrM * hrM))
+        guard ratio > 0, ratio.isFinite else { return nil }
+        return Float(log10(ratio))
+    }
+
     // MARK: - Private helpers
 
     /// PRSA averaging and Haar wavelet extraction.
@@ -285,4 +450,73 @@ enum AdvancedHRVCompute {
         let sq   = vDSP.sumOfSquares(vDSP.subtract(v, [Float](repeating: mean, count: v.count)))
         return sqrt(sq / Float(v.count - 1))
     }
+}
+
+// MARK: - QT Tracker
+
+/// Accumulates QT measurements across ticks so QTVI has enough beats to mean
+/// anything.
+///
+/// One ECG window is ~10 s — about eleven beats — and Berger's index is
+/// conventionally computed over a few hundred. Worse, the windows overlap:
+/// the buffer holds 10 s and the tick fires every 2 s, so eight seconds of
+/// every window has already been counted. This keeps a rolling series and
+/// admits only beats newer than the newest one it already holds.
+///
+/// Stateful, so it lives outside `MetricsEngine` — which is a pure
+/// per-snapshot function — exactly as the breathing-rate tracker does.
+final class QTTracker {
+
+    /// ~5 minutes at 60 bpm, comfortably past Berger's 256 beats.
+    private let maxBeats = 300
+
+    private struct Beat {
+        let time: Date
+        let qtMs: Float
+    }
+    private var beats: [Beat] = []
+
+    /// Delineate one ECG window and fold any genuinely new beats in.
+    /// Returns the current QTVI, or nil while there is not enough to say.
+    @discardableResult
+    func update(ecg: [Float], fs: Float, windowEnd: Date) -> Float? {
+        let found = AdvancedHRVCompute.delineateQT(ecg: ecg, fs: fs)
+        let newest = beats.last?.time
+
+        for b in found {
+            // Where this beat sits in real time: the window ends at
+            // `windowEnd`, so a sample is (count - index) / fs seconds old.
+            let age  = Double(ecg.count - b.rIndex) / Double(fs)
+            let time = windowEnd.addingTimeInterval(-age)
+            // A tenth of a second of slack absorbs delineation jitter on a
+            // beat seen twice, without ever swallowing a real one — no two
+            // beats are 100 ms apart.
+            if let newest, time <= newest.addingTimeInterval(0.1) { continue }
+            beats.append(Beat(time: time, qtMs: b.qtMs))
+        }
+
+        if beats.count > maxBeats { beats.removeFirst(beats.count - maxBeats) }
+        return qtvi
+    }
+
+    /// Berger's index over the accumulated series. The RR side is taken from
+    /// the beats' own spacing rather than the strap's RR, so both halves of
+    /// the ratio describe the same beats.
+    var qtvi: Float? {
+        guard beats.count >= 32 else { return nil }
+        let rr = zip(beats, beats.dropFirst()).map {
+            Float($1.time.timeIntervalSince($0.time) * 1000)
+        }.filter { (300...2000).contains($0) }
+        guard rr.count >= 32 else { return nil }
+        return AdvancedHRVCompute.qtvi(qtMs: beats.map(\.qtMs), rrMs: rr)
+    }
+
+    /// How many beats the series currently holds. Test seam: the overlap
+    /// dedup is the whole reason this class exists, and it is invisible from
+    /// `qtvi` alone, which stays nil until 32 beats regardless.
+    var beatCountForTesting: Int { beats.count }
+
+    /// A connection gap or a doffed strap makes the next beat discontinuous
+    /// with the last, so the series starts again.
+    func reset() { beats.removeAll() }
 }

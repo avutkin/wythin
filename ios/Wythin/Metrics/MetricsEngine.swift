@@ -87,6 +87,10 @@ struct MetricsTick {
     /// Heart Rate Asymmetry (Guzik's Index, %) — the share of short-term
     /// variance carried by decelerations. 50 % is even.
     var hra:   Float? = nil
+    /// QT Variability Index (Berger 1997). Set outside the engine by
+    /// `QTTracker`, which accumulates beats across ticks — one 10 s ECG
+    /// window holds far too few for it.
+    var qtvi:  Float? = nil
     let dc:    Float?   // Deceleration Capacity in ms (Bauer 2006, PRSA)
     /// Acceleration Capacity in ms — DC's mirror, from the same PRSA pass, so
     /// it costs nothing extra to carry. Negative for a resting series; the
