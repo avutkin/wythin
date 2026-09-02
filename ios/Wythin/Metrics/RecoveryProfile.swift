@@ -29,7 +29,7 @@ enum RecoveryProfile {
     /// pre-session resting rate. A stricter bar than the halfway mark the
     /// timing channels use, because this one is claiming the load is *gone*
     /// rather than that it is coming down.
-    static let restingTolerance: Double = 1.10
+    static let restingTolerance: Double = 1 + RecoveryTiming.homeTolerance
 
     /// The checkpoint both layer percentages are read at.
     static let profileMinutes: Double = 10

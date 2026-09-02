@@ -83,14 +83,22 @@ struct RecoveryCurveChart: View {
     let startedAt: Date
     let endedAt:   Date
     let channel:   Channel
-    /// The outcome the score was computed from.
+    /// When the signal was back inside its resting band — where the curve
+    /// stops.
     ///
-    /// Passed in rather than re-derived here. This view used to run its own
-    /// crossing rule over its own ten-minute slice of samples while the stored
-    /// number came from a four-hour fetch, so the caption could read "Halfway
-    /// back 0 minutes after you stopped" directly beneath a headline of
-    /// ">34 min · not halfway yet". One rule, one window, one answer.
-    let outcome:   RecoveryTiming.Outcome
+    /// Passed in rather than re-derived here, from the same samples the card's
+    /// time row is computed from. This view used to run its own crossing rule
+    /// over its own slice of samples while the number beside it came from
+    /// another window, so the caption could contradict the headline. One rule,
+    /// one window, one answer.
+    ///
+    /// A recovery chart that runs on for three hours after the return has
+    /// happened shows an hour of the interesting part squeezed into a fifth of
+    /// the width and two hours of flat line. The picture is of a signal going
+    /// home, so the drawing ends shortly after it gets there. When it never
+    /// gets there, the whole recording stays, because "still not home" is then
+    /// the finding.
+    let returned:  RecoveryTiming.Outcome
 
     /// Pre-session level — what is being returned to.
     let dcPre:     Float?
@@ -127,7 +135,25 @@ struct RecoveryCurveChart: View {
         }
     }
 
-    private var dots: [Dot] {
+    /// Minutes past the return the curve keeps drawing, so the landing reads
+    /// as a landing rather than as the edge of the frame. A quarter of the
+    /// return time, and never less than two minutes.
+    static let landingMargin: Double = 0.25
+    static let minimumLandingMinutes: Double = 2
+
+    /// The last minute (from session start) the curve is drawn to.
+    ///
+    /// - Parameter lastAfter: minutes of recording after the session ended.
+    static func visibleEnd(sessionMinutes: Double,
+                           returned: RecoveryTiming.Outcome,
+                           lastAfter: Double) -> Double {
+        let full = sessionMinutes + max(lastAfter, 1)
+        guard case let .reached(minutes) = returned else { return full }
+        let margin = max(minutes * landingMargin, minimumLandingMinutes)
+        return min(sessionMinutes + minutes + margin, full)
+    }
+
+    private var allDots: [Dot] {
         points
             .filter { measure($0) != nil }
             .sorted { $0.timestamp < $1.timestamp }
@@ -137,6 +163,16 @@ struct RecoveryCurveChart: View {
                 let phase: Phase = m < 0 ? .before : (m <= sessionMinutes ? .during : .after)
                 return Dot(id: i, minutes: m, dc: Double(measure(p)!), phase: phase)
             }
+    }
+
+    /// The samples the curve actually draws: everything up to the visible end.
+    private var dots: [Dot] {
+        let all = allDots
+        let recorded = (all.filter { $0.phase == .after }.map(\.minutes).max() ?? sessionMinutes)
+            - sessionMinutes
+        let end = Self.visibleEnd(sessionMinutes: sessionMinutes,
+                                  returned: returned, lastAfter: recorded)
+        return all.filter { $0.minutes <= end + 0.001 }
     }
 
     private var direction: RecoveryTiming.Direction {
@@ -176,8 +212,8 @@ struct RecoveryCurveChart: View {
         if let preF = dcPre, preF > 0, d.count >= 3 {
             let pre = Double(preF)
             let bar = targetLevel(pre: pre)
-            let recovered: Double? = {
-                if case let .reached(minutes) = outcome { return minutes }
+            let home: Double? = {
+                if case let .reached(minutes) = returned { return minutes }
                 return nil
             }()
             let lastAfter = (d.filter { $0.phase == .after }.map(\.minutes).max() ?? sessionMinutes)
@@ -202,7 +238,7 @@ struct RecoveryCurveChart: View {
                                 // The level, not just the name. Two dashed lines
                                 // a hair apart is precisely the picture that
                                 // needs the reader to see how far apart.
-                                Text("halfway back \u{2014} the bar being scored \u{00B7} \(channel.formatted(bar))")
+                                Text("halfway \u{2014} what the score times \u{00B7} \(channel.formatted(bar))")
                                     .font(.system(size: 8, design: .monospaced))
                                     .foregroundStyle(Theme.accent.opacity(0.8))
                             }
@@ -225,10 +261,18 @@ struct RecoveryCurveChart: View {
                             .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
                     }
 
-                    if let r = recovered {
-                        RuleMark(x: .value("Recovered", sessionMinutes + r))
+                    if let home {
+                        // The moment the curve is drawn to: back inside the
+                        // resting band. Labelled with the time, since the
+                        // time is the number the card reports.
+                        RuleMark(x: .value("Home", sessionMinutes + home))
                             .foregroundStyle(Theme.accent.opacity(0.7))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 2]))
+                            .annotation(position: .top, alignment: .trailing) {
+                                Text("home \u{00B7} +\(Int(home.rounded()))m")
+                                    .font(.system(size: 8, design: .monospaced))
+                                    .foregroundStyle(Theme.accent.opacity(0.8))
+                            }
                     }
                 }
                 .chartXAxis {
@@ -283,7 +327,7 @@ struct RecoveryCurveChart: View {
                 Text(bar == nil
                      ? RecoveryTiming.noExcursionNote(subject: channel.subject,
                                                       direction: direction)
-                     : RecoveryTiming.summary(outcome, subject: channel.subject))
+                     : RecoveryTiming.returnSummary(returned, subject: channel.subject))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)

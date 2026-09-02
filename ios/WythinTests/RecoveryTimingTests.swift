@@ -331,4 +331,95 @@ extension RecoveryTimingTests {
         XCTAssertNotNil(out.neural)
         XCTAssertNotNil(out.cardiovascular)
     }
+
+    // MARK: - Back to resting
+
+    /// The curve is drawn to the moment the signal is back inside a tenth of
+    /// its resting level, and the card reports that moment — not the halfway
+    /// mark the score is built from.
+    func testReturnToRestingIsTimedAtTheRestingBand() {
+        // Resting 8, so home is 7.2. The climb 2 → 9 over ten minutes crosses
+        // 7.2 at 7.43.
+        let out = RecoveryTiming.returnToResting(ramp(from: 2, to: 9, minutes: 10).map {
+            (minutes: $0.minutes, value: $0.dc)
+        }, pre: 8, extreme: 2, direction: .upward)
+        guard case let .reached(m) = out else { return XCTFail("expected reached, got \(out)") }
+        XCTAssertEqual(m, 7.43, accuracy: 0.6)
+        XCTAssertEqual(RecoveryTiming.Direction.upward.homeTarget(pre: 8), 7.2, accuracy: 0.0001)
+    }
+
+    func testReturnToRestingStopsShortWhenOnlyHalfwayCameBack() {
+        // Clears the halfway bar of 5 comfortably; never reaches 7.2.
+        let out = RecoveryTiming.returnToResting(ramp(from: 2, to: 6, minutes: 10).map {
+            (minutes: $0.minutes, value: $0.dc)
+        }, pre: 8, extreme: 2, direction: .upward)
+        guard case let .notReached(observed) = out else {
+            return XCTFail("expected notReached, got \(out)")
+        }
+        XCTAssertEqual(observed, 10, accuracy: 0.6)
+    }
+
+    func testReturnToRestingNeedsAnExcursion() {
+        // The same floor as the halfway bar: a brake that barely dipped has
+        // nothing to return from, and that is not a gap in the recording.
+        let flat = (0...24).map { (minutes: Double($0) * 0.5, value: 7.9) }
+        XCTAssertEqual(RecoveryTiming.returnToResting(flat, pre: 8, extreme: 7.8,
+                                                      direction: .upward), .notObserved)
+    }
+
+    func testHeartRateReturnsToRestingFromAbove() {
+        // Resting 60, so home is 66. The fall 150 → 60 over ten minutes
+        // crosses 66 at 9.33.
+        let fall = stride(from: 0.0, through: 10, by: 0.5).map {
+            (minutes: $0, value: 150 - 90 * ($0 / 10))
+        }
+        let out = RecoveryTiming.returnToResting(fall, pre: 60, extreme: 150, direction: .downward)
+        guard case let .reached(m) = out else { return XCTFail("expected reached, got \(out)") }
+        XCTAssertEqual(m, 9.33, accuracy: 0.6)
+        XCTAssertEqual(RecoveryTiming.Direction.downward.homeTarget(pre: 60), 66, accuracy: 0.0001)
+    }
+
+    /// The profile's "home" band for heart rate is the same band the curve
+    /// ends at, so the two cannot drift apart.
+    func testTheProfileHomeBandIsTheChartHomeBand() {
+        XCTAssertEqual(RecoveryProfile.restingTolerance,
+                       1 + RecoveryTiming.homeTolerance, accuracy: 0.0001)
+    }
+
+    // MARK: - Where the curve stops
+
+    func testTheCurveEndsShortlyAfterTheReturn() {
+        // Heart rate home four minutes after a thirty-minute session, with
+        // three hours of recording behind it: the chart stops a couple of
+        // minutes past the landing, not at the end of the recording.
+        let end = RecoveryCurveChart.visibleEnd(sessionMinutes: 30,
+                                                returned: .reached(minutes: 4),
+                                                lastAfter: 180)
+        XCTAssertEqual(end, 36, accuracy: 0.01)
+    }
+
+    func testTheCurveMarginScalesWithASlowReturn() {
+        // A brake home at forty minutes gets a quarter again so the landing
+        // is visible as a landing rather than an edge.
+        let end = RecoveryCurveChart.visibleEnd(sessionMinutes: 30,
+                                                returned: .reached(minutes: 40),
+                                                lastAfter: 180)
+        XCTAssertEqual(end, 80, accuracy: 0.01)
+    }
+
+    func testTheCurveNeverRunsPastTheRecording() {
+        let end = RecoveryCurveChart.visibleEnd(sessionMinutes: 30,
+                                                returned: .reached(minutes: 9),
+                                                lastAfter: 10)
+        XCTAssertEqual(end, 40, accuracy: 0.01)
+    }
+
+    func testTheCurveRunsToTheEndWhenItNeverGotHome() {
+        XCTAssertEqual(RecoveryCurveChart.visibleEnd(sessionMinutes: 30,
+                                                     returned: .notReached(observedMinutes: 180),
+                                                     lastAfter: 180), 210, accuracy: 0.01)
+        XCTAssertEqual(RecoveryCurveChart.visibleEnd(sessionMinutes: 30,
+                                                     returned: .notObserved,
+                                                     lastAfter: 5), 35, accuracy: 0.01)
+    }
 }

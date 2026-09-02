@@ -62,6 +62,18 @@ enum RecoveryTiming {
     /// as a missing recording and never as a hundred.
     static let minimumDrawdownFraction: Double = 0.10
 
+    /// Back inside this share of the resting level counts as home.
+    ///
+    /// The halfway bar above is what the score is built from, because a full
+    /// return often falls outside the recording. But halfway is not where the
+    /// eye wants the curve to stop: the picture is of a signal going back to
+    /// where it started, so the curve runs to the moment it is back inside a
+    /// tenth of resting and the card reports that moment as the return time.
+    /// One tolerance for both channels and for `RecoveryProfile`, so the
+    /// vertical line on the chart and the "home" band the profile judges by
+    /// are the same band.
+    static let homeTolerance: Double = 0.10
+
     /// Once reached, it must hold above this share of the target — a single
     /// noisy sample crossing the line is not recovery.
     static let holdFraction: Double = 0.9
@@ -152,6 +164,11 @@ enum RecoveryTiming {
             }
         }
 
+        /// The resting band's edge, on the side the signal returns from.
+        func homeTarget(pre: Double) -> Double {
+            self == .upward ? pre * (1 - homeTolerance) : pre * (1 + homeTolerance)
+        }
+
         func met(_ value: Double, target: Double) -> Bool {
             self == .upward ? value >= target : value <= target
         }
@@ -227,6 +244,24 @@ enum RecoveryTiming {
                         target: target, direction: .downward)
     }
 
+    /// How long until the signal was back inside its resting band.
+    ///
+    /// The same crossing rule and the same excursion floor as the halfway
+    /// time, aimed at `Direction.homeTarget` instead — so a session that
+    /// barely moved reports nothing here for the same reason it reports
+    /// nothing there.
+    ///
+    /// - Parameter series: (minutes since the session ended, value), any order.
+    static func returnToResting(_ series: [(minutes: Double, value: Double)],
+                                pre: Double?,
+                                extreme: Double?,
+                                direction: Direction) -> Outcome {
+        guard let pre, pre > 0, let extreme,
+              direction.movedEnough(pre: pre, extreme: extreme)
+        else { return .notObserved }
+        return crossing(series, target: direction.homeTarget(pre: pre), direction: direction)
+    }
+
     /// 0–100 for the overall score, from the time taken.
     ///
     /// Anchored rather than percentile-ranked so it means the same thing on day
@@ -262,6 +297,21 @@ enum RecoveryTiming {
         return "\(head) did not \(verb) more than a tenth from where it started, "
              + "so there is no rebound to time. That is a reading about the session, "
              + "not a gap in the recording."
+    }
+
+    /// The sentence shown under the chart, for the return the curve is drawn to.
+    static func returnSummary(_ outcome: Outcome, subject: String) -> String {
+        let head = subject.prefix(1).uppercased() + subject.dropFirst()
+        switch outcome {
+        case let .reached(minutes) where minutes < 1:
+            return "\(head) was already back at your resting level when you stopped."
+        case let .reached(minutes):
+            return "\(head) was back at your resting level \(Int(minutes.rounded())) minutes after you stopped — the curve ends there."
+        case let .notReached(observed):
+            return "\(head) was still short of your resting level \(Int(observed.rounded())) minutes after you stopped, so the curve runs to the end of the recording."
+        case .notObserved:
+            return "Not enough recording after this session to see the return."
+        }
     }
 
     /// The sentence shown under the chart.
