@@ -54,8 +54,8 @@ final class PracticeCatalogTests: XCTestCase {
     /// reminder to restore the real invariant above it.
     func testCatalogIsTemporarilyThePacersOnly() {
         XCTAssertEqual(PracticeCatalog.practices.map(\.id),
-                       ["box-breathing", "resonance-breathing", "coherent-breathing",
-                        "traube-hering-5x5", "prolonged-exhale-4x6", "hold-breath"],
+                       ["box-breathing", "resonance-breathing", "coherent-breathing-5x5",
+                        "relaxing-breathing-4x6", "hold-breath"],
                        "catalog changed — restore the per-category and per-state coverage tests")
     }
 
@@ -129,7 +129,7 @@ final class PracticeCatalogTests: XCTestCase {
     func testTheTwoHoldFreePacersDifferInHowTheyAreSet() {
         guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }),
               let resPattern = res.breathPattern,
-              let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing" }),
+              let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing-5x5" }),
               let cohPattern = coh.breathPattern else {
             return XCTFail("a hold-free pacer is missing from the catalog")
         }
@@ -137,35 +137,35 @@ final class PracticeCatalogTests: XCTestCase {
         XCTAssertFalse(cohPattern.hasHolds)
 
         XCTAssertEqual(res.paceControl, .seconds)
-        XCTAssertEqual(coh.paceControl, .clicksAndNote(defaultNote: .eighth))
+        XCTAssertEqual(coh.paceControl, .clicksAndNote(defaultNote: .quarter))
         XCTAssertNotEqual(res.paceControl, coh.paceControl,
                           "two hold-free pacers set the same way are one practice with two tiles")
 
-        // Both land on 5.5 s a side — reached from opposite directions. Coherent's
-        // defaultBPM is the tempo, not the click rate: the note supplies the rest.
+        // They no longer open on the same cadence either: Resonance on the 5.5 s
+        // it has always shipped, Coherent on a flat 5 s a side.
         XCTAssertEqual(EvenCadence(beats: resPattern.inhale, bpm: res.defaultBPM).seconds,
                        5.5, accuracy: 0.0001)
         let cohClickRate = coh.defaultBPM * coh.defaultNote.clicksPerBeat
         XCTAssertEqual(Double(cohPattern.inhale) * 60.0 / Double(cohClickRate),
-                       5.5, accuracy: 0.0001)
+                       5, accuracy: 0.0001)
     }
 
-    /// Coherent ships as eleven eighth-note counts at 60 BPM. Those three numbers
-    /// have to multiply out to the 5.5 s the practice claims, or its own copy is
-    /// wrong the moment the session opens.
-    func testCoherentShipsOnElevenEighthsAtSixtyBPM() {
-        guard let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing" }),
+    /// Coherent ships as five quarter-note counts at 60 BPM. Those three numbers
+    /// have to multiply out to the five seconds a side its own title claims, or
+    /// the copy is wrong the moment the session opens.
+    func testCoherentShipsOnFiveQuarterCountsAtSixtyBPM() {
+        guard let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing-5x5" }),
               let pattern = coh.breathPattern else {
-            return XCTFail("coherent-breathing missing from the catalog")
+            return XCTFail("coherent-breathing-5x5 missing from the catalog")
         }
-        XCTAssertEqual(pattern.inhale, 11)
-        XCTAssertEqual(pattern.exhale, 11)
+        XCTAssertEqual(pattern.inhale, 5)
+        XCTAssertEqual(pattern.exhale, 5)
         XCTAssertEqual(coh.defaultBPM, 60)
-        XCTAssertEqual(coh.defaultNote, .eighth)
+        XCTAssertEqual(coh.defaultNote, .quarter)
 
-        let clickRate = coh.defaultBPM * coh.defaultNote.clicksPerBeat      // 120 clicks/min
-        XCTAssertEqual(Double(pattern.inhale) * 60.0 / Double(clickRate), 5.5, accuracy: 0.0001)
-        XCTAssertEqual(pattern.breathsPerMinute(bpm: clickRate), 60.0 / 11.0, accuracy: 0.0001)
+        let clickRate = coh.defaultBPM * coh.defaultNote.clicksPerBeat      // 60 clicks/min
+        XCTAssertEqual(Double(pattern.inhale) * 60.0 / Double(clickRate), 5, accuracy: 0.0001)
+        XCTAssertEqual(pattern.breathsPerMinute(bpm: clickRate), 6, accuracy: 0.0001)
     }
 
     /// A pacer set in seconds derives its tempo, so a practice that wants the
@@ -174,21 +174,21 @@ final class PracticeCatalogTests: XCTestCase {
         let inCounts = PracticeCatalog.practices
             .filter { if case .clicksAndNote = $0.paceControl { return true } else { return false } }
             .map(\.id)
-        XCTAssertEqual(inCounts, ["coherent-breathing", "traube-hering-5x5", "prolonged-exhale-4x6"])
+        XCTAssertEqual(inCounts, ["coherent-breathing-5x5", "relaxing-breathing-4x6"])
     }
 
-    /// Both are named after what the literature names: the ~0.1 Hz wave for the
-    /// even breath, prolonged exhalation for the biased one. A name that borrows
-    /// a scientific term has to explain it where the user can actually read it,
-    /// or it is decoration.
-    func testTheCountedPairExplainTheTermsTheyAreNamedFor() {
-        guard let five = PracticeCatalog.practices.first(where: { $0.id == "traube-hering-5x5" }),
-              let calm = PracticeCatalog.practices.first(where: { $0.id == "prolonged-exhale-4x6" }) else {
+    /// The pair's titles say what they do; the mechanism that earns each one lives
+    /// in the copy — the ~0.1 Hz Traube–Hering wave for the even breath, prolonged
+    /// exhalation for the weighted one. Both have to stay readable to the user, or
+    /// the practices are two sets of numbers with nothing behind them.
+    func testTheCountedPairExplainTheMechanismBehindThem() {
+        guard let five = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing-5x5" }),
+              let calm = PracticeCatalog.practices.first(where: { $0.id == "relaxing-breathing-4x6" }) else {
             return XCTFail("a counted practice is missing")
         }
         let fiveText = (five.howItWorks + [five.description]).joined().lowercased()
         XCTAssertTrue(fiveText.contains("traube") && fiveText.contains("hering"),
-                      "5×5 must say who the wave it is named for belongs to")
+                      "5×5 must name the wave a ten-second cycle lands on")
         let calmText = (calm.howItWorks + [calm.description]).joined().lowercased()
         XCTAssertTrue(calmText.contains("prolonged exhalation"),
                       "4×6 must use the literature's own term for what it is")
@@ -199,9 +199,9 @@ final class PracticeCatalogTests: XCTestCase {
     /// pace edit ever breaks that, the practices stop being the pair they claim
     /// to be in their own copy.
     func testTheCountedPairShareAClockAndDifferOnlyInWeight() {
-        guard let five = PracticeCatalog.practices.first(where: { $0.id == "traube-hering-5x5" }),
+        guard let five = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing-5x5" }),
               let fivePattern = five.breathPattern,
-              let calm = PracticeCatalog.practices.first(where: { $0.id == "prolonged-exhale-4x6" }),
+              let calm = PracticeCatalog.practices.first(where: { $0.id == "relaxing-breathing-4x6" }),
               let calmPattern = calm.breathPattern else {
             return XCTFail("a counted practice is missing from the catalog")
         }
@@ -228,8 +228,8 @@ final class PracticeCatalogTests: XCTestCase {
     /// than settling, so it belongs in the content, not in a tooltip someone can
     /// edit away.
     func testTraubeHeringCarriesTheEyesOpenInstruction() {
-        guard let five = PracticeCatalog.practices.first(where: { $0.id == "traube-hering-5x5" }) else {
-            return XCTFail("traube-hering-5x5 missing")
+        guard let five = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing-5x5" }) else {
+            return XCTFail("coherent-breathing-5x5 missing")
         }
         XCTAssertTrue(five.description.lowercased().contains("eyes open"),
                       "the description must carry the eyes-open instruction")
@@ -264,7 +264,7 @@ final class PracticeCatalogTests: XCTestCase {
     /// behind the 5.5-second framing.
     func testEachHoldFreePacerCitesTheStudyItsFramingRestsOn() {
         guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }),
-              let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing" }) else {
+              let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing-5x5" }) else {
             return XCTFail("a hold-free pacer is missing")
         }
         XCTAssertTrue(Set(res.evidence.map(\.doi)).contains("10.3390/ijerph182312478"),
@@ -330,7 +330,7 @@ final class PracticeCatalogTests: XCTestCase {
     }
 
     func testCoherentBreathingIsAHoldFreePacer() {
-        guard let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing" }),
+        guard let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing-5x5" }),
               let pattern = coh.breathPattern else {
             return XCTFail("coherent-breathing missing from the catalog")
         }
@@ -339,7 +339,7 @@ final class PracticeCatalogTests: XCTestCase {
         XCTAssertFalse(pattern.hasHolds, "the coherent breath pauses at neither end")
         // Read at the click rate the note produces, not at the tempo alone.
         XCTAssertEqual(pattern.breathsPerMinute(bpm: coh.defaultBPM * coh.defaultNote.clicksPerBeat),
-                       60.0 / 11.0, accuracy: 0.0001)
+                       6, accuracy: 0.0001)
     }
 
     func testBoxBreathingIsAPacerOnTheBoxPattern() {

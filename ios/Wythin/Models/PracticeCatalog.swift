@@ -112,51 +112,32 @@ enum PracticeCatalog {
             kind: .pacer(EvenCadence.resonance.pattern)),
 
         Practice(
-            id: "coherent-breathing", title: "Coherent Breathing", subtitle: "Counted to a metronome you set",
+            id: "coherent-breathing-5x5", title: "Coherent Breathing 5×5", subtitle: "Five counts in, five out, eyes open",
             category: .breathwork, states: [.focus, .stress],
             activityType: .breathwork, subtype: "Coherent Breathing",
             defaultDurationMins: 12, defaultBPM: 60,
-            description: "The same even breath as Resonance, worked the other way round. You set the tempo, what a count is worth against it, and how many counts the inhale and the exhale each get — and the seconds fall out of those three. It opens on eleven eighth-note counts at 60 BPM: five and a half seconds a side, about five and a half breaths a minute. Counting to the click is the practice.",
+            description: "Five counts in, five counts out, one count a second. An even breath with no weight on either side — and unlike most slow breathing, it is meant to sharpen rather than settle you. Do it with your eyes open, looking at something: keeping the visual field engaged is what keeps the session alert, and the same breath with the eyes closed drifts toward a wind-down. The tempo, what a count is worth, and each phase\'s count are all yours to set; the seconds fall out of the three.",
             howItWorks: [
-                "At around five and a half seconds each way the breath sits in the band where heart and blood-pressure control lock together, and heart rate variability reaches its widest swing.",
-                "Counting to a click rather than watching a clock gives attention something concrete to hold, and the accented click opens each phase — so the turn is heard rather than read.",
-                "The inhale and the exhale are counted separately, so a longer exhale is a matter of counting further rather than a different practice. A longer out-breath than in-breath leans the balance further toward the vagal side.",
-                "On the honest side of the ledger: the physiological effect is well evidenced, and better decisions after slow breathing have been measured directly. Creative output specifically has not — the link there rests on correlations between heart rate variability and divergent thinking, not on trials. Treat the creative framing as the reason to try it, not as a finding.",
-            ],
-            evidence: [decouck2019, laborde2022, zaccaro2018],
-            tags: ["Coherence", "Loose Attention", "Ideas"],
-            art: practiceArt,
-            // Eleven counts at an eighth of a 60 BPM beat: 0.5 s a count, so
-            // 5.5 s a phase. Counts are whole by construction, which is what
-            // keeps the accent exactly on the turn at any tempo.
-            kind: .pacer(.even(beats: 11)),
-            paceControl: .clicksAndNote(defaultNote: .eighth)),
-
-        Practice(
-            id: "traube-hering-5x5", title: "Traube–Hering 5×5", subtitle: "Five counts in, five out, eyes open",
-            category: .breathwork, states: [.focus, .stress],
-            activityType: .breathwork, subtype: "Traube-Hering",
-            defaultDurationMins: 6, defaultBPM: 60,
-            description: "Five counts in, five counts out, at one count a second — named for the wave it lands on. An even breath with no weight on either side, and unlike most slow breathing it is meant to sharpen rather than settle you. Do it with your eyes open, looking at something. Keeping the visual field engaged is what keeps the session alert; close your eyes and the same breath will drift toward a wind-down.",
-            howItWorks: [
-                "The name is the mechanism. Blood pressure and heart rate carry a slow oscillation at roughly a tenth of a hertz — the wave Ludwig Traube and Ewald Hering described in the 1860s, still called the Traube–Hering wave. Ten seconds a cycle is exactly a tenth of a hertz, so this breath lands on that wave rather than beside it.",
+                "Blood pressure and heart rate carry a slow oscillation at roughly a tenth of a hertz — the wave Ludwig Traube and Ewald Hering described in the 1860s, still called the Traube–Hering wave. Five seconds each way is a ten-second cycle, which is exactly a tenth of a hertz, so this breath lands on that wave rather than beside it.",
                 "Equal counts give the in-breath as much room as the out-breath. Heart rate climbs through each inhale as the vagal brake eases and falls through each exhale as it comes back on, so the swing is large and symmetrical — the rousing half and the calming half in equal measure. That balance is what the sharpness is made of.",
-                "Eyes open is the instruction that makes it activating rather than settling. Attention stays pointed outward at something real, so the calm arrives without the drowsiness. Treat that as a practice instruction — no trial has compared eyes open against eyes closed for this breath.",
-                "Honest limits: \"activating\" here describes the breath-by-breath swing and how people report the state, not a measured rise in sympathetic tone. What is well evidenced is the autonomic effect of breathing at this rate, and that slow breathing before a demanding task improves how well the task goes.",
+                "Counting to a click rather than watching a clock gives attention something concrete to hold, and the accented click opens each phase, so the turn is heard rather than read.",
+                "Honest limits: \"activating\" here describes that breath-by-breath swing and how people report the state, not a measured rise in sympathetic tone, and no trial has compared eyes open against eyes closed for this breath. What is well evidenced is the autonomic effect of breathing at this rate, and that slow breathing before a demanding task improves how well the task goes.",
             ],
-            evidence: [decouck2019, you2021, laborde2022],
+            evidence: [decouck2019, you2021, laborde2022, zaccaro2018],
             tags: ["Alert Calm", "Eyes Open", "Sharpness"],
             art: practiceArt,
-            // 5 quarter-note counts at 60 BPM: one count a second, 5 s a phase.
+            // 5 quarter-note counts at 60 BPM: one count a second, 5 s a phase,
+            // a 10 s cycle. Counts are whole by construction, which keeps the
+            // accent exactly on the turn at any tempo.
             kind: .pacer(BreathPattern(inhale: 5, holdIn: 0, exhale: 5, holdOut: 0)),
             paceControl: .clicksAndNote(defaultNote: .quarter)),
 
         Practice(
-            id: "prolonged-exhale-4x6", title: "Prolonged Exhale 4×6", subtitle: "Four counts in, six counts out",
+            id: "relaxing-breathing-4x6", title: "Relaxing Breathing 4×6", subtitle: "Four counts in, six counts out",
             category: .breathwork, states: [.stress, .anxiety],
-            activityType: .breathwork, subtype: "Prolonged Exhale",
+            activityType: .breathwork, subtype: "Relaxing Breathing",
             defaultDurationMins: 10, defaultBPM: 60,
-            description: "The same clock as Traube–Hering 5×5 — one count a second, ten seconds a cycle — with the weight moved onto the out-breath: four counts in, six counts out. Same rate, opposite intent. Prolonged exhalation is what the literature calls this, and it is the one to reach for when you want to come down rather than sharpen up. It works comfortably with the eyes closed.",
+            description: "The same clock as Coherent Breathing 5×5 — one count a second, ten seconds a cycle — with the weight moved onto the out-breath: four counts in, six counts out. Same rate, opposite intent. Prolonged exhalation is what the literature calls it, and this is the one to reach for when you want to come down rather than sharpen up. It works comfortably with the eyes closed.",
             howItWorks: [
                 "Heart rate falls while you breathe out, as the vagal brake is reapplied. Making the exhale half as long again as the inhale spends more of every cycle on that side of the swing, which is why a lengthened out-breath is the oldest instruction in the calming repertoire.",
                 "The cycle still totals ten seconds, so this sits on the same tenth-of-a-hertz wave the even version does — it leans the ratio without leaving the band.",
