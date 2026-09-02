@@ -54,21 +54,27 @@ struct BoxBreathingSessionView: View {
         _engine  = State(initialValue: BoxBreathEngine(pattern: base, bpm: practice.defaultBPM))
     }
 
-    /// True for a breath with holds, which is set in beats against a tempo;
-    /// a hold-free breath is set in seconds and derives its own tempo.
-    private var isBox: Bool { practice.breathPattern?.hasHolds ?? true }
+    /// The shape of the breath — whether it pauses at the top and bottom. This
+    /// decides the pacer (box or ring), never the controls.
+    private var hasHolds: Bool { practice.breathPattern?.hasHolds ?? true }
+
+    /// Whether the pace is set in clicks and a tempo rather than in seconds. A
+    /// box always is; a hold-free breath is only when it asks to be, which
+    /// Coherent Breathing does.
+    private var setInBeats: Bool { practice.paceControl == .beatsAndTempo }
 
     private var cadence: EvenCadence { EvenCadence(halfSeconds: halfSeconds) }
 
     /// The pattern the controls describe — the practice's own shape, resized to
     /// the chosen pace. A box stays a box; a hold-free breath stays hold-free.
     private var pattern: BreathPattern {
-        isBox ? .box(beats: beats) : cadence.pattern
+        if hasHolds { return .box(beats: beats) }
+        return setInBeats ? .even(beats: beats) : cadence.pattern
     }
 
-    /// The tempo that pattern runs at. For a hold-free breath this is derived,
-    /// never chosen: the pace in seconds is the only thing the user sets.
-    private var tempo: Int { isBox ? bpm : cadence.bpm }
+    /// The tempo that pattern runs at — chosen when the pace is set in clicks,
+    /// derived from the seconds when it is not.
+    private var tempo: Int { setInBeats ? bpm : cadence.bpm }
 
     private var target:    TimeInterval { TimeInterval(minutes) * 60 }
     private var remaining: TimeInterval { max(0, target - sessionElapsed) }
@@ -196,8 +202,8 @@ struct BoxBreathingSessionView: View {
 
     /// The one line you can read without opening the panel.
     private var summary: String {
-        isBox ? "\(minutes) MIN · \(pattern.label) · \(bpm) BPM"
-              : "\(minutes) MIN · \(cadence.label) EACH WAY"
+        setInBeats ? "\(minutes) MIN · \(pattern.label) · \(bpm) BPM"
+                   : "\(minutes) MIN · \(cadence.label) EACH WAY"
     }
 
     private func mmss(_ seconds: TimeInterval) -> String {
@@ -239,7 +245,7 @@ struct BoxBreathingSessionView: View {
                            canRaise: minutes < minuteRange.upperBound,
                            lower: { minutes -= 1 }, raise: { minutes += 1 })
                 Divider().background(Theme.border)
-                if isBox {
+                if setInBeats {
                     stepperRow(label: "PACE", value: pattern.label,
                                canLower: beats > beatRange.lowerBound,
                                canRaise: beats < beatRange.upperBound,

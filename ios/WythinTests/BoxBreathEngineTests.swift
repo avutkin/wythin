@@ -169,7 +169,7 @@ final class BoxBreathEngineTests: XCTestCase {
     }
 
     func testAHalfSecondPaceTicksTwiceASecond() {
-        let c = EvenCadence.coherent                   // 5.5 s
+        let c = EvenCadence.resonance                  // 5.5 s
         XCTAssertEqual(c.seconds, 5.5, accuracy: 0.0001)
         XCTAssertEqual(c.bpm, 120)
         XCTAssertEqual(c.beats, 11)

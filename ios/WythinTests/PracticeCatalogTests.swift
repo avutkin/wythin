@@ -120,30 +120,62 @@ final class PracticeCatalogTests: XCTestCase {
 
     // MARK: Pacer practices
 
-    /// The two hold-free pacers are only worth carrying separately if they open on
-    /// different numbers — that was the whole argument for merging them once. So
-    /// pin each one's opening cadence, and pin that they differ.
-    func testTheTwoHoldFreePacersOpenOnDifferentCadences() {
+    /// Both hold-free pacers open on 5.5 s a side. What separates them is how the
+    /// session is set: Resonance in seconds, Coherent in clicks a phase and a
+    /// tempo. Merging them once cost exactly that second control, so it is the
+    /// thing worth pinning.
+    func testTheTwoHoldFreePacersDifferInHowTheyAreSet() {
         guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }),
               let resPattern = res.breathPattern,
               let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing" }),
               let cohPattern = coh.breathPattern else {
             return XCTFail("a hold-free pacer is missing from the catalog")
         }
-        let resCadence = EvenCadence(beats: resPattern.inhale, bpm: res.defaultBPM)
-        XCTAssertEqual(resCadence.seconds, 5, accuracy: 0.0001)
-        XCTAssertEqual(resCadence.label, "5s")
-        XCTAssertEqual(resCadence.breathsPerMinute, 6, accuracy: 0.0001)
         XCTAssertFalse(resPattern.hasHolds)
-
-        let cohCadence = EvenCadence(beats: cohPattern.inhale, bpm: coh.defaultBPM)
-        XCTAssertEqual(cohCadence.seconds, 5.5, accuracy: 0.0001)
-        XCTAssertEqual(cohCadence.label, "5.5s")
-        XCTAssertEqual(cohCadence.breathsPerMinute, 60.0 / 11.0, accuracy: 0.0001)
         XCTAssertFalse(cohPattern.hasHolds)
 
-        XCTAssertNotEqual(resCadence, cohCadence,
-                          "two hold-free pacers on the same cadence are one practice with two tiles")
+        XCTAssertEqual(res.paceControl, .seconds)
+        XCTAssertEqual(coh.paceControl, .beatsAndTempo)
+        XCTAssertNotEqual(res.paceControl, coh.paceControl,
+                          "two hold-free pacers set the same way are one practice with two tiles")
+
+        // Both land on 5.5 s a side — reached from opposite directions.
+        XCTAssertEqual(EvenCadence(beats: resPattern.inhale, bpm: res.defaultBPM).seconds,
+                       5.5, accuracy: 0.0001)
+        XCTAssertEqual(Double(cohPattern.inhale) * 60.0 / Double(coh.defaultBPM),
+                       5.5, accuracy: 0.0001)
+    }
+
+    /// Coherent's whole point is the click count, so the numbers it ships with
+    /// have to be the ones its own two steppers can express.
+    func testCoherentShipsOnElevenClicksAtOneTwentyBPM() {
+        guard let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing" }),
+              let pattern = coh.breathPattern else {
+            return XCTFail("coherent-breathing missing from the catalog")
+        }
+        XCTAssertEqual(pattern.inhale, 11)
+        XCTAssertEqual(pattern.exhale, 11)
+        XCTAssertEqual(coh.defaultBPM, 120)
+        XCTAssertEqual(pattern.breathsPerMinute(bpm: coh.defaultBPM), 60.0 / 11.0, accuracy: 0.0001)
+    }
+
+    /// A pacer set in seconds derives its tempo, so a practice that wants the
+    /// tempo control has to say so — and only Coherent does.
+    func testOnlyCoherentAsksForTheClicksAndTempoControls() {
+        let inBeats = PracticeCatalog.practices
+            .filter { if case .pacer(let p) = $0.kind { return !p.hasHolds } else { return false } }
+            .filter { $0.paceControl == .beatsAndTempo }
+            .map(\.id)
+        XCTAssertEqual(inBeats, ["coherent-breathing"])
+    }
+
+    /// A breath with holds is counted against a metronome by definition, so it
+    /// gets both controls without having to ask.
+    func testABreathWithHoldsDefaultsToClicksAndTempo() {
+        guard let box = PracticeCatalog.practices.first(where: { $0.id == "box-breathing" }) else {
+            return XCTFail("box-breathing missing")
+        }
+        XCTAssertEqual(box.paceControl, .beatsAndTempo)
     }
 
     /// Each of the pair keeps the study that its own framing rests on: the
@@ -207,7 +239,7 @@ final class PracticeCatalogTests: XCTestCase {
         XCTAssertFalse(pattern.hasHolds, "resonance pauses at neither end")
         // Read at the practice's own tempo, not a hardcoded 60: the pace is
         // declared in beats, and beats only mean seconds against a tempo.
-        XCTAssertEqual(pattern.breathsPerMinute(bpm: res.defaultBPM), 6, accuracy: 0.0001)
+        XCTAssertEqual(pattern.breathsPerMinute(bpm: res.defaultBPM), 60.0 / 11.0, accuracy: 0.0001)
     }
 
     func testCoherentBreathingIsAHoldFreePacer() {
