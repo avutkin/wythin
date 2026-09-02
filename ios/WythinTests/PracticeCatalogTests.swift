@@ -55,7 +55,7 @@ final class PracticeCatalogTests: XCTestCase {
     func testCatalogIsTemporarilyThePacersOnly() {
         XCTAssertEqual(PracticeCatalog.practices.map(\.id),
                        ["box-breathing", "resonance-breathing", "coherent-breathing",
-                        "hearing-breathing-5x5", "calming-breath-4x6", "hold-breath"],
+                        "traube-hering-5x5", "prolonged-exhale-4x6", "hold-breath"],
                        "catalog changed — restore the per-category and per-state coverage tests")
     }
 
@@ -174,7 +174,24 @@ final class PracticeCatalogTests: XCTestCase {
         let inCounts = PracticeCatalog.practices
             .filter { if case .clicksAndNote = $0.paceControl { return true } else { return false } }
             .map(\.id)
-        XCTAssertEqual(inCounts, ["coherent-breathing", "hearing-breathing-5x5", "calming-breath-4x6"])
+        XCTAssertEqual(inCounts, ["coherent-breathing", "traube-hering-5x5", "prolonged-exhale-4x6"])
+    }
+
+    /// Both are named after what the literature names: the ~0.1 Hz wave for the
+    /// even breath, prolonged exhalation for the biased one. A name that borrows
+    /// a scientific term has to explain it where the user can actually read it,
+    /// or it is decoration.
+    func testTheCountedPairExplainTheTermsTheyAreNamedFor() {
+        guard let five = PracticeCatalog.practices.first(where: { $0.id == "traube-hering-5x5" }),
+              let calm = PracticeCatalog.practices.first(where: { $0.id == "prolonged-exhale-4x6" }) else {
+            return XCTFail("a counted practice is missing")
+        }
+        let fiveText = (five.howItWorks + [five.description]).joined().lowercased()
+        XCTAssertTrue(fiveText.contains("traube") && fiveText.contains("hering"),
+                      "5×5 must say who the wave it is named for belongs to")
+        let calmText = (calm.howItWorks + [calm.description]).joined().lowercased()
+        XCTAssertTrue(calmText.contains("prolonged exhalation"),
+                      "4×6 must use the literature's own term for what it is")
     }
 
     /// The two 60 BPM counted breaths are the same clock — one count a second,
@@ -182,9 +199,9 @@ final class PracticeCatalogTests: XCTestCase {
     /// pace edit ever breaks that, the practices stop being the pair they claim
     /// to be in their own copy.
     func testTheCountedPairShareAClockAndDifferOnlyInWeight() {
-        guard let five = PracticeCatalog.practices.first(where: { $0.id == "hearing-breathing-5x5" }),
+        guard let five = PracticeCatalog.practices.first(where: { $0.id == "traube-hering-5x5" }),
               let fivePattern = five.breathPattern,
-              let calm = PracticeCatalog.practices.first(where: { $0.id == "calming-breath-4x6" }),
+              let calm = PracticeCatalog.practices.first(where: { $0.id == "prolonged-exhale-4x6" }),
               let calmPattern = calm.breathPattern else {
             return XCTFail("a counted practice is missing from the catalog")
         }
@@ -210,9 +227,9 @@ final class PracticeCatalogTests: XCTestCase {
     /// The eyes-open instruction is the thing that makes 5×5 activating rather
     /// than settling, so it belongs in the content, not in a tooltip someone can
     /// edit away.
-    func testHearingBreathingCarriesTheEyesOpenInstruction() {
-        guard let five = PracticeCatalog.practices.first(where: { $0.id == "hearing-breathing-5x5" }) else {
-            return XCTFail("hearing-breathing-5x5 missing")
+    func testTraubeHeringCarriesTheEyesOpenInstruction() {
+        guard let five = PracticeCatalog.practices.first(where: { $0.id == "traube-hering-5x5" }) else {
+            return XCTFail("traube-hering-5x5 missing")
         }
         XCTAssertTrue(five.description.lowercased().contains("eyes open"),
                       "the description must carry the eyes-open instruction")
