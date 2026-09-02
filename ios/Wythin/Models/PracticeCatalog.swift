@@ -93,24 +93,64 @@ enum PracticeCatalog {
             kind: .pacer(.box)),
 
         Practice(
-            id: "resonance-breathing", title: "Resonance Breathing", subtitle: "Even in, even out, nothing held",
+            id: "resonance-breathing", title: "Resonance Breathing", subtitle: "Even in, even out, set in seconds",
             category: .breathwork, states: [.stress, .focus],
             activityType: .breathwork, subtype: "Resonance",
             defaultDurationMins: 10, defaultBPM: EvenCadence.resonance.bpm,
-            description: "An even breath in and out with nothing held at either end, at the classic five-and-a-half-second cadence — about five and a half breaths a minute. Set the pace in the session; anywhere between three and eight seconds a side, in half seconds. The ring shows the whole cycle and the beat keeps you on it.",
+            description: "An even breath in and out with nothing held at either end, at the classic five-and-a-half-second cadence — about five and a half breaths a minute. Set the pace in seconds a side, anywhere from three to eight, in halves. The ring shows the whole cycle and the beat keeps you on it.",
             howItWorks: [
                 "Between about five and six seconds each way, the breath falls into step with the baroreflex — the loop that corrects blood pressure beat to beat — and heart rate swings furthest with each breath.",
                 "That is the point of the pace rather than a side effect: the rate that maximises the swing is the same one that raises vagally-mediated heart rate variability. It is why this band has a name at all.",
-                "Nothing is held at either end, so the breath stays even and unforced, which is what makes ten or twenty minutes of it sustainable — and what makes it usable as background to thinking rather than a thing you have to attend to.",
-                "Honest limits: the autonomic effect is well evidenced, and better decisions after slow breathing have been measured directly. Sharper creative output has not — that link rests on correlations between heart rate variability and divergent thinking, not on trials.",
+                "Nothing is held at either end, so the breath stays even and unforced, which is what makes ten or twenty minutes of it sustainable.",
             ],
-            evidence: [you2021, laborde2022, decouck2019, zaccaro2018],
+            evidence: [you2021, laborde2022, zaccaro2018],
             tags: ["Coherence", "Vagal Tone", "Calm"],
             art: practiceArt,
             // Declared as the cadence expresses it: 11 beats at 120 BPM is
             // exactly 5.5 s a phase, and whole beats are what keep the accent on
             // the phase change.
             kind: .pacer(EvenCadence.resonance.pattern)),
+
+        Practice(
+            id: "coherent-breathing-5x5", title: "Coherent Breathing 5×5", subtitle: "Five counts in, five out, eyes open",
+            category: .breathwork, states: [.focus, .stress],
+            activityType: .breathwork, subtype: "Coherent Breathing",
+            defaultDurationMins: 12, defaultBPM: 60,
+            description: "Five counts in, five counts out, one count a second. An even breath with no weight on either side — and unlike most slow breathing, it is meant to sharpen rather than settle you. Do it with your eyes open, looking at something: keeping the visual field engaged is what keeps the session alert, and the same breath with the eyes closed drifts toward a wind-down. The tempo, what a count is worth, and each phase\'s count are all yours to set; the seconds fall out of the three.",
+            howItWorks: [
+                "Blood pressure and heart rate carry a slow oscillation at roughly a tenth of a hertz — the wave Ludwig Traube and Ewald Hering described in the 1860s, still called the Traube–Hering wave. Five seconds each way is a ten-second cycle, which is exactly a tenth of a hertz, so this breath lands on that wave rather than beside it.",
+                "Equal counts give the in-breath as much room as the out-breath. Heart rate climbs through each inhale as the vagal brake eases and falls through each exhale as it comes back on, so the swing is large and symmetrical — the rousing half and the calming half in equal measure. That balance is what the sharpness is made of.",
+                "Counting to a click rather than watching a clock gives attention something concrete to hold, and the accented click opens each phase, so the turn is heard rather than read.",
+                "Honest limits: \"activating\" here describes that breath-by-breath swing and how people report the state, not a measured rise in sympathetic tone, and no trial has compared eyes open against eyes closed for this breath. What is well evidenced is the autonomic effect of breathing at this rate, and that slow breathing before a demanding task improves how well the task goes.",
+            ],
+            evidence: [decouck2019, you2021, laborde2022, zaccaro2018],
+            tags: ["Alert Calm", "Eyes Open", "Sharpness"],
+            art: practiceArt,
+            // 5 quarter-note counts at 60 BPM: one count a second, 5 s a phase,
+            // a 10 s cycle. Counts are whole by construction, which keeps the
+            // accent exactly on the turn at any tempo.
+            kind: .pacer(BreathPattern(inhale: 5, holdIn: 0, exhale: 5, holdOut: 0)),
+            paceControl: .clicksAndNote(defaultNote: .quarter)),
+
+        Practice(
+            id: "relaxing-breathing-4x6", title: "Relaxing Breathing 4×6", subtitle: "Four counts in, six counts out",
+            category: .breathwork, states: [.stress, .anxiety],
+            activityType: .breathwork, subtype: "Relaxing Breathing",
+            defaultDurationMins: 10, defaultBPM: 60,
+            description: "The same clock as Coherent Breathing 5×5 — one count a second, ten seconds a cycle — with the weight moved onto the out-breath: four counts in, six counts out. Same rate, opposite intent. Prolonged exhalation is what the literature calls it, and this is the one to reach for when you want to come down rather than sharpen up. It works comfortably with the eyes closed.",
+            howItWorks: [
+                "Heart rate falls while you breathe out, as the vagal brake is reapplied. Making the exhale half as long again as the inhale spends more of every cycle on that side of the swing, which is why a lengthened out-breath is the oldest instruction in the calming repertoire.",
+                "The cycle still totals ten seconds, so this sits on the same tenth-of-a-hertz wave the even version does — it leans the ratio without leaving the band.",
+                "Nothing is held at either end. A 4–6 breath asks for no breath-holding and no effort on the inhale, which is what makes twenty minutes of it possible where a more strenuous pattern would not be.",
+                "Honest limits: the head-to-head trial below found exhale-focused breathing improved mood the most of the styles it tested. The specific claim that a longer exhale raises heart rate variability more than an even breath does is not settled — the ratio is better supported for how the practice feels than for a bigger number.",
+            ],
+            evidence: [balban2023, zaccaro2018, laborde2022],
+            tags: ["Longer Exhale", "Down-regulate", "Calm"],
+            art: practiceArt,
+            // 4 in, 6 out at one quarter-note count a second: a 10 s cycle, so
+            // still six breaths a minute — the weight moved, not the rate.
+            kind: .pacer(BreathPattern(inhale: 4, holdIn: 0, exhale: 6, holdOut: 0)),
+            paceControl: .clicksAndNote(defaultNote: .quarter)),
 
         Practice(
             id: "hold-breath", title: "Hold Breath", subtitle: "Holds on empty, in sets",

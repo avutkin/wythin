@@ -58,6 +58,25 @@ enum PracticeState: String, CaseIterable, Identifiable {
 
 enum BiofeedbackMode: Equatable, Hashable { case resonance, workout }
 
+/// How a pacer's speed is set in its session.
+///
+/// A breath with holds is counted against a metronome, so it is set in beats a
+/// phase and a tempo. A hold-free breath is normally described the way people
+/// say it — "five and a half seconds each way" — and derives its own tempo.
+///
+/// Coherent Breathing is deliberately the other kind: the click count per phase
+/// and the tempo are the two things you work with there, and the seconds fall
+/// out of them. That is what makes it a different practice from Resonance
+/// Breathing rather than the same one under a second name.
+enum PaceControl: Equatable, Hashable {
+    case seconds          // seconds a side, in halves; tempo derived
+    case beatsAndTempo    // beats (clicks) a phase + metronome BPM
+    /// Tempo, note value, and a count for each phase set separately. The seconds
+    /// fall out of those three, which is the point: the click you hear and the
+    /// count you keep are what you work with, not a duration.
+    case clicksAndNote(defaultNote: NoteValue)
+}
+
 enum PracticeKind: Equatable, Hashable {
     case content                        // browse + Log it
     case biofeedback(BiofeedbackMode)   // live session (resonance pacer / workout feedback)
@@ -135,6 +154,49 @@ struct Practice: Identifiable, Hashable {
     let tags:                [String]
     let art:                 PracticeArt
     let kind:                PracticeKind
+    /// How the session's pace is set. Defaults to the shape of the breath — beats
+    /// and a tempo when it has holds, seconds when it does not — so only a
+    /// practice that wants the other one has to say so.
+    let paceControl:         PaceControl
+
+    init(id: String, title: String, subtitle: String,
+         category: PracticeCategory, states: [PracticeState],
+         activityType: ActivityType, subtype: String?,
+         defaultDurationMins: Int, defaultBPM: Int,
+         description: String, howItWorks: [String],
+         evidence: [PracticeEvidence], tags: [String],
+         art: PracticeArt, kind: PracticeKind,
+         paceControl: PaceControl? = nil) {
+        self.id                  = id
+        self.title               = title
+        self.subtitle            = subtitle
+        self.category            = category
+        self.states              = states
+        self.activityType        = activityType
+        self.subtype             = subtype
+        self.defaultDurationMins = defaultDurationMins
+        self.defaultBPM          = defaultBPM
+        self.description         = description
+        self.howItWorks          = howItWorks
+        self.evidence            = evidence
+        self.tags                = tags
+        self.art                 = art
+        self.kind                = kind
+        if let paceControl {
+            self.paceControl = paceControl
+        } else if case .pacer(let pattern) = kind {
+            self.paceControl = pattern.hasHolds ? .beatsAndTempo : .seconds
+        } else {
+            self.paceControl = .seconds
+        }
+    }
+
+    /// The note value a clicks-and-note session opens on. Meaningless for the
+    /// other pace controls, which have no note to set.
+    var defaultNote: NoteValue {
+        if case .clicksAndNote(let note) = paceControl { return note }
+        return .quarter
+    }
 
     /// The featured practice, shown with a ★ above the grid.
     var isStarred: Bool { kind == .biofeedback(.resonance) }

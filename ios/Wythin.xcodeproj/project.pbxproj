@@ -92,7 +92,6 @@
 		2781CE5FFE6C4F6A09BB10DA /* SessionIndexGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15C26A1221A7A4516DABAB9 /* SessionIndexGrid.swift */; };
 		F84F7CB62F996193D6F7DBA1 /* ActivityLogRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10284DCB6D50B66249C5AB82 /* ActivityLogRow.swift */; };
 		A138 /* PolyvagalState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F138 /* PolyvagalState.swift */; };
-		A139 /* CurrentStateCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F139 /* CurrentStateCard.swift */; };
 		A140 /* RecommendedActionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F140 /* RecommendedActionCard.swift */; };
 		A141 /* DFACompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F141 /* DFACompute.swift */; };
 		A142 /* AdvancedHRVCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F142 /* AdvancedHRVCompute.swift */; };
@@ -231,7 +230,6 @@
 		A994 /* EDRCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F994 /* EDRCompute.swift */; };
 		A995 /* BreathRateTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F995 /* BreathRateTracker.swift */; };
 		AT52 /* LiveBaselineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT52 /* LiveBaselineTests.swift */; };
-		ATCC /* CurrentStateCardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FTCC /* CurrentStateCardTests.swift */; };
 		A54 /* LiveReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = F54 /* LiveReading.swift */; };
 		AT55 /* LiveReadingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT55 /* LiveReadingTests.swift */; };
 		A56 /* LiveStateClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = F56 /* LiveStateClassifier.swift */; };
@@ -392,7 +390,6 @@
 		D15C26A1221A7A4516DABAB9 /* SessionIndexGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexGrid.swift; sourceTree = "<group>"; };
 		10284DCB6D50B66249C5AB82 /* ActivityLogRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityLogRow.swift; sourceTree = "<group>"; };
 		F138 /* PolyvagalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PolyvagalState.swift; sourceTree = "<group>"; };
-		F139 /* CurrentStateCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentStateCard.swift; sourceTree = "<group>"; };
 		F140 /* RecommendedActionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendedActionCard.swift; sourceTree = "<group>"; };
 		F141 /* DFACompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DFACompute.swift; sourceTree = "<group>"; };
 		F142 /* AdvancedHRVCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedHRVCompute.swift; sourceTree = "<group>"; };
@@ -555,7 +552,6 @@
 		F994 /* EDRCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EDRCompute.swift; sourceTree = "<group>"; };
 		F995 /* BreathRateTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathRateTracker.swift; sourceTree = "<group>"; };
 		FT52 /* LiveBaselineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveBaselineTests.swift; sourceTree = "<group>"; };
-		FTCC /* CurrentStateCardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrentStateCardTests.swift; sourceTree = "<group>"; };
 		F54 /* LiveReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReading.swift; sourceTree = "<group>"; };
 		FT55 /* LiveReadingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReadingTests.swift; sourceTree = "<group>"; };
 		F56 /* LiveStateClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveStateClassifier.swift; sourceTree = "<group>"; };
@@ -728,7 +724,6 @@
 				F129 /* ACCWaveformView.swift */,
 				F130 /* RRTachogramView.swift */,
 				F131 /* HRVAnalysisView.swift */,
-				F139 /* CurrentStateCard.swift */,
 				F140 /* RecommendedActionCard.swift */,
 				F147 /* LiveStateWidget.swift */,
 				F991 /* LiveDeltaTile.swift */,
@@ -1041,7 +1036,6 @@
 				FTCS /* ChartSegmenterTests.swift */,
 				FT51 /* LiveMetricTests.swift */,
 				FT52 /* LiveBaselineTests.swift */,
-				FTCC /* CurrentStateCardTests.swift */,
 				FT55 /* LiveReadingTests.swift */,
 				FT57 /* LiveStateClassifierTests.swift */,
 				FT58 /* LiveStateCopyTests.swift */,
@@ -1236,7 +1230,6 @@
 				A161 /* OnboardingFlow.swift in Sources */,
 				A162 /* OnboardingScreens.swift in Sources */,
 				A260 /* OnboardingCollectionScreens.swift in Sources */,
-				A139 /* CurrentStateCard.swift in Sources */,
 				A140 /* RecommendedActionCard.swift in Sources */,
 				A147 /* LiveStateWidget.swift in Sources */,
 				A991 /* LiveDeltaTile.swift in Sources */,
@@ -1427,7 +1420,6 @@
 				ATCS /* ChartSegmenterTests.swift in Sources */,
 				AT51 /* LiveMetricTests.swift in Sources */,
 				AT52 /* LiveBaselineTests.swift in Sources */,
-				ATCC /* CurrentStateCardTests.swift in Sources */,
 				AT55 /* LiveReadingTests.swift in Sources */,
 				AT57 /* LiveStateClassifierTests.swift in Sources */,
 				AT58 /* LiveStateCopyTests.swift in Sources */,
@@ -1452,7 +1444,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 107;
+				CURRENT_PROJECT_VERSION = 115;
 				DEVELOPMENT_TEAM = FHUVQ8JNXD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
@@ -1541,7 +1533,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 107;
+				CURRENT_PROJECT_VERSION = 115;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -1560,7 +1552,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 107;
+				CURRENT_PROJECT_VERSION = 115;
 				DEVELOPMENT_TEAM = FHUVQ8JNXD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
@@ -1642,7 +1634,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 107;
+				CURRENT_PROJECT_VERSION = 115;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

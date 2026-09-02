@@ -179,9 +179,6 @@ private struct DayScrollView: View {
                 if isToday {
                     LiveStateWidget(store: liveStore, potentialStore: potentialStore)
                         .padding(.horizontal)
-                    CurrentStateCard(tick: env.latestTick,
-                                     baselineRmssd: liveStore.baseline?.stat(for: .rmssd)?.mean)
-                        .padding(.horizontal)
                 }
 
                 // ── Metrics table ───────────────────────────────────

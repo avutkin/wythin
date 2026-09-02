@@ -54,7 +54,8 @@ final class PracticeCatalogTests: XCTestCase {
     /// reminder to restore the real invariant above it.
     func testCatalogIsTemporarilyThePacersOnly() {
         XCTAssertEqual(PracticeCatalog.practices.map(\.id),
-                       ["box-breathing", "resonance-breathing", "hold-breath"],
+                       ["box-breathing", "resonance-breathing", "coherent-breathing-5x5",
+                        "relaxing-breathing-4x6", "hold-breath"],
                        "catalog changed — restore the per-category and per-state coverage tests")
     }
 
@@ -90,13 +91,14 @@ final class PracticeCatalogTests: XCTestCase {
         }
     }
 
-    /// Both pacers serve focus and stress, so anxiety and sleep are empty for now
-    /// — their capsules lead to a blank grid until the catalog is restored.
-    func testOnlyFocusAndStressHavePracticesWhileTrimmed() {
+    /// The calming breath is the first practice to serve anxiety, so that capsule
+    /// finally leads somewhere. Sleep is still empty — its capsule shows a blank
+    /// grid until something is written for it.
+    func testEveryStateButSleepHasAPractice() {
         let populated = PracticeState.allCases.filter {
             !PracticeCatalog.practices(for: $0).isEmpty
         }
-        XCTAssertEqual(populated, [.focus, .stress])
+        XCTAssertEqual(populated, [.focus, .stress, .anxiety])
     }
 
     func testPracticesForStateReturnsOnlyThatState() {
@@ -120,28 +122,155 @@ final class PracticeCatalogTests: XCTestCase {
 
     // MARK: Pacer practices
 
-    /// Resonance and Coherent Breathing were the same practice with different
-    /// numbers, so they are one. It opens on 5.5 s a side — expressible only on a
-    /// half-second beat, which is why the cadence type exists at all.
-    func testResonanceOpensOnFiveAndAHalfSecondsEachWay() {
+    /// Both hold-free pacers open on 5.5 s a side. What separates them is how the
+    /// session is set: Resonance in seconds, Coherent in clicks a phase and a
+    /// tempo. Merging them once cost exactly that second control, so it is the
+    /// thing worth pinning.
+    func testTheTwoHoldFreePacersDifferInHowTheyAreSet() {
         guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }),
-              let pattern = res.breathPattern else {
-            return XCTFail("resonance-breathing missing from the catalog")
+              let resPattern = res.breathPattern,
+              let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing-5x5" }),
+              let cohPattern = coh.breathPattern else {
+            return XCTFail("a hold-free pacer is missing from the catalog")
         }
-        let cadence = EvenCadence(beats: pattern.inhale, bpm: res.defaultBPM)
-        XCTAssertEqual(cadence.seconds, 5.5, accuracy: 0.0001)
-        XCTAssertEqual(cadence.label, "5.5s")
-        XCTAssertEqual(cadence.breathsPerMinute, 60.0 / 11.0, accuracy: 0.0001)
-        XCTAssertFalse(pattern.hasHolds)
+        XCTAssertFalse(resPattern.hasHolds)
+        XCTAssertFalse(cohPattern.hasHolds)
+
+        XCTAssertEqual(res.paceControl, .seconds)
+        XCTAssertEqual(coh.paceControl, .clicksAndNote(defaultNote: .quarter))
+        XCTAssertNotEqual(res.paceControl, coh.paceControl,
+                          "two hold-free pacers set the same way are one practice with two tiles")
+
+        // They no longer open on the same cadence either: Resonance on the 5.5 s
+        // it has always shipped, Coherent on a flat 5 s a side.
+        XCTAssertEqual(EvenCadence(beats: resPattern.inhale, bpm: res.defaultBPM).seconds,
+                       5.5, accuracy: 0.0001)
+        let cohClickRate = coh.defaultBPM * coh.defaultNote.clicksPerBeat
+        XCTAssertEqual(Double(cohPattern.inhale) * 60.0 / Double(cohClickRate),
+                       5, accuracy: 0.0001)
     }
 
-    func testTheMergedPracticeCarriesBothOfItsPredecessorsStudies() {
-        guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }) else {
-            return XCTFail("resonance-breathing missing")
+    /// Coherent ships as five quarter-note counts at 60 BPM. Those three numbers
+    /// have to multiply out to the five seconds a side its own title claims, or
+    /// the copy is wrong the moment the session opens.
+    func testCoherentShipsOnFiveQuarterCountsAtSixtyBPM() {
+        guard let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing-5x5" }),
+              let pattern = coh.breathPattern else {
+            return XCTFail("coherent-breathing-5x5 missing from the catalog")
         }
-        let dois = Set(res.evidence.map(\.doi))
-        XCTAssertTrue(dois.contains("10.3390/ijerph182312478"), "kept resonance's dose-response study")
-        XCTAssertTrue(dois.contains("10.1016/j.ijpsycho.2019.02.011"), "kept coherent's decision-making trial")
+        XCTAssertEqual(pattern.inhale, 5)
+        XCTAssertEqual(pattern.exhale, 5)
+        XCTAssertEqual(coh.defaultBPM, 60)
+        XCTAssertEqual(coh.defaultNote, .quarter)
+
+        let clickRate = coh.defaultBPM * coh.defaultNote.clicksPerBeat      // 60 clicks/min
+        XCTAssertEqual(Double(pattern.inhale) * 60.0 / Double(clickRate), 5, accuracy: 0.0001)
+        XCTAssertEqual(pattern.breathsPerMinute(bpm: clickRate), 6, accuracy: 0.0001)
+    }
+
+    /// A pacer set in seconds derives its tempo, so a practice that wants the
+    /// tempo, note and per-phase counts has to say so.
+    func testTheClicksAndNotePracticesAreTheOnesThatAskForIt() {
+        let inCounts = PracticeCatalog.practices
+            .filter { if case .clicksAndNote = $0.paceControl { return true } else { return false } }
+            .map(\.id)
+        XCTAssertEqual(inCounts, ["coherent-breathing-5x5", "relaxing-breathing-4x6"])
+    }
+
+    /// The pair's titles say what they do; the mechanism that earns each one lives
+    /// in the copy — the ~0.1 Hz Traube–Hering wave for the even breath, prolonged
+    /// exhalation for the weighted one. Both have to stay readable to the user, or
+    /// the practices are two sets of numbers with nothing behind them.
+    func testTheCountedPairExplainTheMechanismBehindThem() {
+        guard let five = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing-5x5" }),
+              let calm = PracticeCatalog.practices.first(where: { $0.id == "relaxing-breathing-4x6" }) else {
+            return XCTFail("a counted practice is missing")
+        }
+        let fiveText = (five.howItWorks + [five.description]).joined().lowercased()
+        XCTAssertTrue(fiveText.contains("traube") && fiveText.contains("hering"),
+                      "5×5 must name the wave a ten-second cycle lands on")
+        let calmText = (calm.howItWorks + [calm.description]).joined().lowercased()
+        XCTAssertTrue(calmText.contains("prolonged exhalation"),
+                      "4×6 must use the literature's own term for what it is")
+    }
+
+    /// The two 60 BPM counted breaths are the same clock — one count a second,
+    /// ten seconds a cycle, six breaths a minute — with the weight moved. If a
+    /// pace edit ever breaks that, the practices stop being the pair they claim
+    /// to be in their own copy.
+    func testTheCountedPairShareAClockAndDifferOnlyInWeight() {
+        guard let five = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing-5x5" }),
+              let fivePattern = five.breathPattern,
+              let calm = PracticeCatalog.practices.first(where: { $0.id == "relaxing-breathing-4x6" }),
+              let calmPattern = calm.breathPattern else {
+            return XCTFail("a counted practice is missing from the catalog")
+        }
+        for (practice, pattern) in [(five, fivePattern), (calm, calmPattern)] {
+            XCTAssertEqual(practice.defaultBPM, 60)
+            XCTAssertEqual(practice.defaultNote, .quarter)
+            XCTAssertFalse(pattern.hasHolds, "\(practice.id): neither of these pauses")
+            // One quarter-note count a second, so the cycle in counts is the
+            // cycle in seconds.
+            let clickRate = practice.defaultBPM * practice.defaultNote.clicksPerBeat
+            XCTAssertEqual(clickRate, 60)
+            XCTAssertEqual(pattern.cycleBeats, 10, "\(practice.id): the shared ten-second cycle")
+            XCTAssertEqual(pattern.breathsPerMinute(bpm: clickRate), 6, accuracy: 0.0001)
+        }
+        XCTAssertEqual(fivePattern.inhale, 5)
+        XCTAssertEqual(fivePattern.exhale, 5)
+        XCTAssertEqual(calmPattern.inhale, 4)
+        XCTAssertEqual(calmPattern.exhale, 6)
+        XCTAssertGreaterThan(calmPattern.exhale, calmPattern.inhale,
+                             "the calming breath is the one that leans on the out-breath")
+    }
+
+    /// The eyes-open instruction is the thing that makes 5×5 activating rather
+    /// than settling, so it belongs in the content, not in a tooltip someone can
+    /// edit away.
+    func testTraubeHeringCarriesTheEyesOpenInstruction() {
+        guard let five = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing-5x5" }) else {
+            return XCTFail("coherent-breathing-5x5 missing")
+        }
+        XCTAssertTrue(five.description.lowercased().contains("eyes open"),
+                      "the description must carry the eyes-open instruction")
+    }
+
+    /// Every count the session can reach has to resolve to a whole number of
+    /// clicks at a whole click rate, or the accent stops landing on the turn.
+    func testEveryNoteValueGivesAWholeClickRateAcrossTheTempoRange() {
+        for note in NoteValue.allCases {
+            for bpm in stride(from: 40, through: 120, by: 5) {
+                let rate = bpm * note.clicksPerBeat
+                XCTAssertGreaterThan(rate, 0, "\(note.label) at \(bpm) BPM")
+                // A count is a whole click by construction, so a phase of n
+                // counts is exactly n click-lengths.
+                XCTAssertEqual(Double(7) * 60.0 / Double(rate),
+                               7 * (60.0 / Double(rate)), accuracy: 0.0001)
+            }
+        }
+    }
+
+    /// A breath with holds is counted against a metronome by definition, so it
+    /// gets both controls without having to ask.
+    func testABreathWithHoldsDefaultsToClicksAndTempo() {
+        guard let box = PracticeCatalog.practices.first(where: { $0.id == "box-breathing" }) else {
+            return XCTFail("box-breathing missing")
+        }
+        XCTAssertEqual(box.paceControl, .beatsAndTempo)
+    }
+
+    /// Each of the pair keeps the study that its own framing rests on: the
+    /// dose-response work behind six breaths a minute, the decision-making trial
+    /// behind the 5.5-second framing.
+    func testEachHoldFreePacerCitesTheStudyItsFramingRestsOn() {
+        guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }),
+              let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing-5x5" }) else {
+            return XCTFail("a hold-free pacer is missing")
+        }
+        XCTAssertTrue(Set(res.evidence.map(\.doi)).contains("10.3390/ijerph182312478"),
+                      "resonance keeps its dose-response study")
+        XCTAssertTrue(Set(coh.evidence.map(\.doi)).contains("10.1016/j.ijpsycho.2019.02.011"),
+                      "coherent keeps its decision-making trial")
     }
 
     /// The session's pace stepper has to be able to reach every shipped pattern,
@@ -149,8 +278,14 @@ final class PracticeCatalogTests: XCTestCase {
     func testEveryPacerPatternIsReachableFromTheSessionControls() {
         for practice in PracticeCatalog.practices {
             guard let pattern = practice.breathPattern else { continue }   // hold trainers have no pace
-            XCTAssertTrue((2...12).contains(pattern.inhale),
-                          "\(practice.id): \(pattern.inhale) beats is outside the pace stepper's range")
+            // A clicks-and-note session counts further than a beat stepper does:
+            // at an eighth of a beat a phase needs twice as many counts.
+            let paceRange = { if case .clicksAndNote = practice.paceControl { return 2...24 }
+                              else { return 2...12 } }()
+            XCTAssertTrue(paceRange.contains(pattern.inhale),
+                          "\(practice.id): \(pattern.inhale) counts is outside its own pace stepper's range")
+            XCTAssertTrue(paceRange.contains(pattern.exhale),
+                          "\(practice.id): \(pattern.exhale) counts is outside its own pace stepper's range")
             XCTAssertTrue((40...120).contains(practice.defaultBPM),
                           "\(practice.id): \(practice.defaultBPM) BPM is outside the tempo stepper's range")
             XCTAssertEqual(practice.defaultBPM % 5, 0,
@@ -192,6 +327,19 @@ final class PracticeCatalogTests: XCTestCase {
         // Read at the practice's own tempo, not a hardcoded 60: the pace is
         // declared in beats, and beats only mean seconds against a tempo.
         XCTAssertEqual(pattern.breathsPerMinute(bpm: res.defaultBPM), 60.0 / 11.0, accuracy: 0.0001)
+    }
+
+    func testCoherentBreathingIsAHoldFreePacer() {
+        guard let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing-5x5" }),
+              let pattern = coh.breathPattern else {
+            return XCTFail("coherent-breathing missing from the catalog")
+        }
+        XCTAssertEqual(coh.activityType, .breathwork)
+        XCTAssertEqual(coh.subtype, "Coherent Breathing")
+        XCTAssertFalse(pattern.hasHolds, "the coherent breath pauses at neither end")
+        // Read at the click rate the note produces, not at the tempo alone.
+        XCTAssertEqual(pattern.breathsPerMinute(bpm: coh.defaultBPM * coh.defaultNote.clicksPerBeat),
+                       6, accuracy: 0.0001)
     }
 
     func testBoxBreathingIsAPacerOnTheBoxPattern() {

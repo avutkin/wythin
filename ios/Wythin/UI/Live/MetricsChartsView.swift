@@ -892,7 +892,7 @@ struct MetricsChartsView: View, Equatable {
             rmssdCard         // Calm Power
             hrCard            // Pulse
             sdnnCard          // Overall Variability
-            acCard            // Activation Capacity
+            acCard            // Throttle
 
             signalQualitySection
         }
@@ -1199,7 +1199,7 @@ struct MetricsChartsView: View, Equatable {
 
     // MARK: AC
 
-    /// Activation Capacity — Vagal Tone's mirror, and free: the same PRSA pass
+    /// Throttle — Vagal Tone's mirror, and free: the same PRSA pass
     /// that yields DC yields AC, and the engine simply used to drop it.
     ///
     /// Drawn as a magnitude via `activationCapacity`. AC is negative by
@@ -1210,7 +1210,7 @@ struct MetricsChartsView: View, Equatable {
     /// same reason the two metrics share a scale: they come off one curve.
     private var acCard: some View {
         MetricChartCard(
-            title:    "Activation Capacity",
+            title:    "Throttle",
             technicalName: "Acceleration Capacity (AC)",
             subtitle: "How sharply your heart can speed up",
             yLabel:   "ms",
