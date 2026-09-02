@@ -133,6 +133,45 @@ enum PracticeCatalog {
             paceControl: .clicksAndNote(defaultNote: .eighth)),
 
         Practice(
+            id: "hearing-breathing-5x5", title: "Hearing Breathing 5×5", subtitle: "Five counts in, five out, eyes open",
+            category: .breathwork, states: [.focus, .stress],
+            activityType: .breathwork, subtype: "Hearing Breathing",
+            defaultDurationMins: 6, defaultBPM: 60,
+            description: "Five counts in, five counts out, at one count a second. An even breath with no weight on either side — and unlike most slow breathing, it is meant to sharpen rather than settle you. Do it with your eyes open, looking at something. Keeping the visual field engaged is what keeps the session alert; close your eyes and the same breath will drift toward a wind-down.",
+            howItWorks: [
+                "Equal counts give the in-breath as much room as the out-breath. Heart rate climbs through each inhale as the vagal brake eases and falls through each exhale as it comes back on, so the swing is large and symmetrical — the rousing half and the calming half in equal measure. That balance is what the sharpness is made of.",
+                "Five seconds a side is ten seconds a cycle: six breaths a minute, the rate at which that swing is widest and vagally-mediated heart rate variability peaks.",
+                "Eyes open is the instruction that makes it activating rather than settling. Attention stays pointed outward at something real, so the calm arrives without the drowsiness. Treat that as a practice instruction — no trial has compared eyes open against eyes closed for this breath.",
+                "Honest limits: \"activating\" here describes the breath-by-breath swing and how people report the state, not a measured rise in sympathetic tone. What is well evidenced is the autonomic effect of breathing at this rate, and that slow breathing before a demanding task improves how well the task goes.",
+            ],
+            evidence: [decouck2019, you2021, laborde2022],
+            tags: ["Alert Calm", "Eyes Open", "Sharpness"],
+            art: practiceArt,
+            // 5 quarter-note counts at 60 BPM: one count a second, 5 s a phase.
+            kind: .pacer(BreathPattern(inhale: 5, holdIn: 0, exhale: 5, holdOut: 0)),
+            paceControl: .clicksAndNote(defaultNote: .quarter)),
+
+        Practice(
+            id: "calming-breath-4x6", title: "Calming Breath 4×6", subtitle: "Four counts in, six counts out",
+            category: .breathwork, states: [.stress, .anxiety],
+            activityType: .breathwork, subtype: "Calming Breath",
+            defaultDurationMins: 10, defaultBPM: 60,
+            description: "The same clock as Hearing Breathing — one count a second, ten seconds a cycle — with the weight moved onto the out-breath: four counts in, six counts out. Same rate, opposite intent. This is the one to reach for when you want to come down rather than sharpen up, and it works comfortably with the eyes closed.",
+            howItWorks: [
+                "Heart rate falls while you breathe out, as the vagal brake is reapplied. Making the exhale half as long again as the inhale spends more of every cycle on that side of the swing, which is why a lengthened out-breath is the oldest instruction in the calming repertoire.",
+                "The cycle still totals ten seconds, so this keeps the six-breaths-a-minute benefit that the even version has — it leans the ratio without leaving the band.",
+                "Nothing is held at either end. A 4–6 breath asks for no breath-holding and no effort on the inhale, which is what makes twenty minutes of it possible where a more strenuous pattern would not be.",
+                "Honest limits: the head-to-head trial below found exhale-focused breathing improved mood the most of the styles it tested. The specific claim that a longer exhale raises heart rate variability more than an even breath does is not settled — the ratio is better supported for how the practice feels than for a bigger number.",
+            ],
+            evidence: [balban2023, zaccaro2018, laborde2022],
+            tags: ["Longer Exhale", "Down-regulate", "Calm"],
+            art: practiceArt,
+            // 4 in, 6 out at one quarter-note count a second: a 10 s cycle, so
+            // still six breaths a minute — the weight moved, not the rate.
+            kind: .pacer(BreathPattern(inhale: 4, holdIn: 0, exhale: 6, holdOut: 0)),
+            paceControl: .clicksAndNote(defaultNote: .quarter)),
+
+        Practice(
             id: "hold-breath", title: "Hold Breath", subtitle: "Holds on empty, in sets",
             category: .breathwork, states: [.stress, .focus],
             activityType: .breathwork, subtype: "Breath Hold",
