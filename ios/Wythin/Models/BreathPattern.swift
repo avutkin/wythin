@@ -113,7 +113,13 @@ struct EvenCadence: Equatable, Hashable {
     /// 11 → 5.5 s each way.
     let halfSeconds: Int
 
-    static let resonance = EvenCadence(halfSeconds: 11)   // 5.5 s, ~5.5 breaths/min
+    /// 5 s a side — six breaths a minute, the rate Resonance Breathing opens on
+    /// and the one the dose-response work is built around.
+    static let resonance = EvenCadence(halfSeconds: 10)
+
+    /// 5.5 s a side — the classic coherent cadence, about 5.5 breaths a minute.
+    /// It lands on a half second, which is the case this whole type exists for.
+    static let coherent = EvenCadence(halfSeconds: 11)
 
     /// The range the pace control offers: 3 s to 8 s a side.
     static let range = 6...16
