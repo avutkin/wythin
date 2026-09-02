@@ -349,13 +349,28 @@ private struct TabBarButton: View {
     let label:  String
     @Binding var selected: AppTab
 
+    /// Slightly wider than tall: the wide symbols (the chart, the seated
+    /// figure) are then held by their width and the tall ones (the clipboard)
+    /// by their height, which lands every icon within ~1pt of the same
+    /// drawn height without any one of them looking stretched.
+    private let iconBox = (width: CGFloat(26), height: CGFloat(22))
+
     var isSelected: Bool { selected == tab }
 
     var body: some View {
         Button { selected = tab } label: {
             VStack(spacing: 4) {
+                // Every symbol fitted to one box, rather than set at one point
+                // size. At a shared 20pt these drew anywhere from 17.7pt to
+                // 23.7pt tall — the clipboard a third taller than the seated
+                // figure — and because an HStack of VStacks centres each item
+                // on its own height, that also left the four labels on four
+                // different baselines. Fitting to a box fixes both: one
+                // apparent size, one baseline.
                 Image(systemName: icon)
-                    .font(.system(size: 20))
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: iconBox.width, height: iconBox.height)
                 Text(label)
                     .font(Theme.monoLabel)
             }

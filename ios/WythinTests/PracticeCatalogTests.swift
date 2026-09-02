@@ -54,7 +54,7 @@ final class PracticeCatalogTests: XCTestCase {
     /// reminder to restore the real invariant above it.
     func testCatalogIsTemporarilyThePacersOnly() {
         XCTAssertEqual(PracticeCatalog.practices.map(\.id),
-                       ["box-breathing", "resonance-breathing", "hold-breath"],
+                       ["box-breathing", "resonance-breathing", "coherent-breathing", "hold-breath"],
                        "catalog changed — restore the per-category and per-state coverage tests")
     }
 
@@ -120,28 +120,44 @@ final class PracticeCatalogTests: XCTestCase {
 
     // MARK: Pacer practices
 
-    /// Resonance and Coherent Breathing were the same practice with different
-    /// numbers, so they are one. It opens on 5.5 s a side — expressible only on a
-    /// half-second beat, which is why the cadence type exists at all.
-    func testResonanceOpensOnFiveAndAHalfSecondsEachWay() {
+    /// The two hold-free pacers are only worth carrying separately if they open on
+    /// different numbers — that was the whole argument for merging them once. So
+    /// pin each one's opening cadence, and pin that they differ.
+    func testTheTwoHoldFreePacersOpenOnDifferentCadences() {
         guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }),
-              let pattern = res.breathPattern else {
-            return XCTFail("resonance-breathing missing from the catalog")
+              let resPattern = res.breathPattern,
+              let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing" }),
+              let cohPattern = coh.breathPattern else {
+            return XCTFail("a hold-free pacer is missing from the catalog")
         }
-        let cadence = EvenCadence(beats: pattern.inhale, bpm: res.defaultBPM)
-        XCTAssertEqual(cadence.seconds, 5.5, accuracy: 0.0001)
-        XCTAssertEqual(cadence.label, "5.5s")
-        XCTAssertEqual(cadence.breathsPerMinute, 60.0 / 11.0, accuracy: 0.0001)
-        XCTAssertFalse(pattern.hasHolds)
+        let resCadence = EvenCadence(beats: resPattern.inhale, bpm: res.defaultBPM)
+        XCTAssertEqual(resCadence.seconds, 5, accuracy: 0.0001)
+        XCTAssertEqual(resCadence.label, "5s")
+        XCTAssertEqual(resCadence.breathsPerMinute, 6, accuracy: 0.0001)
+        XCTAssertFalse(resPattern.hasHolds)
+
+        let cohCadence = EvenCadence(beats: cohPattern.inhale, bpm: coh.defaultBPM)
+        XCTAssertEqual(cohCadence.seconds, 5.5, accuracy: 0.0001)
+        XCTAssertEqual(cohCadence.label, "5.5s")
+        XCTAssertEqual(cohCadence.breathsPerMinute, 60.0 / 11.0, accuracy: 0.0001)
+        XCTAssertFalse(cohPattern.hasHolds)
+
+        XCTAssertNotEqual(resCadence, cohCadence,
+                          "two hold-free pacers on the same cadence are one practice with two tiles")
     }
 
-    func testTheMergedPracticeCarriesBothOfItsPredecessorsStudies() {
-        guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }) else {
-            return XCTFail("resonance-breathing missing")
+    /// Each of the pair keeps the study that its own framing rests on: the
+    /// dose-response work behind six breaths a minute, the decision-making trial
+    /// behind the 5.5-second framing.
+    func testEachHoldFreePacerCitesTheStudyItsFramingRestsOn() {
+        guard let res = PracticeCatalog.practices.first(where: { $0.id == "resonance-breathing" }),
+              let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing" }) else {
+            return XCTFail("a hold-free pacer is missing")
         }
-        let dois = Set(res.evidence.map(\.doi))
-        XCTAssertTrue(dois.contains("10.3390/ijerph182312478"), "kept resonance's dose-response study")
-        XCTAssertTrue(dois.contains("10.1016/j.ijpsycho.2019.02.011"), "kept coherent's decision-making trial")
+        XCTAssertTrue(Set(res.evidence.map(\.doi)).contains("10.3390/ijerph182312478"),
+                      "resonance keeps its dose-response study")
+        XCTAssertTrue(Set(coh.evidence.map(\.doi)).contains("10.1016/j.ijpsycho.2019.02.011"),
+                      "coherent keeps its decision-making trial")
     }
 
     /// The session's pace stepper has to be able to reach every shipped pattern,
@@ -191,7 +207,18 @@ final class PracticeCatalogTests: XCTestCase {
         XCTAssertFalse(pattern.hasHolds, "resonance pauses at neither end")
         // Read at the practice's own tempo, not a hardcoded 60: the pace is
         // declared in beats, and beats only mean seconds against a tempo.
-        XCTAssertEqual(pattern.breathsPerMinute(bpm: res.defaultBPM), 60.0 / 11.0, accuracy: 0.0001)
+        XCTAssertEqual(pattern.breathsPerMinute(bpm: res.defaultBPM), 6, accuracy: 0.0001)
+    }
+
+    func testCoherentBreathingIsAHoldFreePacer() {
+        guard let coh = PracticeCatalog.practices.first(where: { $0.id == "coherent-breathing" }),
+              let pattern = coh.breathPattern else {
+            return XCTFail("coherent-breathing missing from the catalog")
+        }
+        XCTAssertEqual(coh.activityType, .breathwork)
+        XCTAssertEqual(coh.subtype, "Coherent Breathing")
+        XCTAssertFalse(pattern.hasHolds, "the coherent breath pauses at neither end")
+        XCTAssertEqual(pattern.breathsPerMinute(bpm: coh.defaultBPM), 60.0 / 11.0, accuracy: 0.0001)
     }
 
     func testBoxBreathingIsAPacerOnTheBoxPattern() {
