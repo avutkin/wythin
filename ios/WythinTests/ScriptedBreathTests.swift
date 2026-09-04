@@ -136,21 +136,57 @@ final class ScriptedBreathTests: XCTestCase {
 
     // MARK: What the ear hears
 
-    func testEveryStepOpensWithABoundaryTone() {
+    func testEveryStepOpensWithSomethingAudible() {
         for script in [stacking, retention] {
             for index in script.steps.indices {
                 let state = ScriptedBreathState(stepIndex: index, cycle: 1, secondsIntoStep: 0,
                                                 secondsLeftInStep: script.steps[index].pace.seconds)
-                XCTAssertEqual(ScriptedBreathEngine.cue(at: state, script: script), .boundary,
-                               "\(script.steps[index].move.rawValue) opened silently")
+                XCTAssertNotEqual(ScriptedBreathEngine.cue(at: state, script: script), .silent,
+                                  "\(script.steps[index].move.rawValue) opened silently")
             }
         }
     }
 
-    /// The whole point of a natural step: one tone to start it, then nothing.
-    /// Being clicked at through a breath you are meant to take at your own speed
-    /// is the bug this asserts against.
-    func testANaturalStepIsSilentAfterItsOpeningTone() {
+    /// The natural breaths are walked through by a sound of their own, and its
+    /// direction has to match the breath — an inhale cued by the falling sound
+    /// is worse than no cue at all.
+    func testTheNaturalBreathsAreCuedInTheirOwnDirection() {
+        for script in [stacking, retention] {
+            for (index, step) in script.steps.enumerated() where step.pace.isNatural {
+                let state = ScriptedBreathState(stepIndex: index, cycle: 1, secondsIntoStep: 0,
+                                                secondsLeftInStep: step.pace.seconds)
+                let cue = ScriptedBreathEngine.cue(at: state, script: script)
+                XCTAssertEqual(cue, step.move == .inhale ? .breatheIn : .breatheOut,
+                               "\(step.move.rawValue) was walked in the wrong direction")
+            }
+        }
+    }
+
+    /// One effort, cued once and hard, and never counted. The direction of the
+    /// sweep is the instruction: up past full, down past empty.
+    func testASurgeIsOneHardCueAndThenNothing() {
+        let script = retention
+        for (index, step) in script.steps.enumerated() where step.move.isSurge {
+            let opening = ScriptedBreathState(stepIndex: index, cycle: 1, secondsIntoStep: 0,
+                                              secondsLeftInStep: step.pace.seconds)
+            XCTAssertEqual(ScriptedBreathEngine.cue(at: opening, script: script),
+                           step.move == .topUp ? .surgeUp : .surgeDown)
+            for second in 1..<max(2, step.pace.seconds) {
+                let later = ScriptedBreathState(stepIndex: index, cycle: 1, secondsIntoStep: second,
+                                                secondsLeftInStep: step.pace.seconds - second)
+                XCTAssertEqual(ScriptedBreathEngine.cue(at: later, script: script), .silent,
+                               "\(step.move.rawValue) was counted through")
+            }
+        }
+        XCTAssertTrue(BreathMove.topUp.isSurge)
+        XCTAssertTrue(BreathMove.squeezeOut.isSurge)
+        XCTAssertFalse(BreathMove.pump.isSurge, "the pump is a sustained widening, so it is counted")
+    }
+
+    /// The breath sound runs the length of the step, so nothing else plays over
+    /// it. Being clicked at through a breath you are meant to take at your own
+    /// speed is the bug this asserts against.
+    func testANaturalStepIsSilentAfterItsBreathSound() {
         let script = stacking.resized(hold: 15, natural: 6)
         for second in 1..<6 {
             let state = ScriptedBreathState(stepIndex: 0, cycle: 1, secondsIntoStep: second,
@@ -162,14 +198,14 @@ final class ScriptedBreathTests: XCTestCase {
     func testALongHoldIsSilentExceptForItsWarning() {
         let script = retention.resized(hold: 15, natural: 4)
         let holdIndex = 1
-        var events: [Int: HoldCueEvent] = [:]
+        var events: [Int: ScriptedCue.Event] = [:]
         for second in 1..<15 {
             let state = ScriptedBreathState(stepIndex: holdIndex, cycle: 1,
                                             secondsIntoStep: second,
                                             secondsLeftInStep: 15 - second)
             events[15 - second] = ScriptedBreathEngine.cue(at: state, script: script)
         }
-        XCTAssertEqual(events[3], .turn, "three seconds out, a double warns the top-up is coming")
+        XCTAssertEqual(events[3], .warn, "three seconds out, a double warns the top-up is coming")
         for (left, event) in events where left != 3 {
             XCTAssertEqual(event, .silent, "the hold made a noise with \(left)s left")
         }

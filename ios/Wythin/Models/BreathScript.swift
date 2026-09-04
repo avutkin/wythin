@@ -11,9 +11,9 @@ import Foundation
 //
 // The engine cannot be a pure function of elapsed seconds the way the pacers
 // are, because a natural step can be ended early by the person taking it. And
-// the session must never insist: a natural step is marked by one tone at its
-// start and is otherwise silent, so nobody is being clicked at through a breath
-// that is supposed to be their own.
+// the session must never count at you: a natural step is walked through with a
+// breath sound that runs its whole length, never with clicks, so an own-pace
+// breath is guided rather than metered.
 
 /// What the body is doing during one step.
 enum BreathMove: String, Equatable, Hashable, CaseIterable {
@@ -45,11 +45,11 @@ enum BreathMove: String, Equatable, Hashable, CaseIterable {
         switch self {
         case .inhale:     return "Breathe in, no further than comfortable"
         case .pump:       return "Hold what you have and widen the ribs"
-        case .topUp:      return "One more sip, right to the top"
+        case .topUp:      return "One strong sip, right to the top"
         case .exhale:     return "Let it go, slowly"
         case .holdIn:     return "Sit full. Jaw and shoulders loose"
         case .holdOut:    return "Sit empty. Let the urge come and pass"
-        case .squeezeOut: return "Press out the last of it"
+        case .squeezeOut: return "One strong push — all of it out"
         }
     }
 
@@ -67,10 +67,13 @@ enum BreathMove: String, Equatable, Hashable, CaseIterable {
         }
     }
 
-    /// A long sit is left in silence, the way the hold trainer leaves it. The
-    /// short moves are counted, because two seconds of "top up" is unfollowable
-    /// without a count.
+    /// A long sit is left in silence, the way the hold trainer leaves it.
     var isLongHold: Bool { self == .holdIn || self == .holdOut }
+
+    /// A single effort rather than a duration. These are cued once, hard, and
+    /// never counted: a move that is over in one push reads as a phase to wait
+    /// out the moment you put a ticking clock on it.
+    var isSurge: Bool { self == .topUp || self == .squeezeOut }
 
     /// Whether the lungs are moving. Drives whether the circle animates over the
     /// step or simply sits where it is.

@@ -13,13 +13,15 @@ import UIKit
 //
 //   the circle       — what the lungs are doing, including the two moves that go
 //                      past where a breath would have stopped on its own
-//   the word + count — which move this is, and how much of it is left
+//   the word + count — which move this is, and how much of it is left. A surge
+//                      shows no number: it is one effort, not a duration
 //   the next line    — what is coming, because a scripted breath cannot be
 //                      guessed ahead the way an even one can
 //
 // Natural steps are the reason this screen exists rather than another pacer.
-// They are silent, they show no countdown, and a tap ends them early — the guide
-// waits on a breath rather than the breath chasing the guide.
+// They show no countdown, they are walked through by a breath sound rather than
+// counted at, and a tap ends one early — the guide waits on the breath rather
+// than the breath chasing the guide.
 
 struct ScriptedBreathSessionView: View {
     let practice: Practice
@@ -33,7 +35,7 @@ struct ScriptedBreathSessionView: View {
     @AppStorage private var breathSeconds: Int
 
     @State private var engine:    ScriptedBreathEngine
-    @State private var cue      = HoldCue()
+    @State private var cue      = ScriptedCue()
     @State private var startedAt = Date.now
     @State private var sessionElapsed: TimeInterval = 0
     @State private var isMuted      = false
@@ -134,7 +136,10 @@ struct ScriptedBreathSessionView: View {
             if sessionElapsed >= target { stop() }
         }
         .onChange(of: holdSeconds)   { engine.reconfigure(script: script) }
-        .onChange(of: breathSeconds) { engine.reconfigure(script: script) }
+        .onChange(of: breathSeconds) {
+            cue.prepareBreath(seconds: breathSeconds)
+            engine.reconfigure(script: script)
+        }
     }
 
     // MARK: The pacer
@@ -216,6 +221,15 @@ struct ScriptedBreathSessionView: View {
     /// "empty" still reads as a body rather than a disappearance.
     private var scale: CGFloat { 0.42 + 0.58 * CGFloat(fill) }
 
+    /// A breath moves across its whole step. A surge is driven: it reaches the
+    /// end of its travel in the first third and sits there, so the movement on
+    /// screen looks like the effort it is asking for.
+    private var fillAnimation: Animation {
+        step.move.isSurge
+            ? .easeOut(duration: Double(step.pace.seconds) * 0.35)
+            : .easeInOut(duration: Double(step.pace.seconds))
+    }
+
     private var lungs: some View {
         Circle()
             .fill(RadialGradient(colors: [Theme.breathe.opacity(0.28), Theme.breathe.opacity(0.05)],
@@ -223,7 +237,7 @@ struct ScriptedBreathSessionView: View {
             .overlay(Circle().stroke(Theme.breathe.opacity(0.45), lineWidth: 1.5))
             .frame(width: diameter, height: diameter)
             .scaleEffect(scale)
-            .animation(.easeInOut(duration: Double(step.pace.seconds)), value: fill)
+            .animation(fillAnimation, value: fill)
             // The pump is the one move with no volume change to show, so it is
             // shown as movement instead: the chest working against held air.
             .scaleEffect(pump ? 1.022 : 1.0)
@@ -246,6 +260,13 @@ struct ScriptedBreathSessionView: View {
                     .font(Theme.monoLabel)
                     .tracking(3)
                     .foregroundStyle(Theme.dim)
+            } else if step.move.isSurge {
+                // Nor here, for the opposite reason. One strong effort is not
+                // two seconds of anything; a countdown turns a push into a wait.
+                Text(step.move == .topUp ? "ALL THE WAY IN" : "ALL THE WAY OUT")
+                    .font(Theme.monoLabel)
+                    .tracking(3)
+                    .foregroundStyle(Theme.breathe.opacity(0.8))
             } else {
                 Text(engine.state.countdown)
                     .font(.system(size: 46, weight: .light, design: .monospaced))
@@ -253,7 +274,7 @@ struct ScriptedBreathSessionView: View {
                     .contentTransition(.numericText())
             }
 
-            if !step.pace.isNatural, step.pace.seconds <= 6 {
+            if !step.pace.isNatural, !step.move.isSurge, step.pace.seconds <= 6 {
                 pips
             }
         }
@@ -419,6 +440,7 @@ struct ScriptedBreathSessionView: View {
         sessionElapsed = 0
         UIApplication.shared.isIdleTimerDisabled = true   // the screen is the guide
         cue.isMuted = isMuted
+        cue.prepareBreath(seconds: breathSeconds)
         cue.start()
         engine.onTick = { state, event in
             cue.play(event)

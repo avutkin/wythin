@@ -39,7 +39,7 @@ final class ScriptedBreathEngine {
     /// a tapped-through step still gets its opening tone. The cue is derived
     /// from the state rather than passed alongside it, so there is no way for
     /// the two to disagree.
-    var onTick: ((ScriptedBreathState, HoldCueEvent) -> Void)?
+    var onTick: ((ScriptedBreathState, ScriptedCue.Event) -> Void)?
 
     private var timer: DispatchSourceTimer?
     private var ticks: Int = 0
@@ -98,22 +98,36 @@ final class ScriptedBreathEngine {
     /// A pure function of the position so the sound design can be asserted
     /// without playing anything. Getting this subtly wrong means someone
     /// breathing to the wrong cue with their eyes shut.
-    static func cue(at state: ScriptedBreathState, script: BreathScript) -> HoldCueEvent {
+    static func cue(at state: ScriptedBreathState, script: BreathScript) -> ScriptedCue.Event {
         guard let step = script.steps.indices.contains(state.stepIndex)
                 ? script.steps[state.stepIndex] : nil else { return .silent }
 
-        // Every step opens with the same tone. That tone is the whole guide on a
-        // natural step, and it is what tells you a hold has ended.
-        if state.secondsIntoStep == 0 { return .boundary }
+        if state.secondsIntoStep == 0 {
+            switch step.move {
+            // A breath at your own speed is walked through rather than marked:
+            // the sound runs the length of the step and its colour tells you
+            // which way you are going.
+            case .inhale where step.pace.isNatural:  return .breatheIn
+            case .exhale where step.pace.isNatural:  return .breatheOut
+            // One effort, cued once and hard. Direction is the message.
+            case .topUp:                             return .surgeUp
+            case .squeezeOut:                        return .surgeDown
+            default:                                 return .stepOpen
+            }
+        }
 
-        // A breath taken at your own speed is not clicked at.
+        // The breath sound already covers its whole step.
         if step.pace.isNatural { return .silent }
 
+        // Nothing follows a surge. Ticking through it would make an effort into
+        // a duration, which is exactly what it is not.
+        if step.move.isSurge { return .silent }
+
         if step.move.isLongHold {
-            // Silent, except for a double three seconds out. A top-up or a
-            // squeeze at the end of a long hold has to be prepared for, and
-            // being startled into it is how people strain.
-            return state.secondsLeftInStep == 3 ? .turn : .silent
+            // Silent, except for a double three seconds out. The sip or squeeze
+            // that closes a hold has to be prepared for, and being startled into
+            // it is how people strain.
+            return state.secondsLeftInStep == 3 ? .warn : .silent
         }
 
         return .count
