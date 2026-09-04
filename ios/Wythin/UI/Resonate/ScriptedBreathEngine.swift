@@ -112,6 +112,9 @@ final class ScriptedBreathEngine {
             // One effort, cued once and hard. Direction is the message.
             case .topUp:                             return .surgeUp
             case .squeezeOut:                        return .surgeDown
+            // The rib flare gets its own quick, bright cue — it is over before a
+            // sweep would have finished travelling.
+            case .pump:                              return .pumpUp
             default:                                 return .stepOpen
             }
         }
@@ -119,9 +122,9 @@ final class ScriptedBreathEngine {
         // The breath sound already covers its whole step.
         if step.pace.isNatural { return .silent }
 
-        // Nothing follows a surge. Ticking through it would make an effort into
-        // a duration, which is exactly what it is not.
-        if step.move.isSurge { return .silent }
+        // Nothing follows a single effort. Ticking through one would make a
+        // movement into a duration, which is exactly what it is not.
+        if step.move.isSingleEffort { return .silent }
 
         if step.move.isLongHold {
             // Silent, except for a double three seconds out. The sip or squeeze

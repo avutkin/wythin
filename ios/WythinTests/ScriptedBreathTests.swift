@@ -180,7 +180,33 @@ final class ScriptedBreathTests: XCTestCase {
         }
         XCTAssertTrue(BreathMove.topUp.isSurge)
         XCTAssertTrue(BreathMove.squeezeOut.isSurge)
-        XCTAssertFalse(BreathMove.pump.isSurge, "the pump is a sustained widening, so it is counted")
+        XCTAssertFalse(BreathMove.pump.isSurge, "the pump gets its own cue, not a sweep")
+    }
+
+    /// The pump is one second and one movement: its own quick cue, nothing after
+    /// it, and no count. A second of ticking would be a beat, not a flare.
+    func testThePumpIsOneSecondAndOneCue() {
+        guard let index = stacking.steps.firstIndex(where: { $0.move == .pump }) else {
+            return XCTFail("stacking lost its pump")
+        }
+        XCTAssertEqual(stacking.steps[index].pace, .counted(1))
+        XCTAssertTrue(BreathMove.pump.isSingleEffort)
+        let opening = ScriptedBreathState(stepIndex: index, cycle: 1, secondsIntoStep: 0,
+                                          secondsLeftInStep: 1)
+        XCTAssertEqual(ScriptedBreathEngine.cue(at: opening, script: stacking), .pumpUp)
+        let later = ScriptedBreathState(stepIndex: index, cycle: 1, secondsIntoStep: 1,
+                                        secondsLeftInStep: 0)
+        XCTAssertEqual(ScriptedBreathEngine.cue(at: later, script: stacking), .silent)
+    }
+
+    /// A one-second pump must survive resizing — the setting moves the holds and
+    /// the natural breaths, never the movements.
+    func testResizingLeavesThePumpAtOneSecond() {
+        let sized = stacking.resized(hold: 30, natural: 9)
+        guard let pump = sized.steps.first(where: { $0.move == .pump }) else {
+            return XCTFail("stacking lost its pump")
+        }
+        XCTAssertEqual(pump.pace, .counted(1))
     }
 
     /// The breath sound runs the length of the step, so nothing else plays over
@@ -211,13 +237,13 @@ final class ScriptedBreathTests: XCTestCase {
         }
     }
 
-    func testAShortCountedMoveIsCountedOut() {
-        let script = stacking
-        let pumpIndex = 1
-        let seconds = script.steps[pumpIndex].pace.seconds
-        for second in 1..<seconds {
-            let state = ScriptedBreathState(stepIndex: pumpIndex, cycle: 1, secondsIntoStep: second,
-                                            secondsLeftInStep: seconds - second)
+    /// No shipped script counts a move any more — every short move is a single
+    /// effort — but the mapping still has to count one if a script asks for it.
+    func testACountedMoveThatIsNotAnEffortIsStillCountedOut() {
+        let script = BreathScript(steps: [BreathStep(move: .inhale, pace: .counted(4))])
+        for second in 1..<4 {
+            let state = ScriptedBreathState(stepIndex: 0, cycle: 1, secondsIntoStep: second,
+                                            secondsLeftInStep: 4 - second)
             XCTAssertEqual(ScriptedBreathEngine.cue(at: state, script: script), .count)
         }
     }

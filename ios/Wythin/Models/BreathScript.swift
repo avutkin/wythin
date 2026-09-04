@@ -44,7 +44,7 @@ enum BreathMove: String, Equatable, Hashable, CaseIterable {
     var instruction: String {
         switch self {
         case .inhale:     return "Breathe in, no further than comfortable"
-        case .pump:       return "Hold what you have and widen the ribs"
+        case .pump:       return "Flare the ribs — one quick push out"
         case .topUp:      return "One strong sip, right to the top"
         case .exhale:     return "Let it go, slowly"
         case .holdIn:     return "Sit full. Jaw and shoulders loose"
@@ -70,10 +70,14 @@ enum BreathMove: String, Equatable, Hashable, CaseIterable {
     /// A long sit is left in silence, the way the hold trainer leaves it.
     var isLongHold: Bool { self == .holdIn || self == .holdOut }
 
-    /// A single effort rather than a duration. These are cued once, hard, and
-    /// never counted: a move that is over in one push reads as a phase to wait
-    /// out the moment you put a ticking clock on it.
+    /// The two big efforts, cued with a sweep whose direction is the instruction:
+    /// up past full, down past empty.
     var isSurge: Bool { self == .topUp || self == .squeezeOut }
+
+    /// Over in one movement rather than held for a duration — the pump included.
+    /// None of these is counted: a move that is finished in a second reads as a
+    /// phase to wait out the moment you put a ticking clock on it.
+    var isSingleEffort: Bool { isSurge || self == .pump }
 
     /// Whether the lungs are moving. Drives whether the circle animates over the
     /// step or simply sits where it is.
@@ -133,13 +137,15 @@ struct BreathScript: Equatable, Hashable {
 
     // MARK: The shipped scripts
 
-    /// Breath stacking. Take a normal breath, hold it and widen the chest
-    /// against it, then sip more air on top of what is already there, then let
-    /// the whole thing go. Each cycle reaches a fuller inflation than one breath
-    /// on its own would.
+    /// Breath stacking. Take a normal breath, flare the ribs against it for a
+    /// second, then sip more air on top of what is already there, then let the
+    /// whole thing go. Each cycle reaches a fuller inflation than one breath on
+    /// its own would.
     static let stacking = BreathScript(steps: [
         BreathStep(move: .inhale, pace: .natural(4)),
-        BreathStep(move: .pump,   pace: .counted(3)),
+        // One second. The pump is a flick of the ribs, not a phase — long enough
+        // to make the movement, and no longer.
+        BreathStep(move: .pump,   pace: .counted(1)),
         BreathStep(move: .topUp,  pace: .counted(2)),
         BreathStep(move: .exhale, pace: .natural(6)),
     ])

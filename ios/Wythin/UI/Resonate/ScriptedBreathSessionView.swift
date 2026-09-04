@@ -40,8 +40,11 @@ struct ScriptedBreathSessionView: View {
     @State private var sessionElapsed: TimeInterval = 0
     @State private var isMuted      = false
     @State private var showSettings = false
-    @State private var fill:  Double = 0.26
-    @State private var pump:  Bool   = false
+    @State private var fill:     Double = 0.26
+    /// 0 at the moment the ribs flare, 1 once the ring has travelled out and
+    /// faded. Driven explicitly rather than by a repeating animation: the pump
+    /// is one movement now, and a pulse that keeps going says "hold this".
+    @State private var ribFlare: Double = 1
 
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -150,6 +153,7 @@ struct ScriptedBreathSessionView: View {
 
             ZStack {
                 lungs
+                ribs
                 centreReadout
             }
             .frame(width: diameter + 40, height: diameter + 40)
@@ -221,13 +225,16 @@ struct ScriptedBreathSessionView: View {
     /// "empty" still reads as a body rather than a disappearance.
     private var scale: CGFloat { 0.42 + 0.58 * CGFloat(fill) }
 
-    /// A breath moves across its whole step. A surge is driven: it reaches the
-    /// end of its travel in the first third and sits there, so the movement on
-    /// screen looks like the effort it is asking for.
+    /// A breath moves across its whole step. A single effort is driven instead:
+    /// it reaches the end of its travel early and then fixes there, so what is on
+    /// screen looks like the movement being asked for rather than a slide.
     private var fillAnimation: Animation {
-        step.move.isSurge
-            ? .easeOut(duration: Double(step.pace.seconds) * 0.35)
-            : .easeInOut(duration: Double(step.pace.seconds))
+        switch step.move {
+        case .pump:  return .easeOut(duration: 0.30)   // flare, then fix
+        case .topUp, .squeezeOut:
+            return .easeOut(duration: Double(step.pace.seconds) * 0.35)
+        default:     return .easeInOut(duration: Double(step.pace.seconds))
+        }
     }
 
     private var lungs: some View {
@@ -238,12 +245,17 @@ struct ScriptedBreathSessionView: View {
             .frame(width: diameter, height: diameter)
             .scaleEffect(scale)
             .animation(fillAnimation, value: fill)
-            // The pump is the one move with no volume change to show, so it is
-            // shown as movement instead: the chest working against held air.
-            .scaleEffect(pump ? 1.022 : 1.0)
-            .animation(pump ? .easeInOut(duration: 0.55).repeatForever(autoreverses: true)
-                            : .easeOut(duration: 0.2),
-                       value: pump)
+    }
+
+    /// The rib flare. One ring travelling out past the circle and fading, thrown
+    /// at the moment the pump lands — the air is not moving, the chest is, so
+    /// the movement is drawn outside the body rather than as more volume.
+    private var ribs: some View {
+        Circle()
+            .stroke(Theme.breathe.opacity(0.6 * (1 - ribFlare)), lineWidth: 2)
+            .frame(width: diameter, height: diameter)
+            .scaleEffect(scale * (1 + 0.20 * ribFlare))
+            .allowsHitTesting(false)
     }
 
     private var centreReadout: some View {
@@ -260,10 +272,10 @@ struct ScriptedBreathSessionView: View {
                     .font(Theme.monoLabel)
                     .tracking(3)
                     .foregroundStyle(Theme.dim)
-            } else if step.move.isSurge {
-                // Nor here, for the opposite reason. One strong effort is not
-                // two seconds of anything; a countdown turns a push into a wait.
-                Text(step.move == .topUp ? "ALL THE WAY IN" : "ALL THE WAY OUT")
+            } else if step.move.isSingleEffort {
+                // Nor here, for the opposite reason. One movement is not a
+                // duration; a countdown on it turns a push into a wait.
+                Text(effortCall)
                     .font(Theme.monoLabel)
                     .tracking(3)
                     .foregroundStyle(Theme.breathe.opacity(0.8))
@@ -274,9 +286,18 @@ struct ScriptedBreathSessionView: View {
                     .contentTransition(.numericText())
             }
 
-            if !step.pace.isNatural, !step.move.isSurge, step.pace.seconds <= 6 {
+            if !step.pace.isNatural, !step.move.isSingleEffort, step.pace.seconds <= 6 {
                 pips
             }
+        }
+    }
+
+    private var effortCall: String {
+        switch step.move {
+        case .topUp:      return "ALL THE WAY IN"
+        case .squeezeOut: return "ALL THE WAY OUT"
+        case .pump:       return "RIBS WIDE"
+        default:          return ""
         }
     }
 
@@ -456,9 +477,11 @@ struct ScriptedBreathSessionView: View {
         let steps = script.steps
         guard steps.indices.contains(state.stepIndex) else { return }
         let move = steps[state.stepIndex].move
-        if state.secondsIntoStep == 0 {
-            if let target = move.fill { fill = target }   // a hold keeps what it was given
-            pump = (move == .pump)
+        guard state.secondsIntoStep == 0 else { return }
+        if let target = move.fill { fill = target }       // a hold keeps what it was given
+        if move == .pump {
+            ribFlare = 0
+            withAnimation(.easeOut(duration: 0.75)) { ribFlare = 1 }
         }
     }
 
@@ -466,7 +489,7 @@ struct ScriptedBreathSessionView: View {
         engine.onTick = nil
         engine.stop()
         cue.stop()
-        pump = false
+        ribFlare = 1
         UIApplication.shared.isIdleTimerDisabled = false
     }
 

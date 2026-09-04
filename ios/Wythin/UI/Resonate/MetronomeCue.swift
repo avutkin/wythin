@@ -287,6 +287,7 @@ final class ScriptedCue {
         case breatheIn     // walk the inhale
         case breatheOut    // walk the exhale
         case count         // one second of a short counted move
+        case pumpUp        // the one-second rib flare: quick, light, over at once
         case surgeUp       // one strong sip, past full
         case surgeDown     // one strong push, past empty
         case warn          // a hold is about to end
@@ -306,6 +307,7 @@ final class ScriptedCue {
     private var openTone:  AVAudioPCMBuffer?
     private var countTone: AVAudioPCMBuffer?
     private var warnTone:  AVAudioPCMBuffer?
+    private var pumpTone:  AVAudioPCMBuffer?
     private var upTone:    AVAudioPCMBuffer?
     private var downTone:  AVAudioPCMBuffer?
     private var inBreath:  AVAudioPCMBuffer?
@@ -328,8 +330,11 @@ final class ScriptedCue {
         openTone  = ScriptedCue.tone(frequency: 392.00, seconds: 0.40, decay: 6,  gain: 0.20, format: format)
         countTone = ScriptedCue.tone(frequency: 587.33, seconds: 0.09, decay: 26, gain: 0.18, format: format)
         warnTone  = ScriptedCue.doubleTone(frequency: 587.33, gap: 0.14, format: format)
-        upTone    = ScriptedCue.sweep(from: 330, to: 680, format: format)
-        downTone  = ScriptedCue.sweep(from: 680, to: 300, format: format)
+        // Bright and short, well clear of the count tone: the pump is one flick,
+        // not a beat in a sequence.
+        pumpTone  = ScriptedCue.tone(frequency: 784.00, seconds: 0.16, decay: 19, gain: 0.24, format: format)
+        upTone    = ScriptedCue.sweep(from: 165, to: 330, format: format)
+        downTone  = ScriptedCue.sweep(from: 330, to: 146, format: format)
         prepareBreath(seconds: 4)
     }
 
@@ -375,6 +380,7 @@ final class ScriptedCue {
     func play(_ event: Event) {
         switch event {
         case .count:                 softHaptic.impactOccurred()
+        case .pumpUp:                firmHaptic.impactOccurred()
         case .stepOpen, .warn:       firmHaptic.impactOccurred()
         case .surgeUp, .surgeDown:   heavyHaptic.impactOccurred()
         case .breatheIn, .breatheOut: softHaptic.impactOccurred()
@@ -388,7 +394,7 @@ final class ScriptedCue {
             guard let buffer = (event == .breatheIn ? inBreath : outBreath) else { return }
             breathPlayer.scheduleBuffer(buffer, at: nil, options: [.interrupts])
 
-        case .stepOpen, .surgeUp, .surgeDown:
+        case .stepOpen, .surgeUp, .surgeDown, .pumpUp:
             // A step boundary ends the breath before it. Tapping a natural step
             // short would otherwise leave its sound running underneath the next
             // move, which reads as being asked to keep breathing in during a
@@ -412,6 +418,7 @@ final class ScriptedCue {
         case .warn:      return warnTone
         case .surgeUp:   return upTone
         case .surgeDown: return downTone
+        case .pumpUp:    return pumpTone
         default:         return nil
         }
     }
@@ -466,14 +473,17 @@ final class ScriptedCue {
         return buffer
     }
 
-    /// A pitch that moves. The direction is the message — up for the sip past
-    /// full, down for the push past empty — so this is one gesture rather than a
-    /// struck note, and it is the loudest thing the session plays.
+    /// A pitch that moves, low and with some weight behind it. The direction is
+    /// the message — up for the sip past full, down for the push past empty.
+    ///
+    /// Pitched roughly an octave below where this started out. High and quick
+    /// read as a notification; this cue is asking for real effort, so it wants
+    /// the register of something being lifted rather than something pinging.
     private static func sweep(from: Double, to: Double,
                               format: AVAudioFormat) -> AVAudioPCMBuffer? {
         let rate    = format.sampleRate
-        let seconds = 0.46
-        let rise    = 0.26
+        let seconds = 0.72
+        let travel  = 0.34
         let frames  = AVAudioFrameCount(rate * seconds)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames),
               let channel = buffer.floatChannelData?[0] else { return nil }
@@ -481,25 +491,34 @@ final class ScriptedCue {
 
         // Phase is accumulated rather than computed from t: sin(2πft) with a
         // moving f steps the phase discontinuously and buzzes.
-        var phase = 0.0
+        var phase = 0.0, subPhase = 0.0
         for i in 0..<Int(frames) {
             let t = Double(i) / rate
-            let f = from + (to - from) * min(1, t / rise)
-            phase += 2 * .pi * f / rate
-            let envelope = (t < 0.008 ? t / 0.008 : 1) * exp(-5.0 * t)
+            let f = from + (to - from) * min(1, t / travel)
+            phase    += 2 * .pi * f / rate
+            subPhase += 2 * .pi * f / 2 / rate
+
+            let envelope = (t < 0.010 ? t / 0.010 : 1) * exp(-3.2 * t)
             var sample = sin(phase)
-            sample += 0.30 * sin(2 * phase) * exp(-9 * t)
-            channel[i] = Float(sample * envelope * 0.32)
+            sample += 0.45 * sin(subPhase)                    // an octave under, for mass
+            sample += 0.22 * sin(2 * phase) * exp(-7 * t)     // enough edge to cut through
+            channel[i] = Float(sample * envelope * 0.30)
         }
         return buffer
     }
 
-    /// The breath itself: filtered noise under a slow swell, with a short voiced
-    /// onset that gives it the "juh" rather than leaving it a hiss.
+    /// The breath itself, shaped so its direction is unmistakable.
     ///
-    /// The filter cutoff sweeps with the direction of the breath, which is what
-    /// makes the sound legible as in or out with your eyes shut — a flat hiss
-    /// would only tell you that something is happening.
+    /// Three things move together across the step, and all three run one way for
+    /// an inhale and the other for an exhale:
+    ///
+    ///   colour  — a resonant band sweeps up as the chest fills, down as it empties
+    ///   weight  — an inhale grows into itself; an exhale starts full and lets go
+    ///   body    — the low end thins as the breath climbs, thickens as it falls
+    ///
+    /// The earlier version swelled and faded the same way in both directions, so
+    /// only the filter carried the message and the sound read as generic breath
+    /// noise. A gradient in loudness is what makes the shape legible.
     private static func breath(seconds: Double, rising: Bool,
                                format: AVAudioFormat) -> AVAudioPCMBuffer? {
         let rate   = format.sampleRate
@@ -519,28 +538,54 @@ final class ScriptedCue {
             return Double(Int32(bitPattern: seed)) / Double(Int32.max)
         }
 
-        let open  = 2100.0, closed = 420.0
-        let swell = 0.16,   fade   = 0.30
+        let open = 1850.0, closed = 340.0
         var lowpass = 0.0
+        var band = 0.0, low = 0.0          // state-variable filter, for the formant
+
+        // Edges only. The gradient does the work in between, so the envelope is
+        // just there to stop the buffer starting or ending on a step.
+        let edge = 0.06
 
         for i in 0..<Int(frames) {
             let t = Double(i) / rate
             let p = t / seconds                          // 0 … 1 across the breath
 
-            let cutoff = rising ? closed + (open - closed) * p
-                                : open   - (open - closed) * p
-            let a = 1 - exp(-2 * .pi * cutoff / rate)
-            lowpass += a * (noise() - lowpass)
+            // Everything is written in terms of how far the chest has filled, so
+            // an exhale is genuinely the inhale run backwards rather than a
+            // separate sound that happens to fall.
+            let fullness = rising ? p : 1 - p
 
-            let envelope: Double
-            if p < swell         { envelope = p / swell }
-            else if p > 1 - fade { envelope = (1 - p) / fade }
-            else                 { envelope = 1 }
+            let source = noise()
+
+            // Broadband bed, opening and closing with the breath.
+            let cutoff = closed + (open - closed) * fullness
+            let a = 1 - exp(-2 * .pi * cutoff / rate)
+            lowpass += a * (source - lowpass)
+
+            // A resonant band riding on top. This is the part the ear tracks as
+            // a glide rather than as a hiss getting brighter.
+            let centre = 320 + 900 * fullness
+            let f = 2 * sin(.pi * centre / rate)
+            low  += f * band
+            let high = source - low - 0.55 * band
+            band += f * high
+
+            // Weight: an inhale gathers, an exhale spends what it has.
+            let gradient = rising ? 0.25 + 0.75 * p
+                                  : 1.00 - 0.72 * p
+
+            var envelope = gradient
+            if p < edge      { envelope *= p / edge }
+            if p > 1 - edge  { envelope *= (1 - p) / edge }
+
+            // The low body thins out as the breath climbs.
+            let bodyGain = 0.9 - 0.45 * fullness
 
             // 90 ms of quiet low voice at the top of the breath — the consonant.
-            let onset = t < 0.09 ? 0.45 * sin(2 * .pi * 138 * t) * (1 - t / 0.09) : 0
+            let onset = t < 0.09 ? 0.40 * sin(2 * .pi * 138 * t) * (1 - t / 0.09) : 0
 
-            channel[i] = Float((lowpass * 2.6 + onset) * envelope * 0.17)
+            let sample = lowpass * 2.3 * bodyGain + band * 0.9 + onset
+            channel[i] = Float(sample * envelope * 0.17)
         }
         return buffer
     }
