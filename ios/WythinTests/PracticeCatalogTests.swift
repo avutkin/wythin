@@ -55,7 +55,8 @@ final class PracticeCatalogTests: XCTestCase {
     func testCatalogIsTemporarilyThePacersOnly() {
         XCTAssertEqual(PracticeCatalog.practices.map(\.id),
                        ["box-breathing", "resonance-breathing", "coherent-breathing-5x5",
-                        "relaxing-breathing-4x6", "hold-breath"],
+                        "relaxing-breathing-4x6", "breath-stacking",
+                        "breath-retention-15x15", "hold-breath"],
                        "catalog changed — restore the per-category and per-state coverage tests")
     }
 

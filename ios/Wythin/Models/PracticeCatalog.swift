@@ -154,6 +154,41 @@ enum PracticeCatalog {
             paceControl: .clicksAndNote(defaultNote: .quarter)),
 
         Practice(
+            id: "breath-stacking", title: "Breath Stacking", subtitle: "In, pump, top up, release",
+            category: .breathwork, states: [.focus, .stress],
+            activityType: .breathwork, subtype: "Breath Stacking",
+            defaultDurationMins: 5, defaultBPM: 60,
+            description: "Breathe in as you normally would. Hold what you have and widen the ribs against it — a pump rather than more air. Then take one more sip right to the top, and let the whole thing go slowly. Each round reaches a fuller chest than a single breath gets to on its own. Sit upright, work at the edge of comfortable rather than past it, and stop if you feel light-headed.",
+            howItWorks: [
+                "Stacking one inhale on another reaches an inflation an ordinary breath does not, which opens parts of the lungs that quiet breathing leaves under-used and puts a real stretch through the ribs and diaphragm.",
+                "A large inflation loads the stretch receptors in the lungs and the slow exhale that follows unloads them. That rise-and-release is a strong version of the swing every slow breath makes, which is why the exhale here is the part to take your time over.",
+                "The pump is what makes it a practice rather than a big breath: holding the air and widening the chest against it is a movement, and doing it deliberately is how the ribcage keeps the range it otherwise loses.",
+                "Honest limits: stacked inhalation is well established as a clinical technique for people who cannot fill their lungs unaided, where it is used to improve inspiratory volume and cough. Its use as a wellbeing practice in healthy adults borrows that mechanic without a trial behind it. The slow exhale is the part with the evidence.",
+            ],
+            evidence: [zaccaro2018, balban2023, laborde2022],
+            tags: ["Chest Opening", "Full Inflation", "Release"],
+            art: practiceArt,
+            kind: .scripted(.stacking)),
+
+        Practice(
+            id: "breath-retention-15x15", title: "Breath Retention 15×15", subtitle: "Fifteen full, fifteen empty",
+            category: .breathwork, states: [.stress, .focus],
+            activityType: .breathwork, subtype: "Breath Retention",
+            defaultDurationMins: 8, defaultBPM: 60,
+            description: "Breathe in naturally and sit full for fifteen. Take one more sip at the top, let it go, and sit empty for fifteen. Then press out the last of it and let the next breath come in on its own. Both ends of the breath are held, and both are finished a step past where the breath wanted to stop. Sit or lie down on land — never in or near water — and let a round go if the urge to breathe turns sharp.",
+            howItWorks: [
+                "Holding on full and on empty raises carbon dioxide, and the urge to breathe is a response to that rather than to running out of oxygen. Meeting the urge without acting on it is the thing being trained; the fifteen seconds is only the container.",
+                "A hold also brings on the diving response — the heart slows and the spleen squeezes a reserve of red cells into circulation — and repeating it is the stimulus the adaptations are built on.",
+                "The sip at the top and the squeeze at the bottom are the working part of each end. Going one step past where the breath would have stopped is what makes the range the practice trains, rather than simply waiting out a clock.",
+                "The natural breath between the holds is deliberately not counted. Chasing a pace immediately after a retention is how people end up over-breathing, so the guide waits on you there instead.",
+                "Honest limits: the adaptations documented below come from divers holding far longer than this, and the review raises open questions about very heavy long-term practice. Short holds are where the risk-to-benefit sits well.",
+            ],
+            evidence: [elia2021, persson2023, kox2014],
+            tags: ["CO2 Tolerance", "Both Ends", "Composure"],
+            art: practiceArt,
+            kind: .scripted(.retention)),
+
+        Practice(
             id: "hold-breath", title: "Hold Breath", subtitle: "Holds on empty, in sets",
             category: .breathwork, states: [.stress, .focus],
             activityType: .breathwork, subtype: "Breath Hold",

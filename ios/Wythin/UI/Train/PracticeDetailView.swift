@@ -21,6 +21,7 @@ struct PracticeDetailView: View {
     @State private var showBiofeedback = false
     @State private var showPacer       = false
     @State private var showHold        = false
+    @State private var showScripted    = false
 
     var body: some View {
         NavigationStack {
@@ -79,6 +80,9 @@ struct PracticeDetailView: View {
         }
         .fullScreenCover(isPresented: $showHold) {
             HoldSessionView(practice: practice)
+        }
+        .fullScreenCover(isPresented: $showScripted) {
+            ScriptedBreathSessionView(practice: practice)
         }
     }
 
@@ -201,6 +205,13 @@ struct PracticeDetailView: View {
         case .pacer:
             actionButton(title: "Start \(practice.title)", icon: "play.fill", filled: true) {
                 showPacer = true
+            }
+            actionButton(title: "Log it", icon: "checkmark.circle", filled: false) {
+                showLogSheet = true
+            }
+        case .scripted:
+            actionButton(title: "Start \(practice.title)", icon: "play.fill", filled: true) {
+                showScripted = true
             }
             actionButton(title: "Log it", icon: "checkmark.circle", filled: false) {
                 showLogSheet = true

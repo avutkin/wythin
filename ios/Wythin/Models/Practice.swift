@@ -82,6 +82,7 @@ enum PracticeKind: Equatable, Hashable {
     case biofeedback(BiofeedbackMode)   // live session (resonance pacer / workout feedback)
     case pacer(BreathPattern)           // guided breath session on a fixed pattern
     case holdTrainer(HoldProtocol)      // set-based breath-hold session
+    case scripted(BreathScript)         // a sequence of named moves, some self-paced
 }
 
 /// Local art token — an optional SF Symbol over a two-stop gradient. There is no
@@ -189,6 +190,12 @@ struct Practice: Identifiable, Hashable {
         } else {
             self.paceControl = .seconds
         }
+    }
+
+    /// The move sequence a scripted session walks, or nil for everything else.
+    var breathScript: BreathScript? {
+        if case .scripted(let script) = kind { return script }
+        return nil
     }
 
     /// The note value a clicks-and-note session opens on. Meaningless for the
