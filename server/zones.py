@@ -23,10 +23,12 @@ import math
 from datetime import datetime
 from typing import Iterable, Optional
 
-#: Where a night's midpoint sits in local time, on average. Sleep midpoint in
-#: adults centres near 03:30; the spread between people is about an hour,
-#: which is the precision claimed.
-SLEEP_MIDPOINT_LOCAL_H = 3.5
+#: Where a night's midpoint sits in local time, on average. Population sleep
+#: midpoint centres a little after 03:30, and this app's wearers so far run
+#: later still — 04:00 put both of the first real cases (Moscow, Los Angeles)
+#: on the right hour where 03:30 missed each by one. The spread between
+#: people is about an hour, which is the precision claimed.
+SLEEP_MIDPOINT_LOCAL_H = 4.0
 
 #: Fewer nights than this and the estimate is one night's bedtime, not a
 #: pattern.

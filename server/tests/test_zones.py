@@ -12,24 +12,24 @@ def _utc(h, m=0):
 
 
 def test_a_moscow_sleeper_reads_as_plus_three():
-    # Nights 21:11 → 04:23 UTC: midpoint 00:47 UTC, which is 03:47 in UTC+3.
-    mids = [_utc(0, 47), _utc(0, 30), _utc(1, 5), _utc(0, 20)]
+    # Maxim's real nights: 21:55 → 05:01 UTC, midpoint 01:28 UTC, 04:28 in UTC+3.
+    mids = [_utc(1, 28), _utc(1, 45), _utc(1, 5), _utc(1, 20)]
     assert offset_from_sleep(mids) == 3
 
 
 def test_a_los_angeles_sleeper_reads_as_minus_seven():
-    # Midpoint 03:30 local = 10:30 UTC.
-    assert offset_from_sleep([_utc(10, 30), _utc(10, 50), _utc(10, 10)]) == -7
+    # Gus's real night: 07:07 → 15:11 UTC, midpoint 11:09 UTC, 04:09 in UTC−7.
+    assert offset_from_sleep([_utc(11, 9), _utc(11, 30), _utc(10, 50)]) == -7
 
 
 def test_midpoints_either_side_of_midnight_utc_average_on_the_circle():
-    # 23:40 and 00:20 UTC average to midnight, not to noon.
-    assert offset_from_sleep([_utc(23, 40), _utc(0, 20)]) == 3
+    # 23:40 and 00:20 UTC average to midnight, not to noon: UTC+4.
+    assert offset_from_sleep([_utc(23, 40), _utc(0, 20)]) == 4
 
 
 def test_a_jakarta_sleeper_reads_as_plus_seven():
-    # 03:30 local = 20:30 UTC the previous evening.
-    assert offset_from_sleep([_utc(20, 30), _utc(20, 45)]) == 7
+    # 04:00 local = 21:00 UTC the previous evening.
+    assert offset_from_sleep([_utc(21, 0), _utc(21, 15)]) == 7
 
 
 def test_no_nights_no_guess():
