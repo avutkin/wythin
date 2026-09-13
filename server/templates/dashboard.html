@@ -777,7 +777,13 @@
       host.innerHTML = `<div class="empty">no onboarding answers — this user has not completed onboarding, or their app has not synced the profile yet</div>`;
       return;
     }
-    whenEl.textContent = p.updated_at ? `— answered ${fmtDate(p.updated_at)}` : "";
+    // A row without the mandatory answers is a skipped onboarding (possible
+    // on builds before 2026-08-10, or the blank default an old build sent on
+    // first launch) — say so, rather than "answered" over a grid of dashes.
+    const skipped = !(p.first_name && p.last_name && p.email);
+    whenEl.textContent = skipped
+      ? `— not completed: no name or email${p.updated_at ? `, row from ${fmtDate(p.updated_at)}` : ""}`
+      : (p.updated_at ? `— answered ${fmtDate(p.updated_at)}` : "");
     const one = (label, v) => `<div class="fact"><div class="k">${label}</div><div class="v">${v ? esc(v) : "—"}</div></div>`;
     const many = (label, arr) => `<div class="fact"><div class="k">${label}</div><div class="v">${
       arr && arr.length ? arr.map(a => `<span class="tag">${esc(a)}</span>`).join("") : "—"}</div></div>`;

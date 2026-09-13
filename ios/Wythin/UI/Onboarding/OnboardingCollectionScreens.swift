@@ -251,6 +251,23 @@ struct OnboardingContactScreen: View {
             && OnboardingValidation.isValidEmail(email)
     }
 
+    /// A field is marked wrong only once something has been typed into it —
+    /// an empty field is simply not done yet.
+    private func wrong(_ text: String, _ ok: (String) -> Bool) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !ok(text)
+    }
+
+    /// One line under the fields: the first thing that is wrong, else what
+    /// the button is waiting for.
+    private var hint: String {
+        if wrong(firstName, OnboardingValidation.isValidName) || wrong(lastName, OnboardingValidation.isValidName) {
+            return "A name is letters only — at least two of them."
+        }
+        if wrong(email, OnboardingValidation.isValidEmail) { return "That doesn't look like an email address." }
+        if wrong(phone, OnboardingValidation.isValidPhone) { return "A phone number needs at least seven digits." }
+        return "All four are required to finish."
+    }
+
     var body: some View {
         OnboardingScaffold(
             progress: progress,
@@ -266,13 +283,23 @@ struct OnboardingContactScreen: View {
         ) {
             VStack(spacing: 10) {
                 OnboardingTextField(placeholder: "First name", keyboard: .default,
-                                    contentType: .givenName, capitalization: .words, text: $firstName)
+                                    contentType: .givenName, capitalization: .words, text: $firstName,
+                                    isWrong: wrong(firstName, OnboardingValidation.isValidName))
                 OnboardingTextField(placeholder: "Last name", keyboard: .default,
-                                    contentType: .familyName, capitalization: .words, text: $lastName)
+                                    contentType: .familyName, capitalization: .words, text: $lastName,
+                                    isWrong: wrong(lastName, OnboardingValidation.isValidName))
                 OnboardingTextField(placeholder: "(555) 123-4567", keyboard: .phonePad,
-                                    contentType: .telephoneNumber, capitalization: .never, text: $phone)
+                                    contentType: .telephoneNumber, capitalization: .never, text: $phone,
+                                    isWrong: wrong(phone, OnboardingValidation.isValidPhone))
                 OnboardingTextField(placeholder: "you@example.com", keyboard: .emailAddress,
-                                    contentType: .emailAddress, capitalization: .never, text: $email)
+                                    contentType: .emailAddress, capitalization: .never, text: $email,
+                                    isWrong: wrong(email, OnboardingValidation.isValidEmail))
+                Text(hint)
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(canContinue ? Theme.dim : Theme.warn.opacity(0.9))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
+                    .animation(.easeInOut(duration: 0.15), value: hint)
             }
             .padding(.top, 4)
         }
@@ -287,6 +314,8 @@ struct OnboardingTextField: View {
     let contentType:    UITextContentType?
     let capitalization: TextInputAutocapitalization
     @Binding var text:  String
+    /// Typed, and not acceptable: the border turns to the warning colour.
+    var isWrong: Bool = false
 
     var body: some View {
         TextField("", text: $text, prompt: Text(placeholder).foregroundColor(Theme.dim))
@@ -300,7 +329,8 @@ struct OnboardingTextField: View {
             .frame(height: 54)
             .background(Theme.surface)
             .clipShape(RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.border, lineWidth: 0.5))
+            .overlay(RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(isWrong ? Theme.warn : Theme.border, lineWidth: isWrong ? 1 : 0.5))
     }
 }
 

@@ -249,8 +249,14 @@ async def usage_stats(
               -- phone has not sent one. See server/zones.py.
               nz.mid_frac                                         AS night_mid_frac,
               nz.nights                                           AS night_count,
-              -- A profile row exists only once onboarding was completed.
-              (pr.user_id IS NOT NULL)                            AS onboarded
+              -- Onboarded means the mandatory answers are there — a name, a
+              -- surname and an email — not merely that a row exists. Builds
+              -- before 2026-08-10 let the contact step be skipped, and the
+              -- app used to upload the blank default on its first sync tick.
+              (pr.user_id IS NOT NULL
+                 AND COALESCE(pr.first_name, '') <> ''
+                 AND COALESCE(pr.last_name, '')  <> ''
+                 AND COALESCE(pr.email, '')      <> '')            AS onboarded
             FROM users u
             LEFT JOIN profiles pr   ON pr.user_id = u.id
             LEFT JOIN LATERAL (
