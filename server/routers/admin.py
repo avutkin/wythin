@@ -19,6 +19,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse, HTMLResponse
 from ..db import get_pool
 from ..impact import impact_for
+from .. import zones
 from ..models import AdminUserRow
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -243,10 +244,25 @@ async def usage_stats(
               pr.first_name                                       AS first_name,
               pr.last_name                                        AS last_name,
               pr.timezone                                         AS timezone,
+              -- The circular mean of this person's night midpoints (UTC, as a
+              -- fraction of the day) — the seed for an inferred zone when the
+              -- phone has not sent one. See server/zones.py.
+              nz.mid_frac                                         AS night_mid_frac,
+              nz.nights                                           AS night_count,
               -- A profile row exists only once onboarding was completed.
               (pr.user_id IS NOT NULL)                            AS onboarded
             FROM users u
             LEFT JOIN profiles pr   ON pr.user_id = u.id
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS nights,
+                       (atan2(avg(sin(2 * pi() * f)), avg(cos(2 * pi() * f))) / (2 * pi())) AS mid_frac
+                FROM (
+                    SELECT (EXTRACT(EPOCH FROM (started_at + (ended_at - started_at) / 2))::numeric % 86400) / 86400.0 AS f
+                    FROM activities a
+                    WHERE a.user_id = u.id AND a.activity_type = 'Sleep' AND a.ended_at IS NOT NULL
+                    ORDER BY started_at DESC LIMIT 60
+                ) m
+            ) nz ON TRUE
             LEFT JOIN in_range ir   ON ir.user_id = u.id
             LEFT JOIN seen sn       ON sn.user_id = u.id
             LEFT JOIN signal sg     ON sg.user_id = u.id
@@ -297,7 +313,8 @@ async def usage_stats(
                 "email":         r["email"],
                 "first_name":    r["first_name"],
                 "last_name":     r["last_name"],
-                "timezone":      r["timezone"],
+                "timezone":      r["timezone"] or zones.from_night_fraction(r["night_mid_frac"], r["night_count"]),
+                "timezone_inferred": not r["timezone"] and zones.from_night_fraction(r["night_mid_frac"], r["night_count"]) is not None,
                 "onboarded":     r["onboarded"],
                 "first_seen":    r["first_seen"].isoformat() if r["first_seen"] else None,
                 "last_seen":     r["last_seen"].isoformat() if r["last_seen"] else None,
@@ -408,6 +425,9 @@ async def user_detail(user_id: str):
             """,
             user_id,
         )
+        # The clock this person lives in — the phone's, or inferred from
+        # their nights and app opens when no build has sent it yet.
+        clock = await zones.resolve(conn, u["id"])
 
     def _f(v):
         return float(v) if v is not None else None
@@ -426,9 +446,11 @@ async def user_detail(user_id: str):
             "total_minutes": round(_f(u["total_minutes"]), 1),
             "avg_coherence": round(_f(u["avg_coherence"]), 3) if u["avg_coherence"] is not None else None,
             "avg_rsa":       round(_f(u["avg_rsa"]), 1) if u["avg_rsa"] is not None else None,
-            # The phone's zone, as last reported with the profile; None until
-            # a build that sends it has synced.
-            "timezone":      profile["timezone"] if profile is not None else None,
+            # The zone every time on the page is shown in: the phone's when it
+            # has said, else inferred and labelled as such — see server/zones.py.
+            "timezone":          clock["zone"],
+            "timezone_source":   clock["source"],
+            "timezone_inferred": clock["inferred"],
         },
         "sessions": [
             {
@@ -733,13 +755,14 @@ async def activity_detail(activity_id: str):
         )
         if row is None:
             raise HTTPException(status_code=404, detail="activity not found")
-        # The zone the phone is in now — the fallback clock for a row uploaded
-        # by a build that did not yet say which zone it was recorded in.
-        zone = await conn.fetchval(
-            "SELECT timezone FROM profiles WHERE user_id = $1", row["user_id"]
-        )
+        # The fallback clock for a row uploaded by a build that did not yet
+        # say which zone it was recorded in: the phone's zone now, or one
+        # inferred from this person's nights — see server/zones.py.
+        clock = await zones.resolve(conn, row["user_id"])
     d = _activity_row(row)
-    d["user_timezone"] = zone
+    d["user_timezone"] = clock["zone"]
+    d["user_timezone_source"] = clock["source"]
+    d["user_timezone_inferred"] = clock["inferred"]
     return d
 
 

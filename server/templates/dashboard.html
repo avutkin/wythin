@@ -427,6 +427,11 @@
     const asUTC = Date.UTC(f.year, f.month - 1, f.day, f.hour, f.minute, f.second);
     return Math.round((Math.floor(now.getTime() / 1000) * 1000 - asUTC) / 60000);
   };
+  const zoneName = (z) => {
+    const m = /^Etc\/GMT([+-])(\d+)$/.exec(z || "");
+    if (m) return `UTC${m[1] === "-" ? "+" : "−"}${m[2]}`;
+    return z === "Etc/UTC" ? "UTC" : z;
+  };
   const gmtLabel = (zone) => {
     try {
       return new Intl.DateTimeFormat("en-US", { timeZone: tzFor(zone), timeZoneName: "shortOffset" })
@@ -442,9 +447,15 @@
     if (state.view === "overview") {
       tag.textContent = `${BROWSER_TZ} · ${gmtLabel()} · your browser`;
       tag.title = "The overview spans everyone, so it is in your browser's zone; each row's first- and last-seen are in that person's own zone where the phone has reported one";
+    } else if (zoneOk(state.zone) && state.zoneInferred) {
+      // A clock worked out from the person's nights or app opens: shown as
+      // an offset, in the unknown colour, and never called the phone's.
+      tag.classList.add("unknown");
+      tag.textContent = `${zoneName(state.zone)} · ${state.zoneFrom}`;
+      tag.title = "This phone has not reported its zone (that needs build 126 or later). The offset is inferred from when this person sleeps and opens the app, to about the hour; every time on this page is in it";
     } else if (zoneOk(state.zone)) {
       tag.classList.add("known");
-      tag.textContent = `${state.zone} · ${gmtLabel()}${state.zoneFrom ? " · " + state.zoneFrom : ""}`;
+      tag.textContent = `${zoneName(state.zone)} · ${gmtLabel()}${state.zoneFrom ? " · " + state.zoneFrom : ""}`;
       tag.title = "This person's phone zone; every time on this page is in it";
     } else {
       tag.classList.add("unknown");
@@ -508,7 +519,7 @@
   async function loadOverview() {
     const d = await api(`stats?range=${$("#range").value}&tz_offset=${tzOffsetNow()}`);
     state.overview = d;
-    state.zone = null; state.zoneFrom = "";
+    state.zone = null; state.zoneFrom = ""; state.zoneInferred = false;
     show("overview");
     $("#crumb").innerHTML = "";
     const k = d.kpis, r = RANGE_LABEL[d.range] || d.range;
@@ -626,7 +637,8 @@
     show("user");
     const u = d.user;
     state.zone = u.timezone || null;
-    state.zoneFrom = u.timezone ? "phone, as last synced" : "";
+    state.zoneFrom = u.timezone_source || (u.timezone ? "phone, as last synced" : "");
+    state.zoneInferred = !!u.timezone_inferred;
     const who = (d.profile && fullName(d.profile)) || u.display_name || (u.device_id || id).slice(0, 12);
     $("#crumb").innerHTML = `<a data-nav="/">Overview</a> › <strong>${who}</strong>`;
     const cards = [
@@ -637,10 +649,11 @@
       ["Avg coherence", u.avg_coherence == null ? "—" : fmt(u.avg_coherence, 2)],
       ["Avg RSA", u.avg_rsa == null ? "—" : fmt(u.avg_rsa, 1) + " <small>ms</small>"],
       // The phone's zone — the clock this whole page is in for this person.
-      ["Phone clock", u.timezone
-          ? `<span style="font-size:15px;font-family:var(--mono)">${esc(u.timezone)}</span> <small>${esc(gmtLabel(u.timezone))}</small>`
+      [u.timezone_inferred ? "Clock (inferred)" : "Phone clock", u.timezone
+          ? `<span style="font-size:15px;font-family:var(--mono)">${esc(zoneName(u.timezone))}</span> <small>${u.timezone_inferred ? "" : esc(gmtLabel(u.timezone))}</small>`
           : "—",
-        u.timezone ? "as last synced by the app" : "not synced yet — arrives with the next app build"],
+        u.timezone_inferred ? `${esc(u.timezone_source)} — the phone sends its zone from build 126`
+          : u.timezone ? "as last synced by the app" : "not synced yet — arrives with the next app build"],
     ];
     $("#user-kpis").innerHTML = cards.map(([l, v, n]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div>${n ? `<div class="note">${n}</div>` : ""}</div>`).join("");
     drawOnboarding(d.profile);
@@ -940,7 +953,8 @@
     show("activity");
     // The zone the phone was in when it recorded this, else where it is now.
     state.zone = a.timezone || a.user_timezone || null;
-    state.zoneFrom = a.timezone ? "phone, when recorded" : a.user_timezone ? "phone, as last synced" : "";
+    state.zoneFrom = a.timezone ? "phone, when recorded" : a.user_timezone ? (a.user_timezone_source || "phone, as last synced") : "";
+    state.zoneInferred = !a.timezone && !!a.user_timezone_inferred;
     const name = a.activity_subtype || (a.activity_type === "Custom" ? (a.custom_name || "Custom") : a.activity_type);
     const back = state.userId ? `<a data-nav="/user/${state.userId}">user</a>` : `<a data-nav="/">Overview</a>`;
     $("#crumb").innerHTML = `<a data-nav="/">Overview</a> › ${back} › <strong>${name}</strong>`;
