@@ -350,20 +350,20 @@ final class SleepDetectorTests: XCTestCase {
         XCTAssertEqual(Calendar.current.component(.hour, from: w?.startedAt ?? .distantPast), 20)
     }
 
-    func testAShortDozeAfterGettingUpDoesNotExtendTheNight() {
-        // The guard on the test above. Fifteen minutes of dozing after an
-        // hour on your feet is not a return to sleep worth dragging the night
-        // out for — and everything between would be scored awake.
+    func testEvenAShortDozeAfterGettingUpIsStillTheNight() {
+        // Sleep after waking is sleep. Fifteen minutes of it after an hour on
+        // your feet extends the night to the doze, and the hour is scored
+        // awake inside it — which is what happened.
         let points = night(fromHour: 20, fromMinute: 56, hours: 8.2)
             + onYourFeet(fromHour: 5, fromMinute: 8, hours: 1.03, day: 21)
             + night(fromHour: 6, fromMinute: 10, hours: 0.25, day: 21)
 
         let w = SleepDetector.detect(points)
         XCTAssertNotNil(w)
-        let got = Calendar.current.date(from: DateComponents(
-            year: 2026, month: 7, day: 21, hour: 5, minute: 8))!
-        XCTAssertEqual(w?.endedAt.timeIntervalSince(got) ?? .infinity, 0, accuracy: 120,
-                       "a doze under half an hour does not reopen the night")
+        let dozeEnd = Calendar.current.date(from: DateComponents(
+            year: 2026, month: 7, day: 21, hour: 6, minute: 25))!
+        XCTAssertEqual(w?.endedAt.timeIntervalSince(dozeEnd) ?? .infinity, 0, accuracy: 120,
+                       "the night ends at the last sleep of the morning")
     }
 
     func testAnEveningNapBeforeALongGapDoesNotOpenTheNightEvenIfSubstantial() {
@@ -400,42 +400,72 @@ final class SleepDetectorTests: XCTestCase {
                        "a ten-minute trip out of bed does not end the night")
     }
 
-    func testWithoutAPositionChannelALongWakeStillSplitsTheNight() {
-        // Every night recorded before `bodyPosition` existed has no out-of-bed
-        // evidence available at all, so the evidence test can only ever return
-        // false. `maxInBedWakeSec` is the backstop that keeps those nights from
-        // swallowing the following morning whole.
+    func testHoursAwakeInBedThenSleepIsStillTheSameNight() {
+        // People wake for a couple of hours in the night and sleep again. Three
+        // and a half hours awake at 03:00, then two hours of sleep: one night
+        // of 10 h 30 m with a long awake stretch inside it — not a five-hour
+        // night with the second sleep thrown away. There is no cap on how
+        // long the awake stretch may be; the next sleep of the day is the
+        // night continuing.
         let points = night(fromHour: 22, hours: 5)
             + awakeInBed(fromHour: 3, hours: 3.5, day: 21)
             + night(fromHour: 6, fromMinute: 30, hours: 2, day: 21)
 
         let w = SleepDetector.detect(points)
         XCTAssertNotNil(w)
-        XCTAssertEqual(w?.durationSec ?? 0, 5 * 3600, accuracy: 600,
-                       "past three hours awake, the next sleep is a separate episode")
+        XCTAssertEqual(w?.durationSec ?? 0, 10.5 * 3600, accuracy: 600)
+        XCTAssertEqual(Calendar.current.component(.hour, from: w?.endedAt ?? .distantPast), 8)
     }
 
-    func testAMorningDozeDoesNotExtendTheNight() {
-        // The recorded night, as photographed: sleep, then hours up, then a
-        // doze. The doze is real sustained sleep, so the ten-minute rule
-        // accepts it as a boundary — and everything between became "awake",
-        // which is where 3 h 31 m of wake in an 8 h 26 m window came from.
-        //
-        // Sleep after you have been up for the best part of a morning is a
-        // separate episode, not the tail of the night.
+    func testADozeAfterHoursUpIsTheNightsTail() {
+        // Sleep, then hours up, then a doze at 07:30. The doze is sleep seen
+        // later in the same morning, so it belongs to the night; the hours up
+        // are awake inside it. The night ends at the doze.
         let points = night(fromHour: 23, hours: 5)
             + awakeStretch(fromHour: 4, hours: 3.4, day: 21)
             + night(fromHour: 7, fromMinute: 30, hours: 0.25, day: 21)
 
         let w = SleepDetector.detect(points)
         XCTAssertNotNil(w)
-        // The last tick of a 5 h run from 23:00 lands at 03:59:30, so compare
-        // against the moment rather than the hour component.
-        let finalAwakening = Calendar.current.date(from: DateComponents(
-            year: 2026, month: 7, day: 21, hour: 4))!
-        XCTAssertEqual(w?.endedAt.timeIntervalSince(finalAwakening) ?? .infinity, 0, accuracy: 60,
-                       "the night ends at the final awakening, not at a later doze")
-        XCTAssertEqual(w?.durationSec ?? 0, 5 * 3600, accuracy: 600)
+        let dozeEnd = Calendar.current.date(from: DateComponents(
+            year: 2026, month: 7, day: 21, hour: 7, minute: 45))!
+        XCTAssertEqual(w?.endedAt.timeIntervalSince(dozeEnd) ?? .infinity, 0, accuracy: 120)
+        XCTAssertEqual(Calendar.current.component(.hour, from: w?.startedAt ?? .distantPast), 23)
+    }
+
+    func testTheNightEndsAtTheLastSleepOfTheMorning() {
+        // Several returns to sleep across a morning of trying: each one joins,
+        // and the night ends at the last of them, not the first wake.
+        let points = night(fromHour: 23, hours: 6)                              // → 05:00
+            + awakeInBed(fromHour: 5, hours: 2, day: 21)                        // → 07:00
+            + night(fromHour: 7, hours: 0.5, day: 21)                            // → 07:30
+            + awakeStretch(fromHour: 7, fromMinute: 30, hours: 2.5, day: 21)     // → 10:00
+            + night(fromHour: 10, hours: 0.66, day: 21)                          // → 10:40
+            + awakeStretch(fromHour: 10, fromMinute: 40, hours: 0.8, day: 21)    // → 11:28
+
+        let w = SleepDetector.detect(points)
+        XCTAssertNotNil(w)
+        let lastSleep = Calendar.current.date(from: DateComponents(
+            year: 2026, month: 7, day: 21, hour: 10, minute: 40))!
+        XCTAssertEqual(w?.endedAt.timeIntervalSince(lastSleep) ?? .infinity, 0, accuracy: 120)
+        XCTAssertEqual(Calendar.current.component(.hour, from: w?.startedAt ?? .distantPast), 23)
+    }
+
+    func testSleepAfterAStrapOffGapIsStillTheNight() {
+        // Up at 05:00, strap off for the shower and breakfast, strap back on
+        // and asleep again at 06:30. A recording hole is not a reason to
+        // throw the second sleep away; the hole is simply unmeasured time
+        // inside the night.
+        let points = night(fromHour: 23, hours: 6)                              // → 05:00
+            + night(fromHour: 6, fromMinute: 30, hours: 1.5, day: 21)           // → 08:00
+            + awakeStretch(fromHour: 8, hours: 1, day: 21)                       // → 09:00
+
+        let w = SleepDetector.detect(points)
+        XCTAssertNotNil(w)
+        XCTAssertEqual(Calendar.current.component(.hour, from: w?.startedAt ?? .distantPast), 23)
+        let secondSleepEnd = Calendar.current.date(from: DateComponents(
+            year: 2026, month: 7, day: 21, hour: 8))!
+        XCTAssertEqual(w?.endedAt.timeIntervalSince(secondSleepEnd) ?? .infinity, 0, accuracy: 120)
     }
 
     func testAnEveningDozeDoesNotOpenTheNight() {
@@ -508,16 +538,23 @@ final class SleepDetectorTests: XCTestCase {
                        "onset is where sleep began, not after the arousal")
     }
 
-    func testALongWakeStillBreaksPersistentSleep() {
+    func testALongWakeIsScoredAwakeNotSteppedOver() {
         // And the bound on that leniency: stepping over brief arousals must not
-        // become stepping over the night's actual end.
+        // become calling three hours awake "sleep". The window now runs to the
+        // later doze — the night continues through the wake — but the hours
+        // inside it are awake, and the time asleep says so.
         let points = night(fromHour: 23, hours: 5)
             + awakeStretch(fromHour: 4, hours: 3.4, day: 21)
             + night(fromHour: 7, fromMinute: 30, hours: 0.25, day: 21)
 
         let w = SleepDetector.detect(points)
         XCTAssertNotNil(w)
-        XCTAssertEqual(w?.durationSec ?? 0, 5 * 3600, accuracy: 600,
-                       "three hours awake is still the end of the night")
+        XCTAssertEqual(w?.durationSec ?? 0, 8.75 * 3600, accuracy: 600,
+                       "the window spans the wake to the doze")
+        let inside = points.filter { $0.timestamp >= w!.startedAt && $0.timestamp <= w!.endedAt }
+        let asleep = SleepRecorder.seconds(where: SleepStages.withinSleep(inside).map { $0 != .wake },
+                                           points: inside)
+        XCTAssertEqual(asleep, 5.25 * 3600, accuracy: 900,
+                       "three hours awake inside the window are awake, not sleep")
     }
 }

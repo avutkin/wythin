@@ -229,20 +229,6 @@ enum SleepThresholds {
     /// proof the night ended, and sealing on it truncates the rest of the
     /// night away permanently. 45 minutes awake is someone up for the day.
     static let settleSec: Double = 45 * 60
-    /// The least sleep a later episode must hold to be pulled back into the
-    /// night after a final awakening.
-    ///
-    /// A final awakening used to be final: whatever sleep came after it was
-    /// filed as a morning nap — a record this app does not keep — so it was
-    /// simply gone. The night of 10–11 September 2026 read 3 h 51 m against a
-    /// morning that held an hour and a quarter more. Sleep after getting up
-    /// is still sleep, and it is the sleep that is being measured; where the
-    /// gap was spent decides how the gap is scored, not whether the sleep
-    /// counts. Half an hour keeps the rule off a doze, which would drag an
-    /// hour or more of "awake" into the night for fifteen minutes of sleep.
-    /// Bounded by `maxInBedWakeSec` on the gap, and forward only — an evening
-    /// nap before bed is a different thing that happened earlier.
-    static let minRejoinSleepSec: Double = 30 * 60
 
     /// How long evidence of being **out of bed** must persist before it ends
     /// the night.
@@ -282,15 +268,14 @@ enum SleepThresholds {
     /// walking about.
     static let outOfBedMotionMultiple: Float = 8.0
 
-    /// Hard ceiling on a wake bout that may still sit *inside* one night.
+    /// How far past a night's detected end the seal looks for sleep resuming,
+    /// and how long a wake stretch may be before the anchor grouping treats
+    /// what follows as a separate episode when choosing the night's ONSET.
     ///
-    /// The backstop for nights with no usable position channel: everything
-    /// recorded before `bodyPosition` existed, and any stretch where the strap
-    /// could not resolve gravity. Without it, a missing channel means no
-    /// out-of-bed evidence can ever be found, and an evening doze would merge
-    /// with the following morning's sleep into a single fourteen-hour "night".
-    /// Three hours is longer than any plausible in-bed awakening and far short
-    /// of the gap between two genuinely separate sleeps.
+    /// It no longer ends a night. People wake for hours and sleep again, and
+    /// that sleep is the night continuing — `mainSleepEpisode` takes every
+    /// later sleep in the slice whatever the gap. The three hours survive
+    /// only as a bound on look-ahead and on onset choice.
     static let maxInBedWakeSec: Double = 3 * 3600
     /// How far back a poll looks. Long enough to catch a night the app slept
     /// through recording, short enough that stale history cannot resurface as
@@ -438,10 +423,20 @@ enum SleepDetector {
         let candidates = continuousRuns(all)
             .map(quietestNightWindow)
             .compactMap(trimmedToSleep)
-        guard let night = candidates.max(by: { span($0) < span($1) }),
-              span(night) >= SleepThresholds.minNightSec,
-              let first = night.first, let last = night.last else { return nil }
-        return SleepWindow(startedAt: first.timestamp, endedAt: last.timestamp)
+            .sorted { ($0.first?.timestamp ?? .distantPast) < ($1.first?.timestamp ?? .distantPast) }
+        guard let anchorIndex = candidates.indices.max(by: {
+            span(candidates[$0]) < span(candidates[$1])
+        }) else { return nil }
+        // A recording hole between two sleeps — strap off for the shower,
+        // back on for a second sleep — splits the samples into runs, and the
+        // second sleep used to be a rival candidate the first one beat. It is
+        // the night continuing: the hole is unmeasured time inside it, and
+        // the tick-credit rule keeps a hole from ever being scored as sleep.
+        guard let first = candidates[anchorIndex].first,
+              let last = candidates[candidates.count - 1].last else { return nil }
+        let night = SleepWindow(startedAt: first.timestamp, endedAt: last.timestamp)
+        guard night.durationSec >= SleepThresholds.minNightSec else { return nil }
+        return night
     }
 
     /// Narrows an all-day run to the quietest night-length stretch inside it.
@@ -586,22 +581,18 @@ enum SleepDetector {
             asleepSeconds(episodes[$0], points) < asleepSeconds(episodes[$1], points)
         }) else { return nil }
 
-        // Then walk forward: a substantial return to sleep within
-        // `maxInBedWakeSec` of where the night stood is its tail, however the
-        // gap was spent. See `minRejoinSleepSec` for the night this lost.
-        var last = bestIndex
-        while last + 1 < episodes.count {
-            let tail = episodes[last + 1]
-            guard let from = episodes[last].last?.upperBound,
-                  let to = tail.first?.lowerBound else { break }
-            let gap = points[to].timestamp.timeIntervalSince(points[from].timestamp)
-            guard gap < SleepThresholds.maxInBedWakeSec,
-                  asleepSeconds(tail, points) >= SleepThresholds.minRejoinSleepSec else { break }
-            last += 1
-        }
-
+        // Then everything after it. People wake for a couple of hours in the
+        // night — or lie there through a morning trying — and sleep again.
+        // Sleep seen later in the same night slice is the night continuing,
+        // however long the gap and however the gap was spent; the gap is
+        // scored awake. There is no cap and no minimum: the previous rule
+        // asked for half an hour of sleep within three hours, and a night
+        // that broke for longer than that lost its second half. The night
+        // ends at the last sleep of the morning. Forward only: sleep BEFORE
+        // the anchor — an evening nap — is not pulled in, since the anchor
+        // is the night's onset.
         guard let lo = episodes[bestIndex].first?.lowerBound,
-              let hi = episodes[last].last?.upperBound else { return nil }
+              let hi = episodes.last?.last?.upperBound else { return nil }
         return lo...hi
     }
 
@@ -615,10 +606,16 @@ enum SleepDetector {
     /// Whether the wake stretch between two sustained sleep runs is the end of
     /// the night, or a wake bout inside it.
     ///
+    /// Used only to group sustained runs into episodes so the ANCHOR — the
+    /// episode holding the most sleep, whose first run is the night's onset —
+    /// can be chosen. Every episode after the anchor joins the night
+    /// regardless; see `mainSleepEpisode`.
+    ///
     /// Three tests, in order of how much they are trusted:
     ///
-    /// 1. **Past `maxInBedWakeSec`** — separate sleeps, whatever the sensors
-    ///    say. The backstop for recordings with no position channel at all.
+    /// 1. **Past `maxInBedWakeSec`** — a separate episode for the purpose of
+    ///    choosing the anchor. The backstop for recordings with no position
+    ///    channel at all.
     /// 2. **Under `settleSec`** — an awakening, whatever the sensors say. Nobody
     ///    starts a new night forty minutes after ending the last one, and
     ///    letting evidence override this would split a night on a trip to the
