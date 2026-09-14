@@ -319,6 +319,10 @@
         <h2>Activities</h2>
         <div class="tablewrap"><table id="user-activities"></table></div>
       </div>
+      <div class="panel">
+        <h2>Check-ins <span class="sub">— what they said they felt, 0–100, "—" = slider untouched</span></h2>
+        <div class="tablewrap"><table id="user-checkins"></table></div>
+      </div>
     </section>
 
     <!-- Session detail -->
@@ -695,8 +699,31 @@
       t.querySelectorAll("tr.clickable").forEach(tr => tr.onclick = () => { location.hash = "/session/" + tr.dataset.id; });
     }
     drawActivities(d.activities || []);
+    drawCheckIns(d.check_ins || []);
     wireCrumb();
     stamp();
+  }
+
+  // ── Self check-ins ─────────────────────────────────────────────────────
+  // Two kinds: "moment" is answered while the strap is on (asked 10–15 min
+  // into a wear), "previous_day" on the first open of a day, about yesterday
+  // (its About column). Scales are 0–100 straight off the slider; a null is a
+  // slider the person never touched, shown as "—" rather than a midpoint.
+  const CHECKIN_SCALES = ["mood", "focus", "energy", "anxiety", "stress", "sleep"];
+  function drawCheckIns(list) {
+    const t = $("#user-checkins");
+    if (!list.length) { t.innerHTML = `<tr><td class="empty" colspan="10">no check-ins yet</td></tr>`; return; }
+    const head = "<tr><th>When</th><th>Kind</th><th>About</th>"
+      + CHECKIN_SCALES.map(k => `<th>${k[0].toUpperCase() + k.slice(1)}</th>`).join("")
+      + "<th>Worn</th></tr>";
+    const body = list.map(c => `<tr>
+        <td>${fmtTime(c.ts, c.timezone)}</td>
+        <td><span class="name">${c.kind === "previous_day" ? "Previous day" : "Moment"}</span></td>
+        <td>${c.day_key || "—"}</td>
+        ${CHECKIN_SCALES.map(k => `<td>${c[k] == null ? `<span class="muted">—</span>` : fmt(c[k], 0)}</td>`).join("")}
+        <td>${c.worn_minutes == null ? `<span class="muted">—</span>` : fmt(c.worn_minutes, 0) + " min"}</td>
+      </tr>`).join("");
+    t.innerHTML = head + body;
   }
 
   function actDelta(a, during, before, dp) {
