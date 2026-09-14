@@ -1,0 +1,276 @@
+<title>Wythin Check-in</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* The app's own palette (ios/Wythin/UI/Design/Theme.swift). Single dark
+     world on purpose: this page exists to show the sheet as the phone will. */
+  :root {
+    --bg: #0C0C0C; --card: #171717; --surface: #222222; --border: #2A2A2A;
+    --accent: #00E5A0; --text: #FFFFFF; --dim: #787878; --dim2: #4A4A4A;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #060606; color: var(--text); font-family: var(--sans);
+         padding: 24px 16px 48px; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 900px; margin: 0 auto; display: grid; gap: 24px;
+          grid-template-columns: minmax(0, 390px) minmax(0, 1fr); align-items: start; }
+  @media (max-width: 720px) { .wrap { grid-template-columns: 1fr; } }
+  h1 { font: 500 13px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase;
+       color: var(--dim); margin: 0 0 12px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .controls button { font: 500 12px var(--mono); letter-spacing: .04em; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 14px; cursor: pointer; }
+  .controls button:hover { border-color: var(--dim); }
+  .controls button:focus-visible, .sheet button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Phone frame */
+  .phone { position: relative; width: 100%; max-width: 390px; aspect-ratio: 390 / 780;
+           background: var(--bg); border: 1px solid var(--border); border-radius: 40px;
+           overflow: hidden; margin: 0 auto; }
+  .screen { position: absolute; inset: 0; padding: 56px 16px 0; display: flex; flex-direction: column; gap: 12px; }
+  .statusbar { position: absolute; top: 18px; left: 0; right: 0; display: flex; justify-content: space-between;
+               padding: 0 28px; font: 500 12px var(--mono); color: var(--text); }
+  .card { background: var(--card); border-radius: 16px; padding: 16px; }
+  .eyebrow { font: 500 11px var(--mono); letter-spacing: .08em; color: var(--dim); text-transform: uppercase; margin: 0 0 8px; }
+  .big { font: 700 34px/1 var(--sans); margin: 0; }
+  .big small { font: 400 13px var(--mono); color: var(--dim); margin-left: 6px; }
+  .trace { height: 54px; margin-top: 10px; }
+  .row { display: flex; justify-content: space-between; font: 400 13px var(--mono); color: var(--dim); padding: 6px 0; border-top: 1px solid var(--border); }
+  .row b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .tabbar { margin-top: auto; height: 74px; border-top: 1px solid var(--border); display: flex; justify-content: space-around;
+            align-items: center; font: 500 10px var(--mono); letter-spacing: .08em; color: var(--dim2); text-transform: uppercase; }
+  .tabbar span:first-child { color: var(--accent); }
+
+  /* Sheet */
+  .scrim { position: absolute; inset: 0; background: rgba(0,0,0,.55); opacity: 0; pointer-events: none; transition: opacity .25s; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; top: 60px; background: var(--card);
+           border-radius: 28px 28px 0 0; padding: 14px 20px 22px; display: flex; flex-direction: column;
+           transform: translateY(105%); transition: transform .32s cubic-bezier(.2,.8,.2,1); overflow: hidden; }
+  .phone.open .scrim { opacity: 1; pointer-events: auto; }
+  .phone.open .sheet { transform: translateY(0); }
+  .grabber { width: 36px; height: 5px; border-radius: 3px; background: var(--border); margin: 0 auto 18px; }
+  .sheet h2 { font: 700 22px/1.2 var(--sans); margin: 0 0 6px; text-wrap: balance; }
+  .sheet p.help { font: 400 13px/1.45 var(--sans); color: var(--dim); margin: 0 0 18px; }
+  .scales { display: flex; flex-direction: column; gap: 18px; flex: 1; }
+  .scale label { display: block; font: 500 11px var(--mono); letter-spacing: .08em; color: var(--dim); text-transform: uppercase; margin-bottom: 8px; }
+  .track { position: relative; height: 30px; touch-action: none; cursor: pointer; }
+  .track .rail { position: absolute; left: 14px; right: 14px; top: 12px; height: 6px; border-radius: 3px; background: rgba(120,120,120,.18); }
+  .track .fill { position: absolute; left: 14px; top: 12px; height: 6px; border-radius: 3px; background: rgba(0,229,160,.6); width: 0; }
+  .track .knob { position: absolute; top: 1px; width: 28px; height: 28px; border-radius: 50%;
+                 background: rgba(120,120,120,.5); box-shadow: inset 0 0 0 .5px rgba(12,12,12,.3);
+                 transform: translateX(-50%); left: 50%; }
+  .track.touched .knob { background: var(--accent); }
+  .anchors { display: flex; justify-content: space-between; font: 400 11px var(--sans); color: var(--dim); margin-top: 4px; }
+  .actions { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+  .actions button { font: 500 13px var(--mono); border: 0; border-radius: 12px; padding: 14px; cursor: pointer; }
+  .done { background: var(--accent); color: var(--bg); }
+  .done:disabled { background: var(--surface); color: var(--dim2); cursor: default; }
+  .skip { background: var(--surface); color: var(--dim); }
+  .remind { font: 400 12px var(--sans); color: var(--dim); text-align: center; margin: 10px 0 0; }
+  .remind a { color: var(--accent); text-decoration: none; }
+  .toast { position: absolute; left: 50%; bottom: 96px; transform: translate(-50%, 8px); background: var(--surface);
+           border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; font: 500 12px var(--mono);
+           color: var(--accent); opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  @media (prefers-reduced-motion: reduce) { .sheet, .scrim, .toast { transition: none; } }
+
+  /* Log */
+  .log h1 { margin-top: 0; }
+  .note { font: 400 13px/1.5 var(--sans); color: var(--dim); max-width: 60ch; margin: 0 0 16px; }
+  .note b { color: var(--text); font-weight: 500; }
+  .entries { display: flex; flex-direction: column; gap: 10px; }
+  .entry { background: var(--card); border-radius: 12px; padding: 12px 14px; overflow-x: auto; }
+  .entry .k { font: 500 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; }
+  .entry pre { margin: 0; font: 400 12px/1.5 var(--mono); color: var(--text); white-space: pre; }
+  .entry pre .n { color: var(--dim); }
+  .empty { font: 400 12px var(--mono); color: var(--dim2); }
+</style>
+
+<div class="wrap">
+  <div>
+    <h1>Self check-in · prototype</h1>
+    <div class="controls">
+      <button id="btn-moment" type="button">Simulate moment check-in</button>
+      <button id="btn-review" type="button">Simulate previous-day review</button>
+    </div>
+
+    <div class="phone" id="phone">
+      <div class="statusbar"><span>14:37</span><span>H10 · 96%</span></div>
+      <div class="screen">
+        <div class="card">
+          <p class="eyebrow">Live · Polar H10</p>
+          <p class="big">64<small>bpm</small></p>
+          <svg class="trace" viewBox="0 0 340 54" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M0 30 L28 30 L34 30 L38 12 L42 46 L46 30 L52 30 L60 27 L66 30 L96 30 L102 30 L106 10 L110 48 L114 30 L120 30 L128 27 L134 30 L166 30 L172 30 L176 13 L180 46 L184 30 L190 30 L198 27 L204 30 L236 30 L242 30 L246 11 L250 47 L254 30 L260 30 L268 27 L274 30 L306 30 L312 30 L316 12 L320 46 L324 30 L340 30"
+                  fill="none" stroke="#00E5A0" stroke-width="1.5"/>
+          </svg>
+        </div>
+        <div class="card">
+          <p class="eyebrow">Current state</p>
+          <div class="row"><span>Energy reserve</span><b>48 ms</b></div>
+          <div class="row"><span>Breath</span><b>11.2 br/min</b></div>
+          <div class="row"><span>Worn since</span><b>14:24</b></div>
+        </div>
+        <div class="tabbar"><span>Live</span><span>Track</span><span>Library</span><span>Activities</span><span>Settings</span></div>
+      </div>
+
+      <div class="scrim" id="scrim"></div>
+      <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+        <div class="grabber"></div>
+        <h2 id="sheet-title"></h2>
+        <p class="help" id="sheet-help"></p>
+        <div class="scales" id="scales"></div>
+        <div class="actions">
+          <button class="done" id="done" type="button" disabled>Done</button>
+          <button class="skip" id="skip" type="button">Skip</button>
+        </div>
+        <p class="remind" id="remind">Get a reminder when the app is closed · <a href="#" id="allow">Allow notifications</a></p>
+      </div>
+      <div class="toast" id="toast">Saved</div>
+    </div>
+  </div>
+
+  <div class="log">
+    <h1>What gets stored</h1>
+    <p class="note">Each answer is one row. Values are <b>0–100</b> from where the knob sits; a scale you never touch is stored as <b>null</b>, never as the midpoint. <b>day_key</b> is the local day the answer is about. This is the exact shape the phone sends to the server.</p>
+    <div class="entries" id="entries"><div class="empty">nothing submitted yet</div></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const SCALES = {
+    mood:    { label: "Feel",              lo: "low",       hi: "great" },
+    focus:   { label: "Focus",             lo: "scattered", hi: "sharp" },
+    energy:  { label: "Energy",            lo: "depleted",  hi: "charged" },
+    anxiety: { label: "Anxiety",           lo: "calm",      hi: "on edge" },
+    stress:  { label: "Stress",            lo: "easy",      hi: "under load" },
+    sleep:   { label: "Last night's sleep", lo: "broken",    hi: "deep" },
+  };
+  const KINDS = {
+    moment: {
+      title: "How do you feel right now?",
+      help: "A few seconds. Skip any you like — it helps your numbers mean something.",
+      scales: ["mood", "focus", "energy", "anxiety", "stress"],
+    },
+    previous_day: {
+      title: "Yesterday, on average",
+      help: "Not the best or worst moment — the day as a whole.",
+      scales: ["focus", "energy", "anxiety", "stress", "sleep"],
+    },
+  };
+
+  const phone = document.getElementById("phone");
+  const sheet = document.getElementById("sheet");
+  const scalesEl = document.getElementById("scales");
+  const doneBtn = document.getElementById("done");
+  const entries = document.getElementById("entries");
+  const toast = document.getElementById("toast");
+  let current = null;   // { kind, values: {key: number|null} }
+
+  function dayKey(d) {
+    const p = n => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+
+  function open(kind) {
+    const spec = KINDS[kind];
+    current = { kind, values: Object.fromEntries(spec.scales.map(k => [k, null])) };
+    document.getElementById("sheet-title").textContent = spec.title;
+    document.getElementById("sheet-help").textContent = spec.help;
+    document.getElementById("remind").hidden = kind !== "moment";
+    scalesEl.innerHTML = "";
+    spec.scales.forEach(key => scalesEl.appendChild(buildScale(key)));
+    doneBtn.disabled = true;
+    phone.classList.add("open");
+  }
+
+  function buildScale(key) {
+    const s = SCALES[key];
+    const wrap = document.createElement("div");
+    wrap.className = "scale";
+    const id = "scale-" + key;
+    wrap.innerHTML = `
+      <label for="${id}">${s.label}</label>
+      <div class="track" id="${id}" role="slider" tabindex="0" aria-label="${s.label}" aria-valuemin="0" aria-valuemax="100" aria-valuetext="not set">
+        <div class="rail"></div><div class="fill"></div><div class="knob"></div>
+      </div>
+      <div class="anchors"><span>${s.lo}</span><span>${s.hi}</span></div>`;
+    const track = wrap.querySelector(".track");
+    const fill = wrap.querySelector(".fill");
+    const knob = wrap.querySelector(".knob");
+    const KNOB = 28;
+
+    function setFromX(clientX) {
+      const r = track.getBoundingClientRect();
+      const trackWidth = Math.max(0, r.width - KNOB);
+      const x = clientX - r.left - KNOB / 2;
+      const frac = Math.min(Math.max(x / trackWidth, 0), 1);
+      set(frac * 100);
+    }
+    function set(v) {
+      current.values[key] = v;
+      const frac = v / 100;
+      track.classList.add("touched");
+      knob.style.left = `calc(${KNOB / 2}px + ${frac} * (100% - ${KNOB}px))`;
+      fill.style.width = `calc(${frac} * (100% - ${KNOB}px))`;
+      track.setAttribute("aria-valuenow", Math.round(v));
+      track.setAttribute("aria-valuetext", Math.round(v) + " of 100");
+      doneBtn.disabled = !Object.values(current.values).some(x => x != null);
+    }
+    // The whole track is the target, not only the knob — a tap places it.
+    track.addEventListener("pointerdown", e => { track.setPointerCapture(e.pointerId); setFromX(e.clientX); });
+    track.addEventListener("pointermove", e => { if (e.buttons) setFromX(e.clientX); });
+    track.addEventListener("keydown", e => {
+      const v = current.values[key] ?? 50;
+      if (e.key === "ArrowLeft")  { e.preventDefault(); set(Math.max(0, v - 5)); }
+      if (e.key === "ArrowRight") { e.preventDefault(); set(Math.min(100, v + 5)); }
+    });
+    return wrap;
+  }
+
+  function close() { phone.classList.remove("open"); current = null; }
+
+  function submit() {
+    if (!current) return;
+    const now = new Date();
+    const about = new Date(now);
+    if (current.kind === "previous_day") about.setDate(about.getDate() - 1);
+    const rounded = Object.fromEntries(Object.entries(current.values).map(([k, v]) => [k, v == null ? null : Math.round(v)]));
+    const row = {
+      id: crypto.randomUUID(),
+      kind: current.kind,
+      timestamp: now.toISOString(),
+      day_key: dayKey(about),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      ...rounded,
+      worn_minutes: current.kind === "moment" ? 13 : null,
+    };
+    addEntry(row);
+    close();
+    toast.classList.add("show");
+    setTimeout(() => toast.classList.remove("show"), 1400);
+  }
+
+  function addEntry(row) {
+    const empty = entries.querySelector(".empty");
+    if (empty) empty.remove();
+    const el = document.createElement("div");
+    el.className = "entry";
+    const json = JSON.stringify(row, null, 2).replace(/: null/g, ': <span class="n">null</span>');
+    el.innerHTML = `<div class="k">${row.kind.replace("_", " ")}</div><pre>${json}</pre>`;
+    entries.prepend(el);
+  }
+
+  document.getElementById("btn-moment").onclick = () => open("moment");
+  document.getElementById("btn-review").onclick = () => open("previous_day");
+  doneBtn.onclick = submit;
+  document.getElementById("skip").onclick = close;
+  document.getElementById("scrim").onclick = close;
+  document.getElementById("allow").onclick = e => { e.preventDefault(); e.target.textContent = "Allowed"; };
+
+  // Open on the moment ask so the first look shows the sheet itself.
+  open("moment");
+})();
+</script>
