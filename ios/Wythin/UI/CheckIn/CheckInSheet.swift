@@ -47,7 +47,7 @@ struct CheckInSheet: View {
                             .frame(maxWidth: .infinity).padding(.vertical, 14)
                             .background(Theme.surface).clipShape(RoundedRectangle(cornerRadius: 12))
                     }
-                    if needsNotificationOptIn, kind == .moment {
+                    if needsNotificationOptIn {
                         Button(action: onAllowNotifications) {
                             Text("Remind me when the app is closed")
                                 .font(.system(size: 12))

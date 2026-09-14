@@ -70,6 +70,7 @@ Shipped in the last two weeks (builds 110 to 120):
 
 In flight:
 
+- Self check-ins (spec 2026-09-13): a moment ask 10 to 15 minutes into a wear and a previous-day review on the first open, five unlabelled sliders each, stored in `felt_state_logs` and shown on the dashboard's Check-ins panel. Collecting now; the correlation against the metrics comes once there are a few weeks of answers.
 - Sleep night sync and dashboard montage (branch `worktree-exercise-response-phase-1`).
 - Recovery kinetics model (spec 2026-08-20).
 - MADLOOP breathing-signature tool for Polar H10 (spec 2026-09-03), a research tool, not the app.
