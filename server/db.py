@@ -212,6 +212,31 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS consent_ai_insights BOOLEAN NOT NU
 -- their own clock, not the viewer's.
 ALTER TABLE profiles   ADD COLUMN IF NOT EXISTS timezone TEXT;
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS timezone TEXT;
+
+-- Self check-ins: what the person says they felt, one row per answer. Two
+-- kinds share the table — 'moment' (asked while the strap is on) and
+-- 'previous_day' (asked on the first open of a day, about yesterday; day_key
+-- is that day). Scales are 0-100 and NULL means the slider was never touched;
+-- see docs/superpowers/specs/2026-09-13-self-checkin-design.md.
+CREATE TABLE IF NOT EXISTS felt_state_logs (
+    id            BIGSERIAL PRIMARY KEY,
+    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    client_id     TEXT UNIQUE NOT NULL,   -- FeltStateLog.id on the phone → idempotent upload
+    kind          TEXT NOT NULL DEFAULT 'moment',
+    ts            TIMESTAMPTZ NOT NULL,   -- when it was answered
+    day_key       TEXT,                   -- local yyyy-MM-dd the answer is about
+    timezone      TEXT,
+    focus         REAL,
+    energy        REAL,
+    stress        REAL,
+    mood          REAL,
+    anxiety       REAL,
+    sleep         REAL,
+    state_key     TEXT,                   -- the live state the app showed at the time, if any
+    worn_minutes  REAL,                   -- how long the strap had been on when asked
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS felt_state_logs_user_ts ON felt_state_logs(user_id, ts DESC);
 """
 
 

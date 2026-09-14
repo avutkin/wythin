@@ -419,6 +419,16 @@ async def user_detail(user_id: str):
             """,
             user_id,
         )
+        check_ins = await conn.fetch(
+            """
+            SELECT client_id, kind, ts, day_key, timezone, focus, energy, stress, mood,
+                   anxiety, sleep, state_key, worn_minutes
+            FROM felt_state_logs
+            WHERE user_id = $1::uuid
+            ORDER BY ts DESC
+            """,
+            user_id,
+        )
         # Everything they answered at onboarding, contact details included.
         profile = await conn.fetchrow(
             """
@@ -440,6 +450,9 @@ async def user_detail(user_id: str):
 
     def _dur(a, b):
         return round((b - a).total_seconds() / 60.0, 1) if a and b else None
+
+    def _opt(v):
+        return None if v is None else round(float(v), 1)
 
     return {
         "user": {
@@ -472,6 +485,25 @@ async def user_detail(user_id: str):
             for r in sessions
         ],
         "activities": [_activity_row(r) for r in activities],
+        # Self check-ins, newest first. Scales are 0-100 or null (untouched).
+        "check_ins": [
+            {
+                "id":           r["client_id"],
+                "kind":         r["kind"],
+                "ts":           r["ts"].isoformat(),
+                "day_key":      r["day_key"],
+                "timezone":     r["timezone"],
+                "focus":        _opt(r["focus"]),
+                "energy":       _opt(r["energy"]),
+                "stress":       _opt(r["stress"]),
+                "mood":         _opt(r["mood"]),
+                "anxiety":      _opt(r["anxiety"]),
+                "sleep":        _opt(r["sleep"]),
+                "state_key":    r["state_key"],
+                "worn_minutes": _opt(r["worn_minutes"]),
+            }
+            for r in check_ins
+        ],
         "profile": None if profile is None else {
             "first_name": profile["first_name"],
             "last_name":  profile["last_name"],
