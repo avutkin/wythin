@@ -74,6 +74,10 @@ final class WythinAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
+        // A check-in tap has no action of its own: opening the app is the
+        // whole point, and the coordinator reads its ledger on the next
+        // foreground and puts the sheet up.
+        if CheckInNotification.isCheckIn(info) { return }
         guard let raw = info[NudgeNotification.triggerKey] as? String,
               let trigger = NudgeTriggerID(rawValue: raw) else { return }
 

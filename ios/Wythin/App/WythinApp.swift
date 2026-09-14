@@ -144,6 +144,33 @@ struct ContentView: View {
             ActivityLog.migrateInBackground(container: modelContext.container)
             didRunActivityBackfill = true
         }
+        // ── Self check-ins ─────────────────────────────────────────────────
+        // On its own node, not on the tab view that already presents the
+        // cloud notice and the nudge cover: two sheets on one view fail
+        // silently. `canPresent` keeps it behind onboarding and the notice.
+        .task { env.checkIns.appDidBecomeActive() }
+        .onAppear { env.checkIns.canPresent = hasCompletedOnboarding && didShowCloudSyncNotice }
+        .onChange(of: hasCompletedOnboarding) { _, _ in refreshCheckInGate() }
+        .onChange(of: didShowCloudSyncNotice) { _, _ in refreshCheckInGate() }
+        .sheet(item: Binding(get: { env.checkIns.presented },
+                             set: { if $0 == nil { env.checkIns.skipPresented() } })) { prompt in
+            CheckInSheet(prompt: prompt,
+                         needsNotificationOptIn: env.checkIns.needsNotificationOptIn,
+                         onDone: { env.checkIns.save($0, for: prompt) },
+                         onSkip: { env.checkIns.skipPresented() },
+                         onAllowNotifications: { env.checkIns.allowNotifications() })
+        }
+    }
+
+    /// The gate opens a beat after the cloud notice closes, so the check-in
+    /// sheet is not presented while that one is still animating away.
+    private func refreshCheckInGate() {
+        let open = hasCompletedOnboarding && didShowCloudSyncNotice
+        if open {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { env.checkIns.canPresent = true }
+        } else {
+            env.checkIns.canPresent = false
+        }
     }
 
     private var mainApp: some View {

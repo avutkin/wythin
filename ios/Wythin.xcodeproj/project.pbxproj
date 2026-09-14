@@ -166,6 +166,16 @@
 		A210 /* AnchorDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = F210 /* AnchorDetector.swift */; };
 		A211 /* DailyAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F211 /* DailyAnchor.swift */; };
 		A262 /* FeltStateLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F262 /* FeltStateLog.swift */; };
+		A996 /* CheckInScales.swift in Sources */ = {isa = PBXBuildFile; fileRef = F996 /* CheckInScales.swift */; };
+		A997 /* CheckInScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F997 /* CheckInScheduler.swift */; };
+		A998 /* CheckInNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = F998 /* CheckInNotification.swift */; };
+		A999 /* CheckInCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F999 /* CheckInCoordinator.swift */; };
+		A163 /* CheckInSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F163 /* CheckInSheet.swift */; };
+		AT61 /* FeltStateLogUploaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT61 /* FeltStateLogUploaderTests.swift */; };
+		AT62 /* CheckInScalesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT62 /* CheckInScalesTests.swift */; };
+		AT63 /* CheckInSchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT63 /* CheckInSchedulerTests.swift */; };
+		AT64 /* CheckInNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT64 /* CheckInNotificationTests.swift */; };
+		AT65 /* CheckInCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT65 /* CheckInCoordinatorTests.swift */; };
 		A213 /* AnchorBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F213 /* AnchorBaseline.swift */; };
 		A214 /* PotentialScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F214 /* PotentialScore.swift */; };
 		A215 /* StreakCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F215 /* StreakCompute.swift */; };
@@ -472,6 +482,16 @@
 		F210 /* AnchorDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorDetector.swift; sourceTree = "<group>"; };
 		F211 /* DailyAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyAnchor.swift; sourceTree = "<group>"; };
 		F262 /* FeltStateLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeltStateLog.swift; sourceTree = "<group>"; };
+		F996 /* CheckInScales.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInScales.swift; sourceTree = "<group>"; };
+		F997 /* CheckInScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInScheduler.swift; sourceTree = "<group>"; };
+		F998 /* CheckInNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInNotification.swift; sourceTree = "<group>"; };
+		F999 /* CheckInCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInCoordinator.swift; sourceTree = "<group>"; };
+		F163 /* CheckInSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInSheet.swift; sourceTree = "<group>"; };
+		FT61 /* FeltStateLogUploaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeltStateLogUploaderTests.swift; sourceTree = "<group>"; };
+		FT62 /* CheckInScalesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInScalesTests.swift; sourceTree = "<group>"; };
+		FT63 /* CheckInSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInSchedulerTests.swift; sourceTree = "<group>"; };
+		FT64 /* CheckInNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInNotificationTests.swift; sourceTree = "<group>"; };
+		FT65 /* CheckInCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInCoordinatorTests.swift; sourceTree = "<group>"; };
 		F213 /* AnchorBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaseline.swift; sourceTree = "<group>"; };
 		F214 /* PotentialScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScore.swift; sourceTree = "<group>"; };
 		F215 /* StreakCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakCompute.swift; sourceTree = "<group>"; };
@@ -920,9 +940,22 @@
 			path = Train;
 			sourceTree = "<group>";
 		};
+		GAPP_CHK /* CheckIn */ = {
+			isa = PBXGroup;
+			children = (
+				F996 /* CheckInScales.swift */,
+				F997 /* CheckInScheduler.swift */,
+				F998 /* CheckInNotification.swift */,
+				F999 /* CheckInCoordinator.swift */,
+				F163 /* CheckInSheet.swift */,
+			);
+			path = CheckIn;
+			sourceTree = "<group>";
+		};
 		GAPP_UI /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				GAPP_CHK /* CheckIn */,
 				GAPP_DES /* Design */,
 				GAPP_LIV /* Live */,
 				GAPP_ONB /* Onboarding */,
@@ -979,6 +1012,11 @@
 				FT19 /* DayLoadSummaryTests.swift */,
 				FT20 /* DayPotentialStateTests.swift */,
 				FT38 /* UsageUploaderTests.swift */,
+				FT61 /* FeltStateLogUploaderTests.swift */,
+				FT62 /* CheckInScalesTests.swift */,
+				FT63 /* CheckInSchedulerTests.swift */,
+				FT64 /* CheckInNotificationTests.swift */,
+				FT65 /* CheckInCoordinatorTests.swift */,
 				FT37 /* NudgeNotificationTests.swift */,
 				FT36 /* NudgeCopyTests.swift */,
 				FT35 /* NudgeEngineTests.swift */,
@@ -1184,6 +1222,11 @@
 				A213 /* AnchorBaseline.swift in Sources */,
 				A211 /* DailyAnchor.swift in Sources */,
 				A262 /* FeltStateLog.swift in Sources */,
+				A996 /* CheckInScales.swift in Sources */,
+				A997 /* CheckInScheduler.swift in Sources */,
+				A998 /* CheckInNotification.swift in Sources */,
+				A999 /* CheckInCoordinator.swift in Sources */,
+				A163 /* CheckInSheet.swift in Sources */,
 				A210 /* AnchorDetector.swift in Sources */,
 				A101 /* WythinApp.swift in Sources */,
 				60ED9331C4BD56C098F8D57D /* LiveSessionController.swift in Sources */,
@@ -1371,6 +1414,11 @@
 				AT19 /* DayLoadSummaryTests.swift in Sources */,
 				AT20 /* DayPotentialStateTests.swift in Sources */,
 				AT38 /* UsageUploaderTests.swift in Sources */,
+				AT61 /* FeltStateLogUploaderTests.swift in Sources */,
+				AT62 /* CheckInScalesTests.swift in Sources */,
+				AT63 /* CheckInSchedulerTests.swift in Sources */,
+				AT64 /* CheckInNotificationTests.swift in Sources */,
+				AT65 /* CheckInCoordinatorTests.swift in Sources */,
 				AT37 /* NudgeNotificationTests.swift in Sources */,
 				AT36 /* NudgeCopyTests.swift in Sources */,
 				AT35 /* NudgeEngineTests.swift in Sources */,

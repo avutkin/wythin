@@ -674,6 +674,14 @@ protocol UsageAPIClient {
 
 extension APIClient: UsageAPIClient {}
 
+/// Narrow protocol over `APIClient.uploadFeltStateLog` so `FeltStateLogUploader`
+/// can be tested with a fake instead of a real network call.
+protocol FeltStateAPIClient {
+    func uploadFeltStateLog(_ payload: FeltStateUploadPayload, userID: String) async throws
+}
+
+extension APIClient: FeltStateAPIClient {}
+
 // MARK: - Payload builders
 
 extension SessionPayload {

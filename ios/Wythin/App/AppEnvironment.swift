@@ -84,6 +84,7 @@ final class AppEnvironment {
                 // Make sure the paired strap is (re)armed for seamless auto-connect.
                 ble.ensureAutoConnect()
                 surfacePendingFocusWindow()
+                checkIns.appDidBecomeActive()
                 // tickHistory is kept current in the background now, so refresh the
                 // charts from it immediately on open (no fetch/refill wait).
                 historyRevision += 1
@@ -150,6 +151,9 @@ final class AppEnvironment {
     private(set) var lastNudgeSuppression: NudgeSuppressionReason?
 
     let notifications: NudgeDelivering = NudgeNotificationService()
+    /// The two self check-ins — when to ask, the sheet, the saved row. See
+    /// docs/superpowers/specs/2026-09-13-self-checkin-design.md.
+    let checkIns: CheckInCoordinator
 
     private var nudgeBaseline: AnchorBaseline?
     private var nudgeBaselineAt: Date?
@@ -419,6 +423,10 @@ final class AppEnvironment {
             .flatMap(URL.init) ?? URL(string: "https://api.77.42.73.250.sslip.io")!)
         self.metricSync = MetricSyncService(client: sync.client, userID: AppEnvironment.currentUserID(),
                                              container: modelContainer)
+        self.checkIns = CheckInCoordinator(container: modelContainer,
+                                           notifier: CheckInNotificationService(),
+                                           client: sync.client,
+                                           userID: AppEnvironment.currentUserID())
 
         bindBLE()
         loadHistory()
@@ -774,6 +782,11 @@ final class AppEnvironment {
                     self.logUsageEvent(type: "ecg_recording", start: start)
                     recordingStart = nil
                 }
+                // The check-in rides the same wear clock: a moment is asked
+                // 10–15 minutes into a wear, and cancelled if the strap comes
+                // off first.
+                self.checkIns.strapPolled(connected: connected, wornSince: recordingStart,
+                                          now: Date(), isForeground: self.isInForeground)
             }
         }
     }
