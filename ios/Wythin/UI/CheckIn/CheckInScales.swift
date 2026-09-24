@@ -183,9 +183,11 @@ struct FeltStateScaleRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            // The scale's name in white, a size up from a caption: it is
+            // the question being answered, not a label on a chart.
             Text(key.label)
-                .font(Theme.monoLabel)
-                .foregroundStyle(Theme.dim)
+                .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Theme.text)
             GeometryReader { geo in
                 let trackWidth = max(0, geo.size.width - knobSize)
                 let spec = FeltStateKnobSpec.build(value: value)
