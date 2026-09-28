@@ -43,6 +43,100 @@ final class SleepRecorderPersistenceTests: XCTestCase {
         return all.filter { $0.activityType == ActivityType.sleep.rawValue }
     }
 
+    // MARK: - A night written early grows when the rest of it arrives
+
+    /// Samples for a night that resumes after the strap has already seen a
+    /// wake: 23:10 → 04:24 asleep, up until 05:02, asleep again until 06:20,
+    /// then up. `through` caps what has been recorded so far, so a pass can
+    /// be run mid-morning against exactly the samples it would have had.
+    private func seedResumedNight(_ context: ModelContext, day: Int, through: Date? = nil) {
+        func add(_ start: Date, minutes: Double, hr: Float, motion: Float) {
+            for i in 0..<Int(minutes * 2) {
+                let ts = start.addingTimeInterval(Double(i) * 30)
+                if let through, ts > through { return }
+                context.insert(HRVSample(anchorTestTimestamp: ts,
+                                         meanBPM: hr, vti: 3.9, dc: 8, pip: 45, dfa1: 1.0,
+                                         breathBPM: hr > 60 ? 15 : 13, motion: motion,
+                                         signalQuality: 0.97, rrInvalidRate: 0.01))
+            }
+        }
+        var c = DateComponents(year: 2026, month: 7, day: day); c.hour = 23; c.minute = 10
+        let bed = Calendar.current.date(from: c)!
+        add(bed, minutes: 314, hr: 52, motion: 6)                                   // → 04:24
+        add(bed.addingTimeInterval(314 * 60), minutes: 38, hr: 66, motion: 60)      // → 05:02
+        add(bed.addingTimeInterval(352 * 60), minutes: 78, hr: 52, motion: 6)       // → 06:20
+        add(bed.addingTimeInterval(430 * 60), minutes: 60, hr: 66, motion: 60)      // → 07:20
+        try! context.save()
+    }
+
+    private func at(_ day: Int, _ hour: Int, _ minute: Int) -> Date {
+        var c = DateComponents(year: 2026, month: 7, day: day)
+        c.hour = hour; c.minute = minute
+        return Calendar.current.date(from: c)!
+    }
+
+    func testANightSealedEarlyIsRebuiltWhenLaterSleepIsDetected() {
+        // A night already in the store ending at 04:24 — written by a build
+        // that sealed on the stopwatch — and a morning of samples showing the
+        // sleeper went back under until 06:20. The next pass must not leave
+        // the short night standing because its date is "already recorded".
+        let writer = ModelContext(container)
+        seedResumedNight(writer, day: 20)
+        let early = ActivityLog(activityType: ActivityType.sleep.rawValue,
+                                startedAt: at(20, 23, 10))
+        early.endedAt = at(21, 4, 24)
+        early.isManual = false
+        early.sleepAlgorithmVersion = SleepThresholds.algorithmVersion
+        early.duringStress = 30
+        writer.insert(early)
+        try! writer.save()
+
+        SleepRecorder.recordIfDue(context: writer, now: at(21, 8, 0))
+
+        let logs = sleepLogs(in: ModelContext(container))
+        XCTAssertEqual(logs.count, 1, "rebuilt, not duplicated")
+        XCTAssertEqual(logs.first?.endedAt?.timeIntervalSince(at(21, 6, 20)) ?? .infinity, 0,
+                       accuracy: 90, "the night now runs to the final awakening")
+        XCTAssertEqual(logs.first?.startedAt, at(20, 23, 10))
+    }
+
+    func testACorrectedNightIsNotOutgrown() {
+        // The sleeper dragged the end to 04:24 themselves. A correction is
+        // the sleeper's word over the detector's, and the detector finding
+        // more sleep is exactly the disagreement the correction exists to win.
+        let writer = ModelContext(container)
+        seedResumedNight(writer, day: 20)
+        let early = ActivityLog(activityType: ActivityType.sleep.rawValue,
+                                startedAt: at(20, 23, 10))
+        early.endedAt = at(21, 4, 24)
+        early.isManual = false
+        early.sleepAlgorithmVersion = SleepThresholds.algorithmVersion
+        early.duringStress = 30
+        writer.insert(early)
+        writer.insert(SleepWindowOverride(day: Calendar.current.startOfDay(for: at(21, 4, 24)),
+                                          endedAt: at(21, 4, 24)))
+        try! writer.save()
+
+        SleepRecorder.recordIfDue(context: writer, now: at(21, 8, 0))
+
+        let logs = sleepLogs(in: ModelContext(container))
+        XCTAssertEqual(logs.count, 1)
+        XCTAssertEqual(logs.first?.endedAt?.timeIntervalSince(at(21, 4, 24)) ?? .infinity, 0, accuracy: 1)
+    }
+
+    func testAPassMidMorningDoesNotSealAResumingNight() {
+        // The live race, end to end: the recorder runs at 05:10 with the
+        // samples that existed then. The sleeper has been back asleep for
+        // eight minutes. Nothing may be written.
+        let writer = ModelContext(container)
+        seedResumedNight(writer, day: 20, through: at(21, 5, 10))
+
+        SleepRecorder.recordIfDue(context: writer, now: at(21, 5, 10))
+
+        XCTAssertTrue(sleepLogs(in: ModelContext(container)).isEmpty,
+                      "resumed sleep, even under ten minutes of it, holds the night")
+    }
+
     // MARK: - The sleeper's own correction
 
     func testACorrectionMovesTheRecordedNight() {

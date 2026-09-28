@@ -148,6 +148,27 @@ class UsageUpload(BaseModel):
     events: list[UsageEvent] = []
 
 
+class FeltStateLogUpload(BaseModel):
+    """One self check-in from the phone. Only id and timestamp are required:
+    the August build sends the five original keys and nothing else, and every
+    scale is optional because an untouched slider is null, never a default."""
+    id:           str
+    timestamp:    str                       # ISO8601 — when it was answered
+    kind:         Optional[str]   = None    # 'moment' | 'previous_day'; missing = moment
+    day_key:      Optional[str]   = None    # local yyyy-MM-dd the answer is about
+    timezone:     Optional[str]   = None
+    focus:        Optional[float] = None
+    energy:       Optional[float] = None
+    stress:       Optional[float] = None
+    mood:         Optional[float] = None
+    anxiety:      Optional[float] = None
+    sleep:        Optional[float] = None
+    state_key:    Optional[str]   = None
+    worn_minutes: Optional[float] = None
+
+    _zone = field_validator("timezone")(lambda cls, v: zone_or_none(v))
+
+
 class UploadResponse(BaseModel):
     id: str
 

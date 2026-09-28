@@ -352,4 +352,107 @@ final class ExerciseResponsePersistenceTests: XCTestCase {
         XCTAssertEqual(entry.exerciseLoad!, load!, accuracy: 0.0001)
         XCTAssertEqual(entry.vsiSlopePer10!, slope!, accuracy: 0.0001)
     }
+
+    // MARK: - Live preview and the after window
+
+    func testLiveEntryPreviewsItsWindowsUpToNow() throws {
+        // Fifteen minutes into a session that has not ended: the row must
+        // already carry a before and a during, and no after — without the
+        // entry acquiring an end time and dropping out of "recording".
+        let ctx = makeContext()
+        seed(ctx)
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Intervals",
+                                startedAt: start, endedAt: nil)
+        ctx.insert(entry)
+
+        entry.refreshLive(context: ctx, now: start.addingTimeInterval(15 * 60))
+
+        XCTAssertTrue(entry.isActive)
+        XCTAssertNil(entry.endedAt)
+        XCTAssertNotNil(entry.beforeHR)
+        XCTAssertNotNil(entry.duringHR)
+        XCTAssertNil(entry.afterHR, "nothing has happened after a session still running")
+        XCTAssertNotNil(entry.exerciseLoad, "fifteen minutes of work already carries load")
+        XCTAssertNil(entry.settledAt)
+    }
+
+    func testAPartialAfterWindowIsStoredButNotSettled() throws {
+        // Two minutes after stopping the after fields fill from what is there,
+        // and the entry still asks to be recomputed once the ten minutes are
+        // up — the trap the old nil-guard fell into was storing a partial
+        // window and never correcting it.
+        let ctx = makeContext()
+        let end = seed(ctx)
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Intervals",
+                                startedAt: start, endedAt: end)
+        ctx.insert(entry)
+
+        entry.computeHRVWindows(context: ctx, now: end.addingTimeInterval(120))
+
+        XCTAssertNotNil(entry.afterHR)
+        XCTAssertNil(entry.settledAt)
+        XCTAssertFalse(entry.needsWindowRefresh(now: end.addingTimeInterval(300)),
+                       "still filling")
+        XCTAssertTrue(entry.needsWindowRefresh(now: end.addingTimeInterval(700)),
+                      "the window is complete and was last computed while partial")
+    }
+
+    func testACompleteAfterWindowSettles() throws {
+        let ctx = makeContext()
+        let end = seed(ctx)
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Intervals",
+                                startedAt: start, endedAt: end)
+        ctx.insert(entry)
+
+        entry.computeHRVWindows(context: ctx, now: end.addingTimeInterval(700))
+
+        XCTAssertNotNil(entry.settledAt)
+        XCTAssertFalse(entry.needsWindowRefresh(now: end.addingTimeInterval(3600)))
+    }
+
+    func testLiveRefreshFollowsTheEntryThroughTheAfterWindow() throws {
+        // Which entries the tick loop recomputes: a running one, one that
+        // ended inside the last ten minutes, and nothing older.
+        let ctx = makeContext()
+        let end = seed(ctx)
+        let running = ActivityLog(activityType: "Exercise", startedAt: start, endedAt: nil)
+        let settling = ActivityLog(activityType: "Exercise", startedAt: start, endedAt: end)
+        let done = ActivityLog(activityType: "Exercise", startedAt: start,
+                               endedAt: end.addingTimeInterval(-3600))
+        let manual = ActivityLog(activityType: "Exercise", startedAt: start, endedAt: nil,
+                                 isManual: true)
+        for e in [running, settling, done, manual] { ctx.insert(e) }
+
+        let picked = ActivityLogging.liveRefreshCandidates(in: [running, settling, done, manual],
+                                                           now: end.addingTimeInterval(300))
+        XCTAssertEqual(picked.map(\.id), [running.id, settling.id])
+    }
+
+    // MARK: - Phase of a live row
+
+    func testPhaseIsLiveWhileRunning() {
+        let phase = ActivityLivePhase.of(startedAt: start, endedAt: nil,
+                                         now: start.addingTimeInterval(95))
+        XCTAssertEqual(phase, .live(elapsed: 95))
+    }
+
+    func testPhaseSettlesForTheAfterWindowThenEnds() {
+        let end = start.addingTimeInterval(600)
+        XCTAssertEqual(ActivityLivePhase.of(startedAt: start, endedAt: end,
+                                            now: end.addingTimeInterval(200)),
+                       .settling(remaining: 400))
+        XCTAssertNil(ActivityLivePhase.of(startedAt: start, endedAt: end,
+                                          now: end.addingTimeInterval(601)))
+    }
+
+    // MARK: - The picker
+
+    func testCustomIsNotOfferedAsATile() {
+        XCTAssertFalse(ActivityPickerSection.tiles(selected: .exercise).contains(.custom))
+        XCTAssertEqual(ActivityPickerSection.tiles(selected: .exercise), ActivityType.pickerCases)
+    }
+
+    func testALegacyCustomEntryKeepsItsTileWhileBeingEdited() {
+        XCTAssertTrue(ActivityPickerSection.tiles(selected: .custom).contains(.custom))
+    }
 }

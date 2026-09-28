@@ -40,8 +40,11 @@ struct ActivitiesView: View {
 
     private var dayGroups: [DayGroup] {
         let cal = Calendar.current
-        let history = allEntries.filter { !$0.isActive }
-        let grouped = Dictionary(grouping: history) { cal.startOfDay(for: $0.startedAt) }
+        // A running session is listed like any other — as the row it will
+        // become, wrapped in a live frame — rather than as a separate banner
+        // with three pills. The banner showed a clock and no verdict, and the
+        // verdict then appeared fully formed the moment the session stopped.
+        let grouped = Dictionary(grouping: allEntries) { cal.startOfDay(for: $0.startedAt) }
 
         return grouped.keys.sorted(by: >).map { day in
             let label: String
@@ -85,6 +88,12 @@ struct ActivitiesView: View {
                 .sheet(item: $activeSheet) { sheet in
                     sheetContent(sheet)
                 }
+                // Every strap tick re-derives the rows still in motion: the one
+                // recording, and any that stopped inside the last ten minutes.
+                // Rows settle on their own and drop out of the candidate set.
+                .onChange(of: env.latestTick?.timestamp) { _, _ in
+                    ActivityLogging.refreshLive(entries: allEntries, context: ctx)
+                }
         }
     }
 
@@ -92,16 +101,6 @@ struct ActivitiesView: View {
 
     private var logSection: some View {
         List {
-            // ── Active banners ────────────────────────────────────
-            ForEach(activeEntries) { active in
-                ActiveActivityBanner(entry: active, tick: env.latestTick) {
-                    endActivity(active)
-                }
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .listRowInsets(.init(top: 8, leading: 16, bottom: 0, trailing: 16))
-            }
-
             // ── Action buttons (hidden while recording) ──
             if activeEntries.isEmpty {
                 Section {
@@ -149,7 +148,7 @@ struct ActivitiesView: View {
             ForEach(dayGroups) { group in
                 Section {
                     ForEach(group.entries) { entry in
-                        Group {
+                        LiveActivityFrame(entry: entry, onStop: { endActivity(entry) }) {
                             // Sleep first: it is restorative by class, but the
                             // practice row would score it on a before-window
                             // that does not exist for a night.
@@ -257,139 +256,215 @@ struct ActivitiesView: View {
 
 }
 
-// MARK: - ActiveActivityBanner
+// MARK: - LiveActivityFrame
 
-private struct ActiveActivityBanner: View {
+/// Wraps a row whose numbers are still moving.
+///
+/// While the session records it carries the clock, the target, a STOP, and the
+/// three windows the app measures — the five minutes before, the session, the
+/// ten minutes after — with the one in progress marked. When the session stops
+/// the frame stays for the after-window, counting it down, so the person can
+/// see the recovery numbers underneath arrive rather than wondering why the
+/// row is not changing. Then it goes, and the row is an ordinary entry.
+struct LiveActivityFrame<Content: View>: View {
     let entry:  ActivityLog
-    let tick:   MetricsTick?
     let onStop: () -> Void
+    @ViewBuilder var content: Content
 
-    @State private var elapsed: TimeInterval = 0
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State private var now = Date.now
+    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    private var phase: ActivityLivePhase? {
+        ActivityLivePhase.of(startedAt: entry.startedAt, endedAt: entry.endedAt,
+                             now: now, isManual: entry.isManual)
+    }
 
     private var targetSeconds: TimeInterval? {
         entry.targetMinutes.map { TimeInterval($0) * 60 }
     }
-    private var progress: Double? {
-        guard let t = targetSeconds, t > 0 else { return nil }
-        return min(elapsed / t, 1.0)
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let phase {
+                header(phase)
+                    .padding(12)
+                    .background(Theme.warn.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+                    .overlay(RoundedRectangle(cornerRadius: 16)
+                        .strokeBorder(Theme.warn.opacity(0.35), lineWidth: 0.5))
+                    .padding(.top, 5)
+            }
+            content
+        }
+        .onReceive(ticker) { now = $0 }
+        .onAppear { now = .now }
     }
-    private var reachedTarget: Bool {
+
+    @ViewBuilder
+    private func header(_ phase: ActivityLivePhase) -> some View {
+        VStack(spacing: 10) {
+            switch phase {
+            case let .live(elapsed):
+                clockRow(title: "RECORDING", clock: elapsed, tint: reached(elapsed) ? Theme.accent : Theme.warn)
+                if let t = targetSeconds, t > 0 {
+                    bar(fraction: min(elapsed / t, 1), tint: reached(elapsed) ? Theme.accent : Theme.warn)
+                }
+                phaseStrip(during: .active(mmss(elapsed)), after: .pending)
+                stopButton
+            case let .settling(remaining):
+                clockRow(title: "SETTLING", clock: remaining, tint: Theme.accent,
+                         suffix: "left in the after window")
+                bar(fraction: 1 - remaining / ActivityLog.afterWindowSeconds, tint: Theme.accent)
+                phaseStrip(during: .done(entry.durationString),
+                           after: .active(mmss(ActivityLog.afterWindowSeconds - remaining)))
+            }
+        }
+    }
+
+    private func reached(_ elapsed: TimeInterval) -> Bool {
         guard let t = targetSeconds else { return false }
         return elapsed >= t
     }
-    private var timerColor: Color { reachedTarget ? Theme.accent : Theme.warn }
 
-    private func mmss(_ seconds: TimeInterval) -> String {
-        let t = Int(seconds)
-        return String(format: "%02d:%02d", t / 60, t % 60)
+    private func clockRow(title: String, clock: TimeInterval, tint: Color,
+                          suffix: String? = nil) -> some View {
+        HStack(spacing: 8) {
+            PulsingDot(color: tint)
+            Text(title)
+                .font(Theme.monoLabel)
+                .foregroundStyle(tint)
+            if let suffix {
+                Text(suffix)
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+            }
+            Spacer()
+            Text(mmss(clock))
+                .font(Theme.mono(18))
+                .foregroundStyle(tint)
+                .monospacedDigit()
+            if let t = targetSeconds, case .live = phase {
+                Text("/ " + mmss(t))
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+                    .monospacedDigit()
+            }
+        }
     }
 
-    var body: some View {
-        VStack(spacing: 10) {
-            HStack {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(Theme.warn)
-                        .frame(width: 6, height: 6)
-                        .opacity(0.8)
-                    Image(systemName: entry.activityTypeEnum.icon)
-                        .font(.system(size: 13))
-                        .foregroundStyle(entry.activityTypeEnum.color)
-                    Text(entry.displayName.uppercased())
-                        .font(Theme.monoLabel)
-                        .foregroundStyle(Theme.text)
-                }
-                Spacer()
-                Text(mmss(elapsed))
-                    .font(Theme.mono(18))
-                    .foregroundStyle(timerColor)
-                    .monospacedDigit()
-                if let t = targetSeconds {
-                    Text("/ " + mmss(t))
-                        .font(Theme.monoLabel)
-                        .foregroundStyle(Theme.dim)
-                        .monospacedDigit()
-                }
-            }
-
-            if let p = progress {
-                VStack(spacing: 4) {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(Theme.surface)
-                            Capsule().fill(timerColor)
-                                .frame(width: geo.size.width * CGFloat(p))
-                        }
-                    }
-                    .frame(height: 4)
-                    if reachedTarget {
-                        Text("TARGET REACHED")
-                            .font(Theme.monoLabel)
-                            .foregroundStyle(Theme.accent)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-
-            HStack(spacing: 0) {
-                // Tech labels and units from the shared registry — a session in
-                // progress must not show a different measure (or a different
-                // name for it) than the Live tab three taps away.
-                MetricPill(label: metricDef(.hr).techLabel,    value: MetricFormat.bpm(tick?.meanBPM), unit: "bpm")
-                MetricPill(label: metricDef(.rsa).techLabel,   value: MetricFormat.ms(tick?.rsaMs),    unit: "ms")
-                MetricPill(label: metricDef(.rmssd).techLabel, value: MetricFormat.ms(tick?.rmssd),    unit: "ms")
-            }
-
-            Button(action: onStop) {
-                HStack(spacing: 6) {
-                    Image(systemName: "stop.fill")
-                    Text("STOP")
-                }
-                .font(Theme.monoBody)
-                .foregroundStyle(Theme.warn)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity)
-                .background(Theme.warn.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(Theme.warn.opacity(0.35), lineWidth: 0.5))
+    private func bar(fraction: Double, tint: Color) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Theme.surface)
+                Capsule().fill(tint)
+                    .frame(width: geo.size.width * CGFloat(max(0, min(fraction, 1))))
             }
         }
-        .cardStyle()
-        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius)
-            .strokeBorder(Theme.warn.opacity(0.3), lineWidth: 0.5))
-        .onReceive(timer) { _ in
-            elapsed = Date().timeIntervalSince(entry.startedAt)
+        .frame(height: 4)
+    }
+
+    /// The three windows, in order, with the live one marked. Before is
+    /// always done by the time there is a row: it is the five minutes that
+    /// were already recorded when the session began.
+    private func phaseStrip(during: PhaseState, after: PhaseState) -> some View {
+        HStack(spacing: 6) {
+            PhaseCell(name: "BEFORE", detail: "5 min", state: .done("captured"))
+            PhaseCell(name: "DURING", detail: "session", state: during)
+            PhaseCell(name: "AFTER", detail: "10 min", state: after)
         }
-        .onAppear {
-            elapsed = Date().timeIntervalSince(entry.startedAt)
+    }
+
+    private var stopButton: some View {
+        Button(action: onStop) {
+            HStack(spacing: 6) {
+                Image(systemName: "stop.fill")
+                Text("STOP")
+            }
+            .font(Theme.monoBody)
+            .foregroundStyle(Theme.warn)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .background(Theme.warn.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Theme.warn.opacity(0.35), lineWidth: 0.5))
         }
+        .buttonStyle(.plain)
+    }
+
+    private func mmss(_ seconds: TimeInterval) -> String {
+        let t = Int(max(0, seconds))
+        return String(format: "%02d:%02d", t / 60, t % 60)
     }
 }
 
-private struct MetricPill: View {
-    let label: String
-    let value: String
-    let unit:  String
+/// One of the three windows in the live frame's strip.
+enum PhaseState: Equatable {
+    case done(String)
+    case active(String)
+    case pending
+}
+
+private struct PhaseCell: View {
+    let name:   String
+    let detail: String
+    let state:  PhaseState
+
+    private var tint: Color {
+        switch state {
+        case .done:    return Theme.accent
+        case .active:  return Theme.warn
+        case .pending: return Theme.dim.opacity(0.6)
+        }
+    }
+
+    private var caption: String {
+        switch state {
+        case let .done(s):   return s
+        case let .active(s): return s
+        case .pending:       return "not yet"
+        }
+    }
 
     var body: some View {
-        VStack(spacing: 2) {
-            Text(label)
-                .font(Theme.monoLabel)
-                .foregroundStyle(Theme.dim)
-            HStack(alignment: .firstTextBaseline, spacing: 2) {
-                Text(value)
-                    .font(Theme.monoBody)
-                    .foregroundStyle(Theme.text)
-                if !unit.isEmpty {
-                    Text(unit)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(Theme.dim)
+        VStack(spacing: 3) {
+            HStack(spacing: 4) {
+                switch state {
+                case .done:    Image(systemName: "checkmark").font(.system(size: 7, weight: .bold))
+                case .active:  PulsingDot(color: tint)
+                case .pending: Circle().strokeBorder(tint, lineWidth: 1).frame(width: 6, height: 6)
                 }
+                Text(name)
+                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                    .tracking(0.8)
             }
+            .foregroundStyle(tint)
+            Text(caption)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(state == .pending ? Theme.dim.opacity(0.6) : Theme.text.opacity(0.85))
+                .monospacedDigit()
+                .lineLimit(1)
+            Text(detail)
+                .font(.system(size: 7, design: .monospaced))
+                .foregroundStyle(Theme.dim.opacity(0.7))
         }
         .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .background(tint.opacity(state == .pending ? 0.04 : 0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+/// A dot that breathes, so "live" reads as live without a word.
+struct PulsingDot: View {
+    let color: Color
+    @State private var on = false
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 6, height: 6)
+            .opacity(on ? 1 : 0.35)
+            .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: on)
+            .onAppear { on = true }
     }
 }
 

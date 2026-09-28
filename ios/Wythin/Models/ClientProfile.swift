@@ -38,6 +38,15 @@ struct ClientProfile: Codable, Equatable {
     var devices:   [String] = []
     var state:     CurrentState = CurrentState()
 
+    /// The fields onboarding cannot finish without: a first name, a surname
+    /// and an email that look like one. A profile missing any of them is not
+    /// finished, and is never sent anywhere.
+    var hasRequiredContact: Bool {
+        OnboardingValidation.isValidName(firstName)
+            && OnboardingValidation.isValidName(lastName)
+            && OnboardingValidation.isValidEmail(email)
+    }
+
     init() {}
 
     /// Decoded field by field with `decodeIfPresent`, never all-or-nothing.
@@ -200,18 +209,30 @@ enum OnboardingValidation {
         raw.filter(\.isNumber).count >= 7
     }
 
-    /// Basic email shape check — good enough to gate a Continue button.
+    /// An email with the shape of a real one: a local part that starts and
+    /// ends on a letter or digit, one @, a domain of dotted labels and a
+    /// letters-only top level. No spaces, no doubled dots.
     static func isValidEmail(_ raw: String) -> Bool {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        let pattern = #"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$"#
-        return trimmed.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, t.count <= 254, !t.contains(".."), !t.contains(" ") else { return false }
+        let pattern = #"^[A-Z0-9](?:[A-Z0-9._%+-]*[A-Z0-9_%+-])?@(?:[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?\.)+[A-Z]{2,24}$"#
+        return t.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
-    /// A name is anything non-blank; we are not in the business of telling
-    /// people their name is wrong.
+    /// Looks like a name: at least two letters, from any alphabet, joined by
+    /// nothing more than spaces, hyphens, apostrophes or dots, and starting
+    /// on a letter. Digits and symbols are not a name; neither is one
+    /// keystroke to get past the button.
     static func isValidName(_ raw: String) -> Bool {
-        !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (2...60).contains(t.count) else { return false }
+        let scalars = Array(t.unicodeScalars)
+        let letters = CharacterSet.letters
+        guard scalars.filter({ letters.contains($0) }).count >= 2 else { return false }
+        let joiners = CharacterSet(charactersIn: " -'\u{2019}.")
+        guard scalars.allSatisfy({ letters.contains($0) || joiners.contains($0) }) else { return false }
+        guard let first = scalars.first, letters.contains(first) else { return false }
+        return true
     }
 
     /// Plausible adult range, wide enough not to reject real people.

@@ -199,6 +199,9 @@ struct OnboardingFlow: View {
     /// Sharing and sync are Settings decisions now, and a prompt that fires the
     /// moment onboarding ends would put the question straight back.
     private func finish() {
+        // The contact screen disables Finish until these look right; this is
+        // the same rule enforced where it cannot be bypassed by a screen change.
+        guard profile.hasRequiredContact else { return }
         persist()
         didShowCloudSyncNotice = true
         onComplete()

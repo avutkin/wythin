@@ -599,7 +599,12 @@ final class MetricSyncService {
         // the next tick (~120 s) instead of needing the app relaunched, which is
         // how five days of profiles were lost to a 404 nobody noticed.
         // Gated by the cloud-sync toggle above (it carries PII).
+        // Never a profile without its mandatory fields. The first sync tick
+        // used to send the blank default two seconds after first launch, and
+        // on the dashboard a blank row reads as "onboarded" — which is how a
+        // person nobody could identify came to have an "answered" profile.
         let p = ClientProfileStore().load()
+        if p.hasRequiredContact {
         let profile = ProfilePayload(
             first_name: p.firstName, last_name: p.lastName,
             phone: p.phone, email: p.email, age_range: p.ageRange, gender: p.gender,
@@ -617,6 +622,7 @@ final class MetricSyncService {
                (try? await client.uploadProfile(profile, userID: userID)) != nil {
                 syncedProfile = canonical
             }
+        }
         }
 
         let after = iso.date(from: lastSyncedISO) ?? Date.distantPast
@@ -689,6 +695,14 @@ protocol UsageAPIClient {
 }
 
 extension APIClient: UsageAPIClient {}
+
+/// Narrow protocol over `APIClient.uploadFeltStateLog` so `FeltStateLogUploader`
+/// can be tested with a fake instead of a real network call.
+protocol FeltStateAPIClient {
+    func uploadFeltStateLog(_ payload: FeltStateUploadPayload, userID: String) async throws
+}
+
+extension APIClient: FeltStateAPIClient {}
 
 // MARK: - Payload builders
 

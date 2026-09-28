@@ -107,4 +107,73 @@ final class SleepSessionizerTests: XCTestCase {
                                                 recordedDays: [])
         XCTAssertNil(w, "five minutes of quiet is not proof the night ended")
     }
+
+    // MARK: - The race that cut a night short
+
+    /// Ticks that read as wake: moving, pulse up.
+    private func up(fromHour: Int, fromMinute: Int = 0, minutes: Double,
+                    day: Int = 21) -> [MetricsHistoryPoint] {
+        var comps = DateComponents(year: 2026, month: 7, day: day)
+        comps.hour = fromHour
+        comps.minute = fromMinute
+        let start = Calendar.current.date(from: comps)!
+        let count = Int((minutes * 60) / 30)
+        return (0..<count).map { i in
+            MetricsHistoryPoint(anchorTestTimestamp: start.addingTimeInterval(Double(i) * 30),
+                                meanBPM: 66, vti: 3.9, dc: 8, pip: 45, dfa1: 1.0,
+                                breathBPM: 15, motion: 60,
+                                signalQuality: 0.97, rrInvalidRate: 0.01, ecgQualityTier: 2)
+        }
+    }
+
+    func testHoldsTheNightWhileSleepIsResuming() {
+        // The recorded night of 10–11 September. Asleep until 04:24, up for
+        // fifteen minutes, awake in bed, then asleep again from 05:02. The
+        // poll landed at 05:10: 46 minutes past the last SUSTAINED sleep, so
+        // the old rule sealed the night — but the sleeper had been back
+        // asleep for eight minutes, two short of "sustained", and that sleep
+        // was invisible to it. The night was written ending at 04:24 and, once
+        // written, was never revisited. An hour and a quarter of sleep was
+        // lost.
+        //
+        // Elapsed time since the last sustained sleep is not proof that the
+        // night is over. Sleep-like ticks after the detected end, however few,
+        // mean the person may be going back under, and the night waits.
+        let night = points(fromHour: 23, fromMinute: 10, hours: 5.23, day: 20)   // → 04:24
+        let upAndAbout = up(fromHour: 4, fromMinute: 24, minutes: 38)             // → 05:02
+        let resumed = points(fromHour: 5, fromMinute: 2, hours: 8.0 / 60, day: 21) // → 05:10
+        let w = SleepSessionizer.nightToRecord(from: night + upAndAbout + resumed,
+                                               now: at(21, 5, 10),
+                                               recordedDays: [])
+        XCTAssertNil(w, "eight minutes of resumed sleep must hold the night open")
+    }
+
+    func testSealsOnceTheTailHasBeenAwakeForTheSettleTime() {
+        // Same night, but the sleeper stayed up. Forty-six minutes of wake
+        // after the last sleep, with no sleep-like tick in it, is a morning.
+        let night = points(fromHour: 23, fromMinute: 10, hours: 5.23, day: 20)
+        let upAndAbout = up(fromHour: 4, fromMinute: 24, minutes: 46)
+        let w = SleepSessionizer.nightToRecord(from: night + upAndAbout,
+                                               now: at(21, 5, 10),
+                                               recordedDays: [])
+        XCTAssertNotNil(w)
+        XCTAssertEqual(w?.endedAt.timeIntervalSince(at(21, 4, 24)) ?? .infinity, 0, accuracy: 60)
+    }
+
+    func testAResumedSleepIsSealedOnlyAfterItsOwnSettleTime() {
+        // The sleeper went back under at 05:02 and got up at 06:20. At 06:40
+        // the night is still not settled — twenty minutes up is not a morning
+        // — and at 07:10 it is, ending at 06:20 rather than 04:24.
+        let night = points(fromHour: 23, fromMinute: 10, hours: 5.23, day: 20)
+        let upAndAbout = up(fromHour: 4, fromMinute: 24, minutes: 38)
+        let resumed = points(fromHour: 5, fromMinute: 2, hours: 1.3, day: 21)      // → 06:20
+        let morning = up(fromHour: 6, fromMinute: 20, minutes: 50)                 // → 07:10
+        let all = night + upAndAbout + resumed + morning
+
+        XCTAssertNil(SleepSessionizer.nightToRecord(from: all, now: at(21, 6, 40), recordedDays: []))
+        let w = SleepSessionizer.nightToRecord(from: all, now: at(21, 7, 10), recordedDays: [])
+        XCTAssertNotNil(w)
+        XCTAssertEqual(w?.endedAt.timeIntervalSince(at(21, 6, 20)) ?? .infinity, 0, accuracy: 60,
+                       "the night runs to the final awakening, and the resumed sleep is inside it")
+    }
 }

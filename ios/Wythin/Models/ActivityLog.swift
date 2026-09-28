@@ -167,6 +167,26 @@ final class ActivityLog {
     /// timer. Always nil for retrospective entries.
     var targetMinutes: Int?
 
+    /// When the stored windows were last computed with the after-window
+    /// complete. Nil means whatever is stored was computed early — while the
+    /// session was still running, or inside the ten minutes after it — and
+    /// must be recomputed once the window has actually happened.
+    ///
+    /// The old rule was "after fields nil means not yet computed", which held
+    /// only while nothing computed them early. The live row does exactly that,
+    /// every tick, so the marker has to be explicit.
+    var settledAt: Date?
+
+    /// The end the windows are computed against while the session has none.
+    ///
+    /// Set for the length of one `refreshLive` and cleared again, so a running
+    /// entry can be read up to this moment without acquiring an `endedAt` —
+    /// which would end it. Never persisted; never consulted by `isActive`.
+    @Transient var previewEnd: Date? = nil
+
+    /// The end every window computation uses: the real one, or the preview.
+    var computeEnd: Date? { endedAt ?? previewEnd }
+
     /// OpenAI-generated interpretation + recommendation for this activity's
     /// HRV response. `nil` means "not yet generated" — eligible for retry
     /// by `InsightGenerator.flushPending`.
@@ -554,7 +574,7 @@ final class ActivityLog {
     func needsWindowRefresh(now: Date = .now) -> Bool {
         guard let end = endedAt else { return false }        // still recording
         if duringStress == nil { return true }               // never computed at all
-        guard afterStress == nil else { return false }       // already has one
+        guard settledAt == nil else { return false }         // computed with the window complete
         guard now >= end.addingTimeInterval(ActivityLog.afterWindowSeconds) else {
             return false                                     // the window is still filling
         }
@@ -707,12 +727,35 @@ final class ActivityLog {
     /// Hard ceiling so a corrupt end date cannot ask the store for everything.
     static let windowFetchCeiling: Int = 200_000
 
+    /// Recompute the stored windows and the response for a session that is
+    /// running or has just stopped, reading everything up to `now`.
+    ///
+    /// The Activities list calls this on every strap tick for a live row, so
+    /// the score and its axes move while the session happens rather than
+    /// appearing, fixed, when it ends. A running entry is computed against a
+    /// preview end of `now`; an entry inside its after-window is computed
+    /// against its real end, and the after fields fill as the minutes arrive.
+    func refreshLive(context: ModelContext, now: Date = .now) {
+        previewEnd = endedAt == nil ? now : nil
+        defer { previewEnd = nil }
+        computeHRVWindows(context: context, now: now)
+        computeExerciseResponse(context: context)
+    }
+
     /// Queries HRVSample records for the three windows around this activity
-    /// and stores per-metric averages. Call after setting `endedAt`.
-    func computeHRVWindows(context: ModelContext) {
-        guard let end = endedAt else { return }
+    /// and stores per-metric averages. Call after setting `endedAt`, or with a
+    /// `previewEnd` set for a session still running.
+    ///
+    /// - Parameter now: when this is being computed — decides whether the
+    ///   after-window was complete, and so whether the result is settled.
+    func computeHRVWindows(context: ModelContext, now: Date = .now) {
+        guard let end = computeEnd else { return }
         let beforeStart = startedAt.addingTimeInterval(-300)   // 5 min before
-        let afterEnd    = end.addingTimeInterval(ActivityLog.afterWindowSeconds)
+        // A preview of a running session has no after-window by definition —
+        // the "after" has not happened — so it is not read, whatever the store
+        // happens to hold past the preview end.
+        let previewing  = endedAt == nil
+        let afterEnd    = previewing ? end : end.addingTimeInterval(ActivityLog.afterWindowSeconds)
 
         let allPredicate = #Predicate<HRVSample> {
             $0.timestamp >= beforeStart && $0.timestamp <= afterEnd
@@ -743,7 +786,7 @@ final class ActivityLog {
         // owns the boundary timestamp.
         let before = samples.filter { $0.timestamp >= beforeStart && $0.timestamp < startedAt }
         let during = samples.filter { $0.timestamp >= startedAt   && $0.timestamp < end        }
-        let after  = samples.filter { $0.timestamp >= end         && $0.timestamp <= afterEnd  }
+        let after  = previewing ? [] : samples.filter { $0.timestamp >= end && $0.timestamp <= afterEnd }
 
         func avg(_ arr: [HRVSample], _ kp: KeyPath<HRVSample, Float?>) -> Float? {
             let vals = arr.compactMap { $0[keyPath: kp] }
@@ -782,6 +825,12 @@ final class ActivityLog {
         beforeDC    = avg(before, \.dc);         duringDC    = avg(during, \.dc);         afterDC    = avg(after, \.dc)
         beforeDFA1  = avg(before, \.dfa1);       duringDFA1  = avg(during, \.dfa1);       afterDFA1  = avg(after, \.dfa1)
         beforeBreath = avg(before, \.breathBPM);  duringBreath = avg(during, \.breathBPM);  afterBreath = avg(after, \.breathBPM)
+
+        // Settled only when the whole after-window had happened by the time it
+        // was read. A preview (no real end) or an early read leaves this nil,
+        // and `needsWindowRefresh` brings the entry back once the ten minutes
+        // are up.
+        settledAt = (endedAt != nil && now >= afterEnd) ? now : nil
     }
 
     // MARK: Exercise response computation
@@ -833,7 +882,7 @@ final class ActivityLog {
         // Computed from the measurement, not the label — but the windows must
         // exist first, so this runs after computeHRVWindows has filled them.
         guard measuredClass == .activating else { return }
-        guard let end = endedAt else { return }
+        guard let end = computeEnd else { return }
 
         computeReadiness(context: context)
 
@@ -932,7 +981,7 @@ final class ActivityLog {
     /// Mean DC across the last two minutes of the after-window — the level
     /// recovery actually reached, rather than its average on the way there.
     private func computeRecoveryTail(context: ModelContext) {
-        guard let end = endedAt else { return }
+        guard let end = computeEnd else { return }
         let windowEnd  = end.addingTimeInterval(600)
         let tailStart  = end.addingTimeInterval(480)
         let predicate = #Predicate<HRVSample> {
@@ -985,7 +1034,7 @@ final class ActivityLog {
     /// so it produces a number on the resistance sessions where DC cannot be
     /// computed and every vagal measure goes blank.
     private func computeHeartRateRecovery(context: ModelContext) {
-        guard let end = endedAt else { return }
+        guard let end = computeEnd else { return }
         // An hour, not the five minutes this used to take. HRR60 and T30 both
         // land inside the first minute, but the heart-rate RETURN — halfway
         // back from the peak — routinely takes longer than five, and a window
@@ -1037,7 +1086,7 @@ final class ActivityLog {
     /// actually means. A level at a fixed moment could not distinguish a session
     /// climbing back from one still falling.
     private func computeRecoveryTiming(context: ModelContext) {
-        guard let end = endedAt else { return }
+        guard let end = computeEnd else { return }
         // Looks past the stored 10-minute window: recovery that takes longer is
         // exactly the case worth reporting, and cutting it off at ten minutes
         // would report "never" for a session that came back at twelve.

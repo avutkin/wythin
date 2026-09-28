@@ -144,6 +144,33 @@ struct ContentView: View {
             ActivityLog.migrateInBackground(container: modelContext.container)
             didRunActivityBackfill = true
         }
+        // ── Self check-ins ─────────────────────────────────────────────────
+        // On its own node, not on the tab view that already presents the
+        // cloud notice and the nudge cover: two sheets on one view fail
+        // silently. `canPresent` keeps it behind onboarding and the notice.
+        .task { env.checkIns.appDidBecomeActive() }
+        .onAppear { env.checkIns.canPresent = hasCompletedOnboarding && didShowCloudSyncNotice }
+        .onChange(of: hasCompletedOnboarding) { _, _ in refreshCheckInGate() }
+        .onChange(of: didShowCloudSyncNotice) { _, _ in refreshCheckInGate() }
+        .sheet(item: Binding(get: { env.checkIns.presented },
+                             set: { if $0 == nil { env.checkIns.skipPresented() } })) { prompt in
+            CheckInSheet(prompt: prompt,
+                         needsNotificationOptIn: env.checkIns.needsNotificationOptIn,
+                         onDone: { env.checkIns.save($0, for: prompt) },
+                         onSkip: { env.checkIns.skipPresented() },
+                         onAllowNotifications: { env.checkIns.allowNotifications() })
+        }
+    }
+
+    /// The gate opens a beat after the cloud notice closes, so the check-in
+    /// sheet is not presented while that one is still animating away.
+    private func refreshCheckInGate() {
+        let open = hasCompletedOnboarding && didShowCloudSyncNotice
+        if open {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { env.checkIns.canPresent = true }
+        } else {
+            env.checkIns.canPresent = false
+        }
     }
 
     private var mainApp: some View {
@@ -168,7 +195,7 @@ struct ContentView: View {
                 // anywhere else with no way to end it. This rides above the tab bar
                 // on every screen except Activities, which has the full banner.
                 if selectedTab != .activities {
-                    RecordingPill { selectedTab = .activities }
+                    RunningActivityToast { selectedTab = .activities }
                 }
                 AppTabBar(selected: $selectedTab)
             }
@@ -382,13 +409,42 @@ private struct TabBarButton: View {
     }
 }
 
-// MARK: - Recording pill
+// MARK: - Running activity toast
 
-/// Compact "something is recording" strip shown above the tab bar on every screen
-/// but Activities. Tapping it goes to the Activities tab, where the full banner
-/// carries the live metrics and the stop button.
-private struct RecordingPill: View {
-    @Environment(\.modelContext) private var ctx
+/// The recent heart-rate trace the toast draws, as points in the unit square.
+///
+/// Pure so it can be tested: x is time across the window, y is heart rate
+/// between the window's own minimum and maximum. A flat trace sits at half
+/// height rather than collapsing onto the floor.
+enum HeartRateTrace {
+    static func normalised(samples: [(Date, Float?)], window: TimeInterval,
+                           now: Date = .now) -> [CGPoint] {
+        let cutoff = now.addingTimeInterval(-window)
+        let recent = samples.compactMap { ts, bpm -> (Date, Float)? in
+            guard let bpm, ts >= cutoff, ts <= now else { return nil }
+            return (ts, bpm)
+        }
+        guard recent.count >= 2,
+              let lo = recent.map(\.1).min(), let hi = recent.map(\.1).max() else { return [] }
+        let span = hi - lo
+        return recent.map { ts, bpm in
+            CGPoint(x: 1 - now.timeIntervalSince(ts) / window,
+                    y: span > 0 ? CGFloat((bpm - lo) / span) : 0.5)
+        }
+    }
+}
+
+/// A floating card above the tab bar on every screen but Activities, so a
+/// session that is recording is impossible to forget about.
+///
+/// The strip this replaces was a flat row in the tab bar's own colour with a
+/// static dot: it read as part of the chrome. This one floats, breathes, and
+/// carries the last minute and a half of heart rate as a trace, with the
+/// current value — the evidence that the strap is still being read, not just
+/// a label saying so. Tapping it opens Activities, where the live row holds
+/// the score and the STOP.
+private struct RunningActivityToast: View {
+    @Environment(AppEnvironment.self) private var env
     @Query private var entries: [ActivityLog]
 
     let onTap: () -> Void
@@ -396,45 +452,140 @@ private struct RecordingPill: View {
     @State private var now = Date.now
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+    /// How much heart rate the trace shows.
+    static let traceWindow: TimeInterval = 90
+
     private var active: [ActivityLog] { ActivityLogging.activeEntries(in: entries) }
+
+    private var trace: [CGPoint] {
+        HeartRateTrace.normalised(samples: env.tickHistory.suffix(120).map { ($0.timestamp, $0.meanBPM) },
+                                  window: Self.traceWindow, now: now)
+    }
 
     var body: some View {
         if let entry = active.first {
+            let elapsed = now.timeIntervalSince(entry.startedAt)
+            let target = entry.targetMinutes.map { TimeInterval($0) * 60 }
+            let reached = target.map { elapsed >= $0 } ?? false
+            let tint = reached ? Theme.accent : Theme.warn
+
             Button(action: onTap) {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(Theme.warn)
-                        .frame(width: 6, height: 6)
-                    Text(entry.displayName.uppercased())
-                        .font(Theme.monoLabel)
-                        .foregroundStyle(Theme.text)
-                        .lineLimit(1)
-                    if active.count > 1 {
-                        Text("+\(active.count - 1)")
-                            .font(Theme.monoLabel)
-                            .foregroundStyle(Theme.dim)
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(entry.activityTypeEnum.color.opacity(0.15))
+                            .frame(width: 34, height: 34)
+                        Image(systemName: entry.activityTypeEnum.icon)
+                            .font(.system(size: 15))
+                            .foregroundStyle(entry.activityTypeEnum.color)
                     }
-                    Spacer()
-                    Text(mmss(now.timeIntervalSince(entry.startedAt)))
-                        .font(Theme.mono(13))
-                        .foregroundStyle(Theme.warn)
-                        .monospacedDigit()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Theme.dim)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            PulsingDot(color: tint)
+                            Text(entry.displayName.uppercased())
+                                .font(Theme.monoLabel)
+                                .foregroundStyle(Theme.text)
+                                .lineLimit(1)
+                            if active.count > 1 {
+                                Text("+\(active.count - 1)")
+                                    .font(Theme.monoLabel)
+                                    .foregroundStyle(Theme.dim)
+                            }
+                        }
+                        HStack(spacing: 4) {
+                            Text(reached ? "TARGET REACHED" : "RECORDING")
+                                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                                .tracking(0.8)
+                                .foregroundStyle(tint)
+                            Text("· tap to open")
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundStyle(Theme.dim)
+                        }
+                    }
+
+                    Spacer(minLength: 8)
+
+                    VStack(alignment: .trailing, spacing: 3) {
+                        HStack(alignment: .firstTextBaseline, spacing: 3) {
+                            Text(mmss(elapsed))
+                                .font(Theme.mono(15))
+                                .foregroundStyle(tint)
+                                .monospacedDigit()
+                            if let target {
+                                Text("/ " + mmss(target))
+                                    .font(.system(size: 8, design: .monospaced))
+                                    .foregroundStyle(Theme.dim)
+                                    .monospacedDigit()
+                            }
+                        }
+                        HStack(spacing: 5) {
+                            TraceLine(points: trace, tint: Theme.rsa)
+                                .frame(width: 64, height: 16)
+                            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                                Text(MetricFormat.bpm(env.latestTick?.meanBPM))
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(Theme.text)
+                                    .monospacedDigit()
+                                Text("bpm")
+                                    .font(.system(size: 7, design: .monospaced))
+                                    .foregroundStyle(Theme.dim)
+                            }
+                        }
+                    }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 12)
                 .padding(.vertical, 9)
-                .background(Theme.card)
-                .overlay(alignment: .top) { Divider().background(Theme.border) }
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(tint.opacity(0.45), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.45), radius: 12, y: 4)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
             }
             .buttonStyle(.plain)
             .onReceive(ticker) { now = $0 }
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 
     private func mmss(_ seconds: TimeInterval) -> String {
         let t = Int(max(0, seconds))
         return String(format: "%02d:%02d", t / 60, t % 60)
+    }
+}
+
+/// A sparkline of unit-square points, with the newest sample marked.
+private struct TraceLine: View {
+    let points: [CGPoint]
+    let tint:   Color
+
+    private func at(_ p: CGPoint, in size: CGSize) -> CGPoint {
+        CGPoint(x: p.x * size.width, y: size.height - p.y * (size.height - 3) - 1.5)
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width, h = geo.size.height
+            if points.count >= 2 {
+                Path { path in
+                    path.move(to: at(points[0], in: geo.size))
+                    for p in points.dropFirst() { path.addLine(to: at(p, in: geo.size)) }
+                }
+                .stroke(tint.opacity(0.9), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
+                Circle()
+                    .fill(tint)
+                    .frame(width: 4, height: 4)
+                    .position(at(points[points.count - 1], in: geo.size))
+            } else {
+                // Nothing yet, or the strap is not being read: a dotted
+                // baseline says "no trace" rather than drawing an empty box.
+                Path { path in
+                    path.move(to: CGPoint(x: 0, y: h / 2))
+                    path.addLine(to: CGPoint(x: w, y: h / 2))
+                }
+                .stroke(Theme.dim.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+            }
+        }
     }
 }

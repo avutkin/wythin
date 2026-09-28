@@ -314,6 +314,17 @@ struct ActivityPickerSection: View {
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
 
+    /// The tiles on offer. Custom is no longer one of them: a custom activity
+    /// at the top level had no measurement model of its own — it was read as
+    /// restorative whatever it was — and the sheet showed two different
+    /// "custom" fields at once. A custom name now lives inside a type, through
+    /// the "+ Custom" chip every subtype picker already has, so it inherits
+    /// the right model. An entry logged as Custom under an earlier build keeps
+    /// its tile while it is being edited, so it can still be opened and moved.
+    static func tiles(selected: ActivityType) -> [ActivityType] {
+        selected == .custom ? ActivityType.pickerCases + [.custom] : ActivityType.pickerCases
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             Text("SELECT ACTIVITY")
@@ -322,12 +333,8 @@ struct ActivityPickerSection: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal)
 
-            // Nine tiles, exactly three rows — the grid and the action button
-            // both fit on one screen without scrolling.
             LazyVGrid(columns: columns, spacing: 10) {
-                // Custom is the ninth tile — a full-width bar below the grid
-                // spent a whole row on the least-used choice.
-                ForEach(ActivityType.pickerCases + [.custom], id: \.self) { type in
+                ForEach(Self.tiles(selected: selected), id: \.self) { type in
                     ActivityTypeCell(type: type, isSelected: selected == type) {
                         selected = type
                         selectedSubtype = nil

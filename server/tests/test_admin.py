@@ -319,12 +319,18 @@ async def test_stats_carries_onboarding_goals_and_practices():
     practices = ["Breathwork", "Meditation"]
     async with _client() as client:
         r = await client.post("/v1/profile", headers={"X-User-ID": with_profile}, json={
+            "first_name": "Some", "last_name": "One",
             "email": "someone@example.com", "age_range": "35-44",
             "goals": goals, "practices": practices, "devices": ["Polar H10"],
         })
         assert r.status_code == 200, r.text
-        # Both users need a signal so the range filter keeps them.
-        for device in (with_profile, without):
+        # A row with no name or email — what an older build uploaded when the
+        # contact step was skipped — is not onboarded.
+        blank = f"test-blank-{sfx}"
+        r = await client.post("/v1/profile", headers={"X-User-ID": blank}, json={"goals": goals})
+        assert r.status_code == 200, r.text
+        # Every user needs a signal so the range filter keeps them.
+        for device in (with_profile, without, blank):
             u = await client.post("/v1/usage", headers={"X-User-ID": device}, json={"events": [
                 {"client_event_id": str(uuid.uuid4()), "event_type": "foreground",
                  "ts": (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat(),
@@ -339,12 +345,16 @@ async def test_stats_carries_onboarding_goals_and_practices():
     assert row["practices"] == practices
     assert row["email"] == "someone@example.com"
     assert row["onboarded"] is True
-    assert row["first_name"] is None  # not given on this profile
+    assert row["first_name"] == "Some"
 
     bare = next(u for u in data["users"] if u["device_id"] == without)
     assert bare["goals"] == [] and bare["practices"] == []
     assert bare["email"] is None
     assert bare["onboarded"] is False
+
+    skipped = next(u for u in data["users"] if u["device_id"] == blank)
+    assert skipped["goals"] == goals
+    assert skipped["onboarded"] is False, "a blank contact block is not a finished onboarding"
 
 
 @pytest.mark.asyncio
@@ -774,3 +784,50 @@ async def test_a_nights_series_carries_movement_at_the_resolution_asked():
     assert len(loud) == 1, "the one turn survives as its bucket's loudest tick"
     assert loud[0]["motion"] < 60, "the bucket mean is not the strip's number"
     assert all("motion_max" in s for s in coarse)
+
+
+
+@pytest.mark.asyncio
+async def test_a_phone_that_never_said_its_zone_gets_one_from_its_nights():
+    """A build before 126 sends no zone. The person's nights still place
+    them: two nights with midpoints near 00:45 UTC read as UTC+3, and the
+    user page, the activity page and the users table all say so — and say
+    it is inferred. Requires a database."""
+    import uuid
+    dev = f"test-zone-{uuid.uuid4().hex[:6]}"
+    async with _client() as client:
+        for cid, start, end in (
+            ("00000000-0000-0000-0000-0000000000e1", "2025-08-01T21:11:00Z", "2025-08-02T04:23:00Z"),
+            ("00000000-0000-0000-0000-0000000000e2", "2025-08-02T21:40:00Z", "2025-08-03T04:00:00Z"),
+        ):
+            r = await client.post("/activities", headers={"X-User-ID": dev}, json={
+                "id": cid, "activity_type": "Sleep", "started_at": start, "ended_at": end})
+            assert r.status_code == 200, r.text
+            sid = r.json()["id"]
+        stats = (await client.get("/admin/stats", params={"range": "all"})).json()
+        row = next(u for u in stats["users"] if u["device_id"] == dev)
+        det = (await client.get(f"/admin/users/{row['id']}")).json()
+        act = (await client.get(f"/admin/activities/{sid}")).json()
+    assert row["timezone"] == "Etc/GMT-3" and row["timezone_inferred"] is True
+    assert det["user"]["timezone"] == "Etc/GMT-3" and det["user"]["timezone_inferred"] is True
+    assert "inferred from 2 nights" in det["user"]["timezone_source"]
+    assert det["profile"] is None
+    assert act["user_timezone"] == "Etc/GMT-3" and act["user_timezone_inferred"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_phone_that_said_its_zone_is_believed_over_any_inference():
+    import uuid
+    dev = f"test-zone-said-{uuid.uuid4().hex[:6]}"
+    async with _client() as client:
+        r = await client.post("/v1/profile", headers={"X-User-ID": dev}, json={"email": "z@example.com", "timezone": "Asia/Jakarta"})
+        assert r.status_code == 200, r.text
+        r = await client.post("/activities", headers={"X-User-ID": dev}, json={
+            "id": "00000000-0000-0000-0000-0000000000e3", "activity_type": "Sleep",
+            "started_at": "2025-08-01T21:11:00Z", "ended_at": "2025-08-02T04:23:00Z"})
+        sid = r.json()["id"]
+        stats = (await client.get("/admin/stats", params={"range": "all"})).json()
+        row = next(u for u in stats["users"] if u["device_id"] == dev)
+        det = (await client.get(f"/admin/users/{row['id']}")).json()
+    assert row["timezone"] == "Asia/Jakarta" and row["timezone_inferred"] is False
+    assert det["user"]["timezone"] == "Asia/Jakarta" and det["user"]["timezone_inferred"] is False

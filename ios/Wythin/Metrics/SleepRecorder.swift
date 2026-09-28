@@ -129,10 +129,6 @@ enum SleepRecorder {
             ($0.sleepAlgorithmVersion ?? 0) >= SleepThresholds.algorithmVersion
                 && !rebuilt.contains(ObjectIdentifier($0))
         }
-        let recordedDays = Set(
-            current.compactMap { $0.endedAt.map { Calendar.current.startOfDay(for: $0) } }
-        )
-
         // Every unrecorded night in the window, not just the most recent.
         //
         // Regularity is a comparison between days and needs at least two, so
@@ -150,19 +146,62 @@ enum SleepRecorder {
         // model exists for.
         let overrides = corrections(in: context)
 
+        // A stored night that the samples now say ran longer is rebuilt. A
+        // night written early — by a build that sealed on the stopwatch, or
+        // simply before the sleeper's last return to sleep — used to stand
+        // forever: its date was "already recorded", so every later pass
+        // skipped it, and the sleep that came after it was never counted.
+        let settled = SleepSessionizer.settledNights(from: points, now: now)
+        let outgrown = purgeOutgrownNights(current, detected: settled,
+                                           corrections: overrides, context: context)
+        let standing = current.filter { !outgrown.contains(ObjectIdentifier($0)) }
+        let recordedDays = Set(
+            standing.compactMap { $0.endedAt.map { Calendar.current.startOfDay(for: $0) } }
+        )
+
         var written: [ActivityLog] = []
-        for detected in SleepSessionizer.nightsToRecord(from: points,
-                                                        now: now,
-                                                        recordedDays: recordedDays)
-        where written.count < SleepThresholds.maxNightsPerPass {
+        for detected in settled
+        where !recordedDays.contains(detected.day)
+            && written.count < SleepThresholds.maxNightsPerPass {
             let correction = overrides[detected.day]
             let night = correction?.applied(to: detected) ?? detected
             written.append(record(night, from: points,
-                                  existing: current + written, context: context,
+                                  existing: standing + written, context: context,
                                   detected: detected, correction: correction))
         }
         commit(context)
         return written.count
+    }
+
+    /// Deletes stored nights whose window the detector now finds to be
+    /// longer, so the pass rebuilds them from everything the night turned out
+    /// to hold. Nights the sleeper has corrected are left alone: a correction
+    /// is their word over the detector's, and finding more sleep is exactly
+    /// the disagreement it exists to win.
+    ///
+    /// Compared to the minute, like `purgeCorrectedNights`, and only ever in
+    /// the growing direction — a detector that shrank a night on a later pass
+    /// would be reporting noise, not a discovery.
+    private static func purgeOutgrownNights(_ nights: [ActivityLog],
+                                            detected: [SleepWindow],
+                                            corrections: [Date: SleepWindowOverride],
+                                            context: ModelContext) -> Set<ObjectIdentifier> {
+        let byDay = Dictionary(detected.map { ($0.day, $0) }, uniquingKeysWith: { a, _ in a })
+        var removed: Set<ObjectIdentifier> = []
+        for log in nights {
+            guard let end = log.endedAt else { continue }
+            let day = Calendar.current.startOfDay(for: end)
+            guard corrections[day] == nil, let found = byDay[day] else { continue }
+            let endsLater = found.endedAt.timeIntervalSince(end) >= 60
+            let startsEarlier = log.startedAt.timeIntervalSince(found.startedAt) >= 60
+            guard endsLater || startsEarlier else { continue }
+            removed.insert(ObjectIdentifier(log))
+            context.delete(log)
+        }
+        if !removed.isEmpty {
+            print("🌙 SleepRecorder: rebuilding \(removed.count) night(s) that turned out to run longer")
+        }
+        return removed
     }
 
     // MARK: - Naps
