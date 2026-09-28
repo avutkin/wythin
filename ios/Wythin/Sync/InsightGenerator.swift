@@ -22,7 +22,9 @@ final class InsightGenerator {
     /// `entry.insightText` nil on any failure — picked up by the next
     /// `flushPending` call on foreground.
     func generate(for entry: ActivityLog, context: ModelContext) async {
-        guard let response = try? await client.generateInsight(InsightPayload(from: entry)) else { return }
+        let (usual, peers) = Self.recentAverages(for: entry, context: context)
+        let payload = InsightPayload(from: entry, usual: usual, peers: peers)
+        guard let response = try? await client.generateInsight(payload) else { return }
         // Another concurrent `generate` call for the same entry (e.g. an
         // activity-end trigger racing the foreground retry sweep) may have
         // already succeeded while this call was awaiting the network —
@@ -50,6 +52,44 @@ final class InsightGenerator {
         entry.sleepReadText = response.text
         try? context.save()
     }
+
+    /// This person's own average DURING value per metric across their recent
+    /// sessions of the same kind, and how many sessions that is drawn from.
+    ///
+    /// Grouped by `scoreGroupKey` — the subtype when there is one, the type
+    /// otherwise — which is the same peer group the session's own scores are
+    /// ranked against. Keying strictly on subtype would leave most sessions
+    /// with no peers at all, and a coach with no comparison is the thing this
+    /// was added to fix.
+    ///
+    /// Returns an empty dictionary rather than zeros when there is no history.
+    /// A first session genuinely has nothing to be compared with, and the read
+    /// has to say so instead of inventing a baseline of nought.
+    static func recentAverages(for entry: ActivityLog,
+                               context: ModelContext) -> ([String: Double], Int) {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -60, to: entry.startedAt)
+            ?? .distantPast
+        let myID = entry.id
+        let predicate = #Predicate<ActivityLog> {
+            $0.startedAt >= cutoff && $0.endedAt != nil && $0.id != myID
+        }
+        let key = entry.scoreGroupKey
+        let peers = ((try? context.fetch(FetchDescriptor<ActivityLog>(predicate: predicate))) ?? [])
+            .filter { $0.scoreGroupKey == key }
+        guard peers.count >= minPeersForComparison else { return ([:], 0) }
+
+        var out: [String: Double] = [:]
+        for def in activityMetricDefs {
+            let values = peers.compactMap { $0[keyPath: def.duringKey].map(Double.init) }
+            guard !values.isEmpty else { continue }
+            out[def.id] = values.reduce(0, +) / Double(values.count)
+        }
+        return (out, peers.count)
+    }
+
+    /// Two sessions is not a habit to be measured against. Below this the read
+    /// is written from the session alone, which is what it honestly has.
+    static let minPeersForComparison = 3
 
     /// Retry every completed activity still missing an insight.
     func flushPending(context: ModelContext, limit: Int = 10) async {

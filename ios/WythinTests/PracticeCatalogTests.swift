@@ -52,12 +52,18 @@ final class PracticeCatalogTests: XCTestCase {
     /// is built out, so "every category is populated" cannot hold. This pins the
     /// trimmed state instead: when practices come back it fails, which is the
     /// reminder to restore the real invariant above it.
-    func testCatalogIsTemporarilyThePacersOnly() {
+    /// The catalog is no longer the pacers only: the shortlist brought in the
+    /// control condition and the unpaced techniques, which are content
+    /// practices because there is nothing to pace. Pinned by id so an addition
+    /// is a deliberate edit here rather than a silent one.
+    func testTheCatalogIsTheShortlist() {
         XCTAssertEqual(PracticeCatalog.practices.map(\.id),
                        ["box-breathing", "resonance-breathing", "coherent-breathing-5x5",
-                        "relaxing-breathing-4x6", "breath-stacking",
-                        "breath-retention-15x15", "hold-breath"],
-                       "catalog changed — restore the per-category and per-state coverage tests")
+                        "relaxing-breathing-4x6",
+                        "anapanasati", "one-to-two-4x8", "cyclic-sighing",
+                        "four-seven-eight", "bhramari", "ujjayi", "nadi-shodhana",
+                        "full-yogic-breath", "sitali", "kapalabhati", "hook-breath",
+                        "breath-stacking", "breath-retention-15x15", "hold-breath"])
     }
 
     /// One art token across the catalog. If a practice ever needs its own again,
@@ -92,14 +98,16 @@ final class PracticeCatalogTests: XCTestCase {
         }
     }
 
-    /// The calming breath is the first practice to serve anxiety, so that capsule
-    /// finally leads somewhere. Sleep is still empty — its capsule shows a blank
-    /// grid until something is written for it.
-    func testEveryStateButSleepHasAPractice() {
+    /// Every capsule in the hub now leads somewhere. Sleep was the last empty
+    /// one and 4-7-8 filled it — which is worth noting is a practice whose
+    /// mechanism is CO₂ accumulation, not the resonance the other calming
+    /// practices use. The capsule being populated is not the same as the state
+    /// being well served.
+    func testEveryStateHasAPractice() {
         let populated = PracticeState.allCases.filter {
             !PracticeCatalog.practices(for: $0).isEmpty
         }
-        XCTAssertEqual(populated, [.focus, .stress, .anxiety])
+        XCTAssertEqual(populated, PracticeState.allCases)
     }
 
     func testPracticesForStateReturnsOnlyThatState() {
@@ -175,7 +183,8 @@ final class PracticeCatalogTests: XCTestCase {
         let inCounts = PracticeCatalog.practices
             .filter { if case .clicksAndNote = $0.paceControl { return true } else { return false } }
             .map(\.id)
-        XCTAssertEqual(inCounts, ["coherent-breathing-5x5", "relaxing-breathing-4x6"])
+        XCTAssertEqual(inCounts, ["coherent-breathing-5x5", "relaxing-breathing-4x6",
+                                  "one-to-two-4x8"])
     }
 
     /// The pair's titles say what they do; the mechanism that earns each one lives
@@ -388,10 +397,132 @@ final class PracticeCatalogTests: XCTestCase {
         }
     }
 
-    func testEveryPracticeCitesAtLeastOneStudy() {
-        for practice in PracticeCatalog.practices {
-            XCTAssertFalse(practice.evidence.isEmpty, "\(practice.id): no evidence cited")
+    /// A practice either cites a study or says plainly that it has none.
+    ///
+    /// This used to require evidence on every practice, and that requirement is
+    /// how evidence-laundering happens: the shortlist includes techniques with
+    /// no controlled trial behind them at all, and the way to satisfy a
+    /// must-cite rule is to attach a slow-breathing review to a
+    /// hyperventilation practice. Better to allow an empty list and require
+    /// the practice to admit it in the text the reader actually sees.
+    func testAPracticeEitherCitesAStudyOrSaysItHasNone() {
+        for practice in PracticeCatalog.practices where practice.evidence.isEmpty {
+            let admits = practice.howItWorks.contains {
+                $0.contains("Honest limits")
+                    && ($0.contains("no controlled") || $0.contains("No controlled")
+                        || $0.contains("untrialled") || $0.contains("untested")
+                        || $0.contains("Nothing is cited") || $0.contains("thinly trialled"))
+            }
+            XCTAssertTrue(admits,
+                          "\(practice.id) cites nothing and does not say so — either cite a real "
+                          + "study or state the gap in Honest limits")
         }
+    }
+
+    /// The other half of the same rule: a practice that DOES cite something
+    /// must not be citing it for a mechanism it never tested. Slow-breathing
+    /// reviews cannot back an over-breathing practice.
+    func testNoSlowBreathingReviewBacksAFastPractice() {
+        for practice in PracticeCatalog.practices
+        where practice.passport.mechanism == .hyperventilation {
+            XCTAssertTrue(practice.evidence.isEmpty,
+                          "\(practice.id) is an over-breathing practice citing slow-breathing work")
+        }
+    }
+
+    // MARK: The respiratory passport
+    //
+    // The rate is the column every comparison hangs off: heart-rate-variability
+    // measures move with respiratory rate mechanically, so two practices at the
+    // same rate cannot be told apart by HRV. These tests hold the catalogue to
+    // the shortlist's own table.
+
+    /// Read off the pacer, never typed beside it.
+    func testPacedRatesMatchTheShortlistTable() {
+        let expected: [String: Double] = [
+            "coherent-breathing-5x5": 6.00,   // 5+5 counts at 60 BPM → 10 s
+            "relaxing-breathing-4x6": 6.00,   // 4+6 → 10 s, the SAME rate as above
+            "one-to-two-4x8":         5.00,   // 4+8 → 12 s
+            "four-seven-eight":       3.16,   // 4+7+8 → 19 s
+            "box-breathing":          2.50,   // 6 a side → 24 s
+        ]
+        for (id, cpm) in expected {
+            guard let p = PracticeCatalog.practices.first(where: { $0.id == id }),
+                  let actual = p.passport.rate.comparableCPM else {
+                return XCTFail("\(id) has no derived rate")
+            }
+            XCTAssertEqual(actual, cpm, accuracy: 0.01, id)
+        }
+    }
+
+    /// The finding that motivated the passport. 5×5 and 4×6 are filed under
+    /// different states and described in opposite terms — one sharpening, one
+    /// settling — and they run at exactly the same rate. Any HRV difference
+    /// between them is therefore attributable to the ratio, not to the pace,
+    /// and a comparison that does not know that will read the wrong cause.
+    func testTheTwoCountedPracticesRunAtTheSameRateDespiteOppositeFraming() {
+        let counted = ["coherent-breathing-5x5", "relaxing-breathing-4x6"]
+            .compactMap { id in PracticeCatalog.practices.first { $0.id == id } }
+        XCTAssertEqual(counted.count, 2)
+        XCTAssertEqual(counted[0].passport.rate.comparableCPM,
+                       counted[1].passport.rate.comparableCPM)
+        XCTAssertNotEqual(counted[0].passport.mechanism, counted[1].passport.mechanism,
+                          "same rate, different mechanism — which is the whole point")
+    }
+
+    /// Box breathing and 4-7-8 are described as calming everywhere, including
+    /// in this catalogue. Both run at half the resonance rate and both hold,
+    /// so neither belongs in the resonance class however they are marketed.
+    func testTheHoldingPracticesAreNotFiledAsResonance() {
+        for id in ["box-breathing", "four-seven-eight"] {
+            guard let p = PracticeCatalog.practices.first(where: { $0.id == id }) else {
+                return XCTFail(id)
+            }
+            XCTAssertEqual(p.passport.mechanism, .co2Accumulation, id)
+            XCTAssertTrue(p.passport.hasHolds, id)
+            XCTAssertLessThan(p.passport.rate.comparableCPM ?? 99, 4,
+                              "\(id) runs at under four a minute — half the resonant rate")
+        }
+    }
+
+    /// Anything that holds or over-breathes is marked, with a reason. These are
+    /// the two mechanisms a protocol keeps out of the unsupervised measured
+    /// set, and marking is what lets the hub keep them visible without
+    /// recommending them alongside the rest.
+    func testHoldsAndOverBreathingAreMarkedAsNeedingAnOperator() {
+        for p in PracticeCatalog.practices {
+            let risky = p.passport.mechanism == .co2Accumulation
+                     || p.passport.mechanism == .hyperventilation
+            if risky {
+                XCTAssertTrue(p.passport.supervision.needsOperator,
+                              "\(p.id): \(p.passport.mechanism) is unmarked")
+                if case .operatorPresent(let reason) = p.passport.supervision {
+                    XCTAssertFalse(reason.isEmpty, "\(p.id): marked with no reason")
+                }
+            } else {
+                XCTAssertFalse(p.passport.supervision.needsOperator,
+                               "\(p.id): marked but its mechanism does not call for it")
+            }
+        }
+    }
+
+    /// Exactly one control condition, and it is the only practice whose rate is
+    /// not manipulated. Without it every other practice's effect is
+    /// indistinguishable from sitting still with your eyes shut.
+    func testThereIsExactlyOneUnpacedControl() {
+        let controls = PracticeCatalog.practices.filter { $0.passport.mechanism == .observation }
+        XCTAssertEqual(controls.map(\.id), ["anapanasati"])
+        XCTAssertEqual(controls.first?.passport.rate, .spontaneous)
+        for p in PracticeCatalog.practices where p.passport.mechanism != .observation {
+            XCTAssertNotEqual(p.passport.rate, .spontaneous,
+                              "\(p.id) claims an unmanipulated rate but is not the control")
+        }
+    }
+
+    func testCatalogNumbersAreUnique() {
+        let numbers = PracticeCatalog.practices.map(\.passport.catalogNumber)
+        XCTAssertEqual(Set(numbers).count, numbers.count,
+                       "a session is logged by number — two practices sharing one is unlogged data")
     }
 
     func testEveryStudyHasACompleteCitation() {

@@ -49,7 +49,33 @@ _SYSTEM_PROMPT = (
     "the numbers actually show.>\n"
     "\n"
     "Keep the whole reply under 60 words. Base everything only on the metrics "
-    "provided. Speak directly to the person as their coach ('you')."
+    "provided. Speak directly to the person as their coach (\'you\').\n"
+    "\n"
+    "SAY SOMETHING THE CHARTS DO NOT. Your reply is printed directly under the "
+    "charts and the percentage changes, so the person can already see WHICH "
+    "metrics moved and in WHICH direction. Restating that — \'your Pulse "
+    "decreased, indicating a calming effect, while Calm Power increased\' — is "
+    "the one reply that is always worthless. Every sentence must add one of:\n"
+    "(a) the comparison with their own usual, where a usual_during is given "
+    "(\'your pulse fell twice as far as it usually does in this practice\');\n"
+    "(b) the relationship BETWEEN two metrics that a single chart cannot show "
+    "(\'the drop came from the breathing, not from effort — Conscious Breathing "
+    "led it and Pulse followed\');\n"
+    "(c) what it means for them, concretely, beyond the session.\n"
+    "When no usual is given, use (b) or (c); never invent a comparison.\n"
+    "\n"
+    "SECOND PERSON, ALWAYS. The subtype is the name of THIS person\'s own "
+    "practice, whatever it is called — write \'your breathwork\', never "
+    "\'<name>\'s breathwork\' and never the third person. A reply that refers to "
+    "them by the name of their practice reads as being about somebody else.\n"
+    "\n"
+    "THE NEXT-SESSION LINE MUST BE ANCHORED TO A NUMBER from the data — a "
+    "direction alone (\'extend your exhale slightly\', \'stay consistent\', "
+    "\'maintain this pattern\') is advice that fits every session ever recorded "
+    "and therefore tells them nothing. Name the metric and where you want it to "
+    "go, e.g. \'your breath sat at 7.2/min — take it to 6 and see whether "
+    "Conscious Breathing goes past 95ms\'. If the numbers genuinely support no "
+    "change, say what to hold and which number will show it is still working."
 )
 
 _LIVE_STATE_SYSTEM_PROMPT = (
@@ -240,6 +266,17 @@ def _format_metrics(req: InsightRequest) -> str:
         lines.append(f"Subtype: {req.activity_subtype}")
     if req.duration_min is not None:
         lines.append(f"Duration: {req.duration_min} min")
+    if req.peer_sessions:
+        lines.append(
+            f"Compared against: this person's own last {req.peer_sessions} "
+            f"{req.peer_group or req.activity_type} sessions (60 days). "
+            "'usual' below is THEIR average during value for this practice, not a population norm."
+        )
+    else:
+        lines.append(
+            "Compared against: nothing yet — too few past sessions of this kind. "
+            "Do NOT claim anything is above, below or typical for them."
+        )
 
     for key, name, unit, meaning in _ACTIVITY_METRICS:
         before = getattr(req, f"before_{key}", None)
@@ -247,10 +284,19 @@ def _format_metrics(req: InsightRequest) -> str:
         after  = getattr(req, f"after_{key}", None)
         if before is None and during is None and after is None:
             continue
-        lines.append(
+        line = (
             f"{name} ({meaning}): "
             f"before={before}{unit} during={during}{unit} after={after}{unit}"
         )
+        usual = getattr(req, f"usual_{key}", None)
+        if usual is not None:
+            line += f" usual_during={round(usual, 1)}{unit}"
+            if during is not None and usual:
+                # The comparison the screen already shows and the coach could
+                # not see. Given pre-computed so the read cannot fumble the
+                # arithmetic in front of the chart it is printed under.
+                line += f" (this session is {round((during - usual) / abs(usual) * 100):+d}% vs usual)"
+        lines.append(line)
     return "\n".join(lines)
 
 

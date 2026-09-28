@@ -159,6 +159,13 @@ struct Practice: Identifiable, Hashable {
     /// and a tempo when it has holds, seconds when it does not — so only a
     /// practice that wants the other one has to say so.
     let paceControl:         PaceControl
+    /// The numbers that decide what this practice can be compared with.
+    ///
+    /// Its rate is derived from the pattern and tempo above wherever the
+    /// practice is paced, so a catalogue entry cannot claim one speed while
+    /// its pacer runs another. Only the unpaced practices state a rate, and
+    /// they state it as a band or as "not changed".
+    let passport:            RespiratoryPassport
 
     init(id: String, title: String, subtitle: String,
          category: PracticeCategory, states: [PracticeState],
@@ -167,6 +174,12 @@ struct Practice: Identifiable, Hashable {
          description: String, howItWorks: [String],
          evidence: [PracticeEvidence], tags: [String],
          art: PracticeArt, kind: PracticeKind,
+         catalogNumber: Int,
+         mechanism: BreathMechanism,
+         difficulty: PracticeDifficulty = .easy,
+         supervision: PracticeSupervision = .unsupervised,
+         /// Only for practices with no fixed pattern to read a rate off.
+         rate: BreathRate? = nil,
          paceControl: PaceControl? = nil) {
         self.id                  = id
         self.title               = title
@@ -190,6 +203,30 @@ struct Practice: Identifiable, Hashable {
         } else {
             self.paceControl = .seconds
         }
+
+        // Read the rate off the pacer rather than believing a number typed
+        // beside it. A passport whose figure can disagree with the practice it
+        // describes is worse than none: it would be the one number in the
+        // catalogue people compare practices on.
+        let note: NoteValue
+        if case .clicksAndNote(let n) = self.paceControl { note = n } else { note = .quarter }
+        let derived: BreathRate?
+        if case .pacer(let pattern) = kind {
+            derived = .derived(pattern: pattern, bpm: defaultBPM, note: note)
+        } else {
+            derived = nil
+        }
+        self.passport = RespiratoryPassport(
+            catalogNumber: catalogNumber,
+            rate: derived ?? rate ?? .unrated("—"),
+            hasHolds: {
+                if case .pacer(let pattern) = kind { return pattern.hasHolds }
+                if case .holdTrainer = kind { return true }
+                return false
+            }(),
+            mechanism: mechanism,
+            difficulty: difficulty,
+            supervision: supervision)
     }
 
     /// The move sequence a scripted session walks, or nil for everything else.

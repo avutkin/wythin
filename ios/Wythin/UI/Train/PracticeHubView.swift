@@ -23,6 +23,37 @@ struct PracticeHubView: View {
         return filter == nil ? all.filter { !$0.isStarred } : all
     }
 
+    /// The visible practices under their mechanism, in the order a protocol
+    /// would run them: the control first, then by how well established the
+    /// mechanism is, with the two that need care last.
+    private var groupedPractices: [(mechanism: BreathMechanism, practices: [Practice])] {
+        Dictionary(grouping: visiblePractices, by: { $0.passport.mechanism })
+            .map { (mechanism: $0.key, practices: $0.value) }
+            .sorted { $0.mechanism.rank < $1.mechanism.rank }
+    }
+
+    private func mechanismHeader(_ mechanism: BreathMechanism) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(mechanism.label.uppercased())
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .tracking(0.8)
+                    .foregroundStyle(Theme.text)
+                if mechanism == .co2Accumulation || mechanism == .hyperventilation {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Theme.warn)
+                }
+                Spacer(minLength: 0)
+            }
+            Text(mechanism.summary)
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.dim)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 4)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -33,12 +64,23 @@ struct PracticeHubView: View {
                         FeaturedPracticeCard(practice: resonance) { selected = resonance }
                     }
 
-                    LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 14) {
-                        ForEach(visiblePractices) { practice in
-                            Button { selected = practice } label: {
-                                PracticeGridTile(practice: practice)
+                    // Grouped by what the practice DOES, not by the state it is
+                    // sold for. An undifferentiated grid of eighteen tiles put
+                    // Coherent Breathing next to 4-7-8 with nothing to say that
+                    // one runs at six cycles a minute on an open airway and the
+                    // other at three with a seven-count hold — different
+                    // mechanisms, filed together because both read as "calm".
+                    ForEach(groupedPractices, id: \.mechanism) { group in
+                        VStack(alignment: .leading, spacing: 9) {
+                            mechanismHeader(group.mechanism)
+                            LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 14) {
+                                ForEach(group.practices) { practice in
+                                    Button { selected = practice } label: {
+                                        PracticeGridTile(practice: practice)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
-                            .buttonStyle(.plain)
                         }
                     }
 
@@ -136,9 +178,16 @@ private struct PracticeGridTile: View {
                 .minimumScaleFactor(0.85)
                 .fixedSize(horizontal: false, vertical: true)
 
+            // Minutes, then the rate. The rate is the one that decides what
+            // this practice can honestly be compared with.
             Text("\(practice.defaultDurationMins) min")
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(Theme.dim)
+            Text(practice.passport.rate.label)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(Theme.breathe.opacity(0.9))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

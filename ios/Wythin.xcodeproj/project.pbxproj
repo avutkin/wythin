@@ -66,6 +66,7 @@
 		A285 /* ScriptedBreathSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F285 /* ScriptedBreathSessionView.swift */; };
 		A282 /* HoldSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F282 /* HoldSessionView.swift */; };
 		A270 /* BreathPattern.swift in Sources */ = {isa = PBXBuildFile; fileRef = F270 /* BreathPattern.swift */; };
+		A730 /* RespiratoryPassport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F730 /* RespiratoryPassport.swift */; };
 		A271 /* BoxBreathEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F271 /* BoxBreathEngine.swift */; };
 		A272 /* MetronomeCue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F272 /* MetronomeCue.swift */; };
 		A273 /* BoxPacerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F273 /* BoxPacerView.swift */; };
@@ -372,6 +373,7 @@
 		F285 /* ScriptedBreathSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptedBreathSessionView.swift; sourceTree = "<group>"; };
 		F282 /* HoldSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoldSessionView.swift; sourceTree = "<group>"; };
 		F270 /* BreathPattern.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathPattern.swift; sourceTree = "<group>"; };
+		F730 /* RespiratoryPassport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RespiratoryPassport.swift; sourceTree = "<group>"; };
 		F271 /* BoxBreathEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoxBreathEngine.swift; sourceTree = "<group>"; };
 		F272 /* MetronomeCue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetronomeCue.swift; sourceTree = "<group>"; };
 		F273 /* BoxPacerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoxPacerView.swift; sourceTree = "<group>"; };
@@ -848,6 +850,7 @@
 				F201 /* PracticeCatalog.swift */,
 				F280 /* HoldProtocol.swift */,
 				F270 /* BreathPattern.swift */,
+				F730 /* RespiratoryPassport.swift */,
 				F283 /* BreathScript.swift */,
 				F138 /* PolyvagalState.swift */,
 				F160 /* ClientProfile.swift */,
@@ -1324,6 +1327,7 @@
 				A285 /* ScriptedBreathSessionView.swift in Sources */,
 				A282 /* HoldSessionView.swift in Sources */,
 				A270 /* BreathPattern.swift in Sources */,
+				A730 /* RespiratoryPassport.swift in Sources */,
 				A271 /* BoxBreathEngine.swift in Sources */,
 				A272 /* MetronomeCue.swift in Sources */,
 				A273 /* BoxPacerView.swift in Sources */,

@@ -93,12 +93,21 @@ enum ActivityType: String, CaseIterable, Codable {
             return ["Nature Walk", "City Walk", "Hiking", "Treadmill"]
         case .meditation:
             return ["Vipassana", "Guided", "Body Scan", "Loving-Kindness",
-                    "Transcendental", "Zen", "Mantra", "Open Awareness", "Yoga Nidra"]
+                    "Transcendental", "Zen", "Mantra", "Open Awareness", "Yoga Nidra",
+                    // The control condition: attention on an unaltered breath.
+                    "Anapanasati"]
         case .breathwork:
             return ["Resonance", "Wim Hof", "Box Breathing", "4-7-8", "Holotropic",
                     "Pranayama", "Coherent Breathing", "Relaxing Breathing",
                     "Breath Stacking", "Breath Retention",
-                    "Tummo", "Nadi Shodhana", "Breath Hold"]
+                    "Tummo", "Nadi Shodhana", "Breath Hold",
+                    // The shortlist practices. Each is its own subtype rather
+                    // than filed under "Pranayama", because the session log is
+                    // what the measurement protocol reads: a sheet saying
+                    // "four breathing techniques" and no technique names is a
+                    // session whose data cannot be compared with any other.
+                    "Cyclic Sighing", "4-7-8 Breathing", "Bhramari", "Ujjayi",
+                    "Full Yogic Breath", "Sitali", "Kapalabhati", "Hook Breath"]
         case .meal:
             return ["Breakfast", "Lunch", "Dinner", "Snack", "Fast Breaking"]
         case .nap:

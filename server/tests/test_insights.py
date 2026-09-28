@@ -1108,3 +1108,72 @@ def test_sleep_prompt_names_avoid_every_banned_token():
             assert banned not in label, (key, banned)
     # "Vagal Tone" is the app's name for `dc` and for nothing else.
     assert sum("Vagal Tone" in v for v in _SLEEP_METRIC_NAMES.values()) == 1
+
+
+# ── The coach's comparison with the person's own history ──────────────────
+#
+# The read is printed directly under the charts and the percentage changes, so
+# a reply that only names which metrics moved and in which direction repeats
+# what the reader can already see. These tests cover the one thing the coach
+# had that the charts did not: the person's own usual for this practice.
+
+def test_usual_values_are_rendered_with_the_comparison_precomputed():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    out = _format_metrics(InsightRequest(
+        mode="activity", activity_type="Breathwork",
+        activity_subtype="Coherent Breathing 5x5",
+        peer_group="Coherent Breathing 5x5", peer_sessions=7,
+        before_hr=99, during_hr=78, usual_hr=81,
+    ))
+    assert "last 7 Coherent Breathing 5x5 sessions" in out
+    assert "usual_during=81" in out
+    # The arithmetic is done here, not by the model, because it is printed
+    # beside the chart it describes and has to agree with it.
+    assert "-4%" in out
+
+
+def test_a_first_session_is_told_there_is_nothing_to_compare_with():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    out = _format_metrics(InsightRequest(
+        mode="activity", activity_type="Breathwork", before_hr=99, during_hr=78,
+    ))
+    assert "nothing yet" in out
+    assert "usual_during" not in out
+    # Saying nothing would let the model reach for "typical" anyway; the
+    # instruction not to is the enforcement.
+    assert "Do NOT claim" in out
+
+
+def test_a_zero_usual_does_not_divide_by_zero():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    out = _format_metrics(InsightRequest(
+        mode="activity", activity_type="Breathwork",
+        peer_sessions=4, during_stress=12, usual_stress=0,
+    ))
+    assert "usual_during=0" in out
+    assert "% vs usual" not in out
+
+
+def test_an_older_client_sending_no_history_still_renders():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    out = _format_metrics(InsightRequest(
+        mode="activity", activity_type="Yoga", before_hr=70, during_hr=80, after_hr=65,
+    ))
+    assert "Pulse" in out and "during=80" in out
+
+
+def test_the_prompt_forbids_restating_the_charts_and_the_third_person():
+    from server.routers.insights import _SYSTEM_PROMPT
+
+    # The three faults observed in shipped replies.
+    assert "SAY SOMETHING THE CHARTS DO NOT" in _SYSTEM_PROMPT
+    assert "SECOND PERSON, ALWAYS" in _SYSTEM_PROMPT
+    assert "ANCHORED TO A NUMBER" in _SYSTEM_PROMPT

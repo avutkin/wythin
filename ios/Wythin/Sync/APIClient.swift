@@ -59,7 +59,29 @@ struct InsightPayload: Codable {
     let beforeStress: Float?; let duringStress: Float?; let afterStress: Float?
     let beforeBreath: Float?; let duringBreath: Float?; let afterBreath: Float?
 
+    /// What this session is being compared against, and how many sessions are
+    /// behind that comparison.
+    ///
+    /// Without these the read could only narrate the chart the person is
+    /// already looking at — "your Pulse decreased" under a line visibly going
+    /// down. The screen itself shows "vs 2mo −4%"; the coach was the only part
+    /// of it that could not see that number, so it had nothing to say that the
+    /// charts had not already said.
+    let peerGroup: String?
+    let peerSessions: Int?
+    /// The person's own recent average DURING value per metric, same peer
+    /// group. Absent when they have no history to compare against yet.
+    let usualHR: Float?; let usualRSA: Float?; let usualSDNN: Float?
+    let usualRMSSD: Float?; let usualDC: Float?; let usualRCMSE: Float?
+    let usualPIP: Float?; let usualDFA1: Float?; let usualStress: Float?
+    let usualBreath: Float?
+
     enum CodingKeys: String, CodingKey {
+        case peerGroup = "peer_group"; case peerSessions = "peer_sessions"
+        case usualHR = "usual_hr"; case usualRSA = "usual_rsa"; case usualSDNN = "usual_sdnn"
+        case usualRMSSD = "usual_rmssd"; case usualDC = "usual_dc"; case usualRCMSE = "usual_rcmse"
+        case usualPIP = "usual_pip"; case usualDFA1 = "usual_dfa1"; case usualStress = "usual_stress"
+        case usualBreath = "usual_breath"
         case activityType    = "activity_type"
         case activitySubtype = "activity_subtype"
         case durationMin     = "duration_min"
@@ -715,7 +737,19 @@ extension TickPayload {
 }
 
 extension InsightPayload {
-    init(from entry: ActivityLog) {
+    /// - Parameter usual: metric id → the person's own recent average during
+    ///   value for this peer group. Empty for a first session, which is the
+    ///   honest state and reads as "no comparison yet" rather than as zero.
+    init(from entry: ActivityLog, usual: [String: Double] = [:], peers: Int = 0) {
+        func avg(_ metric: LiveMetric) -> Float? {
+            usual[metricDef(metric).id].map(Float.init)
+        }
+        self.peerGroup    = peers > 0 ? entry.scoreGroupKey : nil
+        self.peerSessions = peers > 0 ? peers : nil
+        self.usualHR = avg(.hr); self.usualRSA = avg(.rsa); self.usualSDNN = nil
+        self.usualRMSSD = avg(.rmssd); self.usualDC = avg(.dc); self.usualRCMSE = avg(.rcmse)
+        self.usualPIP = avg(.pip); self.usualDFA1 = avg(.dfa1); self.usualStress = avg(.stressBalance)
+        self.usualBreath = avg(.breathBPM)
         self.activityType    = entry.activityType
         self.activitySubtype = entry.activitySubtype
         self.durationMin     = entry.duration.map { Int($0 / 60) }

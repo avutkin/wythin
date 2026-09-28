@@ -302,6 +302,21 @@ class InsightRequest(BaseModel):
     before_dfa1:   Optional[float] = None; during_dfa1:   Optional[float] = None; after_dfa1:   Optional[float] = None
     before_stress: Optional[float] = None; during_stress: Optional[float] = None; after_stress: Optional[float] = None
     before_breath: Optional[float] = None; during_breath: Optional[float] = None; after_breath: Optional[float] = None
+    # What this session is compared against, and the person's own recent
+    # average per metric within that group. Optional like everything else here:
+    # a first session has no history, and an older client sends none.
+    peer_group:    Optional[str] = None
+    peer_sessions: Optional[int] = None
+    usual_hr:     Optional[float] = None
+    usual_rsa:    Optional[float] = None
+    usual_sdnn:   Optional[float] = None
+    usual_rmssd:  Optional[float] = None
+    usual_dc:     Optional[float] = None
+    usual_rcmse:  Optional[float] = None
+    usual_pip:    Optional[float] = None
+    usual_dfa1:   Optional[float] = None
+    usual_stress: Optional[float] = None
+    usual_breath: Optional[float] = None
 
     # "live_state" mode fields
     window_minutes: Optional[int] = None
