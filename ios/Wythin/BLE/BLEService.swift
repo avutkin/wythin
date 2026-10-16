@@ -133,6 +133,20 @@ enum StandbyPolicy {
         // overnight it reached the off-body threshold on its own — dropping the
         // strap into standby in the middle of the night the app most wants.
         if still && rrBad { score += 1 }
+
+        // Live, plausible RR is the strongest evidence a body is present: a
+        // doffed H10 stops producing it within seconds, while a worn one on
+        // dry electrodes produces it all night. So when RR is flowing,
+        // nothing else reaches the off-body threshold on its own — not even
+        // an explicit contact=false.
+        //
+        // This is the same correction `still && rrBad` already made for
+        // stillness, applied to the cue that was left out of it. Electrodes
+        // dry across a night, the strap asserts no contact, and this scored
+        // 4 — the fast path — on a sleeping wearer whose heart was in plain
+        // view. Every other case is untouched: with RR gone, the weights
+        // below are exactly as they were.
+        if !rrBad { return min(score, 1) }
         return score
     }
 }
@@ -149,6 +163,12 @@ struct StandbyResumeGate {
     /// Consecutive plausible frames required when the contact bit is absent
     /// (~4 s at the HR characteristic's 1 Hz cadence).
     static let requiredRun = 4
+    /// Consecutive plausible frames required to overrule an explicit
+    /// `contact == false` (~16 s). Four times the usual bar, because this
+    /// overrides a stated negative rather than filling in for a missing one
+    /// — long enough that doffing noise can never accumulate it, short
+    /// enough that a worn strap is not held down for a night.
+    static let requiredRunAgainstContact = 16
     /// Human heart-rate band; outside it is beacon/noise, not a wearer.
     static let plausibleBPM = 30...220
     /// Human RR band in ms (30–200 bpm).
@@ -169,7 +189,24 @@ struct StandbyResumeGate {
             run = 0; lastBPM = nil
             return true
         case .some(false):
-            run = 0; lastBPM = nil
+            // Previously an unconditional `false`, and `enterStandby` keeps
+            // the GATT link — so the connect path that clears standby never
+            // fires either. Between them, a strap whose contact bit stuck
+            // false was held in standby indefinitely: link up, beats
+            // arriving, nothing recorded for as long as the bit lied.
+            //
+            // The bit still has the first word, and keeps it through the
+            // doffing transient. It no longer has the last one.
+            guard secondsInStandby >= Self.entryGraceSeconds else {
+                run = 0; lastBPM = nil
+                return false
+            }
+            run = isPlausible(bpm: bpm, rr: rrIntervalsMs) ? run + 1 : 0
+            lastBPM = bpm
+            if run >= Self.requiredRunAgainstContact {
+                run = 0; lastBPM = nil
+                return true
+            }
             return false
         case .none:
             guard secondsInStandby >= Self.entryGraceSeconds else {

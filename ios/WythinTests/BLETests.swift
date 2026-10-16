@@ -289,9 +289,16 @@ final class BLETests: XCTestCase {
     // MARK: - Standby policy (contact bit optional in BOTH directions)
 
     func testOffBodyScoreContactAuthoritative() {
-        XCTAssertEqual(StandbyPolicy.offBodyScore(
-            contact: false, ecgPoor: false, rrBad: false, still: false), 3,
-            "contact=false alone trips the fast path")
+        // Was: contact=false alone scored 3 and tripped the 5 s fast path.
+        // It cannot any more. A doffed strap stops producing plausible RR
+        // within seconds, so live RR contradicts the bit outright — and the
+        // bit lies, on dry electrodes, for a whole night at a time.
+        XCTAssertLessThan(StandbyPolicy.offBodyScore(
+            contact: false, ecgPoor: false, rrBad: false, still: false), 2,
+            "a contact bit contradicted by live RR must not reach standby alone")
+        XCTAssertGreaterThanOrEqual(StandbyPolicy.offBodyScore(
+            contact: false, ecgPoor: true, rrBad: true, still: false), 3,
+            "but a genuinely doffed strap still trips the fast path")
         XCTAssertEqual(StandbyPolicy.offBodyScore(
             contact: true, ecgPoor: true, rrBad: true, still: true), 2,
             "a stuck contact=true dampens but cannot veto three signal cues")
@@ -317,6 +324,19 @@ final class BLETests: XCTestCase {
         XCTAssertLessThan(StandbyPolicy.offBodyScore(
             contact: nil, ecgPoor: true, rrBad: false, still: true), 2,
             "a motionless sleeper with good RR must not be dropped into standby")
+    }
+
+    /// The overnight failure, with the contact bit present.
+    ///
+    /// `testStillSleeperWithLiveHeartbeatIsNotOffBody` fixed this for straps
+    /// that never report contact at all. Straps that DO report it were left
+    /// exposed: electrodes dry out across a night, the H10 asserts no
+    /// contact, and the score reached the fast path in five seconds while
+    /// the wearer slept on with a perfectly good heartbeat.
+    func testWornStrapWithALyingContactBitIsNotDroppedIntoStandby() {
+        XCTAssertLessThan(StandbyPolicy.offBodyScore(
+            contact: false, ecgPoor: true, rrBad: false, still: true), 2,
+            "dry electrodes lie about contact; live RR is the honest witness")
     }
 
     func testStillnessStillCountsWhenTheHeartbeatIsGone() {
@@ -364,6 +384,37 @@ final class BLETests: XCTestCase {
             XCTAssertFalse(gate.step(contact: false, bpm: 70, rrIntervalsMs: [857],
                                      secondsInStandby: TimeInterval(20 + i)),
                            "contact=false is authoritative — plausible-looking noise loses")
+        }
+    }
+
+    /// The deadlock. `enterStandby` keeps the GATT link, so the connect path
+    /// that clears standby never runs, and the only way out was a resume gate
+    /// that returned false for `contact == false` unconditionally. A strap
+    /// whose bit stuck false was held down indefinitely — link up, beats
+    /// arriving, nothing recorded. That is a lost night, and Kate lost one.
+    ///
+    /// Sustained physiological evidence now outvotes the bit. It takes four
+    /// times the usual run, because this is overriding an explicit negative
+    /// rather than filling in for a missing one.
+    func testASustainedRunOfGoodBeatsOverridesAStuckContactBit() {
+        var gate = StandbyResumeGate()
+        var resumed = false
+        for i in 0..<40 where !resumed {
+            resumed = gate.step(contact: false, bpm: 70, rrIntervalsMs: [857],
+                                secondsInStandby: TimeInterval(20 + i))
+        }
+        XCTAssertTrue(resumed, "a worn strap must not be held in standby forever")
+    }
+
+    /// The override must not rescue a strap that is actually off. A doffed
+    /// H10 stops reporting a human heart within seconds, so there is no run
+    /// of plausible frames for it to accumulate.
+    func testADoffedStrapIsNeverRescuedByTheOverride() {
+        var gate = StandbyResumeGate()
+        for i in 0..<60 {
+            XCTAssertFalse(gate.step(contact: false, bpm: 0, rrIntervalsMs: [],
+                                     secondsInStandby: TimeInterval(20 + i)),
+                           "no heartbeat, no resume")
         }
     }
 
