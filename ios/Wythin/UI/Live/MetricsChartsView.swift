@@ -1296,7 +1296,9 @@ struct MetricsChartsView: View, Equatable {
             color:    Color(red: 0.45, green: 0.85, blue: 0.75),
             windows:  TimeWindow.allCases,
             refs: [
-                RefLine(value: 50, label: "50  even", color: Theme.dim),
+                RefLine(value: 46, label: "46  throttle-led", color: Theme.rsa),
+                RefLine(value: 50, label: "50  even",         color: Theme.dim),
+                RefLine(value: 54, label: "54  brake-led",    color: Theme.coh),
             ],
             yDomain: 35...65,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
@@ -1309,7 +1311,7 @@ struct MetricsChartsView: View, Equatable {
                 physiology:  "A healthy heart is lopsided on purpose \u{2014} decelerations tend to carry slightly more than half the variance. The asymmetry appears to come from the vagus acting faster than sympathetic drive can. Losing it, and drifting toward a flat 50, is the pattern seen with age and with illness.",
                 training:    "Read it beside Vagal Tone and Throttle rather than alone. Those two say how much brake and throttle you have; this says which one is shaping your rhythm. It is a slow measure \u{2014} weeks, not sessions.",
                 sensitivity: "Needs at least 100 clean beats before it reports at all, and moves slowly after that. Distance from 50 is the signal; small wanders around it are noise.",
-                levels:      "Even:              50\nSlightly braked:   52\u{2013}56  (typical at rest)\nStrongly braked:   56+\nThrottle-led:      under 48\n\nRead the distance from 50, in either direction, rather than a target."
+                levels:      "Low \u{2014} throttle-led:  under 46\nMiddle \u{2014} even:        46\u{2013}54  (50 is dead even)\nHigh \u{2014} brake-led:    54+\n\nUnlike most charts here, high is not simply better. Resting adults usually sit a little above 50, so brake-led is the familiar resting pattern and a drift toward a flat 50 is the one worth noticing. Read the distance from 50, in either direction, rather than chasing a number."
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.hra.map(Double.init) }
@@ -1335,7 +1337,11 @@ struct MetricsChartsView: View, Equatable {
             yLabel:   "%",
             color:    Color(red: 0.6, green: 0.75, blue: 1.0),
             windows:  TimeWindow.allCases,
-            refs: [],
+            refs: [
+                RefLine(value: 30, label: "30  choppy",  color: Theme.warn),
+                RefLine(value: 38, label: "38  typical", color: Color(hex: "#FCD34D")),
+                RefLine(value: 50, label: "50  steady",  color: Theme.coh),
+            ],
             yDomain: 0...100,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             smooth: true,
@@ -1347,8 +1353,8 @@ struct MetricsChartsView: View, Equatable {
                 physiology:  "Fragmentation is not the same thing as low variability, which is why it earns its own chart \u{2014} a rhythm can be wide and still be chopped up. It rises with age and with disease of the sinus node, and it is thought to reflect the pacemaker itself misbehaving rather than the nerves that steer it.",
                 training:    "Not something to chase in a session. Watch it across weeks, and read it beside Inner Noise \u{2014} the two describe the same dimension from different angles, and they should broadly agree.",
                 sensitivity: "Needs a couple of minutes of clean signal. Artifacts inflate fragmentation directly, so trust it least where the Signal Artifacts chart below is high.",
-                levels:      "No fixed bands \u{2014} the published cut-offs are for 24-hour recordings and do not transfer to a short window. Compare against your own trend under similar conditions.",
-                notes:       "Blank before this shipped: the value was computed and discarded until now, so no earlier history holds one."
+                levels:      "Low \u{2014} choppy:    under 30 %\nMiddle \u{2014} typical:  30\u{2013}50 %\nHigh \u{2014} steady:    50 %+\n\nHigher is better: more of your rhythm is running in sustained stretches rather than breaking up into very short runs.",
+                notes:       "Treat these bands as orientation, not diagnosis. They are anchored on the fragmentation literature\u{2019}s healthy midpoint, but those figures come from 24-hour recordings and this is a short window \u{2014} so the shape of your own trend is the trustworthy part, and the band you land in is the rough part. Blank before this shipped: the value was computed and discarded until now."
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.rhythmStability }
@@ -1385,7 +1391,11 @@ struct MetricsChartsView: View, Equatable {
             yLabel:   "index",
             color:    Color(red: 0.85, green: 0.6, blue: 0.95),
             windows:  TimeWindow.allCases,
-            refs: [],
+            refs: [
+                RefLine(value: 1.0, label: "1.0  unsteady", color: Theme.warn),
+                RefLine(value: 1.5, label: "1.5  typical",  color: Color(hex: "#FCD34D")),
+                RefLine(value: 1.9, label: "1.9  steady",   color: Theme.coh),
+            ],
             yDomain: -1...3,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             smooth: true,
@@ -1397,8 +1407,8 @@ struct MetricsChartsView: View, Equatable {
                 physiology:  "This is the one measure here that is not about your nerves steering the pacemaker \u{2014} it is about the ventricular muscle itself. An unsteady reset is the pattern linked with arrhythmic risk, and it also rises with sustained sympathetic load, depression and anxiety, which is why it earns a place next to the autonomic charts rather than inside them.",
                 training:    "Not a dial to move in a session. It is a slow, whole-system marker: read it across weeks, and read a change as a question rather than an answer.",
                 sensitivity: "Needs a clean ECG and at least 32 delineated beats before it reports anything, and it rebuilds from scratch after the strap comes off. Movement is its enemy \u{2014} the T wave is small and easily buried.",
-                levels:      "Published QTVI values are negative, roughly \u{2212}1.9 (steady) to \u{2212}1.0 (unsteady), with values above \u{2212}1.0 considered abnormal. This chart plots the sign-flipped value, so 1.9 here is the steady end and 1.0 the unsteady one.",
-                notes:       "Provisional. The strap samples at 130 Hz where the QT literature uses 500\u{2013}1000 Hz, so absolute values are not comparable with a clinical recording \u{2014} compare only against your own trend. Blank before this shipped, and blank on any window the ECG stream was not running."
+                levels:      "Low \u{2014} unsteady:  under 1.0\nMiddle \u{2014} typical:  1.0\u{2013}1.9\nHigh \u{2014} steady:    1.9+\n\nHigher is steadier. These come from the published QTVI range, which is negative \u{2014} about \u{2212}1.9 (steady) to \u{2212}1.0 (unsteady), with anything above \u{2212}1.0 treated as abnormal. This chart plots the sign-flipped value, so the numbers read the right way up.",
+                notes:       "Read the bands with real caution. The strap samples at 130 Hz where this literature uses 500\u{2013}1000 Hz, and early readings here sit well below the published range \u{2014} which says our scale is offset, not that your heart is unwell. Until it is calibrated against a clinical recording, the direction your own line moves is the only part worth trusting. Blank before this shipped, and blank on any window the ECG stream was not running."
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.qtvi.map { -Double($0) } }
