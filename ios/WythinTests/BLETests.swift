@@ -286,6 +286,32 @@ final class BLETests: XCTestCase {
         XCTAssertEqual(cmd, PolarH10Profile.cmdACCStart)
     }
 
+    // MARK: - Discovery retry policy
+    //
+    // `didDiscoverServices` and `didDiscoverCharacteristicsFor` used to print
+    // their error and return — no retry, state left at `.connected`, nothing
+    // user-visible. A transient CoreBluetooth discovery error (documented to
+    // happen, especially right after a background state-restoration connect)
+    // left the strap connected forever with no characteristics ever
+    // subscribed: no HR, no PMD, nothing recorded, until something external
+    // (a manual reconnect, an app kill) intervened. This is a second, distinct
+    // way to reproduce "the strap shows connected but nothing is happening" —
+    // DiscoveryRetryPolicy is the decision; BLEService wires it to a few
+    // retries, then forces a disconnect so the existing, already-tested
+    // pending-reconnect path takes over rather than staying silently stuck.
+
+    func testDiscoveryRetryPolicyRetriesBelowTheLimit() {
+        XCTAssertEqual(DiscoveryRetryPolicy.decide(retriesUsed: 0), .retry)
+        XCTAssertEqual(DiscoveryRetryPolicy.decide(retriesUsed: 1), .retry)
+    }
+
+    func testDiscoveryRetryPolicyGivesUpAtTheLimit() {
+        XCTAssertEqual(DiscoveryRetryPolicy.decide(retriesUsed: DiscoveryRetryPolicy.maxRetries),
+                       .giveUpAndReconnect)
+        XCTAssertEqual(DiscoveryRetryPolicy.decide(retriesUsed: DiscoveryRetryPolicy.maxRetries + 5),
+                       .giveUpAndReconnect, "must not retry forever on a wedged peripheral")
+    }
+
     // MARK: - Standby policy (contact bit optional in BOTH directions)
 
     func testOffBodyScoreContactAuthoritative() {

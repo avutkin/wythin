@@ -231,6 +231,28 @@ struct StandbyResumeGate {
     }
 }
 
+// MARK: - Discovery Retry Policy (pure, testable)
+//
+// `didDiscoverServices` and `didDiscoverCharacteristicsFor` used to print
+// their error and return: no retry, no user-visible signal, `state` left at
+// `.connected`. CoreBluetooth discovery errors are documented to happen, most
+// often right after a background state-restoration connect — and when one
+// did, the strap stayed "connected" with no characteristics ever subscribed:
+// no HR, no PMD, nothing recorded, until something external intervened. This
+// is the policy that stops it being permanent.
+enum DiscoveryRetryPolicy {
+    static let maxRetries = 2
+
+    enum Action: Equatable {
+        case retry
+        case giveUpAndReconnect
+    }
+
+    static func decide(retriesUsed: Int) -> Action {
+        retriesUsed < maxRetries ? .retry : .giveUpAndReconnect
+    }
+}
+
 // MARK: - Skin Contact Display Policy (pure, testable)
 //
 // Some H10 firmware never sets the sensor-contact-supported flag in the HR
@@ -469,6 +491,9 @@ final class BLEService: NSObject {
     private var inSlowRetry = false
     private var lastACCRetryAt:  Date?
     private var accRetryCount:   Int = 0
+    /// Resets on every fresh `discoverServices()` call, so an old failure
+    /// never counts against a brand-new connection.
+    private var discoveryRetryCount: Int = 0
     private var lastACCStartCmd: Data?
 
     // ACC watchdog tuning. At 200 Hz the H10 delivers ACC notifications many
@@ -789,6 +814,27 @@ final class BLEService: NSObject {
         }
     }
 
+    /// Acts on `DiscoveryRetryPolicy`'s decision for a failed discovery
+    /// callback. A retry simply restarts the whole chain — service and
+    /// characteristic discovery are cheap and idempotent, so there is no
+    /// benefit to resuming from the exact failed step. Giving up forces a
+    /// disconnect rather than inventing a second recovery path: clearing
+    /// `suppressNextDisconnect` routes it through `handleUnexpectedDisconnect`,
+    /// the same persistent no-timeout pending-reconnect every other drop uses.
+    private func retryOrGiveUpOnDiscoveryFailure(_ p: CBPeripheral) {
+        switch DiscoveryRetryPolicy.decide(retriesUsed: discoveryRetryCount) {
+        case .retry:
+            discoveryRetryCount += 1
+            print("🟡 BLE: discovery failed — retrying (\(discoveryRetryCount)/\(DiscoveryRetryPolicy.maxRetries))")
+            discoverServices()
+        case .giveUpAndReconnect:
+            print("🔴 BLE: discovery failed \(DiscoveryRetryPolicy.maxRetries) times — forcing a reconnect")
+            lastError = "Bluetooth setup failed — reconnecting"
+            suppressNextDisconnect = false
+            centralManager.cancelPeripheralConnection(p)
+        }
+    }
+
     private func discoverServices() {
         peripheral?.discoverServices([
             PolarH10Profile.pmdService,
@@ -1098,6 +1144,7 @@ extension BLEService: CBCentralManagerDelegate {
                 // Already connected — just attach
                 self.peripheral = p
                 self.pmdStreamsStarted = false
+                self.discoveryRetryCount = 0
                 self.state = .connected(name: p.name ?? "Polar H10")
                 self.discoverServices()
             } else {
@@ -1168,6 +1215,7 @@ extension BLEService: CBCentralManagerDelegate {
             UserDefaults.standard.set(peripheral.identifier.uuidString,
                                        forKey: self.savedDeviceKey)
             self.reconnectDelay = 2.0   // successful connection resets backoff
+            self.discoveryRetryCount = 0
             self.state = .connected(name: peripheral.name ?? "Polar H10")
             self.discoverServices()
             self.startWatchdog()
@@ -1224,7 +1272,10 @@ extension BLEService: CBPeripheralDelegate {
                                 didDiscoverServices error: Error?) {
         if let error { print("❌ BLE: service discovery error — \(error)") }
         Task { @MainActor in
-            guard error == nil, let services = peripheral.services else { return }
+            guard error == nil, let services = peripheral.services else {
+                self.retryOrGiveUpOnDiscoveryFailure(peripheral)
+                return
+            }
             for svc in services {
                 switch svc.uuid {
                 case PolarH10Profile.pmdService:
@@ -1245,7 +1296,10 @@ extension BLEService: CBPeripheralDelegate {
                                 error: Error?) {
         if let error { print("❌ BLE: char discovery error — \(error)") }
         Task { @MainActor in
-            guard error == nil, let chars = service.characteristics else { return }
+            guard error == nil, let chars = service.characteristics else {
+                self.retryOrGiveUpOnDiscoveryFailure(peripheral)
+                return
+            }
             for c in chars {
                 switch c.uuid {
                 case PolarH10Profile.pmdControl:
