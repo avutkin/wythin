@@ -286,6 +286,33 @@ final class BLETests: XCTestCase {
         XCTAssertEqual(cmd, PolarH10Profile.cmdACCStart)
     }
 
+    // MARK: - Connection failure pattern (possible multi-app contention)
+    //
+    // The H10 is a single-link BLE peripheral: only one central can hold its
+    // GATT connection. A native Polar app with its own background connection
+    // competes for that one slot, and CoreBluetooth gives the losing side
+    // nothing distinctive back — just the same connectionTimeout a dead
+    // battery or an out-of-range strap would also produce. There is no CBError
+    // code that means "someone else has it," so this cannot name the cause.
+    // What it CAN do honestly is notice the shape only contention produces:
+    // several failures in quick succession, not a single one.
+    func testConnectionFailurePatternIsQuietOnAFirstFailure() {
+        XCTAssertFalse(ConnectionFailurePattern.looksLikeContention(
+            recentFailureCount: 1, windowSeconds: 20))
+    }
+
+    func testConnectionFailurePatternFlagsARapidRun() {
+        XCTAssertTrue(ConnectionFailurePattern.looksLikeContention(
+            recentFailureCount: 3, windowSeconds: 20))
+    }
+
+    func testConnectionFailurePatternIgnoresFailuresSpreadOverTime() {
+        // Three failures is only informative if they were fast — spread
+        // across an hour they are just as consistent with "nobody's home."
+        XCTAssertFalse(ConnectionFailurePattern.looksLikeContention(
+            recentFailureCount: 3, windowSeconds: 3600))
+    }
+
     // MARK: - Discovery retry policy
     //
     // `didDiscoverServices` and `didDiscoverCharacteristicsFor` used to print
@@ -402,6 +429,39 @@ final class BLETests: XCTestCase {
         _ = plausible(&gate, bpm: 65, at: 23)
         XCTAssertFalse(plausible(&gate, bpm: 65, at: 24),
                        "run restarted — only three plausible frames since the reset")
+    }
+
+    // MARK: - Single-frame plausibility (forwarding during standby)
+    //
+    // `StandbyResumeGate.isPlausible` decides "has standby genuinely ended,"
+    // and rightly demands a RUN of good frames so a burst of doffing noise
+    // can't fake a resume. But that same bar was, until now, also the reason
+    // real beats from a worn-and-misclassified strap were thrown away one
+    // frame at a time: `didUpdateValueFor` returned before ever forwarding
+    // RR while `inStandby`, so a stretch of perfectly good data was deleted
+    // the instant the (possibly wrong) classification fired.
+    //
+    // `isPhysiologicallyPlausible` is the single-frame half of that check —
+    // the one that needs no history — so it can gate "is this frame worth
+    // keeping" independently of "has standby actually ended."
+
+    func testSingleFramePlausibilityAcceptsAnOrdinaryRestingBeat() {
+        XCTAssertTrue(StandbyResumeGate.isPhysiologicallyPlausible(bpm: 65, rr: [923]))
+    }
+
+    func testSingleFramePlausibilityRejectsAZeroBPMFrame() {
+        // The H10's tell for doffed: bpm reports 0 within seconds.
+        XCTAssertFalse(StandbyResumeGate.isPhysiologicallyPlausible(bpm: 0, rr: []))
+    }
+
+    func testSingleFramePlausibilityRejectsRRThatDoesNotExplainTheBPM() {
+        // 60 bpm implies ~1000 ms RR; 400 ms is a different heart entirely —
+        // the signature of noise, not a slow or fast real beat.
+        XCTAssertFalse(StandbyResumeGate.isPhysiologicallyPlausible(bpm: 60, rr: [400]))
+    }
+
+    func testSingleFramePlausibilityRejectsNonHumanRRIntervals() {
+        XCTAssertFalse(StandbyResumeGate.isPhysiologicallyPlausible(bpm: 70, rr: [50]))
     }
 
     func testResumeGateExplicitOffBodyNeverResumes() {
