@@ -18,6 +18,14 @@ struct SettingsView: View {
     @State private var showDataDetail = false
     @State private var isDeletingCloudData = false
     @State private var notificationsAuthorized: Bool?
+    /// Re-read on appear rather than held live: the file changes from a
+    /// background queue (`BLEDiag.log`), and this only needs to be right
+    /// often enough to decide whether the share row is worth showing.
+    @State private var diagLogSize: Int?
+
+    private func refreshDiagLogSize() {
+        diagLogSize = try? BLEDiag.url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+    }
 
     // MARK: Cloud restore
     @Environment(\.modelContext) private var modelContext
@@ -112,8 +120,25 @@ struct SettingsView: View {
                         Text("Use the  ⌁  icon on the Live tab to connect or switch devices.")
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.dim)
+
+                        // Hidden until there's something to share — a fresh
+                        // install, or right after BLEDiag's own rotation has
+                        // just cleared the file.
+                        if BLEDiagExport.isAvailable(fileSize: diagLogSize) {
+                            ShareLink(item: BLEDiag.url) {
+                                HStack {
+                                    Text("Share Bluetooth diagnostics")
+                                        .font(Theme.monoBody)
+                                        .foregroundStyle(Theme.text)
+                                    Spacer()
+                                    Image(systemName: "square.and.arrow.up")
+                                        .foregroundStyle(Theme.dim)
+                                }
+                            }
+                        }
                     }
                     .listRowBackground(Theme.card)
+                    .onAppear { refreshDiagLogSize() }
 
                     // ── Server ────────────────────────────────────────
                     Section("SERVER SYNC") {

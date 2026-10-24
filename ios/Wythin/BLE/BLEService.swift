@@ -87,6 +87,16 @@ enum DeviceRanking {
 // block-buffered), so PMD-level diagnostics also land in a file in the app
 // container that can be pulled over the wire:
 //   xcrun devicectl device copy from --domain-type appDataContainer ...
+/// Whether the Settings diagnostics row has anything to offer. Hidden for a
+/// fresh install or right after `BLEDiag`'s own rotation has just cleared the
+/// file — there is no value in a share sheet for an empty log.
+enum BLEDiagExport {
+    static func isAvailable(fileSize: Int?) -> Bool {
+        guard let fileSize else { return false }
+        return fileSize > 0
+    }
+}
+
 enum BLEDiag {
     static let url = FileManager.default.urls(for: .applicationSupportDirectory,
                                               in: .userDomainMask)[0]
@@ -1229,11 +1239,23 @@ extension BLEService: CBCentralManagerDelegate {
                 self.discoveryRetryCount = 0
                 self.state = .connected(name: p.name ?? "Polar H10")
                 self.discoverServices()
+                // `didConnect` always arms this; this path skipped it, so a
+                // silent drop sometime after a restoration-triggered relaunch
+                // went uncaught — no watchdog running to notice. The gap this
+                // closes: the app comes back (system relaunch, or Kate opening
+                // it), attaches to an already-connected peripheral, and if the
+                // OS-level link quietly dies hours later there was nothing
+                // watching for it until the next unrelated trigger.
+                self.startWatchdog()
             } else {
                 // Was connecting — try again via doConnect so timeout is set correctly
                 self.state = .connecting(name: p.name ?? "Polar H10")
                 self.doConnect(p)
             }
+            // The one event this whole investigation keeps lacking evidence
+            // for: was the app even running overnight, and in what state did
+            // it come back? This is the only place that can answer it.
+            BLEDiag.log("RESTORE state=\(p.state.rawValue) → \(self.state)")
         }
     }
 

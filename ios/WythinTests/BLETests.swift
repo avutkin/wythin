@@ -431,6 +431,29 @@ final class BLETests: XCTestCase {
                        "run restarted — only three plausible frames since the reset")
     }
 
+    // MARK: - Diagnostics export visibility
+    //
+    // `BLEDiag` has written real evidence to a durable file since the ACC
+    // watchdog work — connect failures, PMD start results, raw CP bytes —
+    // and none of it was ever retrievable. Every report so far (Kate's
+    // included) has been reverse-engineered from a chart screenshot because
+    // there was no way to see what the BLE stack actually did. This is the
+    // visibility gate for the Settings row that fixes that: hidden when
+    // there's nothing to share, so a fresh install or a freshly-rotated log
+    // doesn't offer an empty file.
+
+    func testDiagExportIsHiddenWhenTheFileHasNeverBeenWritten() {
+        XCTAssertFalse(BLEDiagExport.isAvailable(fileSize: nil))
+    }
+
+    func testDiagExportIsHiddenForAnEmptyFile() {
+        XCTAssertFalse(BLEDiagExport.isAvailable(fileSize: 0))
+    }
+
+    func testDiagExportIsAvailableOnceSomethingHasBeenLogged() {
+        XCTAssertTrue(BLEDiagExport.isAvailable(fileSize: 42))
+    }
+
     // MARK: - Standby resume: genuine gap vs continuous data
     //
     // Forwarding plausible RR during standby (above) stopped a brief
