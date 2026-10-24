@@ -262,6 +262,31 @@ enum ConnectionFailurePattern {
     }
 }
 
+// MARK: - Standby Gap Policy (pure, testable)
+//
+// Forwarding plausible RR during standby stops a brief misclassification
+// from costing data, but it also means a GENUINE standby — the strap really
+// off for real minutes — now bridges that gap silently in the RR array: the
+// last pre-removal beat sits directly adjacent to the first post-reattachment
+// one, no marker between them. PRSA reads that seam as an ordinary step, and
+// with few beats yet in the post-gap window, one artificial jump can
+// dominate the average.
+//
+// The two cases are told apart by the one signal that differs between them:
+// whether a beat was forwarded recently. Continuous misclassification keeps
+// forwarding throughout, so the gap since the last one stays near the H10's
+// ~1 Hz cadence. A genuine standby forwards nothing for the whole real gap.
+enum StandbyGapPolicy {
+    /// Beats arrive about once per second under normal operation. Silence
+    /// well beyond that is a real stop, not ordinary inter-frame spacing.
+    static let genuineGapSeconds: TimeInterval = 10
+
+    static func shouldClearOnResume(secondsSinceLastForwardedBeat: TimeInterval?) -> Bool {
+        guard let gap = secondsSinceLastForwardedBeat else { return true }
+        return gap >= genuineGapSeconds
+    }
+}
+
 // MARK: - Discovery Retry Policy (pure, testable)
 //
 // `didDiscoverServices` and `didDiscoverCharacteristicsFor` used to print
@@ -529,6 +554,11 @@ final class BLEService: NSObject {
     /// evidence for `ConnectionFailurePattern`, cleared on a successful
     /// connect so a resolved problem cannot flag a later, unrelated one.
     private var recentConnectFailures: [Date] = []
+    /// When a beat was last actually forwarded into the pipeline — not when
+    /// a frame merely arrived, since an off-body frame can still carry a
+    /// non-empty (noise) RR array. `StandbyGapPolicy` reads this at resume
+    /// to tell a genuine standby from a brief misclassification.
+    private var lastForwardedBeatAt: Date?
     private var lastACCStartCmd: Data?
 
     // ACC watchdog tuning. At 200 Hz the H10 delivers ACC notifications many
@@ -783,6 +813,16 @@ final class BLEService: NSObject {
     /// Restart the ECG/ACC streams and mark the link live.
     private func resumeFromStandby(name: String) {
         guard inStandby, peripheral != nil else { return }
+        let gap = lastForwardedBeatAt.map { Date().timeIntervalSince($0) }
+        if StandbyGapPolicy.shouldClearOnResume(secondsSinceLastForwardedBeat: gap) {
+            // A real content gap: whatever is buffered predates it and is not
+            // continuous with what is about to be measured. Clear now, right
+            // as fresh measurement begins — not on entry, which would cost a
+            // brief misclassification its whole pre-existing history for
+            // nothing, the regression this exists to avoid.
+            print("🌙 BLE: resuming after a real gap (\(gap.map { "\(Int($0))s" } ?? "no prior data")) — clearing buffered beats")
+            connectionGapSubject.send()
+        }
         print("🌙 BLE: resuming from standby — strap worn again")
         inStandby = false
         state = .connected(name: name)
@@ -1514,6 +1554,7 @@ extension BLEService: CBPeripheralDelegate {
                             // remain off and the UI is untouched — only RR
                             // keeps accumulating so a correct resume, whenever
                             // it comes, starts from a warm buffer, not zero.
+                            self.lastForwardedBeatAt = Date()
                             self.hrSubject.send(frame)
                         }
                         return
@@ -1527,6 +1568,7 @@ extension BLEService: CBPeripheralDelegate {
                     if case .connected = self.state {} else {
                         self.state = .connected(name: name)
                     }
+                    self.lastForwardedBeatAt = Date()
                     self.hrSubject.send(frame)
                 }
             }

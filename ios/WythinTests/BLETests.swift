@@ -431,6 +431,40 @@ final class BLETests: XCTestCase {
                        "run restarted — only three plausible frames since the reset")
     }
 
+    // MARK: - Standby resume: genuine gap vs continuous data
+    //
+    // Forwarding plausible RR during standby (above) stopped a brief
+    // misclassification from costing data — but it also means a GENUINE
+    // standby, where the strap really was off for real minutes, now bridges
+    // that real gap silently: the last beat before removal and the first
+    // beat after re-donning sit directly adjacent in the RR array, with no
+    // marker between them. PRSA reads that seam as one ordinary beat-to-beat
+    // step, and with few beats yet in the post-gap window, that one
+    // artificial jump can dominate Vagal Tone/Throttle's average — exactly
+    // the spike reported right where a "no signal" band ends.
+    //
+    // The fix distinguishes the two cases by the one signal that actually
+    // tells them apart: whether a beat was forwarded recently. Continuous
+    // misclassification keeps forwarding throughout, so the gap since the
+    // last one stays tiny. A genuine standby forwards nothing for the whole
+    // real gap, so it doesn't.
+
+    func testStandbyGapPolicyDoesNotClearAfterContinuousForwarding() {
+        // ~1 Hz cadence; a couple of seconds since the last beat is normal.
+        XCTAssertFalse(StandbyGapPolicy.shouldClearOnResume(secondsSinceLastForwardedBeat: 2))
+    }
+
+    func testStandbyGapPolicyClearsAfterARealGap() {
+        XCTAssertTrue(StandbyGapPolicy.shouldClearOnResume(secondsSinceLastForwardedBeat: 180))
+    }
+
+    func testStandbyGapPolicyClearsWhenNothingWasEverForwarded() {
+        // First connection of a session, or a buffer that was already empty —
+        // clearing is a safe no-op, and treating "unknown" as "assume a gap"
+        // is the conservative direction to be wrong in.
+        XCTAssertTrue(StandbyGapPolicy.shouldClearOnResume(secondsSinceLastForwardedBeat: nil))
+    }
+
     // MARK: - Single-frame plausibility (forwarding during standby)
     //
     // `StandbyResumeGate.isPlausible` decides "has standby genuinely ended,"
