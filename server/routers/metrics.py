@@ -12,7 +12,8 @@ router = APIRouter(prefix="/v1/metrics", tags=["metrics"])
 
 _MAX_BATCH = 5000
 _COLS = ["mean_bpm","rmssd","sdnn","pnn50","lf_hf","rsa_ms","coherence","cbi",
-         "breath_bpm","dfa1","rcmse","pip","dc","vti","motion"]
+         "breath_bpm","dfa1","rcmse","pip","dc","vti","motion",
+         "signal_quality","rr_invalid_rate","ecg_quality_tier"]
 
 
 def _dt(s: str) -> datetime:

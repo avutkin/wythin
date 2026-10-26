@@ -831,7 +831,7 @@ async def activity_series(activity_id: str, buckets: int = 120):
         span = (window_end - window_start).total_seconds()
         bucket = timedelta(seconds=max(span / buckets, 1))
 
-        cols = _METRIC_COLS + ("motion",)
+        cols = _METRIC_COLS + ("motion", "signal_quality", "rr_invalid_rate", "ecg_quality_tier")
         avg_cols = ", ".join(f"AVG({c}) AS {c}" for c in cols)
         rows = await conn.fetch(
             f"""

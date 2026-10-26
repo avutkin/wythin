@@ -100,6 +100,15 @@ class MetricSample(BaseModel):
     pip: Optional[float] = None
     dc: Optional[float] = None
     vti: Optional[float] = None
+    # On-device read of how trustworthy this tick is — SignalQualityTier
+    # (0 poor … 2 good), the fraction of RR intervals dropped as implausible,
+    # and 1 - that fraction. Without these the server has no way to tell a
+    # garbage stretch of readings from a real one: a night that read 160 bpm
+    # with RMSSD 150 ms for ten hours (2026-10-24) looked, on its own numbers,
+    # like an outlier night rather than what it was — bad strap contact.
+    signal_quality: Optional[float] = None
+    rr_invalid_rate: Optional[float] = None
+    ecg_quality_tier: Optional[int] = None
 
 
 class MetricsUpload(BaseModel):

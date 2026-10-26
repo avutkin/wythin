@@ -187,6 +187,8 @@
   .montage .lane-val { font: 650 11px var(--mono); fill: var(--text); }
   .montage .grid { stroke: var(--border); stroke-width: 1; }
   .montage .awake { fill: #9e9e9e; opacity: .14; }
+  .montage .q-poor { fill: var(--warn); } .montage .q-okay { fill: var(--hold); } .montage .q-good { fill: var(--accent); }
+  .kpi .value.quality-poor { color: var(--warn); } .kpi .value.quality-okay { color: var(--hold); } .kpi .value.quality-good { color: var(--accent); }
   .montage .stage-conn { stroke: var(--dim); stroke-width: 1; opacity: .35; }
   .montage .line { fill: none; stroke-width: 1.6; }
   .montage .nadir { font: 650 10px var(--mono); }
@@ -996,7 +998,8 @@
       ["Activity", name], ["When", fmtTime(a.started_at)],
       ["Duration", dur == null ? "—" : fmt(dur, 0) + " <small>min</small>"],
     ].map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("")
-      + (a.activity_type === "Sleep" ? nightTile(a.sleep) : impactTile(a.impact));
+      + (a.activity_type === "Sleep" ? nightTile(a.sleep) : impactTile(a.impact))
+      + `<div id="quality-tile"></div>`;
     $("#night").style.display = a.activity_type === "Sleep" ? "" : "none";
     if (a.activity_type === "Sleep") renderNight(a);
     // The two % columns are benefit-signed and come from the server with the
@@ -1044,6 +1047,49 @@
   // A night's headline is its score — the app's five-section composite —
   // never the restorative score, which is built for a practice.
   const NIGHT_NOT_SYNCED = "recorded by an app build from before nights synced — the score, stages and position arrive once this phone runs the current build";
+
+  // ── Signal quality ───────────────────────────────────────────────────
+  // ecgQualityTier arrives bucket-averaged (AVG over possibly several ticks
+  // a bucket spans), so it lands anywhere in 0…2, not a clean integer. A
+  // bucket is called good only once its average sits mostly in the good
+  // tier, and poor the same way at the other end — the same two-sided cut
+  // that separated a night's one bad hour from its two clean ones when this
+  // was built (2026-10-24: ~160 bpm paired with ~150 ms RMSSD for ten hours,
+  // on a night with no way to tell "bad contact" from "an odd night" apart —
+  // see docs/superpowers/specs/2026-10-25-signal-quality-design.md).
+  const qualityTierOf = (v) => v == null ? null : v >= 1.5 ? "good" : v <= 0.5 ? "poor" : "okay";
+  const QUALITY_COLOR = { good: "var(--accent)", okay: "var(--hold)", poor: "var(--warn)" };
+  const QUALITY_LABEL = { good: "good", okay: "okay", poor: "poor" };
+  // One pass over the window's ticks: counts by tier, and the mean invalid-RR
+  // fraction among ticks that carried one. Used by both the KPI tile and the
+  // montage lane header, so the two numbers can never disagree.
+  function qualityStats(pts, x0, x1) {
+    const rows = pts.filter(p => p.t == null || (p.t >= x0 && p.t <= x1));
+    let good = 0, okay = 0, poor = 0, known = 0, invalidSum = 0, invalidN = 0;
+    for (const p of rows) {
+      const tier = qualityTierOf(p.ecg_quality_tier);
+      if (tier) { known++; if (tier === "good") good++; else if (tier === "okay") okay++; else poor++; }
+      if (p.rr_invalid_rate != null) { invalidSum += p.rr_invalid_rate; invalidN++; }
+    }
+    return { known, total: rows.length, good, okay, poor,
+             meanInvalid: invalidN ? invalidSum / invalidN : null };
+  }
+  // The KPI tile: one line, present for every activity type, not only sleep —
+  // a short meditation can have as bad a strap fit as a long night.
+  function signalQualityTile(pts, x0, x1) {
+    const withT = pts.map(p => ({ ...p, t: new Date(p.ts).getTime() }));
+    const st = qualityStats(withT, x0, x1);
+    if (!st.known) {
+      return `<div class="kpi"><div class="label">Signal quality</div><div class="value">—</div>
+        <div class="note">not in this upload — arrives from the current app build</div></div>`;
+    }
+    const pct = (n) => Math.round(n / st.known * 100);
+    const dom = st.good >= st.okay && st.good >= st.poor ? "good" : st.poor >= st.okay ? "poor" : "okay";
+    const invalid = st.meanInvalid == null ? "" : ` · ${Math.round(st.meanInvalid * 100)}% invalid RR`;
+    return `<div class="kpi"><div class="label">Signal quality</div>
+      <div class="value quality-${dom}">${pct(st.good)}%<small>good</small></div>
+      <div class="note">${pct(st.okay)}% okay · ${pct(st.poor)}% poor${invalid} · ${st.known} of ${st.total} ticks tiered</div></div>`;
+  }
   function nightTile(n) {
     if (!n) return `<div class="kpi"><div class="label">Night score</div><div class="value">—</div><div class="note">${NIGHT_NOT_SYNCED}</div></div>`;
     const secs = sectionsFor(n);
@@ -1309,6 +1355,33 @@
     }
     y += MH + 16;
 
+    // Signal quality — a tier strip, read first because it explains the
+    // traces below: a stretch that reads "poor" here is the reason a line
+    // further down might look nothing like sleep. One rect per tick, as
+    // Movement draws its ticks, so a short bad stretch is never averaged
+    // away into an innocent-looking blur.
+    const quality = pts.map(s => ({ t: new Date(s.ts).getTime(), tier: qualityTierOf(s.ecg_quality_tier) }))
+                       .filter(p => p.tier != null && p.t >= x0 && p.t <= x1);
+    const QH = 16;
+    const qStats = qualityStats(pts.map(s => ({ t: new Date(s.ts).getTime(), ecg_quality_tier: s.ecg_quality_tier, rr_invalid_rate: s.rr_invalid_rate })), x0, x1);
+    const qVal = qStats.known
+      ? `${Math.round(qStats.good / qStats.known * 100)}% good`
+      : "";
+    el += laneHead(y, "Signal quality", "ECG artifact tier", qVal);
+    if (quality.length) {
+      el += `<rect x="${L}" y="${y}" width="${(W - L - R).toFixed(1)}" height="${QH}" fill="var(--border)" opacity=".5"/>`;
+      quality.forEach(p => {
+        el += `<rect class="q-${p.tier}" x="${(px(p.t) - 1).toFixed(1)}" y="${y}" width="2" height="${QH}"/>`;
+      });
+      const pct = (n) => qStats.known ? Math.round(n / qStats.known * 100) : 0;
+      el += `<text class="clock" x="${W - R}" y="${y - 3}" text-anchor="end">${pct(qStats.okay)}% okay · ${pct(qStats.poor)}% poor</text>`;
+    } else {
+      el += `<text class="clock" x="${L}" y="${y + 12}">signal quality is not in this phone's synced ticks yet — it syncs from the current app build</text>`;
+    }
+    // laneHead's third line sits at y+37 regardless of the strip's own
+    // height; the gap after a lane has to clear that, not just the strip.
+    y += QH + 28;
+
     // Metric lanes from the tick stream, clipped to the night.
     const series = (col) => pts.map(s => ({ t: new Date(s.ts).getTime(), v: s[col] }))
                                .filter(p => p.v != null && isFinite(p.v) && p.t >= x0 && p.t <= x1);
@@ -1371,7 +1444,7 @@
     svg.setAttribute("viewBox", `0 0 ${W} ${y + 32}`);
     svg.style.height = (y + 32) + "px";
     svg.innerHTML = el;
-    $("#montage-note").textContent = "How the stages were read: N2 and N3 are measured — the depth axis is coherence, variability and heart rate, ranked within this night. N1 is positional: it marks the light sleep either side of a wake bout. Stage totals are cut at typical adult shares, so read the shape rather than the minutes. Wake is the least reliable channel any wearable has — treat the awake minutes as approximate. The hypnogram and position come from the app's own record of the night; every trace is the synced ticks, bucketed to a minute.";
+    $("#montage-note").textContent = "Signal quality is the on-device read of how much to trust a stretch of readings: a 'poor' tier means the metric lines below it should not be taken at face value — values during a poor stretch can run far outside anything physiological. How the stages were read: N2 and N3 are measured — the depth axis is coherence, variability and heart rate, ranked within this night. N1 is positional: it marks the light sleep either side of a wake bout. Stage totals are cut at typical adult shares, so read the shape rather than the minutes. Wake is the least reliable channel any wearable has — treat the awake minutes as approximate. The hypnogram and position come from the app's own record of the night; every trace is the synced ticks, bucketed to a minute.";
   }
 
   // One card per metric: three bars — before, during, after — so the shape of
@@ -1391,6 +1464,7 @@
     const pts = d.samples || [];
     if (!pts.length) {
       host.innerHTML = `<div class="empty">no per-tick data recorded around this activity</div>`;
+      $("#quality-tile").outerHTML = signalQualityTile([], 0, 0);
       if (a.activity_type === "Sleep") { drawMontage(a, []); if (a.sleep) renderHighlights(a, []); };
       return;
     }
@@ -1400,6 +1474,7 @@
       wStart: new Date(d.window_start).getTime(),
       wEnd:   new Date(d.window_end).getTime(),
     };
+    $("#quality-tile").outerHTML = signalQualityTile(pts, meta.wStart, meta.wEnd);
     if (a.activity_type === "Sleep") { drawMontage(a, pts); if (a.sleep) renderHighlights(a, pts); }
     host.innerHTML = ACT_METRICS.map(([label, key, dp, higherBetter]) => {
       const col = ACT_SERIES_COL[key];

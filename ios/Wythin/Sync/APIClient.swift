@@ -286,6 +286,15 @@ struct MetricSamplePayload: Codable {
     /// so a night that scored wrong could only be examined with the phone in
     /// hand, and the tools in tools/ could not reproduce what the device did.
     let motion: Float?
+    /// How trustworthy this tick is, read on-device: 1 − the fraction of RR
+    /// intervals dropped as implausible, that fraction itself, and the ECG
+    /// artifact tier (0 poor … 2 good). Sent for the same reason motion is —
+    /// a night that read 160 bpm with RMSSD 150 ms for ten hours (2026-10-24)
+    /// looked, on its stored numbers alone, like an outlier night rather than
+    /// what it was: bad strap contact for most of it.
+    let signal_quality: Float?
+    let rr_invalid_rate: Float?
+    let ecg_quality_tier: Int?
 }
 struct MetricsUploadPayload: Codable { let samples: [MetricSamplePayload] }
 
@@ -297,6 +306,11 @@ struct MetricExportSample: Codable {
     let coherence, cbi, breath_bpm, dfa1, rcmse, pip, dc, vti: Float?
     /// Optional so a page written before motion was carried still decodes.
     let motion: Float?
+    /// Optional for the same reason: a page written before quality was
+    /// carried still decodes, with these nil.
+    let signal_quality: Float?
+    let rr_invalid_rate: Float?
+    let ecg_quality_tier: Int?
 }
 
 struct MetricExportPage: Codable {
@@ -637,7 +651,9 @@ final class MetricSyncService {
                 mean_bpm: s.meanBPM, rmssd: s.rmssd, sdnn: s.sdnn, pnn50: s.pnn50,
                 lf_hf: s.lfHF, rsa_ms: s.rsaMs, coherence: s.coherence, cbi: s.cbi,
                 breath_bpm: s.breathBPM, dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip,
-                dc: s.dc, vti: s.vti, motion: s.motion) })
+                dc: s.dc, vti: s.vti, motion: s.motion,
+                signal_quality: s.signalQuality, rr_invalid_rate: s.rrInvalidRate,
+                ecg_quality_tier: s.ecgQualityTier) })
         if (try? await client.uploadMetrics(payload, userID: userID)) != nil,
            let last = samples.last {
             lastSyncedISO = iso.string(from: last.timestamp)

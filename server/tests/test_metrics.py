@@ -149,3 +149,33 @@ async def test_a_sample_carrying_only_motion_is_still_a_reading():
         ]})
         assert r.status_code == 200, r.text
         assert r.json()["stored"] == 1
+
+
+@pytest.mark.asyncio
+async def test_signal_quality_round_trips_through_upload_and_export():
+    """signal_quality, rr_invalid_rate and ecg_quality_tier are the on-device
+    read of how trustworthy a tick is — the night that read 160 bpm with
+    RMSSD 150 ms for ten hours (2026-10-24) carried no such signal on the
+    server, so there was no way to tell a garbage stretch from a real one
+    without SSHing in and eyeballing raw numbers. They must survive the
+    round trip or the dashboard has nothing to show."""
+    import uuid
+    device = f"ms-quality-{uuid.uuid4().hex[:8]}"
+    async with _client() as c:
+        r = await c.post("/v1/metrics", headers={"X-User-ID": device}, json={"samples": [
+            {"ts": "2026-10-24T04:00:00Z", "mean_bpm": 58.0,
+             "signal_quality": 0.97, "rr_invalid_rate": 0.01, "ecg_quality_tier": 2},
+            {"ts": "2026-10-24T08:00:00Z", "mean_bpm": 165.0,
+             "signal_quality": 0.12, "rr_invalid_rate": 0.74, "ecg_quality_tier": 0},
+            {"ts": "2026-10-24T12:00:00Z", "mean_bpm": 60.0},  # no quality carried
+        ]})
+        assert r.status_code == 200, r.text
+        assert r.json()["stored"] == 3
+
+        page = (await c.get("/v1/metrics/export", headers={"X-User-ID": device})).json()
+        s = page["samples"]
+        assert s[0]["signal_quality"] == pytest.approx(0.97, abs=0.01)
+        assert s[0]["rr_invalid_rate"] == pytest.approx(0.01, abs=0.01)
+        assert s[0]["ecg_quality_tier"] == 2
+        assert s[1]["ecg_quality_tier"] == 0 and s[1]["rr_invalid_rate"] == pytest.approx(0.74, abs=0.01)
+        assert s[2]["ecg_quality_tier"] is None, "a sample that carried no quality stays null, not zero"

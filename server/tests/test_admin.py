@@ -788,6 +788,41 @@ async def test_a_nights_series_carries_movement_at_the_resolution_asked():
 
 
 @pytest.mark.asyncio
+async def test_a_nights_series_carries_the_quality_tier_per_bucket():
+    """The montage's quality lane needs to know, bucket by bucket, whether the
+    signal behind a reading can be trusted. A night with a clean first hour
+    and a garbage middle hour must show that shape, not an average blur of
+    the two. Requires a database."""
+    import uuid
+    from datetime import datetime, timezone, timedelta
+    dev = f"test-night-quality-{uuid.uuid4().hex[:6]}"
+    start = datetime(2025, 7, 2, 23, 0, tzinfo=timezone.utc)
+    samples = []
+    for i in range(0, 2 * 3600, 30):
+        t = start + timedelta(seconds=i)
+        bad = 3600 <= i < 5400  # the second half-hour is garbage
+        samples.append({"ts": t.isoformat(),
+                        "mean_bpm": 165.0 if bad else 58.0,
+                        "signal_quality": 0.1 if bad else 0.95,
+                        "rr_invalid_rate": 0.7 if bad else 0.02,
+                        "ecg_quality_tier": 0 if bad else 2})
+    async with _client() as client:
+        for k in range(0, len(samples), 500):
+            r = await client.post("/v1/metrics", json={"samples": samples[k:k + 500]}, headers={"X-User-ID": dev})
+            assert r.status_code == 200, r.text
+        up = await client.post("/activities", headers={"X-User-ID": dev}, json={
+            "id": str(uuid.uuid4()), "activity_type": "Sleep",
+            "started_at": start.isoformat(), "ended_at": (start + timedelta(hours=2)).isoformat()})
+        sid = up.json()["id"]
+        fine = (await client.get(f"/admin/activities/{sid}/series", params={"buckets": 480})).json()["samples"]
+    clean = [s for s in fine if s["ecg_quality_tier"] is not None and s["ts"] < samples[119]["ts"]]
+    garbage = [s for s in fine if s["ecg_quality_tier"] is not None and samples[120]["ts"] <= s["ts"] < samples[179]["ts"]]
+    assert clean and all(s["ecg_quality_tier"] >= 1.5 for s in clean), "the clean half reads as good tier"
+    assert garbage and all(s["ecg_quality_tier"] <= 0.5 for s in garbage), "the garbage half reads as poor tier"
+    assert all(s["rr_invalid_rate"] is None or 0 <= s["rr_invalid_rate"] <= 1 for s in fine)
+
+
+@pytest.mark.asyncio
 async def test_a_phone_that_never_said_its_zone_gets_one_from_its_nights():
     """A build before 126 sends no zone. The person's nights still place
     them: two nights with midpoints near 00:45 UTC read as UTC+3, and the

@@ -95,18 +95,20 @@ final class HRVSample {
 
     /// Restore initializer: exactly the fields continuous sync uploads, so a
     /// cloud read-back round-trips to the same shape it left in. Everything
-    /// sync never carried (powers, quality, position…) stays nil — restored
-    /// history is chart-and-baseline grade, not raw-signal grade.
+    /// sync never carried (powers, position…) stays nil — restored history is
+    /// chart-and-baseline grade, not raw-signal grade.
     ///
-    /// `motion` is the exception, and defaults to nil so a page uploaded before
-    /// it was carried still restores. It is here because the sleep pipeline
-    /// cannot be reproduced without it: a restored night missing motion scores
-    /// differently from the night the device actually recorded.
+    /// `motion` and the quality triad are the exceptions, and default to nil
+    /// so a page uploaded before they were carried still restores. Motion is
+    /// here because the sleep pipeline cannot be reproduced without it; the
+    /// quality fields are here because without them a restored night cannot
+    /// be told apart from a garbage one — the whole point of carrying them.
     init(cloudTs: Date,
          meanBPM: Float?, rmssd: Float?, sdnn: Float?, pnn50: Float?,
          lfHF: Float?, rsaMs: Float?, coherence: Float?, cbi: Float?,
          breathBPM: Float?, dfa1: Float?, rcmse: Float?, pip: Float?,
-         dc: Float?, vti: Float?, motion: Float? = nil) {
+         dc: Float?, vti: Float?, motion: Float? = nil,
+         signalQuality: Float? = nil, rrInvalidRate: Float? = nil, ecgQualityTier: Int? = nil) {
         self.timestamp = cloudTs
         self.meanBPM   = meanBPM
         self.rmssd     = rmssd
@@ -125,9 +127,12 @@ final class HRVSample {
         self.motion    = motion
 
         self.ac = nil
-        self.rsaIdx = nil; self.ieRatio = nil; self.signalQuality = nil
+        self.rsaIdx = nil; self.ieRatio = nil
+        self.signalQuality  = signalQuality
         self.breathSourceRaw = nil
-        self.rrInvalidRate = nil; self.rrCorrectedRate = nil; self.ecgQualityTier = nil
+        self.rrInvalidRate   = rrInvalidRate
+        self.rrCorrectedRate = nil
+        self.ecgQualityTier  = ecgQualityTier
         self.ials = nil
         self.pss = nil; self.hra = nil; self.qtvi = nil
         self.bodyPositionRaw = nil; self.positionConfidence = nil

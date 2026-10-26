@@ -115,6 +115,8 @@ CREATE TABLE IF NOT EXISTS metric_samples (
     mean_bpm REAL, rmssd REAL, sdnn REAL, pnn50 REAL, lf_hf REAL, rsa_ms REAL,
     coherence REAL, cbi REAL, breath_bpm REAL,
     dfa1 REAL, rcmse REAL, pip REAL, dc REAL, vti REAL,
+    -- How trustworthy this tick is, read on-device — see server/models.py.
+    signal_quality REAL, rr_invalid_rate REAL, ecg_quality_tier SMALLINT,
     PRIMARY KEY (user_id, ts)
 );
 CREATE INDEX IF NOT EXISTS metric_samples_user_ts ON metric_samples(user_id, ts);
@@ -182,6 +184,10 @@ CREATE INDEX IF NOT EXISTS usage_events_user_ts ON usage_events(user_id, ts);
 -- and the profiling tools in tools/ were structurally unable to reproduce what
 -- the device did. See tools/nights.sql.
 ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS motion REAL;
+-- Signal-quality telemetry — see server/models.py and docs/superpowers/specs/2026-10-25-signal-quality-design.md.
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS signal_quality REAL;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS rr_invalid_rate REAL;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS ecg_quality_tier SMALLINT;
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS impact_delta_pct REAL;
 -- Breath Rate, the ninth named metric, added once it earned a tile of its own.
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS before_breath REAL;
