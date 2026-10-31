@@ -799,6 +799,7 @@ final class BLEService: NSObject {
     func enterStandby() {
         guard case .connected = state, let p = peripheral, !inStandby else { return }
         print("🌙 BLE: entering standby — strap off-body (paused in place)")
+        BLEDiag.log("STANDBY enter")
         inStandby = true
         resumeGate = StandbyResumeGate()   // fresh run for the wake decision
         standbyEnteredAt = Date()          // starts the resume grace window
@@ -834,6 +835,7 @@ final class BLEService: NSObject {
             connectionGapSubject.send()
         }
         print("🌙 BLE: resuming from standby — strap worn again")
+        BLEDiag.log("STANDBY resume")
         inStandby = false
         state = .connected(name: name)
         startPMDStreams()
@@ -1168,6 +1170,7 @@ final class BLEService: NSObject {
     /// Keeps the peripheral reference and attempts a direct reconnect (no scan needed —
     /// iOS will reconnect to the known peripheral as soon as it's available).
     private func handleUnexpectedDisconnect(_ p: CBPeripheral, error: Error?) {
+        BLEDiag.log("DISCONNECT unexpected: \(error?.localizedDescription ?? "no error")")
         connectionTimeoutTask?.cancel()
         reconnectTask?.cancel()
         clearCharacteristics()          // keep `peripheral` for the pending reconnect

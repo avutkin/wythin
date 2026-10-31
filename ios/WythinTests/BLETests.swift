@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import Wythin
 
 /// BLE packet parser tests — run on simulator or device.
@@ -689,5 +690,21 @@ final class BLETests: XCTestCase {
         await buf.appendRR([800, 200, 800, 2500, 800])   // 200 and 2500 are artifacts
         let snap = await buf.snapshot()
         XCTAssertEqual(snap.rr.count, 3, "Artifacts should be rejected on append")
+    }
+}
+
+/// A system relaunch for Bluetooth state restoration starts the app in the
+/// background with no scene phase change to follow. The foreground flag must
+/// come from the launch state, or the app runs its on-screen workload in the
+/// background until iOS stops it.
+final class LaunchForegroundTests: XCTestCase {
+    func testBackgroundLaunchIsNotForeground() {
+        XCTAssertFalse(LaunchForeground.isForeground(.background))
+    }
+
+    func testNormalColdLaunchIsForeground() {
+        // A tap-to-open cold launch is still `.inactive` while `init` runs.
+        XCTAssertTrue(LaunchForeground.isForeground(.inactive))
+        XCTAssertTrue(LaunchForeground.isForeground(.active))
     }
 }

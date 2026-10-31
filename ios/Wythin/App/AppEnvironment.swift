@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import Combine
+import UIKit
 
 // MARK: - WaveformDisplay
 //
@@ -18,6 +19,21 @@ final class WaveformDisplay {
 //
 // Single dependency container injected at the root.
 // All services are long-lived and share state.
+
+/// Whether the app counts as on screen at the moment `AppEnvironment` is built.
+///
+/// The flag used to default to `true` and change only on a scene phase change.
+/// A Bluetooth state-restoration relaunch starts in `.background` and never
+/// changes phase, so the app ran its on-screen workload in the background:
+/// a full metrics pass every 2 s instead of 30, the 10 fps waveform loop, and
+/// the live WebSocket stream. iOS throttled and then stopped it, and the
+/// server saw 37-second bursts of 2-second points, then silence.
+/// A tap-to-open cold launch is still `.inactive` while `init` runs.
+enum LaunchForeground {
+    static func isForeground(_ state: UIApplication.State) -> Bool {
+        state != .background
+    }
+}
 
 @MainActor
 @Observable
@@ -63,6 +79,9 @@ final class AppEnvironment {
 
     var isInForeground: Bool = true {
         didSet {
+            if oldValue != isInForeground {
+                BLEDiag.log("PHASE foreground=\(isInForeground) ble=\(ble.state)")
+            }
             if !isInForeground {
                 // Flush pending writes immediately when leaving foreground
                 // so data isn't lost if the OS terminates the process.
@@ -414,6 +433,11 @@ final class AppEnvironment {
     /// Berger's index wants hundreds.
     private let qtTracker = QTTracker()
     private var lastBreathTickAt: Date?
+    /// Every computed tick, foreground or background — see the off-body check.
+    private var lastComputedTick: MetricsTick?
+    /// Background ticks since launch, for the diagnostic heartbeat.
+    private var backgroundTickCount = 0
+    private var lifecycleObservers: [NSObjectProtocol] = []
 
     // MARK: Init
 
@@ -427,6 +451,16 @@ final class AppEnvironment {
                                            notifier: CheckInNotificationService(),
                                            client: sync.client,
                                            userID: AppEnvironment.currentUserID())
+
+        // Before any loop starts: a restoration relaunch is a background launch
+        // and no scene phase change will ever say so. See `LaunchForeground`.
+        let launchState = UIApplication.shared.applicationState
+        if !LaunchForeground.isForeground(launchState) {
+            foregroundStart = nil   // no on-screen interval to log
+            isInForeground = false
+        }
+        BLEDiag.log("LAUNCH state=\(launchState.rawValue) foreground=\(isInForeground)")
+        observeLifecycleForDiagnostics()
 
         bindBLE()
         loadHistory()
@@ -716,9 +750,9 @@ final class AppEnvironment {
         // DEAD counts as bad, not as absent: when the strap comes off, data
         // stops entirely — and "no data" once read as "no problem".
         let ecgPoor = !ble.heartbeatLive || !ble.ecgStreamLive
-                      || latestTick?.ecgQuality?.tier == .poor
+                      || lastComputedTick?.ecgQuality?.tier == .poor
         let rrBad   = !ble.rrIntervalsLive
-                      || (latestTick?.signalQuality.map { $0 < 0.5 } ?? false)
+                      || (lastComputedTick?.signalQuality.map { $0 < 0.5 } ?? false)
         let still   = accMotion.map { $0 < self.accStillnessThreshold } ?? false
         let score   = StandbyPolicy.offBodyScore(
             contact: contact, ecgPoor: ecgPoor, rrBad: rrBad, still: still)
@@ -747,6 +781,25 @@ final class AppEnvironment {
             return v.squareRoot()
         }
         return (std(w.map(\.x)) + std(w.map(\.y)) + std(w.map(\.z))) / 3
+    }
+
+    // MARK: - Lifecycle diagnostics
+
+    /// Memory pressure and termination are the two ways iOS ends a background
+    /// recording without the app ever seeing a disconnect. Neither was logged,
+    /// so a silent night could not be told apart from a dropped strap.
+    private func observeLifecycleForDiagnostics() {
+        let center = NotificationCenter.default
+        lifecycleObservers.append(center.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil, queue: .main) { _ in
+                BLEDiag.log("MEMORY WARNING")
+            })
+        lifecycleObservers.append(center.addObserver(
+            forName: UIApplication.willTerminateNotification,
+            object: nil, queue: .main) { _ in
+                BLEDiag.log("WILL TERMINATE")
+            })
     }
 
     // MARK: - Usage telemetry
@@ -934,6 +987,17 @@ final class AppEnvironment {
                 self.evaluateNudgesIfDue(now: point.timestamp)
                 self.detectAnchorIfDue(now: point.timestamp)
                 self.recordSleepIfDue(now: point.timestamp)
+
+                // The off-body check needs signal quality in the background
+                // too. `latestTick` is foreground-only, so it used to freeze at
+                // the last on-screen value the moment the app left the screen.
+                self.lastComputedTick = tick
+                self.backgroundTickCount += inForeground ? 0 : 1
+                if !inForeground, self.backgroundTickCount % 10 == 1 {
+                    // One line every ~5 min of background recording: proves the
+                    // loop is alive and shows exactly when it stopped.
+                    BLEDiag.log("BG TICK n=\(self.backgroundTickCount) ble=\(self.ble.state)")
+                }
 
                 // ── Foreground-only: live table + live cloud stream ───────────
                 if inForeground {
