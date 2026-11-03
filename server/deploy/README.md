@@ -81,10 +81,13 @@ most; say the word if you want it.
 
 ## Raw Polar archive
 
+For the verified Helsinki production server, proposed 500 GB Volume, cost gate,
+activation checks, and backup requirement, see [RAW_ARCHIVE_HETZNER.md](RAW_ARCHIVE_HETZNER.md).
+
 Full ECG/ACC/RR capture needs a dedicated, expandable volume or an object-store
 mount; the API server's system disk is too small for indefinite retention.
-Mount it at `/mnt/wythin-raw`, make the existing `wythin` service user its owner,
-and set `RAW_ARCHIVE_ROOT=/mnt/wythin-raw` in `server/deploy/.env`. The API
+Point `RAW_ARCHIVE_ROOT` at the actual mount point and give the API service
+user write access (`pulsar` on the current production server). The API
 returns 503 when the setting or mount is absent, leaving the phone's local
 segments queued. Back up both this volume and PostgreSQL's `raw_chunks` index
 together; one without the other cannot restore the archive. Monitor free space,
