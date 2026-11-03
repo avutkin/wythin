@@ -54,21 +54,29 @@ struct BreathRateTracker {
     /// concedes the breathing really did change and re-seeds. Three ticks ≈ 6 s
     /// of consistent evidence.
     static let outliersBeforeReseed = 3
+    /// An old rate is useful across a brief unreadable spectrum, but after
+    /// half a minute without a new estimate it is no longer a measurement.
+    static let maxUnobservedSeconds: Float = 30
 
     private(set) var bpm: Float?
     private var variance: Float = 0
     private var outliers: [Float] = []
+    private var unobservedSeconds: Float = 0
 
     /// Folds this tick's estimates into the tracked rate and returns it.
     ///
     /// - Parameters:
     ///   - candidates: every estimator that produced a reading this tick.
-    ///     Empty means nothing was measurable — the tracked value is held, not
-    ///     cleared, because a momentarily unreadable spectrum is not evidence
-    ///     that breathing stopped.
+    ///     Empty means nothing was measurable. Brief gaps hold the last value;
+    ///     longer gaps return nil rather than claiming an old rate is current.
     ///   - dt: seconds since the previous update.
     mutating func update(_ candidates: [Estimate], dt: Float) -> Float? {
-        guard let fused = Self.fuse(candidates) else { return bpm }
+        guard let fused = Self.fuse(candidates) else {
+            unobservedSeconds += max(dt, 0)
+            if unobservedSeconds >= Self.maxUnobservedSeconds { reset() }
+            return bpm
+        }
+        unobservedSeconds = 0
 
         guard var x = bpm else {          // first reading seeds the filter
             bpm = fused.bpm
@@ -137,5 +145,6 @@ struct BreathRateTracker {
         bpm = nil
         variance = 0
         outliers.removeAll()
+        unobservedSeconds = 0
     }
 }

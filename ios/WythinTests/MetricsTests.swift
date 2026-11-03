@@ -5,6 +5,23 @@ import XCTest
 /// Reference values produced by running metrics.py with the same inputs.
 final class MetricsTests: XCTestCase {
 
+    func testSensorDrivenScheduleAcceptsFreshRRWithoutTimerWake() {
+        var schedule = MetricTriggerPolicy(minInterval: 2)
+        let start = Date(timeIntervalSince1970: 100)
+        XCTAssertTrue(schedule.acceptSensorFrame(at: start, hasRR: true))
+        XCTAssertFalse(schedule.acceptSensorFrame(at: start.addingTimeInterval(1), hasRR: true))
+        XCTAssertTrue(schedule.acceptSensorFrame(at: start.addingTimeInterval(2.1), hasRR: true))
+    }
+
+    func testSensorDrivenScheduleRejectsEmptyFramesAndClearsAfterGap() {
+        var schedule = MetricTriggerPolicy(minInterval: 2)
+        let start = Date(timeIntervalSince1970: 100)
+        XCTAssertFalse(schedule.acceptSensorFrame(at: start, hasRR: false))
+        XCTAssertTrue(schedule.acceptSensorFrame(at: start, hasRR: true))
+        schedule.reset()
+        XCTAssertTrue(schedule.acceptSensorFrame(at: start.addingTimeInterval(0.1), hasRR: true))
+    }
+
     // MARK: - HRV time-domain
 
     func testRMSSD() {

@@ -44,8 +44,10 @@ enum BedtimeConsistency {
         var sumSin = 0.0, sumCos = 0.0
         for w in windows {
             let comps = cal.dateComponents([.hour, .minute, .second], from: w.startedAt)
-            let seconds = Double((comps.hour ?? 0) * 3600 + (comps.minute ?? 0) * 60
-                                 + (comps.second ?? 0))
+            let hour = comps.hour ?? 0
+            let minute = comps.minute ?? 0
+            let second = comps.second ?? 0
+            let seconds = Double(hour * 3600 + minute * 60 + second)
             let angle = 2 * .pi * seconds / 86_400
             sumSin += sin(angle)
             sumCos += cos(angle)

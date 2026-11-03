@@ -2,8 +2,9 @@
 Shared-key gated; scoped to the caller's user via X-User-ID."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException
-from datetime import datetime, timezone
+from fastapi import APIRouter, Header, HTTPException, Query
+from datetime import datetime, timedelta, timezone
+import math
 
 from ..db import get_pool, get_or_create_user
 from ..models import MetricsUpload
@@ -18,6 +19,59 @@ _COLS = ["mean_bpm","rmssd","sdnn","pnn50","lf_hf","rsa_ms","coherence","cbi",
 
 def _dt(s: str) -> datetime:
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+@router.get("/minutes")
+async def minute_metrics(
+    start: datetime = Query(...),
+    end: datetime = Query(...),
+    x_user_id: str = Header(..., alias="X-User-ID"),
+):
+    """One-minute summaries of the existing two-second scalar samples.
+
+    Empty minutes are explicit. Each metric has its own non-null count: a
+    present heart-rate value does not imply breathing was measured. The raw
+    two-second samples remain available for closer event analysis.
+    """
+    if (start.tzinfo is None or end.tzinfo is None or end <= start
+            or end - start > timedelta(days=1)):
+        raise HTTPException(status_code=422, detail="use an aware, positive range of at most 24 hours")
+    start = start.astimezone(timezone.utc)
+    end = end.astimezone(timezone.utc)
+    user_id = await get_or_create_user(x_user_id)
+    aggregates = ["COUNT(*) AS sample_count"]
+    for c in _COLS:
+        aggregates.extend((f"AVG({c}) AS {c}_mean", f"MIN({c}) AS {c}_min",
+                           f"MAX({c}) AS {c}_max", f"COUNT({c}) AS {c}_count"))
+    rows = await get_pool().fetch(
+        "SELECT date_trunc('minute', ts) AS bucket, " + ", ".join(aggregates)
+        + " FROM metric_samples WHERE user_id = $1 AND ts >= $2 AND ts < $3"
+          " GROUP BY bucket ORDER BY bucket", user_id, start, end)
+    by_bucket = {r["bucket"]: r for r in rows}
+    cursor = start.replace(second=0, microsecond=0)
+    minutes = []
+    while cursor < end:
+        row = by_bucket.get(cursor)
+        window_start = max(start, cursor)
+        window_end = min(end, cursor + timedelta(minutes=1))
+        expected = math.ceil((window_end - window_start).total_seconds() / 2)
+        count = row["sample_count"] if row else 0
+        metrics = {
+            c: {
+                "mean": row[f"{c}_mean"] if row else None,
+                "min": row[f"{c}_min"] if row else None,
+                "max": row[f"{c}_max"] if row else None,
+                "count": row[f"{c}_count"] if row else 0,
+            } for c in _COLS
+        }
+        minutes.append({
+            "start": cursor.isoformat(), "sample_count": count,
+            "expected_samples": expected,
+            "coverage": min(count / expected, 1) if expected else 0,
+            "metrics": metrics,
+        })
+        cursor += timedelta(minutes=1)
+    return {"minutes": minutes}
 
 
 @router.post("")
@@ -64,11 +118,13 @@ async def export_metrics(
     after = _dt(cursor) if cursor else datetime(1970, 1, 1, tzinfo=timezone.utc)
     pool = await get_pool()
     rows = await pool.fetch(
-        f"SELECT ts, {', '.join(_COLS)} FROM metric_samples "
+        f"SELECT ts, received_at, {', '.join(_COLS)} FROM metric_samples "
         "WHERE user_id = $1 AND ts > $2 ORDER BY ts LIMIT $3",
         user_id, after, limit)
     samples = [
-        {"ts": r["ts"].isoformat(), **{c: r[c] for c in _COLS}}
+        {"ts": r["ts"].isoformat(),
+         "received_at": r["received_at"].isoformat() if r["received_at"] else None,
+         **{c: r[c] for c in _COLS}}
         for r in rows
     ]
     return {

@@ -106,7 +106,10 @@ struct ContentView: View {
     // explicit, informed choice on first launch after onboarding).
     @AppStorage("didShowCloudSyncNotice") private var didShowCloudSyncNotice = false
     @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
+    @AppStorage("rawCloudSyncEnabled") private var rawCloudSyncEnabled = false
+    @AppStorage("didShowRawArchiveNotice") private var didShowRawArchiveNotice = false
     @State private var showCloudNotice = false
+    @State private var showRawNotice = false
     @State private var nudgePractice: NudgePractice?
 
     var body: some View {
@@ -206,13 +209,42 @@ struct ContentView: View {
             env.pendingTabRequest = nil
         }
         .onAppear {
-            if !didShowCloudSyncNotice { showCloudNotice = true }
+            if !didShowCloudSyncNotice {
+                showCloudNotice = true
+            } else if RawArchiveFeature.isAvailable && !didShowRawArchiveNotice {
+                showRawNotice = true
+            }
         }
-        .sheet(isPresented: $showCloudNotice) {
+        .sheet(isPresented: $showCloudNotice, onDismiss: {
+            if didShowCloudSyncNotice && RawArchiveFeature.isAvailable && !didShowRawArchiveNotice {
+                showRawNotice = true
+            }
+        }) {
             CloudSyncNoticeView(
-                onKeepOn:  { cloudSyncEnabled = true;  didShowCloudSyncNotice = true; showCloudNotice = false },
+                onKeepOn:  {
+                    cloudSyncEnabled = true
+                    didShowCloudSyncNotice = true
+                    showCloudNotice = false
+                    Task { await env.metricSync.syncIfEnabled() }
+                },
                 onTurnOff: { cloudSyncEnabled = false; didShowCloudSyncNotice = true; showCloudNotice = false }
             )
+            .interactiveDismissDisabled()
+        }
+        .sheet(isPresented: $showRawNotice) {
+            RawArchiveNoticeView(
+                onEnable: {
+                    cloudSyncEnabled = true
+                    rawCloudSyncEnabled = true
+                    didShowRawArchiveNotice = true
+                    showRawNotice = false
+                    Task { await env.rawSync?.syncIfEnabled() }
+                },
+                onLocalOnly: {
+                    rawCloudSyncEnabled = false
+                    didShowRawArchiveNotice = true
+                    showRawNotice = false
+                })
             .interactiveDismissDisabled()
         }
         // ── Nudges ────────────────────────────────────────────────────────
@@ -274,6 +306,52 @@ struct ContentView: View {
                                       client: env.sync.client)
             selectedTab = .activities
         }
+    }
+}
+
+private struct RawArchiveNoticeView: View {
+    let onEnable: () -> Void
+    let onLocalOnly: () -> Void
+
+    var body: some View {
+        VStack(spacing: 22) {
+            Spacer()
+            Image(systemName: "waveform.path.ecg.rectangle")
+                .font(.system(size: 44, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+            Text("Archive the full Polar signal?")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(Theme.text)
+                .multilineTextAlignment(.center)
+            VStack(spacing: 12) {
+                Text("Wythin records every ECG, motion and heart-rate packet delivered by your strap. The full signal can be uploaded to your private cloud archive without reducing its resolution.")
+                Text("The archive has no automatic expiry and may use hundreds of MB per day. You can stop uploads or delete your cloud data in Settings. Until you choose, raw recordings stay on this device.")
+            }
+            .font(.system(size: 14))
+            .foregroundStyle(Theme.dim)
+            .multilineTextAlignment(.center)
+            .lineSpacing(4)
+            .padding(.horizontal, 28)
+            Spacer()
+            VStack(spacing: 10) {
+                Button(action: onEnable) {
+                    Text("Archive full signal in cloud")
+                        .font(Theme.monoBody).foregroundStyle(Theme.bg)
+                        .frame(maxWidth: .infinity).padding(.vertical, 14)
+                        .background(Theme.accent).clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                Button(action: onLocalOnly) {
+                    Text("Keep raw signal on this device")
+                        .font(Theme.monoBody).foregroundStyle(Theme.dim)
+                        .frame(maxWidth: .infinity).padding(.vertical, 14)
+                        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.bg)
     }
 }
 

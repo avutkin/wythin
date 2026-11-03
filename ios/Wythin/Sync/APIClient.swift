@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import SwiftUI
+import CryptoKit
 
 // MARK: - Wire types (Codable)
 
@@ -365,8 +366,13 @@ struct UploadResponse: Codable {
 
 struct APIClient {
     let baseURL: URL
-    private let session = URLSession.shared
+    private let session: URLSession
     private let iso = ISO8601DateFormatter()
+
+    init(baseURL: URL, session: URLSession = .shared) {
+        self.baseURL = baseURL
+        self.session = session
+    }
 
     // MARK: Sessions
 
@@ -432,11 +438,27 @@ struct APIClient {
 
     // MARK: Continuous metric sync
 
+    func rawChunkRequest(_ file: URL, userID: String) throws -> URLRequest {
+        let bytes = try Data(contentsOf: file)
+        let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        let id = file.deletingPathExtension().lastPathComponent
+        var req = request(path: "/v1/raw/chunks/\(id)", method: "POST")
+        req.setValue("application/x-ndjson", forHTTPHeaderField: "Content-Type")
+        req.setValue(userID, forHTTPHeaderField: "X-User-ID")
+        req.setValue(digest, forHTTPHeaderField: "X-Chunk-SHA256")
+        req.timeoutInterval = 120
+        return req
+    }
+
     func uploadMetrics(_ payload: MetricsUploadPayload, userID: String) async throws -> MetricsUploadResponse {
         var req = request(path: "/v1/metrics", method: "POST")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
-        let (data, _) = try await session.data(for: req)
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
         return try JSONDecoder().decode(MetricsUploadResponse.self, from: data)
     }
 
@@ -566,28 +588,170 @@ struct APIClient {
     }
 }
 
+/// Uses a background URLSession so an already queued upload continues when
+/// iOS suspends or relaunches the app. The journal remains the durable queue;
+/// a file is removed only after a digest-verified server response.
+@MainActor
+@Observable
+final class RawChunkSyncService: NSObject, URLSessionTaskDelegate {
+    static let sessionIdentifier = "com.wythin.polar.raw-upload"
+    static var active: RawChunkSyncService?
+    static var pendingBackgroundCompletionHandler: (() -> Void)?
+    private let client: APIClient
+    private let userID: String
+    private let journal: RawPacketJournal
+    nonisolated private let completionGroup = DispatchGroup()
+    private var session: URLSession!
+    private var isSyncing = false
+    private(set) var pendingCount = 0
+    private(set) var lastUploadedAt: Date?
+    private(set) var lastError: String?
+    private var backgroundCompletionHandler: (() -> Void)?
+
+    init(client: APIClient, userID: String, journal: RawPacketJournal) {
+        self.client = client
+        self.userID = userID
+        self.journal = journal
+        super.init()
+        let configuration = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
+        configuration.sessionSendsLaunchEvents = true
+        session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        Self.active = self
+        if let pending = Self.pendingBackgroundCompletionHandler {
+            backgroundCompletionHandler = pending
+            Self.pendingBackgroundCompletionHandler = nil
+        }
+    }
+
+    func syncIfEnabled() async {
+        pendingCount = (try? journal.pendingChunks().count) ?? 0
+        guard !isSyncing else { return }
+        guard (UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true),
+              UserDefaults.standard.bool(forKey: "rawCloudSyncEnabled") else {
+            for task in await currentTasks() { task.cancel() }
+            lastError = nil
+            return
+        }
+        isSyncing = true
+        defer { isSyncing = false }
+        do {
+            try journal.seal()
+            let tasks = await currentTasks()
+            let inFlight = Set(tasks.compactMap { $0.originalRequest?.url?.lastPathComponent.lowercased() })
+            let available = max(0, 4 - tasks.count)
+            var scheduled = 0
+            let chunks = try journal.pendingChunks()
+            pendingCount = chunks.count
+            for file in chunks where scheduled < available {
+                let id = file.deletingPathExtension().lastPathComponent.lowercased()
+                guard !inFlight.contains(id) else { continue }
+                let request = try client.rawChunkRequest(file, userID: userID)
+                let task = session.uploadTask(with: request, fromFile: file)
+                task.resume()
+                scheduled += 1
+            }
+        } catch {
+            lastError = error.localizedDescription
+            pendingCount = (try? journal.pendingChunks().count) ?? pendingCount
+        }
+    }
+
+    private func currentTasks() async -> [URLSessionTask] {
+        await withCheckedContinuation { continuation in
+            session.getAllTasks { continuation.resume(returning: $0) }
+        }
+    }
+
+    func handleBackgroundEvents(completionHandler: @escaping () -> Void) {
+        backgroundCompletionHandler = completionHandler
+    }
+
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask,
+                                didCompleteWithError error: Error?) {
+        completionGroup.enter()
+        Task { @MainActor in
+            await self.finish(task, error: error)
+            self.completionGroup.leave()
+        }
+    }
+
+    private func finish(_ task: URLSessionTask, error: Error?) async {
+        if let error {
+            let enabled = (UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true)
+                && UserDefaults.standard.bool(forKey: "rawCloudSyncEnabled")
+            if !enabled { return }
+            lastError = error.localizedDescription
+            return
+        }
+        guard let response = task.response as? HTTPURLResponse,
+              response.statusCode == 200,
+              let id = task.originalRequest?.url?.lastPathComponent.lowercased(),
+              let file = try? journal.pendingChunks().first(where: {
+                  $0.deletingPathExtension().lastPathComponent.lowercased() == id
+              }),
+              let bytes = try? Data(contentsOf: file) else {
+            lastError = "Raw archive did not acknowledge the upload"
+            return
+        }
+        let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        guard response.value(forHTTPHeaderField: "X-Chunk-SHA256") == digest,
+              response.value(forHTTPHeaderField: "X-Chunk-Bytes") == String(bytes.count) else {
+            lastError = "Raw archive integrity check failed"
+            return
+        }
+        do {
+            try journal.acknowledge(file)
+            pendingCount = max(0, pendingCount - 1)
+            lastUploadedAt = Date()
+            lastError = nil
+            Task { await syncIfEnabled() }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    nonisolated func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        completionGroup.notify(queue: .main) {
+            Task { @MainActor in
+                self.backgroundCompletionHandler?()
+                self.backgroundCompletionHandler = nil
+            }
+        }
+    }
+}
+
 // MARK: - MetricSyncService
 //
 // Opt-in, incremental uploader for continuous HRV metrics. Reads a batch of
-// `HRVSample` rows newer than the last-synced watermark, uploads them, and
-// only advances the watermark on success — so a failed upload is retried
-// (not skipped) on the next call. No-ops entirely while the user has the
-// cloud-sync toggle off.
+// `HRVSample` rows newer than the last-synced watermark, uploads all pending
+// batches, and only advances the watermark on success. A failed upload is
+// retried on the next call. No-ops while cloud sync is off.
 
 @MainActor
+@Observable
 final class MetricSyncService {
     private let client: APIClient
     private let userID: String
     private let container: ModelContainer
-    @AppStorage("cloudSyncEnabled") private var enabled = true
-    @AppStorage("metricsLastSyncedAt") private var lastSyncedISO = ""
+    @ObservationIgnored @AppStorage("cloudSyncEnabled") private var enabled = true
+    @ObservationIgnored @AppStorage("metricsLastSyncedAt") private var lastSyncedISO = ""
+    // Date's full precision is needed for the SwiftData cursor. The older ISO
+    // watermark remains for migration from already installed app versions.
+    @ObservationIgnored @AppStorage("metricsLastSyncedEpoch") private var lastSyncedEpoch = 0.0
     /// The profile the server last *accepted*, as canonical JSON. Persisted, so
     /// a rejected upload is retried on the next sync rather than waiting for a
     /// relaunch, and an edited profile re-uploads on its own.
-    @AppStorage("profileLastSynced") private var syncedProfile = ""
-    private let iso = ISO8601DateFormatter()
-    private let batch = 2000
+    @ObservationIgnored @AppStorage("profileLastSynced") private var syncedProfile = ""
+    private let iso: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private let legacyISO = ISO8601DateFormatter()
+    private let batch: Int
     private var isSyncing = false
+    private(set) var lastUploadedAt: Date?
+    private(set) var lastError: String?
 
     /// Sorted keys so the same answers always encode to the same bytes — the
     /// comparison above is only meaningful if the encoding is stable.
@@ -597,8 +761,12 @@ final class MetricSyncService {
         return e
     }()
 
-    init(client: APIClient, userID: String, container: ModelContainer) {
+    init(client: APIClient, userID: String, container: ModelContainer,
+         batchSize: Int = 2000) {
         self.client = client; self.userID = userID; self.container = container
+        self.batch = min(max(batchSize, 1), 5000)
+        let uploaded = UserDefaults.standard.double(forKey: "metricsLastUploadAtEpoch")
+        self.lastUploadedAt = uploaded > 0 ? Date(timeIntervalSince1970: uploaded) : nil
     }
 
     func syncIfEnabled() async {
@@ -639,24 +807,54 @@ final class MetricSyncService {
         }
         }
 
-        let after = iso.date(from: lastSyncedISO) ?? Date.distantPast
+        var after = lastSyncedEpoch > 0
+            ? Date(timeIntervalSince1970: lastSyncedEpoch)
+            : (iso.date(from: lastSyncedISO) ?? legacyISO.date(from: lastSyncedISO)
+               ?? Date.distantPast)
         let ctx = ModelContext(container)
-        var desc = FetchDescriptor<HRVSample>(
-            predicate: #Predicate { $0.timestamp > after },
-            sortBy: [SortDescriptor(\.timestamp)])
-        desc.fetchLimit = batch
-        guard let samples = try? ctx.fetch(desc), !samples.isEmpty else { return }
-        let payload = MetricsUploadPayload(samples: samples.map { s in
-            MetricSamplePayload(ts: iso.string(from: s.timestamp),
-                mean_bpm: s.meanBPM, rmssd: s.rmssd, sdnn: s.sdnn, pnn50: s.pnn50,
-                lf_hf: s.lfHF, rsa_ms: s.rsaMs, coherence: s.coherence, cbi: s.cbi,
-                breath_bpm: s.breathBPM, dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip,
-                dc: s.dc, vti: s.vti, motion: s.motion,
-                signal_quality: s.signalQuality, rr_invalid_rate: s.rrInvalidRate,
-                ecg_quality_tier: s.ecgQualityTier) })
-        if (try? await client.uploadMetrics(payload, userID: userID)) != nil,
-           let last = samples.last {
-            lastSyncedISO = iso.string(from: last.timestamp)
+        while enabled {
+            var desc = FetchDescriptor<HRVSample>(
+                predicate: #Predicate { $0.timestamp > after },
+                sortBy: [SortDescriptor(\.timestamp)])
+            desc.fetchLimit = batch
+            let samples: [HRVSample]
+            do {
+                samples = try ctx.fetch(desc)
+            } catch {
+                lastError = "Cannot read saved metrics: \(error.localizedDescription)"
+                return
+            }
+            guard !samples.isEmpty else {
+                lastError = nil
+                return
+            }
+            let payload = MetricsUploadPayload(samples: samples.map { s in
+                MetricSamplePayload(ts: iso.string(from: s.timestamp),
+                    mean_bpm: s.meanBPM, rmssd: s.rmssd, sdnn: s.sdnn, pnn50: s.pnn50,
+                    lf_hf: s.lfHF, rsa_ms: s.rsaMs, coherence: s.coherence, cbi: s.cbi,
+                    breath_bpm: s.breathBPM, dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip,
+                    dc: s.dc, vti: s.vti, motion: s.motion,
+                    signal_quality: s.signalQuality, rr_invalid_rate: s.rrInvalidRate,
+                    ecg_quality_tier: s.ecgQualityTier) })
+            do {
+                _ = try await client.uploadMetrics(payload, userID: userID)
+            } catch {
+                lastError = "Metric upload failed: \(error.localizedDescription)"
+                return
+            }
+            guard let last = samples.last else { return }
+            after = last.timestamp
+            lastSyncedEpoch = after.timeIntervalSince1970
+            lastSyncedISO = iso.string(from: after)
+            let uploadedAt = Date()
+            lastUploadedAt = uploadedAt
+            UserDefaults.standard.set(uploadedAt.timeIntervalSince1970,
+                                      forKey: "metricsLastUploadAtEpoch")
+            lastError = nil
+            if samples.count < batch { return }
+            // A large offline backlog should not monopolize the main actor
+            // while new Bluetooth notifications continue to arrive.
+            await Task.yield()
         }
     }
 }

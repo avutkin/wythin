@@ -65,6 +65,14 @@ final class BreathRateTrackerTests: XCTestCase {
         XCTAssertEqual(t.update([], dt: 2) ?? 0, 12, accuracy: 0.001)
     }
 
+    func testUnobservedBreathingExpiresInsteadOfAppearingContinuous() {
+        var t = BreathRateTracker()
+        _ = t.update([est(12)], dt: 2)
+        for _ in 0..<14 { XCTAssertNotNil(t.update([], dt: 2)) }
+        XCTAssertNil(t.update([], dt: 2), "30 seconds without a fresh estimate is missing data")
+        XCTAssertNil(t.bpm)
+    }
+
     /// High-confidence readings move the estimate faster than low-confidence
     /// ones — the whole point of carrying prominence through.
     func testConfidenceControlsHowFastTheEstimateMoves() {

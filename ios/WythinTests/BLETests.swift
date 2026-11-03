@@ -5,6 +5,91 @@ import UIKit
 /// BLE packet parser tests — run on simulator or device.
 final class BLETests: XCTestCase {
 
+    func testCaptureAuditSurvivesRestartAndSeparatesPacketsFromSavedMetrics() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let start = Date(timeIntervalSince1970: 1_000)
+        let audit = try CaptureAuditLog(directory: directory)
+        audit.recordBLE(.ecg, rrCount: 0, at: start)
+        audit.recordBLE(.hr, rrCount: 1, at: start.addingTimeInterval(1))
+        audit.recordMetricSave(success: true, at: start.addingTimeInterval(2))
+        audit.recordPhase("background", at: start.addingTimeInterval(3))
+        audit.recordBLE(.acc, rrCount: 0, at: start.addingTimeInterval(11))
+
+        let reopened = try CaptureAuditLog(directory: directory)
+        let entries = try reopened.entries()
+        let snapshot = try XCTUnwrap(entries.last(where: { $0.event == "snapshot" }))
+        XCTAssertEqual(snapshot.ecgPackets, 1)
+        XCTAssertEqual(snapshot.accPackets, 1)
+        XCTAssertEqual(snapshot.hrPackets, 1)
+        XCTAssertEqual(snapshot.rrIntervals, 1)
+        XCTAssertEqual(snapshot.savedMetrics, 1)
+        XCTAssertTrue(entries.contains { $0.event == "background" })
+    }
+
+    func testStoppedAccelerometerDoesNotReuseBufferedRespiration() async {
+        let buffer = DataBuffer()
+        await buffer.appendACC(xyz: Array(repeating: SIMD3<Int16>(1, 2, 3), count: 100))
+        let fresh = await buffer.snapshot(ecgLive: true, accLive: true)
+        XCTAssertEqual(fresh.accXYZ.count, 100)
+        let stale = await buffer.snapshot(ecgLive: true, accLive: false)
+        XCTAssertTrue(stale.accXYZ.isEmpty)
+        XCTAssertTrue(stale.accZ.isEmpty)
+    }
+
+    func testRawJournalPreservesPacketBytesAcrossRestart() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let journal = try RawPacketJournal(directory: directory)
+        let payload = Data([0x00, 0xFF, 0x81, 0x42])
+        try journal.append(stream: .ecg, payload: payload,
+                                 receivedAt: Date(timeIntervalSince1970: 100),
+                                 deviceTimestampNs: 42)
+        try journal.seal()
+        let reopened = try RawPacketJournal(directory: directory)
+        let chunks = try reopened.pendingChunks()
+        XCTAssertEqual(chunks.count, 1)
+        let lines = try String(contentsOf: chunks[0], encoding: .utf8)
+            .split(separator: "\n")
+        XCTAssertEqual(lines.count, 1)
+        let record = try JSONDecoder().decode(RawPacketRecord.self, from: Data(lines[0].utf8))
+        XCTAssertEqual(record.payload, payload)
+        XCTAssertEqual(record.deviceTimestampNs, 42)
+        try reopened.acknowledge(chunks[0])
+        let remaining = try reopened.pendingChunks()
+        XCTAssertTrue(remaining.isEmpty)
+    }
+
+    func testRawJournalTruncatesInterruptedFinalPacket() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let orphan = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("open")
+        try Data("{\"ok\":true}\n{\"partial\"".utf8).write(to: orphan)
+        let recovered = try RawPacketJournal(directory: directory)
+        let chunks = try recovered.pendingChunks()
+        XCTAssertEqual(chunks.count, 1)
+        XCTAssertEqual(try String(contentsOf: chunks[0], encoding: .utf8), "{\"ok\":true}\n")
+    }
+
+    func testRawUploadRequestIdentifiesImmutableChunkAndDigest() throws {
+        let id = UUID()
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent(id.uuidString).appendingPathExtension("ready")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data("abc\n".utf8).write(to: file)
+        let request = try APIClient(baseURL: URL(string: "https://example.test")!)
+            .rawChunkRequest(file, userID: "device-1")
+        XCTAssertEqual(request.url?.path, "/v1/raw/chunks/\(id.uuidString)")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-User-ID"), "device-1")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Chunk-SHA256"),
+                       "edeaaff3f1774ad2888673770c6d64097e391bc362d7d6fb34982ddf0efd18cb")
+        XCTAssertNil(request.httpBody)
+    }
+
     // MARK: - ECG packet parsing
 
     func testECGFrameParsing() {
@@ -341,6 +426,21 @@ final class BLETests: XCTestCase {
     }
 
     // MARK: - Standby policy (contact bit optional in BOTH directions)
+
+    func testLiveSensorStreamCannotBeStoppedByStaleQualityOrContact() {
+        // The background path used the last foreground-only quality tick.
+        // Even if that tick is poor and the contact bit is wrong, fresh RR or
+        // ECG traffic is direct evidence that recording must continue.
+        XCTAssertEqual(StandbyPolicy.offBodyScore(
+            contact: false, ecgPoor: true, rrBad: true, still: true,
+            rrLive: true, ecgLive: false), 0)
+        XCTAssertEqual(StandbyPolicy.offBodyScore(
+            contact: false, ecgPoor: true, rrBad: true, still: true,
+            rrLive: false, ecgLive: true), 0)
+        XCTAssertGreaterThanOrEqual(StandbyPolicy.offBodyScore(
+            contact: false, ecgPoor: true, rrBad: true, still: true,
+            rrLive: false, ecgLive: false), 3)
+    }
 
     func testOffBodyScoreContactAuthoritative() {
         // Was: contact=false alone scored 3 and tripped the 5 s fast path.

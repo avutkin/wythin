@@ -3,6 +3,24 @@ import SwiftData
 import Combine
 import UIKit
 
+/// Gates expensive computation by actual sensor arrivals, not a background
+/// timer that iOS may suspend while the strap is still transmitting.
+struct MetricTriggerPolicy {
+    let minInterval: TimeInterval
+    private(set) var lastAcceptedAt: Date?
+
+    mutating func acceptSensorFrame(at now: Date, hasRR: Bool) -> Bool {
+        guard hasRR else { return false }
+        if let lastAcceptedAt, now.timeIntervalSince(lastAcceptedAt) < minInterval {
+            return false
+        }
+        lastAcceptedAt = now
+        return true
+    }
+
+    mutating func reset() { lastAcceptedAt = nil }
+}
+
 // MARK: - WaveformDisplay
 //
 // Separate @Observable so 30-fps waveform updates don't invalidate views
@@ -45,6 +63,8 @@ final class AppEnvironment {
     let dataBuffer = DataBuffer()
     let sync:        SyncService
     let metricSync:  MetricSyncService
+    private(set) var rawSync: RawChunkSyncService?
+    var recordingError: String?
 
     // MARK: Waveform display (updated at ~30 fps, isolated so chart views stay at 2 s)
 
@@ -81,14 +101,9 @@ final class AppEnvironment {
         didSet {
             if oldValue != isInForeground {
                 BLEDiag.log("PHASE foreground=\(isInForeground) ble=\(ble.state)")
+                ble.captureAudit?.recordPhase(isInForeground ? "foreground" : "background")
             }
             if !isInForeground {
-                // Flush pending writes immediately when leaving foreground
-                // so data isn't lost if the OS terminates the process.
-                if pendingSaveCount > 0 {
-                    try? modelContainer.mainContext.save()
-                    pendingSaveCount = 0
-                }
                 // Record the just-ended foreground interval as a usage event.
                 if let start = foregroundStart {
                     logUsageEvent(type: "foreground", start: start)
@@ -107,6 +122,8 @@ final class AppEnvironment {
                 // tickHistory is kept current in the background now, so refresh the
                 // charts from it immediately on open (no fetch/refill wait).
                 historyRevision += 1
+                Task { await rawSync?.syncIfEnabled() }
+                Task { await metricSync.syncIfEnabled() }
             }
         }
     }
@@ -406,13 +423,11 @@ final class AppEnvironment {
     private var cancellables = Set<AnyCancellable>()
     private var metricsTask:  Task<Void, Never>?
     private var displayTask:  Task<Void, Never>?
+    private let metricSignals = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    private var metricSchedule = MetricTriggerPolicy(minInterval: 2)
 
     private let maxTickHistory  = 43_200   // 24 h at 2 s/tick
     private let trimBatch       = 600      // trim this many entries at once (amortises O(n) shift)
-    private let saveInterval    = 30       // persist to disk every 60 s (30 ticks × 2 s)
-    private var pendingSaveCount = 0       // ticks accumulated since last save
-    private var lastSaveAt: Date = .distantPast   // wall-clock cap so bg saves land ≤2 min
-    private var lastBackgroundTick: Date = .distantPast  // throttles bg computation to 30 s
     private var lastMetricSyncAt: Date = .distantPast     // throttles cloud sync attempts to ~120 s
     private var lastSleepCheckAt: Date = .distantPast
     /// Same cadence as the anchor. A night is written once and never changes,
@@ -451,6 +466,10 @@ final class AppEnvironment {
                                            notifier: CheckInNotificationService(),
                                            client: sync.client,
                                            userID: AppEnvironment.currentUserID())
+        self.rawSync = ble.packetJournal.map {
+            RawChunkSyncService(client: sync.client, userID: AppEnvironment.currentUserID(),
+                                journal: $0)
+        }
 
         // Before any loop starts: a restoration relaunch is a background launch
         // and no scene phase change will ever say so. See `LaunchForeground`.
@@ -473,6 +492,8 @@ final class AppEnvironment {
         notifications.refreshCategories(disabled: disabledInterventions,
                                         pacerHoldsAvailable: false)
         Task {
+            await rawSync?.syncIfEnabled()
+            await metricSync.syncIfEnabled()
             let context = modelContainer.mainContext
             let uploader = SessionUploader(client: sync.client, userID: userID)
             await uploader.flushPending(context: context)
@@ -702,6 +723,7 @@ final class AppEnvironment {
     // After `offBodyStandbySeconds` of continuous off-body ticks we drop the
     // strap into low-power standby (auto-reconnects when worn again).
     private var offBodySince: Date?
+    private var lastOffBodyEvaluationAt: Date = .distantPast
     private let offBodyStandbySeconds:     TimeInterval = 45   // borderline consensus (score 2)
     // Read together with the 4 s liveness windows in BLEService: the cues go
     // true ~4 s after doffing, plus 5 s of sustained strong agreement lands
@@ -729,17 +751,13 @@ final class AppEnvironment {
     // Fuse four cues into a confidence score so no single cue can wrongly
     // trip (false positive) or be missed:
     //   • skin-contact bit — authoritative: worn (−1) / off (+3)
-    //   • heart gone — the strap reports bpm 0 (heartbeatLive false), the ECG
-    //     stream died, or the last tick graded the waveform poor: +1
-    //   • RR intervals stopped arriving (rrIntervalsLive, 6 s window) or the
-    //     last tick's RR mostly invalid: +1
-    //   • accelerometer dead-still AND heartbeat gone (sleepers are still too,
-    //     but their RR keeps flowing): +1
-    // score ≥ 2 ⇒ off-body. Strong agreement (≥3) trips in ~8 s of dwell,
-    // borderline needs 45 s. Every fast cue is a liveness flag refreshed by
-    // the BLE callbacks themselves — deliberately NOT tick-derived, because
-    // background ticks run every 30 s and made doffing take a minute to
-    // notice. Runs on the 2 s loop cadence with no FFT.
+    //   • ECG stream stopped arriving: +1
+    //   • RR intervals stopped arriving: +1
+    //   • accelerometer dead-still while both streams stopped: +1
+    // score ≥ 2 ⇒ off-body. Strong agreement (≥3) trips after a short dwell,
+    // borderline needs 45 s. Check incoming ECG, ACC and HR notifications,
+    // including frames without RR intervals; a 5 s poll covers foreground
+    // periods with no notifications. This path does no FFT.
     private func evaluateOffBodyStandby() {
         accMotion = computeAccMotion()
         guard case .connected = ble.state else {
@@ -747,15 +765,16 @@ final class AppEnvironment {
             return
         }
         let contact = ble.sensorContact
-        // DEAD counts as bad, not as absent: when the strap comes off, data
-        // stops entirely — and "no data" once read as "no problem".
-        let ecgPoor = !ble.heartbeatLive || !ble.ecgStreamLive
-                      || lastComputedTick?.ecgQuality?.tier == .poor
-        let rrBad   = !ble.rrIntervalsLive
-                      || (lastComputedTick?.signalQuality.map { $0 < 0.5 } ?? false)
+        // Quality can remain stale after notifications stop. Only current
+        // stream liveness can authorize an automatic stop.
+        let ecgLive = ble.ecgStreamLive
+        let rrLive = ble.rrIntervalsLive
+        let ecgPoor = !ecgLive
+        let rrBad = !rrLive
         let still   = accMotion.map { $0 < self.accStillnessThreshold } ?? false
         let score   = StandbyPolicy.offBodyScore(
-            contact: contact, ecgPoor: ecgPoor, rrBad: rrBad, still: still)
+            contact: contact, ecgPoor: ecgPoor, rrBad: rrBad, still: still,
+            rrLive: rrLive, ecgLive: ecgLive)
 
         if score >= 2 {
             let since = offBodySince ?? Date()
@@ -768,6 +787,15 @@ final class AppEnvironment {
         } else {
             offBodySince = nil
         }
+    }
+
+    /// Check on any incoming sensor notification, including HR frames with no
+    /// RR intervals. A metric tick requires fresh RR, but losing RR is itself
+    /// an off-body cue and must not stop the standby detector's clock.
+    private func evaluateOffBodyIfDue(now: Date = Date()) {
+        guard now.timeIntervalSince(lastOffBodyEvaluationAt) >= 1 else { return }
+        lastOffBodyEvaluationAt = now
+        evaluateOffBodyStandby()
     }
 
     /// Mean per-axis standard deviation of the rolling ACC window — the live
@@ -840,15 +868,24 @@ final class AppEnvironment {
                 // off first.
                 self.checkIns.strapPolled(connected: connected, wornSince: recordingStart,
                                           now: Date(), isForeground: self.isInForeground)
+                self.evaluateOffBodyIfDue()
             }
         }
     }
 
     private func bindBLE() {
+        ble.rawChunkReadySubject
+            .sink { [weak self] in
+                guard let self else { return }
+                Task { await self.rawSync?.syncIfEnabled() }
+            }
+            .store(in: &cancellables)
+
         // Forward ECG frames to buffer
         ble.ecgSubject
             .sink { [weak self] samples in
                 guard let self else { return }
+                self.evaluateOffBodyIfDue()
                 Task { await self.dataBuffer.appendECG(samples) }
             }
             .store(in: &cancellables)
@@ -863,6 +900,7 @@ final class AppEnvironment {
                 if self.accWindow.count > self.accWindowMax {
                     self.accWindow.removeFirst(self.accWindow.count - self.accWindowMax)
                 }
+                self.evaluateOffBodyIfDue()
                 Task { await self.dataBuffer.appendACC(xyz: xyz) }
             }
             .store(in: &cancellables)
@@ -871,9 +909,13 @@ final class AppEnvironment {
         ble.hrSubject
             .sink { [weak self] frame in
                 guard let self else { return }
+                self.evaluateOffBodyIfDue()
                 Task {
                     await self.dataBuffer.appendRR(frame.rrIntervalsMs)
                     await self.dataBuffer.appendBPM(Float(frame.bpm))
+                    if !frame.rrIntervalsMs.isEmpty {
+                        self.metricSignals.continuation.yield(())
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -887,6 +929,8 @@ final class AppEnvironment {
         ble.connectionGapSubject
             .sink { [weak self] in
                 guard let self else { return }
+                self.metricSchedule.reset()
+                self.breathTracker.reset()
                 // The beats either side of a gap are not consecutive, so the
                 // QT series cannot span it any more than the RR buffer can.
                 self.qtTracker.reset()
@@ -895,14 +939,16 @@ final class AppEnvironment {
             .store(in: &cancellables)
 
         // ── Metrics tick ─────────────────────────────────────────────────────
-        // Foreground: every 2 s — full fidelity, updates live UI.
-        // Background: every 30 s — throttled to save battery, still records to disk.
-        // The app stays alive in background because the bluetooth-central background
-        // mode keeps it running while BLE data arrives.
+        // RR notifications wake the computation path in either app state.
+        // A suspended Task.sleep timer cannot create a point after iOS wakes us
+        // for a Bluetooth notification; this stream can.
         metricsTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(2))
-                guard let self else { break }
+            guard let self else { return }
+            for await _ in self.metricSignals.stream {
+                guard !Task.isCancelled else { break }
+                guard case .connected = self.ble.state else { continue }
+                guard self.metricSchedule.acceptSensorFrame(at: Date(),
+                                                            hasRR: self.ble.rrIntervalsLive) else { continue }
 
                 // Off-body standby: ECG/ACC streams are paused, so there's no live
                 // data to process. Skip so stale/empty buckets never reach the
@@ -920,21 +966,9 @@ final class AppEnvironment {
 
                 let inForeground = self.isInForeground
 
-                // Off-body check runs on the 2 s cadence in BOTH foreground and
-                // background — it reads stream liveness and an ACC stddev, no
-                // FFT. Behind the 30 s throttle below it added up to a minute
-                // of latency to standby, blowing the ~20 s doffing budget.
-                self.evaluateOffBodyStandby()
-
-                // In background, only process every 30 s to avoid unnecessary
-                // FFT/PSD computation draining the battery.
-                if !inForeground {
-                    let elapsed = Date().timeIntervalSince(self.lastBackgroundTick)
-                    guard elapsed >= 30 else { continue }
-                    self.lastBackgroundTick = Date()
-                }
-
-                let snapshot = await self.dataBuffer.snapshot()
+                let snapshot = await self.dataBuffer.snapshot(
+                    ecgLive: self.ble.ecgStreamLive,
+                    accLive: self.ble.accStreamLive)
 
                 // Use lower CPU priority in background so BLE callbacks stay responsive.
                 let priority: TaskPriority = inForeground ? .userInitiated : .utility
@@ -1024,15 +1058,15 @@ final class AppEnvironment {
                 }
                 let activeSession = self.currentSession ?? self.autoSession!
                 activeSession.samples.append(HRVSample(from: tick))
-                self.pendingSaveCount += 1
-                // Save every `saveInterval` ticks OR at least every 2 minutes of
-                // wall-clock — so background data (30 s ticks) reaches disk within
-                // ~2 min instead of ~15, and re-opening shows recent data.
-                if self.pendingSaveCount >= self.saveInterval
-                    || Date().timeIntervalSince(self.lastSaveAt) >= 120 {
-                    try? context.save()
-                    self.pendingSaveCount = 0
-                    self.lastSaveAt = Date()
+                // A suspended or terminated process must not lose up to a
+                // minute of metrics that were already computed from RR frames.
+                do {
+                    try context.save()
+                    self.ble.captureAudit?.recordMetricSave(success: true)
+                    self.recordingError = nil
+                } catch {
+                    self.ble.captureAudit?.recordMetricSave(success: false)
+                    self.recordingError = "Metric recording failed: \(error.localizedDescription)"
                 }
             }
         }

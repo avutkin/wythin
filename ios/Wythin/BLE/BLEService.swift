@@ -130,7 +130,12 @@ enum StandbyPolicy {
     /// Off-body confidence. ≥ 2 ⇒ off-body; ≥ 3 trips the fast (~20 s) path.
     /// Callers must feed `rrBad`/`ecgPoor` as true for DEAD streams too, not
     /// only poor-quality ones — no data is worse evidence of wear than bad data.
-    static func offBodyScore(contact: Bool?, ecgPoor: Bool, rrBad: Bool, still: Bool) -> Int {
+    static func offBodyScore(contact: Bool?, ecgPoor: Bool, rrBad: Bool, still: Bool,
+                             rrLive: Bool = false, ecgLive: Bool = false) -> Int {
+        // The contact bit and quality estimates can be wrong, especially
+        // after the app backgrounds. Never turn off an actively arriving
+        // physiological stream merely to save strap battery.
+        if rrLive || ecgLive { return 0 }
         var score = 0
         if contact == false { score += 3 } else if contact == true { score -= 1 }
         if ecgPoor { score += 1 }
@@ -498,6 +503,7 @@ final class BLEService: NSObject {
     /// around for HRV computation, since a resumed stream's first RR intervals
     /// may reflect elapsed time across the gap rather than a real beat-to-beat interval.
     let connectionGapSubject = PassthroughSubject<Void, Never>()
+    let rawChunkReadySubject = PassthroughSubject<Void, Never>()
 
     // MARK: Private
 
@@ -514,6 +520,34 @@ final class BLEService: NSObject {
     private var reconnectTask:         Task<Void, Never>?  // cancellable, replaces asyncAfter
     private var watchdogTask:          Task<Void, Never>?  // detects silent drops
     private var accWatchdogTask:       Task<Void, Never>?  // detects a stalled ACC stream while ECG flows
+    nonisolated let captureAudit: CaptureAuditLog? = try? CaptureAuditLog(directory:
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("CaptureAudit", isDirectory: true))
+    nonisolated private let rawJournal: RawPacketJournal? = {
+        guard RawArchiveFeature.isAvailable else { return nil }
+        return try? RawPacketJournal(directory:
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("PolarRaw", isDirectory: true))
+    }()
+    var packetJournal: RawPacketJournal? { rawJournal }
+
+    /// Called on Core Bluetooth's serial delegate queue. The write is complete
+    /// before the delegate callback returns, so suspension cannot strand an
+    /// unstarted Task with the only copy of a delivered notification.
+    nonisolated private func recordRaw(_ stream: RawPacketRecord.Stream, data: Data,
+                                       receivedAt: Date, deviceTimestampNs: UInt64?) -> Bool {
+        guard RawArchiveFeature.isAvailable else { return false }
+        do {
+            guard let rawJournal else { throw CocoaError(.fileWriteUnknown) }
+            return try rawJournal.append(stream: stream, payload: data,
+                                         receivedAt: receivedAt,
+                                         deviceTimestampNs: deviceTimestampNs)
+        } catch {
+            let message = "Raw Polar recording failed: \(error.localizedDescription)"
+            Task { @MainActor in self.lastError = message }
+            return false
+        }
+    }
 
     private var ecgSettings: [UInt8: [UInt16]]?
     private var accSettings: [UInt8: [UInt16]]?
@@ -1458,13 +1492,31 @@ extension BLEService: CBPeripheralDelegate {
     nonisolated func peripheral(_ peripheral: CBPeripheral,
                                 didUpdateValueFor characteristic: CBCharacteristic,
                                 error: Error?) {
-        guard error == nil, let data = characteristic.value else { return }
+        guard error == nil, let data = characteristic.value else {
+            self.captureAudit?.recordPhase("ble_notification_error")
+            return
+        }
+        let receivedAt = Date()
 
         switch characteristic.uuid {
 
         case PolarH10Profile.pmdData:
+            let stream: RawPacketRecord.Stream? =
+                data.first == PolarH10Profile.frameECG ? .ecg :
+                data.first == PolarH10Profile.frameACC ? .acc : nil
+            let deviceTimestampNs: UInt64? = data.count >= 9 ? data.withUnsafeBytes {
+                $0.loadUnaligned(fromByteOffset: 1, as: UInt64.self).littleEndian
+            } : nil
+            let sealed = stream.map { self.recordRaw($0, data: data,
+                                                      receivedAt: receivedAt,
+                                                      deviceTimestampNs: deviceTimestampNs) } ?? false
             let parsed = PolarH10Profile.parsePMDFrame(data)
+            if let stream {
+                captureAudit?.recordBLE(stream, rrCount: 0,
+                                        valid: parsed != nil, at: receivedAt)
+            }
             Task { @MainActor in
+                if sealed { self.rawChunkReadySubject.send(()) }
                 if let ecg = parsed as? ECGFrame {
                     self.lastECGSampleAt = Date()
                     self.ecgSubject.send(ecg.samplesUV.map { Float($0) })
@@ -1543,7 +1595,15 @@ extension BLEService: CBPeripheralDelegate {
             }
 
         case PolarH10Profile.hrMeasurement:
-            if let frame = PolarH10Profile.parseHRFrame(data) {
+            let sealed = recordRaw(.hr, data: data, receivedAt: receivedAt,
+                                   deviceTimestampNs: nil)
+            if sealed {
+                Task { @MainActor in self.rawChunkReadySubject.send(()) }
+            }
+            let frame = PolarH10Profile.parseHRFrame(data)
+            captureAudit?.recordBLE(.hr, rrCount: frame?.rrIntervalsMs.count ?? 0,
+                                    valid: frame != nil, at: receivedAt)
+            if let frame {
                 let name = peripheral.name ?? "Polar H10"
                 Task { @MainActor in
                     // RR liveness for the PMD watchdog: this characteristic is
