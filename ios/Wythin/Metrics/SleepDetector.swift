@@ -29,6 +29,23 @@ enum SleepThresholds {
     /// before sleep, where motion is as low as during sleep and only the pulse
     /// gives it away — 68 bpm at 21:30 against a 56 bpm night.
     static let wakeHRRise: Float = 10
+
+    /// The same two channels, at levels that only count **together**.
+    ///
+    /// `wakeMotionMultiple` and `wakeHRRise` are each set where one signal is
+    /// convincing on its own, which is the right bar for a gate that fires
+    /// alone — and it makes the pair of them blind in the middle. A quiet
+    /// awakening lifts motion and pulse each a little and neither a lot: it
+    /// clears no single-channel gate, so it was scored as sleep. That is the
+    /// awakening someone actually remembers having, and the reason a night can
+    /// feel broken while the hypnogram shows it unbroken.
+    ///
+    /// Agreement between two independent channels is the evidence here, which
+    /// is why each may be set so much lower. Wake specificity from movement
+    /// alone runs 29–52% in the published validations; that is a statement
+    /// about single channels, and the remedy for it is corroboration.
+    static let stirMotionMultiple: Float = 1.8
+    static let stirHRRise: Float = 5
     /// Median motion (mg) above which a candidate is not sleep at all,
     /// whatever its internal structure. The relative gates above compare a
     /// tick to its own recording, so a uniformly thrashing one has no contrast
@@ -44,9 +61,27 @@ enum SleepThresholds {
     static let searchWhenLongerThanSec: Double = 14 * 3600
     /// Width of the search window. Wide enough to hold a long night with room
     /// at both ends for the trim to find the real boundaries.
+    ///
+    /// **Do not widen this to admit a longer night.** It is the obvious fix and
+    /// it is the wrong one: the window is chosen by lowest median heart rate,
+    /// so its width decides which stretch wins, and widening it to 13 h moved
+    /// the winner on a real recorded night — the detector ended that night at
+    /// 06:24 against a measured 07:30 rise. The ceiling problem is real, but it
+    /// belongs to `nightSearchPadSec`, which fixes it without touching the
+    /// comparison that locates the night in the first place.
     static let nightSearchSpanSec: Double = 11 * 3600
     /// How far the window slides each step.
     static let nightSearchStepSec: Double = 30 * 60
+    /// Room left either side of the chosen window before the trim runs.
+    ///
+    /// Locating the night and bounding it are two different jobs, and the
+    /// search window was silently doing both — whatever it returned was the
+    /// widest answer the trim could possibly give, so an eleven-hour window
+    /// could not yield an eleven-and-a-half-hour night however clear the data.
+    /// The padding separates them: the median-heart-rate comparison still runs
+    /// over a fixed 11 h, so it still picks the same stretch it always did, and
+    /// only then is the trim handed room to reach a genuine lie-in.
+    static let nightSearchPadSec: Double = 75 * 60
     /// Breath-rate spread, as a multiple of this recording's own median spread,
     /// above which breathing reads as unsettled. Awake breathing on a measured
     /// night swings several times the asleep spread, so the separation is
@@ -55,6 +90,17 @@ enum SleepThresholds {
     /// How far either side of a wake bout light sleep is marked N1 — the
     /// descent into sleep, and the settling after an arousal.
     static let n1ReachSec: Double = 5 * 60
+    /// Sleep has to persist this long before the night is said to have begun.
+    ///
+    /// `SleepStages.smooth` already absorbs stage runs under `minStageRunSec`
+    /// (three minutes), so anything longer than that survives to the trim — and
+    /// six still minutes on the sofa at 17:00 is longer than that. Taking the
+    /// first surviving non-wake tick as onset anchored a real night to the
+    /// evening it was recorded in: 17:00 → 05:37, of which 7 h 15 m was scored
+    /// awake. Ten persistent minutes is the actigraphy convention for onset and
+    /// comfortably excludes sitting quietly, while still admitting a genuine
+    /// short doze followed by an arousal.
+    static let minSustainedSleepSec: Double = 10 * 60
     /// Most a single tick may be credited with. Beyond this the gap is a hole
     /// in the recording, not time asleep.
     static let maxTickCreditSec: Double = 120
@@ -76,22 +122,102 @@ enum SleepThresholds {
     /// with no structure at all (axis identically zero) reports no REM rather
     /// than reporting itself as entirely REM.
     ///
-    /// `deepDepth` at 2.2 is calibrated against a real overnight capture,
-    /// where it selects the deepest ~22% — inside the typical adult N3 range
-    /// of 13–23%. A night with less depth structure now returns less N3,
-    /// which is the entire point of the change.
-    static let deepDepth: Double = 2.2
-    static let remDepth: Double = 0.0
+    /// Where the depth axis is cut into N3 / N2 / REM.
+    ///
+    /// Recalibrated 2026-09-06 against eight real nights from four people,
+    /// replayed through this pipeline, rather than the single capture the
+    /// previous values came from. Adult norms for reference: N3 13–23% of
+    /// sleep, REM 20–25%.
+    ///
+    /// `remDepth` was 0.0, and that was a structural error rather than a
+    /// mis-set number. The axis is standardised **within the night**, so its
+    /// mean is zero by construction — cutting at zero therefore takes about
+    /// half of every night as REM, whatever the night looked like. Measured
+    /// across the corpus it returned a median 42.5% REM against a 20–25% norm,
+    /// on six nights out of eight above 40%.
+    ///
+    /// The values are chosen for where they land on real nights:
+    ///   deep 1.8 → N3 median 18.8% (range 12.0–35.7)
+    ///   rem −0.7 → REM median ~27% in replay
+    ///
+    /// The REM target is deliberately not the norm itself. That corpus is
+    /// replayed from server samples, which carry no motion, so wake is
+    /// under-detected — and undetected wake is shallow, so it lands in REM. On
+    /// the three nights where the device's own output can be compared, it
+    /// reported REM 5.7 points lower than the motion-free replay. −0.7 aims
+    /// replay at ~27% so a real night lands near 22%.
+    ///
+    /// **Re-check this once nights carrying motion arrive** (motion began
+    /// syncing 2026-09-06). The offset above rests on three nights, and it is
+    /// the one number here that is inferred rather than measured directly.
+    static let deepDepth: Double = 1.8
+    static let remDepth: Double = -0.7
 
-    static let algorithmVersion: Int = 6
+    /// 13: baselines moved from per-sample medians to per-minute ones. Every
+    /// stored night was scored against a baseline weighted by sampling density,
+    /// so they are rebuilt rather than left showing numbers this pipeline would
+    /// not produce.
+    /// 14: nights carry `sleepDetailJSON` (hypnogram runs, position bands,
+    /// wake bouts, nadir) so the upload and the dashboard can show the night.
+    /// Build 120 shipped 13 without it, so those nights are rebuilt as well.
+    /// 15: depth-axis cut points recalibrated against eight real nights from
+    /// four people. Every stored night's stage split changes — most of all its
+    /// REM, which was running at roughly double the adult norm — so they are
+    /// rebuilt rather than left showing the old division.
+    /// 16: Timing is bedtime consistency, not the Sleep Regularity Index. SRI
+    /// reads a night the strap was not worn as a night spent awake, so on a
+    /// device worn for a few nights at a time it scored intermittent wear
+    /// rather than an irregular sleeper. Every stored night's timing section
+    /// changes, so they are rebuilt.
+    /// 17: the autonomic section takes vagal tone from quiet sleep only, and
+    /// scores it against this sleeper's own recent nights rather than an
+    /// absolute 22–62 ms band. Deceleration capacity joins RMSSD and carries
+    /// the larger share. Every stored night's autonomic score changes.
+    /// 18: four sections, equal quarters. Breath steadiness stopped being an
+    /// axis of its own — it measured whether you were asleep, which continuity
+    /// already scored — and became continuity's third input. Every stored
+    /// night's overall and continuity change.
+    /// 19: Timing is the hour you went to sleep as well as how consistent your
+    /// hours are, so it is scoreable from a single night instead of waiting for
+    /// three. Every stored night's timing changes.
+    /// 20: every section now stores the inputs it was scored on — the value,
+    /// the range it was read against and the share it carried — so the detail
+    /// screen can show the working instead of describing it. No score changes;
+    /// the rescore exists to fill the new field on nights already stored.
+    /// 21: the longest unbroken stretch and the longest wake bout are timed
+    /// in gap-credited seconds like every other minute, not ticks × the
+    /// median interval — which overstated both wherever the sampling was
+    /// denser than the night's median. Continuity changes on such nights.
+    static let algorithmVersion: Int = 21
     /// Shortest run that can stand as its own stage. Sleep changes state on
     /// the scale of minutes; anything briefer is a turn or a dropped estimate,
     /// and leaving it in inflates every count derived from the hypnogram.
     static let minStageRunSec: Double = 180
-    /// Regularity is a comparison between days, so it needs at least two.
-    /// Published SRI uses a trailing week; two is the floor at which the
-    /// number means anything at all, and the UI should say how many it had.
-    static let minNightsForSRI: Int = 2
+
+    /// The same floor, for WAKE — and deliberately much lower.
+    ///
+    /// One threshold used to govern both, which meant any awakening shorter
+    /// than three minutes was absorbed into the sleep around it and vanished:
+    /// out of the hypnogram, out of the awake total, out of the wake-bout count
+    /// continuity is scored on. Someone who woke four times for a minute each
+    /// was shown an unbroken night.
+    ///
+    /// Three minutes is right for stage flicker — N2 and N3 trading places for
+    /// one tick is noise. It is wrong for wake, which is a different kind of
+    /// event: polysomnography scores in 30-second epochs and actigraphy counts
+    /// bouts from about a minute, because a brief awakening is real and worth
+    /// counting even when a stage flicker is not.
+    static let minWakeRunSec: Double = 60
+
+    /// Wake shorter than this does not break a stretch of *persistent* sleep.
+    ///
+    /// The companion to the above, and it has to exist. Showing 60-second
+    /// arousals means they also start splitting the runs `sustainedSleepRuns`
+    /// measures, so a stretch that was twelve unbroken minutes becomes two
+    /// six-minute pieces and sleep onset slides later — or, on a restless
+    /// night, no run clears the bar and the night is not found at all. An
+    /// arousal is not the end of persistent sleep; it is an event inside it.
+    static let briefArousalSec: Double = 120
     /// One section is not a night score. Mirrors the exercise model's rule
     /// that a headline needs at least two present components behind it.
     static let minSectionsForOverall: Int = 2
@@ -103,6 +229,54 @@ enum SleepThresholds {
     /// proof the night ended, and sealing on it truncates the rest of the
     /// night away permanently. 45 minutes awake is someone up for the day.
     static let settleSec: Double = 45 * 60
+
+    /// How long evidence of being **out of bed** must persist before it ends
+    /// the night.
+    ///
+    /// The companion to `settleSec`, and the reason that constant is no longer
+    /// trusted on its own. `settleSec` asks only *how long* a wake bout was; it
+    /// cannot tell lying awake at 05:00 from getting up for the day. A real
+    /// night was cut at 05:08 by exactly that blindness — woken, stayed in bed,
+    /// slept again, rose at 08:30 — and the three hours after the gap were
+    /// filed as a separate episode and thrown away, along with every awakening
+    /// in them.
+    ///
+    /// Sleep medicine ends the sleep period at the **final awakening**, and
+    /// defines that by leaving the sleep opportunity, not by a stopwatch. This
+    /// is how long the leaving has to look like leaving.
+    ///
+    /// **Twenty minutes, not five.** Five was the first number here and it
+    /// would have recreated the very complaint this work exists to fix. A chest
+    /// strap cannot tell sitting up in bed from standing in the kitchen — both
+    /// read `upright` — so a five-minute bar ends the night on a trip to make
+    /// coffee, and the sleep after it becomes a separate episode and is thrown
+    /// away. Getting up briefly and coming back to bed is ordinary, and it must
+    /// survive. Twenty continuous minutes is the difference between a trip and
+    /// a morning, and it still clears every case that should end a night: the
+    /// recorded morning-doze night is up for three and a half hours.
+    static let outOfBedSec: Double = 20 * 60
+
+    /// Motion, as a multiple of this recording's own median, that means moving
+    /// about rather than lying awake.
+    ///
+    /// Deliberately far above `wakeMotionMultiple` (3×, which turning over
+    /// clears) because it is answering a different question. That gate asks
+    /// "is this person awake"; this one asks "is this person on their feet",
+    /// and the two have very different costs when wrong. Measured on this
+    /// hardware: 3.9 mg asleep, 12.6 mg awake and sitting, 30 mg at the morning
+    /// rise — so eight times the asleep median sits above sitting up and below
+    /// walking about.
+    static let outOfBedMotionMultiple: Float = 8.0
+
+    /// How far past a night's detected end the seal looks for sleep resuming,
+    /// and how long a wake stretch may be before the anchor grouping treats
+    /// what follows as a separate episode when choosing the night's ONSET.
+    ///
+    /// It no longer ends a night. People wake for hours and sleep again, and
+    /// that sleep is the night continuing — `mainSleepEpisode` takes every
+    /// later sleep in the slice whatever the gap. The three hours survive
+    /// only as a bound on look-ahead and on onset choice.
+    static let maxInBedWakeSec: Double = 3 * 3600
     /// How far back a poll looks. Long enough to catch a night the app slept
     /// through recording, short enough that stale history cannot resurface as
     /// "last night" the first time the detector ever runs.
@@ -150,6 +324,47 @@ struct SleepWindow: Equatable {
 /// stretch would outscore every waking rest and wreck the hour-tolerance the
 /// day score depends on. This detector wants exactly the stretch the anchor
 /// throws away.
+// MARK: - Time-weighted medians
+//
+// Every gate below is relative to "this recording's own median", and that median
+// used to be taken over samples. The app ticks every few seconds while a session
+// is running and every 30 s in the background, so a median over samples is a
+// median over whatever produced the most *ticks* rather than over whatever took
+// the most *time*.
+//
+// On the night that prompted this, 88 minutes of meditation either side of eight
+// hours of sleep carried 61.5% of the run's samples. The run's median motion was
+// therefore the meditation's, which sits above `impossibleSleepMotion`, so
+// `trimmedToSleep` discarded the entire night — no boundaries, no stages, nothing
+// shown to the sleeper at all. The same skew put median heart rate 6.5 bpm above
+// the sleeping level, lifting every wake gate with it, and left
+// `outOfBedMotionMultiple` multiplying an *awake* median by eight, which is past
+// anything a person does without leaving the room.
+//
+// Collapsing to one value a minute before taking the median makes an hour count
+// as an hour, whatever the cadence happened to be while it passed.
+enum TimeWeightedMedian {
+
+    /// Median of the per-minute medians. Nil when no point carries the value.
+    static func of(_ points: [MetricsHistoryPoint],
+                   _ value: (MetricsHistoryPoint) -> Float?) -> Float? {
+        var byMinute: [Int: [Float]] = [:]
+        for point in points {
+            guard let v = value(point) else { continue }
+            let minute = Int(floor(point.timestamp.timeIntervalSinceReferenceDate / 60))
+            byMinute[minute, default: []].append(v)
+        }
+        guard !byMinute.isEmpty else { return nil }
+        let perMinute = byMinute.values
+            .map { bucket -> Float in
+                let sorted = bucket.sorted()
+                return sorted[sorted.count / 2]
+            }
+            .sorted()
+        return perMinute[perMinute.count / 2]
+    }
+}
+
 enum SleepDetector {
 
     /// Every night in a long recording, one pass.
@@ -208,10 +423,20 @@ enum SleepDetector {
         let candidates = continuousRuns(all)
             .map(quietestNightWindow)
             .compactMap(trimmedToSleep)
-        guard let night = candidates.max(by: { span($0) < span($1) }),
-              span(night) >= SleepThresholds.minNightSec,
-              let first = night.first, let last = night.last else { return nil }
-        return SleepWindow(startedAt: first.timestamp, endedAt: last.timestamp)
+            .sorted { ($0.first?.timestamp ?? .distantPast) < ($1.first?.timestamp ?? .distantPast) }
+        guard let anchorIndex = candidates.indices.max(by: {
+            span(candidates[$0]) < span(candidates[$1])
+        }) else { return nil }
+        // A recording hole between two sleeps — strap off for the shower,
+        // back on for a second sleep — splits the samples into runs, and the
+        // second sleep used to be a rival candidate the first one beat. It is
+        // the night continuing: the hole is unmeasured time inside it, and
+        // the tick-credit rule keeps a hole from ever being scored as sleep.
+        guard let first = candidates[anchorIndex].first,
+              let last = candidates[candidates.count - 1].last else { return nil }
+        let night = SleepWindow(startedAt: first.timestamp, endedAt: last.timestamp)
+        guard night.durationSec >= SleepThresholds.minNightSec else { return nil }
+        return night
     }
 
     /// Narrows an all-day run to the quietest night-length stretch inside it.
@@ -250,13 +475,17 @@ enum SleepDetector {
             start = start.addingTimeInterval(SleepThresholds.nightSearchStepSec)
         }
         guard let best else { return run }
-        return Array(run[best.lo..<best.hi])
+        let pad = SleepThresholds.nightSearchPadSec
+        var from = best.lo, to = best.hi
+        let earliest = run[best.lo].timestamp.addingTimeInterval(-pad)
+        let latest = run[best.hi - 1].timestamp.addingTimeInterval(pad)
+        while from > 0 && run[from - 1].timestamp >= earliest { from -= 1 }
+        while to < run.count && run[to].timestamp <= latest { to += 1 }
+        return Array(run[from..<to])
     }
 
     private static func medianHR(_ points: [MetricsHistoryPoint]) -> Float? {
-        let hrs = points.compactMap(\.meanBPM).sorted()
-        guard !hrs.isEmpty else { return nil }
-        return hrs[hrs.count / 2]
+        TimeWeightedMedian.of(points) { $0.meanBPM }
     }
 
     /// Cuts the waking hours off both ends of a run.
@@ -267,17 +496,204 @@ enum SleepDetector {
     /// the night. The night is the *asleep* part: from the first sustained
     /// sleep to the last.
     ///
+    /// **Sustained is the operative word, and it used not to be enforced.** The
+    /// bounds came from `firstIndex(where: { $0 != .wake })`, which is the first
+    /// non-wake tick of any duration. Smoothing removes runs under three
+    /// minutes, so a quiet six-minute spell early in the evening survives it and
+    /// became the start of the night — one real capture opened at 17:00 and
+    /// reported 7 h 15 m of a 12 h 37 m "night" as awake, because six hours of
+    /// evening sat inside the window. Onset now needs
+    /// `minSustainedSleepSec` of persistent sleep, and so does the final wake.
+    ///
     /// Interior wake is deliberately kept. Being up for eight minutes at 03:00
     /// is a wake bout inside one night, not the end of it — and those bouts are
     /// what the continuity section is there to count.
     private static func trimmedToSleep(_ run: [MetricsHistoryPoint]) -> [MetricsHistoryPoint]? {
-        let motions = run.compactMap(\.motion).sorted()
-        if let median = motions.isEmpty ? nil : motions[motions.count / 2],
-           median > SleepThresholds.impossibleSleepMotion { return nil }
+        let medianMotion = TimeWeightedMedian.of(run) { $0.motion }
+        if let medianMotion, medianMotion > SleepThresholds.impossibleSleepMotion { return nil }
         let stages = SleepStages.classify(run)
-        guard let first = stages.firstIndex(where: { $0 != .wake }),
-              let last = stages.lastIndex(where: { $0 != .wake }) else { return nil }
-        return Array(run[first...last])
+        let sustained = sustainedSleepRuns(stages, points: run)
+        guard let episode = mainSleepEpisode(sustained, points: run,
+                                             medianMotion: medianMotion ?? 0) else { return nil }
+        return Array(run[episode])
+    }
+
+    /// Index where sleep picks up again after a wake stretch starting at
+    /// `from`, provided that stretch is shorter than `briefArousalSec`.
+    /// Nil when the wake is long enough to genuinely end the run.
+    private static func sleepResumes(_ from: Int,
+                                     _ stages: [SleepStage],
+                                     _ points: [MetricsHistoryPoint]) -> Int? {
+        var k = from
+        while k < stages.count && stages[k] == .wake { k += 1 }
+        guard k < stages.count else { return nil }
+        let gap = points[k].timestamp.timeIntervalSince(points[from].timestamp)
+        return gap < SleepThresholds.briefArousalSec ? k : nil
+    }
+
+    /// The night, out of everything in this run that qualifies as sleep.
+    ///
+    /// Requiring the boundaries to be *sustained* sleep fixed the night that
+    /// opened at 17:00, but it only asks whether a boundary is real sleep — never
+    /// whether that sleep belongs to the same night. A fifteen-minute doze at
+    /// 07:30, hours after getting up, passes the sustained test and dragged the
+    /// window out with it: one recorded night ran 8 h 26 m and called 3 h 31 m of
+    /// it awake, nearly all of it a morning nobody was in bed for.
+    ///
+    /// Sleep medicine does not define the night as first sleep to last sleep. The
+    /// sleep period runs from onset to the FINAL AWAKENING, and it is terminated
+    /// by a wake bout long enough to mean the person got up for the day; sleep
+    /// after that is a separate episode. `settleSec` is already this codebase's
+    /// name for that threshold — it decides when a night may be written down —
+    /// and the trim simply never consulted it.
+    ///
+    /// So: group sustained sleep into episodes separated by a **final
+    /// awakening**, and keep the one holding the most sleep. Interior bouts
+    /// stay inside the night, which is what the continuity section counts.
+    ///
+    /// **What a final awakening is, is the part that was wrong.** It was read
+    /// as `settleSec` of wake and nothing else — a stopwatch — so any long
+    /// awakening ended the night by definition. Someone who woke at 05:08, lay
+    /// in bed, slept again and got up at 08:30 had the second half of their
+    /// night split off and discarded: 8 h 11 m in bed reported against a
+    /// 11 h 34 m opportunity, with every morning awakening outside the window
+    /// and therefore uncounted. See `nightEnds(between:and:points:medianMotion:)`
+    /// for the test that replaced it.
+    private static func mainSleepEpisode(_ sustained: [ClosedRange<Int>],
+                                         points: [MetricsHistoryPoint],
+                                         medianMotion: Float) -> ClosedRange<Int>? {
+        guard !sustained.isEmpty else { return nil }
+
+        var episodes: [[ClosedRange<Int>]] = [[sustained[0]]]
+        for run in sustained.dropFirst() {
+            let previousEnd = episodes[episodes.count - 1].last!.upperBound
+            if nightEnds(between: previousEnd, and: run.lowerBound,
+                         points: points, medianMotion: medianMotion) {
+                episodes.append([run])
+            } else {
+                episodes[episodes.count - 1].append(run)
+            }
+        }
+
+        // Most sleep, not the longest span: a span would let an episode win on
+        // the strength of the wake bouts inside it.
+        guard let bestIndex = episodes.indices.max(by: {
+            asleepSeconds(episodes[$0], points) < asleepSeconds(episodes[$1], points)
+        }) else { return nil }
+
+        // Then everything after it. People wake for a couple of hours in the
+        // night — or lie there through a morning trying — and sleep again.
+        // Sleep seen later in the same night slice is the night continuing,
+        // however long the gap and however the gap was spent; the gap is
+        // scored awake. There is no cap and no minimum: the previous rule
+        // asked for half an hour of sleep within three hours, and a night
+        // that broke for longer than that lost its second half. The night
+        // ends at the last sleep of the morning. Forward only: sleep BEFORE
+        // the anchor — an evening nap — is not pulled in, since the anchor
+        // is the night's onset.
+        guard let lo = episodes[bestIndex].first?.lowerBound,
+              let hi = episodes.last?.last?.upperBound else { return nil }
+        return lo...hi
+    }
+
+    private static func asleepSeconds(_ runs: [ClosedRange<Int>],
+                                      _ points: [MetricsHistoryPoint]) -> Double {
+        runs.reduce(0) { total, r in
+            total + points[r.upperBound].timestamp.timeIntervalSince(points[r.lowerBound].timestamp)
+        }
+    }
+
+    /// Whether the wake stretch between two sustained sleep runs is the end of
+    /// the night, or a wake bout inside it.
+    ///
+    /// Used only to group sustained runs into episodes so the ANCHOR — the
+    /// episode holding the most sleep, whose first run is the night's onset —
+    /// can be chosen. Every episode after the anchor joins the night
+    /// regardless; see `mainSleepEpisode`.
+    ///
+    /// Three tests, in order of how much they are trusted:
+    ///
+    /// 1. **Past `maxInBedWakeSec`** — a separate episode for the purpose of
+    ///    choosing the anchor. The backstop for recordings with no position
+    ///    channel at all.
+    /// 2. **Under `settleSec`** — an awakening, whatever the sensors say. Nobody
+    ///    starts a new night forty minutes after ending the last one, and
+    ///    letting evidence override this would split a night on a trip to the
+    ///    bathroom.
+    /// 3. **In between** — ask the accelerometer. This is the band the old
+    ///    stopwatch got wrong in both directions, and the only band where the
+    ///    answer was ever in doubt.
+    private static func nightEnds(between previousEnd: Int,
+                                  and nextStart: Int,
+                                  points: [MetricsHistoryPoint],
+                                  medianMotion: Float) -> Bool {
+        let gap = points[nextStart].timestamp.timeIntervalSince(points[previousEnd].timestamp)
+        if gap >= SleepThresholds.maxInBedWakeSec { return true }
+        guard gap >= SleepThresholds.settleSec else { return false }
+        return leftTheBed(previousEnd...nextStart, points: points, medianMotion: medianMotion)
+    }
+
+    /// Sustained evidence, inside a wake stretch, that the person got up.
+    ///
+    /// Two channels, either sufficient, because neither is reliably present.
+    /// Posture is the stronger signal — `upright` is not a position anyone
+    /// sleeps in, and it is the one cue that distinguishes *out of bed* from
+    /// *awake in bed* rather than merely restating that the person is awake.
+    /// But `bodyPosition` resolves only when the strap can read gravity
+    /// cleanly, and it is nil for every night recorded before it existed, so
+    /// gross motion stands in when it is missing.
+    ///
+    /// Requiring the evidence to *persist* for `outOfBedSec` is what keeps
+    /// this from firing on the thing it most resembles: sitting up to drink
+    /// water and lying back down reads as upright for a tick or two, and would
+    /// otherwise end a night at 03:00.
+    static func leftTheBed(_ range: ClosedRange<Int>,
+                           points: [MetricsHistoryPoint],
+                           medianMotion: Float) -> Bool {
+        var runStart: Int?
+        for i in range where i < points.count {
+            let upright = points[i].bodyPosition == .upright
+            let moving = medianMotion > 0
+                && (points[i].motion ?? 0) >= medianMotion * SleepThresholds.outOfBedMotionMultiple
+            guard upright || moving else { runStart = nil; continue }
+            let start = runStart ?? i
+            runStart = start
+            if points[i].timestamp.timeIntervalSince(points[start].timestamp)
+                >= SleepThresholds.outOfBedSec { return true }
+        }
+        return false
+    }
+
+    /// Index ranges of unbroken sleep lasting at least `minSustainedSleepSec`.
+    ///
+    /// Closed ranges over `stages`, measured on the clock rather than in ticks —
+    /// the cadence changes between foreground and background recording, so a
+    /// tick count is not a duration.
+    private static func sustainedSleepRuns(_ stages: [SleepStage],
+                                           points: [MetricsHistoryPoint]) -> [ClosedRange<Int>] {
+        guard stages.count == points.count, !stages.isEmpty else { return [] }
+        var out: [ClosedRange<Int>] = []
+        var i = 0
+        while i < stages.count {
+            guard stages[i] != .wake else { i += 1; continue }
+            var j = i
+            while j + 1 < stages.count {
+                if stages[j + 1] != .wake { j += 1; continue }
+                // A brief arousal does not end persistent sleep. Step over it
+                // if sleep resumes on the far side quickly enough; otherwise
+                // this run really has ended.
+                guard let resume = sleepResumes(j + 1, stages, points) else { break }
+                j = resume - 1
+            }
+            // Credit the run up to the next tick, so a stretch that ends at the
+            // last sample still has the width its samples actually cover.
+            let end = j + 1 < points.count ? points[j + 1].timestamp : points[j].timestamp
+            if end.timeIntervalSince(points[i].timestamp) >= SleepThresholds.minSustainedSleepSec {
+                out.append(i...j)
+            }
+            i = j + 1
+        }
+        return out
     }
 
     /// Splits on wall-clock holes only. Unlike the anchor's run splitter this

@@ -1,265 +1,216 @@
 import SwiftUI
+import SwiftData
 
-/// The night: a stepped hypnogram, a movement strip, and the stage legend.
+// MARK: - The clock
+
+/// The single time axis every channel of the montage is drawn against.
 ///
-/// Drawn in Canvas rather than Swift Charts because the shape is specific —
-/// each block fills from its own stage level **down to the floor**, so the
-/// shallowest stage is the tallest bar and the deepest is a short block along
-/// the bottom. That is what produces the skyline: awake reads as a tall thin
-/// spike, N3 as a low dark step, and the depth of the night is legible as a
-/// silhouette rather than as a colour key.
-struct SleepMontageChart: View {
+/// This exists because the montage previously had *two* clocks and neither was
+/// right. The metric traces were Swift Charts, each laying out its own x axis
+/// inside its own plot area; the hypnogram below them had a hand-rolled axis
+/// built from an `HStack` of labels separated by equal `Spacer()`s. Equal
+/// spacers give equal width to unequal durations, so on a 17:00→05:37 night the
+/// one-hour gap 17:00→18:00 was drawn as wide as the two-hour gap 18:00→20:00 —
+/// every label on the chart was in the wrong place, and the traces above
+/// disagreed with all of them.
+///
+/// One value type, used by every channel, is what makes "one shared clock axis"
+/// true rather than aspirational.
+struct MontageRuler: Equatable {
 
-    private let points: [MetricsHistoryPoint]
-    private let startedAt: Date
-    private let endedAt: Date
+    let startedAt: Date
+    let endedAt: Date
 
-    /// Staging arrives already done, from `PreparedNight`.
-    ///
-    /// It used to be a computed property here, so every access re-ran the whole
-    /// pipeline over ~19,000 samples — and `minutes(_:)` is asked nine times
-    /// per render (five legend rows, four more inside `asleepMinutes`), with
-    /// `runs` on top. That was the hang on opening a night. Classification is a
-    /// property of the night, not of the view, so it belongs off the main
-    /// thread and upstream of the render.
-    private let stages: [SleepStageDetail]
-    private let stageMinutes: [SleepStageDetail: Int]
-    private let motionThreshold: Float
-    private let positionBands: [PreparedNight.PositionBand]
+    /// Hour labels nearer than this to either end are dropped: that space
+    /// belongs to the ASLEEP and WOKE markers, and a collision there costs the
+    /// two most important times on the chart.
+    static let edgeClearanceSec: Double = 40 * 60
 
-    init(night: PreparedNight, startedAt: Date, endedAt: Date) {
-        self.points = night.points
-        self.startedAt = startedAt
-        self.endedAt = endedAt
-        self.stages = night.stages
-        self.stageMinutes = night.stageMinutes
-        self.motionThreshold = night.motionThreshold
-        self.positionBands = night.positionBands
+    /// Guarded so a degenerate window cannot divide by zero.
+    var span: Double { max(1, endedAt.timeIntervalSince(startedAt)) }
+
+    /// Where a moment falls, in points, across a plot of the given width.
+    /// Clamped: a sample outside the window belongs at the edge, not off it.
+    func x(_ t: Date, width: Double) -> Double {
+        guard endedAt > startedAt else { return 0 }
+        return width * min(1, max(0, t.timeIntervalSince(startedAt) / span))
     }
 
-    /// Deepest at the bottom. The index is the floor-to-ceiling position, so a
-    /// bigger number is a taller bar and a shallower stage.
-    private func level(_ s: SleepStageDetail) -> Int {
-        switch s {
-        case .n3:   return 1
-        case .n2:   return 2
-        case .n1:   return 3
-        case .rem:  return 4
-        case .wake: return 5
+    /// The inverse of `x`: which moment a finger at this position is pointing
+    /// at. Clamped to the window, so a drag that runs off either edge reports
+    /// the boundary rather than a time outside the night.
+    func date(atX x: Double, width: Double) -> Date {
+        guard width > 0 else { return startedAt }
+        let fraction = min(1, max(0, x / width))
+        return startedAt.addingTimeInterval(fraction * span)
+    }
+
+    /// Tick density follows the span, so a four-hour nap is not labelled as
+    /// sparsely as a sixteen-hour wear.
+    var tickStepHours: Int {
+        switch span {
+        case ..<(6 * 3600):  return 1
+        case ..<(12 * 3600): return 2
+        default:             return 3
         }
     }
 
-    /// A sequential depth ramp, plus one neutral that sits outside it.
-    ///
-    /// Awake used to be `white 0.94` on a near-black ground, and because a wake
-    /// block is also the full-height bar, the least informative state was by far
-    /// the loudest thing on the chart — three hours of white slab drowning the
-    /// architecture the chart exists to show. It is a neutral grey now: still
-    /// clearly legible as mass, no longer the first thing the eye lands on.
-    ///
-    /// The four sleep stages are one hue with monotonic lightness, ~0.15 apart
-    /// in OKLab (0.43 / 0.59 / 0.73 / 0.88), worst adjacent pair ΔE 14.4 in
-    /// normal vision and 14.4 under protan simulation. Depth is additionally
-    /// carried by bar height and by the labelled legend below, so colour is
-    /// never the only thing separating two stages.
-    private func colour(_ s: SleepStageDetail) -> Color {
-        switch s {
-        // Awake is not a depth, so it sits outside the blue ramp entirely.
-        case .wake: return Color(hex: "#6B6B6B")
-        case .rem:  return Color(hex: "#BCDCF7")
-        case .n1:   return Color(hex: "#74AEE4")
-        case .n2:   return Color(hex: "#3F7CC0")
-        case .n3:   return Color(hex: "#22508F")
-        }
-    }
-
-    private var span: Double { max(1, endedAt.timeIntervalSince(startedAt)) }
-
-    private func minutes(_ s: SleepStageDetail) -> Int { stageMinutes[s] ?? 0 }
-
-    private var asleepMinutes: Int {
-        SleepStageDetail.allCases.filter(\.isAsleep).reduce(0) { $0 + minutes($1) }
-    }
-
-    private func hm(_ m: Int) -> String { "\(m / 60)h \(String(format: "%02d", m % 60))m" }
-
-    private func clock(_ d: Date) -> String {
-        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: d)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            hypnogram
-            axis
-            movementStrip
-            positionStrip
-            legend
-        }
-    }
-
-    // MARK: - Hypnogram
-
-    private var hypnogram: some View {
-        Canvas { ctx, size in
-            guard stages.count == points.count, !points.isEmpty else { return }
-            let levels = 5.0
-            let unit = size.height / levels
-
-            var start = 0
-            for i in 1...stages.count {
-                if i == stages.count || stages[i] != stages[start] {
-                    let x0 = xPos(points[start].timestamp, size.width)
-                    let x1 = i < points.count
-                        ? xPos(points[i].timestamp, size.width)
-                        : size.width
-                    let h = Double(level(stages[start])) * unit
-                    let rect = CGRect(x: x0, y: size.height - h,
-                                      width: max(1.2, x1 - x0), height: h)
-                    ctx.fill(Path(rect), with: .color(colour(stages[start])))
-                    start = i
-                }
-            }
-        }
-        .frame(height: 132)
-        .padding(.horizontal, 2)
-        .overlay(alignment: .leading) { edge }
-        .overlay(alignment: .trailing) { edge }
-    }
-
-    private var edge: some View {
-        Rectangle()
-            .fill(Theme.dim.opacity(0.45))
-            .frame(width: 1)
-    }
-
-    private func xPos(_ t: Date, _ width: Double) -> Double {
-        width * min(1, max(0, t.timeIntervalSince(startedAt) / span))
-    }
-
-    // MARK: - Axis
-
-    private var axis: some View {
-        HStack(spacing: 0) {
-            Text(clock(startedAt))
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Theme.text)
-                .padding(.horizontal, 7).padding(.vertical, 3)
-                .background(Theme.card, in: RoundedRectangle(cornerRadius: 5))
-            Spacer()
-            ForEach(hourTicks, id: \.self) { t in
-                Text(clock(t))
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.dim)
-                Spacer()
-            }
-            Text(clock(endedAt))
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Theme.text)
-                .padding(.horizontal, 7).padding(.vertical, 3)
-                .background(Theme.card, in: RoundedRectangle(cornerRadius: 5))
-        }
-        .padding(.top, 8)
-    }
-
-    /// Every second hour, and never so close to an end that it collides with
-    /// the boxed start or finish time.
-    private var hourTicks: [Date] {
-        var out: [Date] = []
+    /// Whole hours, strictly inside the window and clear of both end markers.
+    var ticks: [Date] {
+        guard endedAt > startedAt else { return [] }
         let cal = Calendar.current
-        var t = cal.date(bySetting: .minute, value: 0, of: startedAt) ?? startedAt
+        let step = tickStepHours
+        // Matched on minute AND second, so a night that began at 23:04:37 does
+        // not produce ticks at 00:00:37 — the gridline would be off the hour by
+        // however many seconds the first sample happened to carry.
+        guard var t = cal.nextDate(after: startedAt,
+                                   matching: DateComponents(minute: 0, second: 0),
+                                   matchingPolicy: .nextTime) else { return [] }
+
+        var out: [Date] = []
         while t < endedAt {
-            let h = cal.component(.hour, from: t)
-            if t > startedAt.addingTimeInterval(45 * 60),
-               t < endedAt.addingTimeInterval(-45 * 60),
-               h % 2 == 0 {
+            let clearOfStart = t.timeIntervalSince(startedAt) >= Self.edgeClearanceSec
+            let clearOfEnd = endedAt.timeIntervalSince(t) >= Self.edgeClearanceSec
+            if clearOfStart, clearOfEnd, cal.component(.hour, from: t) % step == 0 {
                 out.append(t)
             }
             t = t.addingTimeInterval(3600)
         }
         return out
     }
+}
 
-    // MARK: - Movement
+// MARK: - The montage
 
-    private var movementStrip: some View {
-        VStack(spacing: 6) {
-            Text("MOVEMENT")
-                .font(.system(size: 11, weight: .medium))
-                .tracking(1.4)
-                .foregroundStyle(Theme.dim)
-            Canvas { ctx, size in
-                let mid = size.height / 2
-                ctx.stroke(Path { p in
-                    p.move(to: CGPoint(x: 0, y: mid))
-                    p.addLine(to: CGPoint(x: size.width, y: mid))
-                }, with: .color(Theme.dim.opacity(0.25)), lineWidth: 1)
+/// The night, channel by channel, on one shared clock axis.
+///
+/// Laid out as a sleep-study montage because that is the instrument's own
+/// vernacular — and because every channel here is one a chest ECG plus a
+/// sternum accelerometer can actually produce.
+///
+/// **The hypnogram is a lane ribbon, not a fill-to-baseline shape.** Depth is
+/// vertical POSITION and every state carries equal visual mass. Filling each
+/// block down to the floor instead makes the deepest state the shortest bar,
+/// and since one state usually occupies most of a night, that collapses the
+/// chart into a flat strip with the variation invisible. That shape was tried:
+/// it was justified on the grounds that with five levels "awake reads as a tall
+/// thin spike", which holds only while awake is small. On a night where the
+/// detector had swallowed six hours of evening, Awake was 58% of the window AND
+/// the full-height bar — a grey slab with the architecture buried under it.
+/// The ribbon does not have that failure mode at any distribution.
+///
+/// **Every channel is drawn against `MontageRuler`, in Canvas, at full width.**
+/// Not for the drawing style — for the guarantee. Swift Charts lays out each
+/// chart's plot area inside its own frame, and a y-axis label one character
+/// wider silently shifts that chart's time origin relative to its neighbour, so
+/// "the same clock" becomes an aspiration rather than a fact. Sharing one x
+/// mapping and one full-bleed plot width makes the alignment structural. It
+/// also preserves the reason this file moved to Canvas in the first place: a
+/// night is ~19,000 samples and nine Swift Charts over it is what made the
+/// screen hang.
+struct SleepMontageChart: View {
 
-                // Only movement that stands out from this night's own stillness
-                // is worth a tick; drawing every sample would be a grey wash.
-                // The threshold needs a median of the whole night, so it is
-                // computed upstream — doing it here ran it on every redraw.
-                let threshold = motionThreshold
-                guard threshold < .greatestFiniteMagnitude else { return }
-
-                for p in points {
-                    guard let m = p.motion, m > threshold else { continue }
-                    let x = xPos(p.timestamp, size.width)
-                    let scale = min(1, Double(m / (threshold * 4)))
-                    let h = 6 + scale * (mid - 4)
-                    ctx.fill(Path(CGRect(x: x, y: mid - h / 2, width: 1.6, height: h)),
-                             with: .color(Color(white: 0.78).opacity(0.5 + scale * 0.5)))
-                }
-            }
-            .frame(height: 46)
-        }
-        .padding(.top, 26)
-    }
-
-    // MARK: - Position
-
-    /// Which way the body was facing, as bands across the same time axis.
+    private let night: PreparedNight
+    private let ruler: MontageRuler
+    /// Whether this instance draws the nine metric traces underneath.
     ///
-    /// Absent entirely on nights recorded before position was stored — the
-    /// accelerometer's three axes were collapsed to a rotation-invariant
-    /// magnitude before they reached disk, so those nights cannot be rebuilt.
-    @ViewBuilder
-    private var positionStrip: some View {
-        if !positionBands.isEmpty {
-            VStack(spacing: 6) {
-                Text("POSITION")
-                    .font(.system(size: 11, weight: .medium))
-                    .tracking(1.4)
-                    .foregroundStyle(Theme.dim)
+    /// False when the detail view is drawing them itself, grouped under the
+    /// section each one explains — vagal tone and pulse belong beside the
+    /// autonomic score, not in an undifferentiated strip of nine.
+    private let showsMetrics: Bool
 
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        ForEach(Array(positionBands.enumerated()), id: \.offset) { _, band in
-                            let x0 = xPos(band.start, geo.size.width)
-                            let x1 = xPos(band.end, geo.size.width)
-                            let w = max(2, x1 - x0)
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(positionColour(band.position))
-                                .frame(width: w, height: 22)
-                                // Only label a band with room for the word;
-                                // a clipped "SUPI" is worse than no label.
-                                .overlay {
-                                    if w > 74 {
-                                        Text(band.position.label.uppercased())
-                                            .font(.system(size: 10, weight: .semibold))
-                                            .tracking(0.8)
-                                            .foregroundStyle(labelColour(band.position))
-                                    }
-                                }
-                                .offset(x: x0)
-                        }
-                    }
-                    .frame(height: geo.size.height, alignment: .center)
-                }
-                .frame(height: 26)
-            }
-            .padding(.top, 24)
-        }
+    init(night: PreparedNight, startedAt: Date, endedAt: Date,
+         selectedX: Binding<Date?>? = nil, showsMetrics: Bool = true) {
+        self.night = night
+        self.ruler = MontageRuler(startedAt: startedAt, endedAt: endedAt)
+        self.showsMetrics = showsMetrics
+        _ownedSelection = State(initialValue: nil)
+        self.boundSelection = selectedX
     }
+
+    /// The moment the tracker is pointing at, shared by every channel — the
+    /// same idea as the Live screen's single `selectedX` across its charts.
+    /// One line, one instant, eleven readings of it.
+    /// Owned when this montage stands alone; bound when the detail view is
+    /// splitting the channels across sections and needs one instant across all
+    /// of them.
+    @State private var ownedSelection: Date?
+    private let boundSelection: Binding<Date?>?
+    private var selectedX: Binding<Date?> { boundSelection ?? $ownedSelection }
+
+    @State private var plotWidth: Double = 0
+
+    @Environment(\.modelContext) private var modelContext
+
+    /// Where the sleeper is proposing the boundary should be, while a handle is
+    /// under their finger. Nil when nothing is being dragged.
+    ///
+    /// Deliberately separate from the stored window: the ribbon behind it is
+    /// what the detector found, and it keeps saying so until the correction is
+    /// committed and the night rebuilt. Redrawing the whole hypnogram live
+    /// under a finger would be claiming the reclassification has already
+    /// happened, which it has not.
+    @State private var dragStart: Date?
+    @State private var dragEnd: Date?
+
+    /// The boundaries as currently proposed — the stored ones unless a handle
+    /// is being dragged.
+    private var shownStart: Date { dragStart ?? ruler.startedAt }
+    private var shownEnd: Date { dragEnd ?? ruler.endedAt }
+
+    /// The narrowest a corrected night may be. A handle dragged past its
+    /// opposite number would otherwise store an inverted window, and every
+    /// duration, share and score downstream divides by that.
+    private static let minWindowSec: Double = 30 * 60
+
+    /// Tap to place the tracker. Deliberately a tap and not a drag.
+    ///
+    /// Two attempts at a drag-based scrub both cost the page its scrolling. A
+    /// plain `DragGesture` takes the vertical drag as well as the horizontal
+    /// one; putting a `LongPressGesture` in front of it was supposed to leave
+    /// swipes to the ScrollView, and did not — the section arrived on a phone
+    /// simply unable to scroll. A gesture that competes with the scroll view
+    /// for the same touch will keep finding new ways to win it.
+    ///
+    /// A tap competes with nothing, and it is also what was actually asked
+    /// for: press a chart, read every channel at that instant. Tapping again
+    /// moves the line; the header carries a control to clear it.
+    private func place(_ x: Double) {
+        selectedX.wrappedValue = ruler.date(atX: x, width: plotWidth)
+    }
+
+    // MARK: - Reading a single instant
+
+    private func stage(at moment: Date) -> SleepStageDetail? {
+        // Over runs (tens) rather than samples (thousands). This was a linear
+        // scan of the whole night, run on every frame of a drag.
+        night.stageRuns.first { $0.start <= moment && moment <= $0.end }?.stage
+            ?? night.stageRuns.last?.stage
+    }
+
+    private func position(at moment: Date) -> BodyPosition? {
+        night.positionBands.first { $0.start <= moment && moment <= $0.end }?.position
+    }
+
+    // MARK: - Palette
+
+    /// A sequential depth ramp, plus one neutral that sits outside it.
+    ///
+    /// The four sleep stages are one hue with monotonic lightness, ~0.15 apart
+    /// in OKLab (0.43 / 0.59 / 0.73 / 0.88), worst adjacent pair ΔE 14.4 in
+    /// normal vision and 14.4 under protan simulation. Depth is additionally
+    /// carried by lane position and by the labelled legend below, so colour is
+    /// never the only thing separating two stages.
+    ///
+    /// Awake is ivory, matching the reference. It was briefly muted to grey
+    /// for a real reason — under the fill-to-baseline shape a wake block was
+    /// also a full-height bar, so the least informative state was the loudest
+    /// thing on the chart. A lane ribbon caps wake at one lane's worth of ink
+    /// whatever share of the night it occupies, so that reason is gone and the
+    /// brighter neutral is safe again.
+    private func colour(_ s: SleepStageDetail) -> Color { s.colour }
+
+    private func colour(_ def: ActivityMetricDef) -> Color { sleepMetricColour(def) }
 
     /// Supine is the one that carries a clinical meaning — it is the position
     /// the upper airway is most collapsible in — so it is the one that stands
@@ -279,33 +230,608 @@ struct SleepMontageChart: View {
         }
     }
 
-    // MARK: - Legend
+    // MARK: - Numbers
 
-    private var legend: some View {
-        VStack(alignment: .leading, spacing: 11) {
+    private func minutes(_ s: SleepStageDetail) -> Int { night.stageMinutes[s] ?? 0 }
+
+    /// The lanes this night gets, top to bottom.
+    ///
+    /// Only stages that actually occurred. A fixed five-lane grid spends a
+    /// whole rung on N1 even when N1 is nil for the night — which is most
+    /// nights, since N1 is positional and needs a wake bout to sit beside —
+    /// and an always-empty lane reads as missing data rather than as an absent
+    /// stage. The reference shows four lanes for a four-stage night.
+    private var lanes: [SleepStageDetail] {
+        let order: [SleepStageDetail] = [.wake, .rem, .n1, .n2, .n3]
+        let present = order.filter { minutes($0) > 0 }
+        // A night with no staging at all still needs a grid to draw against.
+        return present.isEmpty ? order : present
+    }
+
+    private func lane(of stage: SleepStageDetail) -> Int? {
+        lanes.firstIndex(of: stage)
+    }
+
+    private var asleepMinutes: Int {
+        SleepStageDetail.allCases.filter(\.isAsleep).reduce(0) { $0 + minutes($1) }
+    }
+
+    private func hm(_ m: Int) -> String { "\(m / 60)h \(String(format: "%02d", m % 60))m" }
+
+    private func clock(_ d: Date) -> String {
+        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: d)
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // The night's shape first, then what its lanes mean, then the two
+            // strips that describe the same body over the same clock. The nine
+            // metric traces follow — they answer a different question, and
+            // putting them between the hypnogram and its own legend meant
+            // scrolling past nine charts to find out what N2 was.
+            VStack(alignment: .leading, spacing: 0) {
+                sleepChannel
+                stageLegend
+                movementChannel
+                positionChannel
+                positionDetail
+                axis
+            }
+            .background(
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear { plotWidth = geo.size.width }
+                        .onChange(of: geo.size.width) { _, new in plotWidth = new }
+                }
+            )
+            // Only the hand-drawn channels take this. The metric cards below
+            // are Live's `MetricChartCard`, which brings its own
+            // `chartXSelection`. They still share `selectedX`, so the crosshair
+            // remains one instant across every channel either way.
+            // `.onTapGesture` rather than `.gesture`: it yields to the scroll
+            // view instead of arbitrating against it.
+            .onTapGesture { location in place(location.x) }
+
+            if showsMetrics { metricChannels }
+        }
+    }
+
+    // MARK: - Shared ink
+
+    /// The hour gridlines, plus a rule down each end of the window.
+    ///
+    /// Drawn into every channel from the same `ruler`, which is what lets the
+    /// eye carry a moment vertically from the hypnogram down to breathing
+    /// without the two charts quietly disagreeing about where 03:00 is.
+    private func drawGrid(_ ctx: inout GraphicsContext, _ size: CGSize) {
+        for t in ruler.ticks {
+            let x = ruler.x(t, width: size.width)
+            ctx.stroke(rule(x: x, height: size.height),
+                       with: .color(Theme.dim.opacity(0.16)), lineWidth: 0.5)
+        }
+        for x in [0.0, size.width] {
+            ctx.stroke(rule(x: x, height: size.height),
+                       with: .color(Theme.dim.opacity(0.45)), lineWidth: 1)
+        }
+    }
+
+    /// The tracker line, drawn last in every channel so it sits above the ink.
+    private func drawTracker(_ ctx: inout GraphicsContext, _ size: CGSize) {
+        guard let moment = selectedX.wrappedValue else { return }
+        let x = ruler.x(moment, width: size.width)
+        ctx.stroke(rule(x: x, height: size.height),
+                   with: .color(Theme.text.opacity(0.8)), lineWidth: 1)
+    }
+
+    private func rule(x: Double, height: Double) -> Path {
+        Path { p in
+            p.move(to: CGPoint(x: x, y: 0))
+            p.addLine(to: CGPoint(x: x, y: height))
+        }
+    }
+
+    /// Awake, behind the trace. Recessive on purpose — it is context for the
+    /// line, not a mark competing with it.
+    private func drawWakeBands(_ ctx: inout GraphicsContext, _ size: CGSize) {
+        for band in night.wakeBands {
+            let x0 = ruler.x(band.start, width: size.width)
+            let x1 = ruler.x(band.end, width: size.width)
+            ctx.fill(Path(CGRect(x: x0, y: 0, width: max(0.5, x1 - x0), height: size.height)),
+                     with: .color(Color(white: 0.62).opacity(0.16)))
+        }
+    }
+
+    private func channelHeader(_ name: String, tech: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(name)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.text)
+            Text(tech)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(Theme.dim)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Theme.text)
+        }
+    }
+
+    // MARK: - SLEEP
+
+    private var sleepChannel: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            channelHeader("Sleep", tech: "hypnogram", value: "\(hm(asleepMinutes)) asleep")
+            Canvas { ctx, size in
+                drawGrid(&ctx, size)
+                drawRibbon(&ctx, size)
+                drawTracker(&ctx, size)
+            }
+            .frame(height: 120)
+            .overlay {
+                GeometryReader { geo in
+                    ZStack(alignment: .topLeading) {
+                        handle(.start, in: geo.size)
+                        handle(.end, in: geo.size)
+                    }
+                }
+            }
+            // Directly under the hypnogram, where the reference puts it and
+            // where a reader looking at the night's shape actually asks "when
+            // was that?". One ruler at the foot of eleven stacked channels is
+            // correct for a montage and useless for the chart people read —
+            // the times were a full screen of scrolling away from the only
+            // panel most people look at.
+            axis
+            Text("Lanes run Awake at the top to N3 at the bottom; every stage has the same height, so depth is position rather than mass.")
+                .font(.system(size: 9))
+                .foregroundStyle(Theme.dim)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.bottom, 18)
+    }
+
+    private func drawRibbon(_ ctx: inout GraphicsContext, _ size: CGSize) {
+        let lanes = self.lanes
+        let runs = night.stageRuns
+        guard !runs.isEmpty, !lanes.isEmpty else { return }
+
+        let laneHeight = size.height / Double(lanes.count)
+
+        // Faint lane separators, so the rungs are readable even where a lane
+        // happens to be empty for hours.
+        for i in 1..<lanes.count {
+            let y = Double(i) * laneHeight
+            ctx.stroke(Path { p in
+                p.move(to: CGPoint(x: 0, y: y))
+                p.addLine(to: CGPoint(x: size.width, y: y))
+            }, with: .color(Theme.dim.opacity(0.10)), lineWidth: 0.5)
+        }
+
+        // Blocks fill their lane edge to edge — the reference has no gutter
+        // between vertically adjacent stages, and an inset breaks the staircase
+        // into floating tiles.
+        for run in runs {
+            guard let lane = lane(of: run.stage) else { continue }
+            let x0 = ruler.x(run.start, width: size.width)
+            let x1 = max(x0 + 1.2, ruler.x(run.end, width: size.width))
+            ctx.fill(Path(CGRect(x: x0, y: Double(lane) * laneHeight,
+                                 width: x1 - x0, height: laneHeight)),
+                     with: .color(colour(run.stage)))
+        }
+
+        // The risers. Without them the eye reads a column of disconnected bars
+        // rather than one line stepping through the night.
+        for (a, b) in zip(runs, runs.dropFirst()) {
+            guard let from = lane(of: a.stage), let to = lane(of: b.stage) else { continue }
+            let x = ruler.x(b.start, width: size.width)
+            let hi = Double(min(from, to)) * laneHeight
+            let lo = Double(max(from, to) + 1) * laneHeight
+            ctx.fill(Path(CGRect(x: x - 0.75, y: hi, width: 1.5, height: lo - hi)),
+                     with: .color(colour(from < to ? a.stage : b.stage).opacity(0.55)))
+        }
+    }
+
+    private var metricChannels: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let moment = selectedX.wrappedValue {
+                HStack(spacing: 6) {
+                    Text("AT")
+                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Theme.dim)
+                    Text(clock(moment))
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.text)
+                    if let s = stage(at: moment) {
+                        Text("· \(s.label)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.dim)
+                    }
+                    if let p = position(at: moment) {
+                        Text("· \(p.label)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.dim)
+                    }
+                    Spacer()
+                    Button("clear") { selectedX.wrappedValue = nil }
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.dim)
+                }
+                .padding(.bottom, 10)
+            } else {
+                Text("Tap any chart to read every metric at that moment.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.dim)
+                    .padding(.bottom, 10)
+            }
+            VStack(spacing: 10) {
+                ForEach(activityMetricDefs) { def in
+                    MetricChartCard(
+                        title: def.label,
+                        technicalName: def.techFull.isEmpty ? def.techLabel : def.techFull,
+                        subtitle: def.why,
+                        yLabel: def.unit,
+                        color: colour(def),
+                        windows: [],
+                        refs: [],
+                        // Only ever consulted when a metric has no values at
+                        // all in the window — and the card draws its
+                        // no-data placeholder in that case rather than a
+                        // chart. Every drawn domain is auto-fitted to what is
+                        // actually visible.
+                        yDomain: 0...1,
+                        win: .h24,               // unused: `night` pins the span
+                        night: ruler.startedAt...ruler.endedAt,
+                        selectedX: selectedX,
+                        panOffset: $cardPan,
+                        smooth: true,
+                        dynamicY: true,
+                        history: night.points,
+                        rawHistory: night.points,
+                        date: ruler.endedAt,
+                        extract: def.extract
+                    )
+                }
+            }
+        }
+        .padding(.top, 18)
+    }
+
+    /// Required by the card and deliberately never moved. Panning is disabled
+    /// for a pinned span — the night is already the whole window — but the
+    /// binding is part of the shared card's contract.
+    @State private var cardPan: TimeInterval = 0
+
+    // MARK: - MOVEMENT
+
+    private var movementChannel: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            channelHeader("Movement", tech: "accelerometer", value: "")
+            Canvas { ctx, size in
+                drawGrid(&ctx, size)
+                let mid = size.height / 2
+                ctx.stroke(Path { p in
+                    p.move(to: CGPoint(x: 0, y: mid))
+                    p.addLine(to: CGPoint(x: size.width, y: mid))
+                }, with: .color(Theme.dim.opacity(0.25)), lineWidth: 1)
+
+                // Thresholding, scaling and thinning all happen upstream now.
+                // This loop used to filter every one of ~19,000 samples and
+                // recompute each height on EVERY redraw — and the tracker
+                // redraws continuously while a finger is down, which is what
+                // made the section stutter.
+                for tick in night.motionTicks {
+                    let x = ruler.x(tick.date, width: size.width)
+                    let h = 6 + tick.scale * (mid - 4)
+                    ctx.fill(Path(CGRect(x: x, y: mid - h / 2, width: 1.6, height: h)),
+                             with: .color(Color(white: 0.78).opacity(0.5 + tick.scale * 0.5)))
+                }
+                drawTracker(&ctx, size)
+            }
+            .frame(height: 44)
+        }
+        .padding(.bottom, 14)
+    }
+
+    // MARK: - POSITION
+
+    /// Which way the body was facing, as bands across the same time axis.
+    ///
+    /// **The header is unconditional, and that is the point.** This used to
+    /// render nothing at all when there were no bands, which on a night
+    /// recorded before position was stored looked exactly like the feature not
+    /// existing — the same blank a missing implementation leaves. A night that
+    /// cannot show position has to say so, in the place the strip would be.
+    ///
+    /// Two different silences, never merged: no ticks carried an orientation
+    /// (the night predates storage, and the three axes were collapsed to a
+    /// rotation-invariant magnitude before reaching disk, so it can never be
+    /// rebuilt), or orientation was measured and no stretch of it survived the
+    /// two-minute floor.
+    private var positionChannel: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            channelHeader("Position", tech: "gravity vector", value: "")
+            if night.positionBands.isEmpty {
+                Text(night.positionTicks == 0
+                     ? "Not recorded on this night. The strap stored only the strength of movement, not its direction, so which way you lay was never on disk — it cannot be recovered by re-reading the night."
+                     : "Measured, but you never held one position for two minutes together, so there is no stretch long enough to draw.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 6)
+            } else {
+                Canvas { ctx, size in
+                    drawGrid(&ctx, size)
+                    for band in night.positionBands {
+                        let x0 = ruler.x(band.start, width: size.width)
+                        let x1 = ruler.x(band.end, width: size.width)
+                        let w = max(2, x1 - x0)
+                        let rect = CGRect(x: x0, y: 3, width: w, height: size.height - 6)
+                        ctx.fill(Path(roundedRect: rect, cornerRadius: 4),
+                                 with: .color(positionColour(band.position)))
+                        // Only label a band with room for the word; a clipped
+                        // "SUPI" is worse than no label — the list below names
+                        // every band anyway.
+                        guard w > 74 else { continue }
+                        ctx.draw(Text(band.position.label.uppercased())
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(labelColour(band.position)),
+                                 at: CGPoint(x: x0 + w / 2, y: size.height / 2),
+                                 anchor: .center)
+                    }
+                    drawTracker(&ctx, size)
+                }
+                .frame(height: 28)
+            }
+        }
+        .padding(.bottom, 10)
+    }
+
+    // MARK: - The axis
+
+    /// One ruler, drawn once, under every channel it governs.
+    ///
+    /// The two boxed times are the night's own boundaries, and since the
+    /// detector trims the window to sustained sleep they mean sleep onset and
+    /// final wake rather than "when the chart happens to start". Captioned, so
+    /// that is stated instead of inferred.
+    private enum Edge { case start, end }
+
+    /// A draggable boundary marker.
+    ///
+    /// **Why this exists.** The detector is inference and will stay inference:
+    /// a chest strap cannot see you close your eyes. It opened one night in the
+    /// evening it was recorded in, and ended another three hours early. Both
+    /// were real bugs and both were fixed, but the ambiguity itself does not go
+    /// away — so the app proposes and the sleeper corrects, which is what was
+    /// asked for: "you propose and I fix them".
+    ///
+    /// The grab area is a narrow strip rather than the whole chart. Two earlier
+    /// attempts at a drag gesture over the full width each cost the page its
+    /// scrolling; a gesture that only claims touches starting on a 26-point
+    /// column cannot do that, and everywhere else still taps to place the
+    /// tracker.
+    @ViewBuilder
+    private func handle(_ edge: Edge, in size: CGSize) -> some View {
+        let moment = edge == .start ? shownStart : shownEnd
+        let x = ruler.x(moment, width: size.width)
+        let live = (edge == .start ? dragStart : dragEnd) != nil
+        ZStack {
+            Rectangle()
+                .fill(Color.clear)
+                .frame(width: 26, height: size.height)
+                .contentShape(Rectangle())
+            Rectangle()
+                .fill(live ? Theme.accent : Theme.dim.opacity(0.55))
+                .frame(width: live ? 2 : 1, height: size.height)
+            VStack {
+                Circle()
+                    .fill(live ? Theme.accent : Theme.dim.opacity(0.7))
+                    .frame(width: 9, height: 9)
+                Spacer()
+                Circle()
+                    .fill(live ? Theme.accent : Theme.dim.opacity(0.7))
+                    .frame(width: 9, height: 9)
+            }
+            .frame(height: size.height)
+        }
+        .position(x: x, y: size.height / 2)
+        .gesture(
+            DragGesture(minimumDistance: 2)
+                .onChanged { g in
+                    let proposed = ruler.date(atX: g.location.x, width: size.width)
+                    switch edge {
+                    case .start:
+                        dragStart = min(proposed,
+                                        shownEnd.addingTimeInterval(-Self.minWindowSec))
+                    case .end:
+                        dragEnd = max(proposed,
+                                      shownStart.addingTimeInterval(Self.minWindowSec))
+                    }
+                }
+                .onEnded { _ in saveCorrection() }
+        )
+    }
+
+    /// Writes the correction down, keyed by the night's wake date.
+    ///
+    /// Only the edges that actually moved are stored. Recording a start the
+    /// sleeper never touched would freeze whatever the detector happened to
+    /// find today, and every later improvement to onset detection would then be
+    /// overridden by a number nobody chose.
+    private func saveCorrection() {
+        guard dragStart != nil || dragEnd != nil else { return }
+        let day = Calendar.current.startOfDay(for: shownEnd)
+        let existing = (try? modelContext.fetch(FetchDescriptor<SleepWindowOverride>()))?
+            .filter { Calendar.current.isDate($0.day, inSameDayAs: day) } ?? []
+        for row in existing { modelContext.delete(row) }
+        modelContext.insert(SleepWindowOverride(day: day,
+                                                startedAt: dragStart,
+                                                endedAt: dragEnd))
+        try? modelContext.save()
+        // Left in place, not cleared: the ribbon behind still shows the old
+        // boundaries until the recorder rebuilds the night, and snapping the
+        // marker back to them would read as the correction having been
+        // rejected.
+    }
+
+    private var axis: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                Color.clear
+                // Filtered against measured width, not clock time: a label's
+                // collision with the end chips is a geometry fact, and the
+                // ruler has no width to reason about it with. Gridlines still
+                // run at every tick — only the LABEL is dropped.
+                ForEach(ruler.ticks.filter { t in
+                    let x = ruler.x(t, width: geo.size.width)
+                    return x > Self.chipGuard && x < geo.size.width - Self.chipGuard
+                }, id: \.self) { t in
+                    Text(clock(t))
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(Theme.dim)
+                        // Centred ON its gridline, which is the whole point:
+                        // the old axis spaced labels evenly and let them land
+                        // wherever that happened to put them.
+                        .position(x: ruler.x(t, width: geo.size.width), y: 15)
+                }
+            }
+        }
+        .frame(height: 34)
+        .overlay(alignment: .topLeading) { chip("ASLEEP", clock(shownStart)) }
+        .overlay(alignment: .topTrailing) { chip("WOKE", clock(shownEnd)) }
+        .padding(.bottom, 14)
+    }
+
+    /// Half the widest an end chip plus a hair of clearance can be, in points.
+    private static let chipGuard: Double = 74
+
+    private func chip(_ caption: String, _ time: String) -> some View {
+        VStack(spacing: 2) {
+            Text(caption)
+                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                .tracking(0.7)
+                .foregroundStyle(Theme.dim)
+            Text(time)
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundStyle(Theme.text)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 5))
+        }
+    }
+
+    // MARK: - Legends
+
+    private var stageLegend: some View {
+        VStack(alignment: .leading, spacing: 10) {
             ForEach([SleepStageDetail.wake, .rem, .n1, .n2, .n3], id: \.self) { s in
                 let mins = minutes(s)
                 if mins > 0 || s == .wake {
                     HStack(spacing: 12) {
                         Capsule()
                             .fill(colour(s))
-                            .frame(width: 92, height: 9)
+                            .frame(width: 78, height: 9)
                         Text(s.label)
-                            .font(.system(size: 16))
+                            .font(.system(size: 15))
                             .foregroundStyle(Theme.text)
                         Text(hm(mins))
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.system(size: 15, weight: .medium))
                             .foregroundStyle(Theme.text)
                         if s.isAsleep, asleepMinutes > 0 {
                             Text("\(Int(round(Double(mins) / Double(asleepMinutes) * 100)))%")
-                                .font(.system(size: 15))
+                                .font(.system(size: 14))
                                 .foregroundStyle(Theme.dim)
                         }
                         Spacer()
                     }
                 }
             }
+            // What the lanes actually are. The legend named them and priced
+            // them in minutes without ever saying what they were, which leaves
+            // "N2 3h 16m 61%" meaning nothing to anyone who has not read a
+            // sleep textbook.
+            VStack(alignment: .leading, spacing: 5) {
+                stageNote("Awake", "Lying awake, in bed. Brief arousals are normal — several an hour is ordinary and not something to fix.")
+                stageNote("REM", "Dreaming sleep. The heart behaves much as it does awake, which is why it is the stage a cardiac signal reads least confidently.")
+                stageNote("N1", "The doorway either side of a wake bout — the descent into sleep, and the settling after an arousal. Positional here, not measured.")
+                stageNote("N2 (light)", "The bulk of a normal night. Genuinely measured: coherence, variability and heart rate, ranked within this night.")
+                stageNote("N3 (deep)", "The deepest, most restorative stretch, front-loaded into the first half of the night. Also measured.")
+            }
+            .padding(.top, 10)
+
+            HStack(spacing: 7) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color(white: 0.62).opacity(0.16))
+                    .frame(width: 22, height: 11)
+                Text("awake, behind every trace")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.dim)
+                Text("·  dashed line is the night average")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.dim)
+            }
+            .padding(.top, 2)
         }
-        .padding(.top, 30)
+        .padding(.top, 4)
+    }
+
+    private func stageNote(_ name: String, _ meaning: String) -> some View {
+        (Text(name).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
+         + Text("  " + meaning).font(.system(size: 11)).foregroundStyle(Theme.dim))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The minutes behind the position bands, and then the bands themselves.
+    ///
+    /// The strip shows *when*; a person asking "how much of the night was I on
+    /// my back" is asking something the strip alone cannot answer, and supine
+    /// share is the one number here with a recommendation attached to it.
+    ///
+    /// There was a row per turn under this. It was asked for and then found to
+    /// be noise — thirty-odd lines of clock ranges is a log, not a picture, and
+    /// the tracker answers "what was I doing at 03:14" far better than a table
+    /// the eye has to search.
+    @ViewBuilder
+    private var positionDetail: some View {
+        if !night.positionBands.isEmpty {
+            let known = night.positionMinutes.values.reduce(0, +)
+            VStack(alignment: .leading, spacing: 9) {
+                ForEach(BodyPosition.allCases, id: \.rawValue) { pos in
+                    if let mins = night.positionMinutes[pos], mins > 0 {
+                        HStack(spacing: 12) {
+                            Capsule()
+                                .fill(positionColour(pos))
+                                .frame(width: 78, height: 9)
+                            Text(pos.label)
+                                .font(.system(size: 15))
+                                .foregroundStyle(Theme.text)
+                            Text(hm(mins))
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(Theme.text)
+                            if known > 0 {
+                                Text("\(Int((Double(mins) / Double(known) * 100).rounded()))%")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(Theme.dim)
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+
+                // Percentages are of the time a position was known, not of the
+                // night — the gaps are stretches spent turning over, and
+                // dividing by them would understate every position.
+                Text("Shares are of the time a position was readable; the gaps between turns are the rolls themselves. Left and right depend on which way round the strap was fastened; on your back, front and upright do not.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 22)
+        }
     }
 }

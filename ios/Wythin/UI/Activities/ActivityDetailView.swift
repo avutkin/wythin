@@ -171,8 +171,11 @@ struct ActivityDetailView: View {
                             uplifts: uplifts,
                             labels: metrics.map { $0.def.label },
                             vsAverage: metrics.map { m in
-                                m.def.benefitDelta(current: m.stats.duringMean,
-                                                   base: twoMonthAvg[m.def.id])
+                                // Raw, like the tiles: this is one metric's own
+                                // number, printed as prose, not an input to a
+                                // mean that a runaway value could swamp.
+                                m.def.rawBenefitDelta(current: m.stats.duringMean,
+                                                      base: twoMonthAvg[m.def.id])
                             })
 
                         // Per-metric progressive disclosure — tap a row to open

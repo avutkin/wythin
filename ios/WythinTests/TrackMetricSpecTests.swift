@@ -9,7 +9,7 @@ final class TrackMetricSpecTests: XCTestCase {
         stressBalance: 45, vti: 3.7, meanBPM: 60,
         sampleCount: 200, wearSeconds: 400, mean: [:], sd: [:])
 
-    func testHasExactlySevenMetricsInOrder() {
+    func testHasExactlyEightMetricsInOrder() {
         // Matches `LiveMetric`'s declaration order for the cases the two
         // screens share (dc, rcmse, pip, dfa1, stressBalance, rsa, rmssd) —
         // see `testOrderMatchesLiveMetricDeclarationOrder` below, which pins
@@ -17,7 +17,7 @@ final class TrackMetricSpecTests: XCTestCase {
         // label list that could drift out of sync with `LiveMetric` unnoticed.
         XCTAssertEqual(TrackMetrics.all.map(\.def.label), [
             "Vagal Tone", "Adaptive Capacity", "Inner Noise", "Harmony",
-            "Stress Balance", "Conscious Breathing", "Energy Reserve",
+            "Stress Balance", "Conscious Breathing", "Calm Power",
             "Overall Variability",
         ])
     }
@@ -35,7 +35,7 @@ final class TrackMetricSpecTests: XCTestCase {
     /// fresh, since it doesn't derive its expectation from `LiveMetric` at all.
     func testOrderMatchesLiveMetricDeclarationOrder() {
         let liveCase: [String: LiveMetric] = [
-            "Vagal Tone": .dc, "Energy Reserve": .rmssd, "Conscious Breathing": .rsa,
+            "Vagal Tone": .dc, "Calm Power": .rmssd, "Conscious Breathing": .rsa,
             "Adaptive Capacity": .rcmse, "Harmony": .dfa1, "Inner Noise": .pip,
             "Stress Balance": .stressBalance, "Overall Variability": .sdnn,
         ]
@@ -51,10 +51,9 @@ final class TrackMetricSpecTests: XCTestCase {
         XCTAssertEqual(Set(liveCase.keys), Set(TrackMetrics.all.map(\.def.label)))
     }
 
-    func testExcludesPulseAndCalmPower() {
+    func testExcludesPulse() {
         let labels = Set(TrackMetrics.all.map(\.def.label))
         XCTAssertFalse(labels.contains("Pulse"))
-        XCTAssertFalse(labels.contains("Calm Power"))
     }
 
     func testEveryExtractorReadsItsField() {
@@ -80,7 +79,7 @@ final class TrackMetricSpecTests: XCTestCase {
         }
         XCTAssertFalse(spec("Adaptive Capacity").zeroBased)
         XCTAssertFalse(spec("Harmony").zeroBased)
-        XCTAssertTrue(spec("Energy Reserve").zeroBased)
+        XCTAssertTrue(spec("Calm Power").zeroBased)
     }
 
     func testDirectionsComeFromTheSharedRegistry() {
@@ -98,8 +97,9 @@ final class TrackMetricSpecTests: XCTestCase {
     func testWhyCopyIsInheritedNotRetyped() {
         for spec in TrackMetrics.all {
             guard let shared = activityMetricDefs.first(where: { $0.label == spec.def.label }) else {
-                // Track-only metrics (Overall Variability) have no Activities
-                // surface, so they own their copy instead of inheriting it.
+                // Overall Variability has no Activities surface, so it is not
+                // in the registry — it owns its copy in `sdnnMetricDef`, which
+                // Live's chart reads too. See the test below.
                 XCTAssertFalse(spec.def.why.isEmpty)
                 continue
             }
@@ -137,15 +137,14 @@ final class TrackMetricSpecTests: XCTestCase {
     }
 
     /// Names the measure, not a family or a stale alias. Each of these was
-    /// wrong on screen at some point: Energy Reserve said "HRV" (a family,
-    /// not a measure), Calm Power said "VTI" (a historical alias for ln
-    /// RMSSD), and Stress Balance said "LF/HF" — which it has never plotted.
+    /// wrong on screen at some point: the RMSSD card said "HRV" (a family, not
+    /// a measure), the name "Calm Power" sat on the log of the measure beside
+    /// it, and Stress Balance said "LF/HF" — which it has never plotted.
     func testTechLabelsNameTheActualMeasure() {
         func def(_ label: String) -> ActivityMetricDef {
             activityMetricDefs.first { $0.label == label }!
         }
-        XCTAssertEqual(def("Energy Reserve").techLabel, "RMSSD")
-        XCTAssertEqual(def("Calm Power").techLabel, "ln RMSSD")
+        XCTAssertEqual(def("Calm Power").techLabel, "RMSSD")
         XCTAssertNotEqual(def("Stress Balance").techLabel, "LF/HF")
 
         // And every metric spells its measure out somewhere, so an
@@ -157,6 +156,41 @@ final class TrackMetricSpecTests: XCTestCase {
         for spec in TrackMetrics.all {
             XCTAssertFalse(spec.def.techFull.isEmpty, "\(spec.def.label) has no spelled-out name")
         }
+    }
+
+
+    // MARK: Overall Variability (SDNN)
+
+    /// SDNN is charted on two screens — Track's daily trend and, since
+    /// 2026-08-21, the Live history charts — and both must name it the same
+    /// thing. It is deliberately *not* in `activityMetricDefs`: the Activities
+    /// grid keeps its nine slots, so the def lives beside the registry and both
+    /// screens read it from there rather than each typing its own.
+    func testOverallVariabilityIsSharedFromOneDefOutsideTheGridRegistry() {
+        XCTAssertFalse(activityMetricDefs.contains { $0.metric == .sdnn },
+                       "SDNN belongs beside `activityMetricDefs`, not in it — the grid has nine slots")
+        guard let spec = TrackMetrics.all.first(where: { $0.def.metric == .sdnn }) else {
+            return XCTFail("TrackMetrics no longer charts Overall Variability")
+        }
+        XCTAssertEqual(spec.def.label,    sdnnMetricDef.label)
+        XCTAssertEqual(spec.def.techFull, sdnnMetricDef.techFull)
+        XCTAssertEqual(spec.def.unit,     sdnnMetricDef.unit)
+        XCTAssertEqual(spec.def.why,      sdnnMetricDef.why)
+    }
+
+    /// The Live chart draws through this extractor, so it has to read the SDNN
+    /// field and nothing else — a copy-paste onto `rmssd` would chart Calm
+    /// Power twice under two names, which is exactly the drift the shared
+    /// registry exists to prevent.
+    func testSdnnDefExtractsTheSdnnField() {
+        let pt = MetricsHistoryPoint(timestamp: Date(timeIntervalSince1970: 1_750_000_000),
+                                     rmssd: 40, sdnn: 47.5)
+        XCTAssertEqual(sdnnMetricDef.extract(pt) ?? .nan, 47.5, accuracy: 0.001)
+        XCTAssertEqual(sdnnMetricDef.metric, .sdnn)
+        XCTAssertEqual(sdnnMetricDef.unit, "ms")
+        // Higher spread is the better direction, as on Track.
+        XCTAssertGreaterThan(sdnnMetricDef.direction.benefit(60),
+                             sdnnMetricDef.direction.benefit(30))
     }
 
 }

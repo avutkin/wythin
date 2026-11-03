@@ -18,7 +18,7 @@ enum ActivityClass {
     /// averaged together.
     case activating
 
-    /// Scored as the mean benefit-signed change across the nine metrics.
+    /// Scored as the mean benefit-signed change across the named metrics.
     case restorative
 }
 

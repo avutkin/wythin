@@ -634,7 +634,7 @@ def test_macro_trend_names_avoid_every_banned_token():
         assert key not in text, f"{key!r} leaked into the prompt as a raw key"
 
     # The app's names, matching the card headings the read sits above.
-    for name in ["Vagal Tone", "Energy Reserve", "Conscious Breathing",
+    for name in ["Vagal Tone", "Calm Power", "Conscious Breathing",
                  "Adaptive Capacity", "Harmony", "Inner Noise", "Stress Balance"]:
         assert name in text, (
             f"{name!r} is the app's own card heading and must be the name the "
@@ -823,3 +823,357 @@ async def test_profile_omitting_consent_is_treated_as_no():
         app.dependency_overrides.pop(get_openai_client, None)
 
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# The session read names the metrics the session screen shows
+# ---------------------------------------------------------------------------
+
+_FULL_ACTIVITY_PAYLOAD = {
+    "activity_type": "Breathwork",
+    "activity_subtype": "Breath Hold",
+    "duration_min": 5,
+    "before_hr": 83.0,     "during_hr": 82.0,     "after_hr": 82.0,
+    "before_rmssd": 34.0,  "during_rmssd": 41.0,  "after_rmssd": 38.0,
+    "before_rsa": 24.0,    "during_rsa": 47.0,    "after_rsa": 30.0,
+    "before_dc": 6.1,      "during_dc": 8.4,      "after_dc": 7.0,
+    "before_rcmse": 1.3,   "during_rcmse": 1.5,   "after_rcmse": 1.4,
+    "before_pip": 57.0,    "during_pip": 51.0,    "after_pip": 54.0,
+    "before_dfa1": 0.88,   "during_dfa1": 0.97,   "after_dfa1": 0.93,
+    "before_stress": 55.0, "during_stress": 44.0, "after_stress": 48.0,
+    "before_sdnn": 46.0,   "during_sdnn": 58.0,   "after_sdnn": 50.0,
+    # Values chosen to share no digit-substring with the LF/HF sentinels
+    # (0.7 / 4.2 / 1.1) that `test_activity_format_never_feeds_the_raw_lf_hf_ratio`
+    # searches the whole prompt for.
+    "before_breath": 15.6, "during_breath": 6.5,  "after_breath": 9.3,
+}
+
+
+def test_activity_format_names_every_metric_the_session_screen_charts():
+    """The read is printed directly beneath those charts. A read built from a
+    four-metric subset described a session the person could not see."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    text = _format_metrics(InsightRequest(**_FULL_ACTIVITY_PAYLOAD))
+    for name in ["Vagal Tone", "Adaptive Capacity", "Inner Noise", "Harmony",
+                 "Stress Balance", "Breath Rate", "Conscious Breathing",
+                 "Calm Power", "Pulse"]:
+        assert name in text, f"{name!r} is charted on the session screen but not in the read's input"
+
+
+def test_activity_format_carries_breath_rate_through_all_three_windows():
+    """Breath Rate is the ninth tile on the card the read is printed beside,
+    and the only measure on it the person steers on purpose — a read that
+    cannot see it cannot say the one thing they did deliberately."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    text = _format_metrics(InsightRequest(**_FULL_ACTIVITY_PAYLOAD))
+    line = next(l for l in text.splitlines() if l.startswith("Breath Rate"))
+    assert "before=15.6br/min" in line
+    assert "during=6.5br/min" in line
+    assert "after=9.3br/min" in line
+
+
+def test_activity_format_hands_the_model_no_name_the_screen_lacks():
+    """Every metric arrives under its consumer name, never as the raw
+    abbreviation — the model can only say back what it was given, and the
+    reply that prompted this said 'RSA and SDNN increased' and cited an
+    'LF/HF ratio' under a screen carrying none of those three words."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    text = _format_metrics(InsightRequest(**_FULL_ACTIVITY_PAYLOAD))
+    for token in ["RMSSD", "SDNN", "LF/HF", "HRV", "RSA:", "DFA", "PIP"]:
+        assert token not in text, f"{token!r} is not a name the app shows anywhere"
+
+
+def test_activity_format_never_feeds_the_raw_lf_hf_ratio():
+    """LF/HF rises during slow paced breathing — the vagal peak moves out of
+    HF into LF — so a coach handed it reads the calmest thing a person can do
+    as sympathetic activation. Stress Balance is what the app uses instead."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    payload = dict(_FULL_ACTIVITY_PAYLOAD)
+    payload.update({"before_lf_hf": 0.7, "during_lf_hf": 4.2, "after_lf_hf": 1.1})
+    text = _format_metrics(InsightRequest(**payload))
+    assert "4.2" not in text
+    assert "Stress Balance" in text
+
+
+def test_activity_format_skips_metrics_the_client_did_not_send():
+    """An older build sends a subset. It gets a thinner read, not a read full
+    of `None`s."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    text = _format_metrics(InsightRequest(**_PAYLOAD))
+    assert "Conscious Breathing" in text
+    assert "Calm Power" not in text
+    assert "None" not in text
+
+
+def test_activity_prompt_forbids_the_abbreviations_the_screen_never_shows():
+    """The macro-trend read has carried this rule since it shipped; the
+    session read had none, which is why its text spoke a vocabulary that
+    appears on no screen in the app."""
+    from server.routers.insights import _SYSTEM_PROMPT
+
+    for token in ["HRV", "RMSSD", "SDNN", "LF/HF", "PIP"]:
+        assert token in _SYSTEM_PROMPT, f"{token!r} must be named as forbidden"
+    assert "Calm Power" in _SYSTEM_PROMPT
+
+
+# --- sleep mode -------------------------------------------------------------
+
+_SLEEP_PAYLOAD = {
+    "mode": "sleep",
+    "sleep": {
+        "bedtime": "22:05",
+        "wake_time": "07:30",
+        "in_bed_min": 565,
+        "asleep_min": 400,
+        "score": 71,
+        "section_scores": {"Timing": 82, "Duration": 74, "Continuity": 48,
+                           "Autonomic": 80, "Breathing": 66},
+        "stages": {"wake": 165, "rem": 80, "n1": 14, "n2": 275, "n3": 31},
+        "wake_bouts": 7,
+        "longest_wake_min": 38,
+        "regularity": 74.0,
+        "position_recorded": True,
+        "positions": [{"position": "Supine", "minutes": 250},
+                      {"position": "Left side", "minutes": 96},
+                      {"position": "Right side", "minutes": 54}],
+        "arcs": {
+            "dc":    {"first_half": 6.1,  "second_half": 8.4,  "night_avg": 7.2},
+            "rmssd": {"first_half": 34.0, "second_half": 44.0, "night_avg": 39.1},
+            "hr":    {"first_half": 60.0, "second_half": 56.0, "night_avg": 58.0},
+            "pip":   {"first_half": 41.0, "second_half": 33.0, "night_avg": 37.0},
+        },
+        "breath_bpm": 13.4,
+        "lowest_hr": 49.0,
+        "lowest_hr_at": "03:40",
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_sleep_success():
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(
+        content="  A broken night that still recovered\n"
+                "• Recovery **arrived late**.\n"
+                "→ Hold a fixed wake time this week.  "
+    )
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights", json=_SLEEP_PAYLOAD)
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
+
+    assert r.status_code == 200
+    text = r.json()["text"]
+    assert text.startswith("A broken night")     # stripped
+    assert "→" in text
+
+
+@pytest.mark.asyncio
+async def test_sleep_requires_a_night():
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights", json={"mode": "sleep"})
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
+
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_sleep_requires_time_asleep():
+    """A night with no asleep minutes is not a night to interpret — refuse it
+    rather than invite the model to narrate an empty window."""
+    app.dependency_overrides[require_ai_consent] = lambda: "consented-device"
+    app.dependency_overrides[get_openai_client] = lambda: _FakeOpenAIClient(content="x")
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post("/insights",
+                                  json={"mode": "sleep", "sleep": {"bedtime": "22:05"}})
+    finally:
+        app.dependency_overrides.pop(get_openai_client, None)
+        app.dependency_overrides.pop(require_ai_consent, None)
+
+    assert r.status_code == 422
+
+
+def test_sleep_format_carries_the_night_shape():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_sleep
+
+    text = _format_sleep(InsightRequest(**_SLEEP_PAYLOAD))
+
+    assert "22:05" in text and "07:30" in text
+    assert "6h 40m asleep" in text          # 400 min, in the unit the app shows
+    assert "9h 25m in bed" in text          # 565 min
+    assert "71%" in text                    # efficiency, derived not invented
+    assert "7 wake bouts" in text
+    assert "longest 38m" in text
+    assert "Continuity 48" in text
+
+
+def test_sleep_format_uses_screen_names_not_abbreviations():
+    """The read is printed under the very charts these metrics come from, so a
+    name the person cannot find on that screen describes someone else's night."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_sleep
+
+    text = _format_sleep(InsightRequest(**_SLEEP_PAYLOAD))
+
+    assert "Vagal Tone" in text
+    assert "Calm Power" in text
+    assert "Inner Noise" in text
+    assert "Pulse" in text
+    for banned in ("RMSSD", "HRV", "PIP", "DFA", "entropy"):
+        assert banned not in text, banned
+
+
+def test_sleep_format_reports_the_arc_not_just_the_average():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_sleep
+
+    text = _format_sleep(InsightRequest(**_SLEEP_PAYLOAD))
+
+    assert "first half" in text and "second half" in text
+    assert "34.0" in text and "44.0" in text
+
+
+def test_sleep_format_reports_supine_share():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_sleep
+
+    text = _format_sleep(InsightRequest(**_SLEEP_PAYLOAD))
+
+    assert "Supine" in text
+    assert "250m" in text
+    # 250 of 400 asleep minutes
+    assert "63%" in text
+
+
+def test_sleep_format_states_position_was_not_recorded_rather_than_omitting_it():
+    """Silence reads as 'the person never lay on their back'. A night that
+    predates orientation storage has to say so, or the model will fill the
+    gap with a claim the sensor never made."""
+    from server.models import InsightRequest
+    from server.routers.insights import _format_sleep
+
+    payload = {"mode": "sleep", "sleep": dict(_SLEEP_PAYLOAD["sleep"])}
+    payload["sleep"].pop("positions")
+    payload["sleep"]["position_recorded"] = False
+
+    text = _format_sleep(InsightRequest(**payload))
+
+    assert "not recorded" in text.lower()
+    assert "Supine" not in text
+
+
+def test_sleep_prompt_forbids_diagnosis_and_stage_precision():
+    from server.routers.insights import _SLEEP_SYSTEM_PROMPT
+
+    low = _SLEEP_SYSTEM_PROMPT.lower()
+    assert "apnea" in low          # named, in order to be forbidden
+    assert "diagnos" in low
+    assert "shape" in low          # stage minutes are a shape, not a hypnogram
+
+
+def test_sleep_prompt_specifies_bullets_and_recommendations():
+    from server.routers.insights import _SLEEP_SYSTEM_PROMPT
+
+    assert "•" in _SLEEP_SYSTEM_PROMPT
+    assert "→" in _SLEEP_SYSTEM_PROMPT
+    assert "**" in _SLEEP_SYSTEM_PROMPT      # same bold convention as the other reads
+
+
+def test_sleep_prompt_names_avoid_every_banned_token():
+    """Same rule the macro read is held to: a banned word must not reach the
+    model as a metric's only available name."""
+    from server.routers.insights import _SLEEP_METRIC_NAMES
+
+    for key, label in _SLEEP_METRIC_NAMES.items():
+        for banned in ("HRV", "RMSSD", "LF/HF", "entropy", "PIP"):
+            assert banned not in label, (key, banned)
+    # "Vagal Tone" is the app's name for `dc` and for nothing else.
+    assert sum("Vagal Tone" in v for v in _SLEEP_METRIC_NAMES.values()) == 1
+
+
+# ── The coach's comparison with the person's own history ──────────────────
+#
+# The read is printed directly under the charts and the percentage changes, so
+# a reply that only names which metrics moved and in which direction repeats
+# what the reader can already see. These tests cover the one thing the coach
+# had that the charts did not: the person's own usual for this practice.
+
+def test_usual_values_are_rendered_with_the_comparison_precomputed():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    out = _format_metrics(InsightRequest(
+        mode="activity", activity_type="Breathwork",
+        activity_subtype="Coherent Breathing 5x5",
+        peer_group="Coherent Breathing 5x5", peer_sessions=7,
+        before_hr=99, during_hr=78, usual_hr=81,
+    ))
+    assert "last 7 Coherent Breathing 5x5 sessions" in out
+    assert "usual_during=81" in out
+    # The arithmetic is done here, not by the model, because it is printed
+    # beside the chart it describes and has to agree with it.
+    assert "-4%" in out
+
+
+def test_a_first_session_is_told_there_is_nothing_to_compare_with():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    out = _format_metrics(InsightRequest(
+        mode="activity", activity_type="Breathwork", before_hr=99, during_hr=78,
+    ))
+    assert "nothing yet" in out
+    assert "usual_during" not in out
+    # Saying nothing would let the model reach for "typical" anyway; the
+    # instruction not to is the enforcement.
+    assert "Do NOT claim" in out
+
+
+def test_a_zero_usual_does_not_divide_by_zero():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    out = _format_metrics(InsightRequest(
+        mode="activity", activity_type="Breathwork",
+        peer_sessions=4, during_stress=12, usual_stress=0,
+    ))
+    assert "usual_during=0" in out
+    assert "% vs usual" not in out
+
+
+def test_an_older_client_sending_no_history_still_renders():
+    from server.models import InsightRequest
+    from server.routers.insights import _format_metrics
+
+    out = _format_metrics(InsightRequest(
+        mode="activity", activity_type="Yoga", before_hr=70, during_hr=80, after_hr=65,
+    ))
+    assert "Pulse" in out and "during=80" in out
+
+
+def test_the_prompt_forbids_restating_the_charts_and_the_third_person():
+    from server.routers.insights import _SYSTEM_PROMPT
+
+    # The three faults observed in shipped replies.
+    assert "SAY SOMETHING THE CHARTS DO NOT" in _SYSTEM_PROMPT
+    assert "SECOND PERSON, ALWAYS" in _SYSTEM_PROMPT
+    assert "ANCHORED TO A NUMBER" in _SYSTEM_PROMPT

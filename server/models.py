@@ -5,7 +5,8 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from pydantic import BaseModel, Field, field_validator
 import uuid
 
 
@@ -33,6 +34,19 @@ class SessionSchema(BaseModel):
     samples:           list[SampleSchema] = []
 
 
+def zone_or_none(name):
+    """An IANA zone name the server knows, else None. The dashboard hands this
+    straight to Intl.DateTimeFormat, which throws on a name it does not know —
+    so an unrecognised zone is stored as unknown, not as a string."""
+    if not name:
+        return None
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, TypeError):
+        return None
+    return name
+
+
 class ActivitySchema(BaseModel):
     """One logged activity uploaded from the iOS ActivityLog. Metric fields are
     the stored before/during/after window averages (same grid the app shows)."""
@@ -46,6 +60,14 @@ class ActivitySchema(BaseModel):
     impact_score:     Optional[int] = None
     impact_delta_pct: Optional[float] = None
     notes:            Optional[str] = None
+    # A recorded night's summary (score, sections, stages, positions, the
+    # run-length hypnogram). Stored as uploaded; only the app computes it.
+    sleep:            Optional[dict] = None
+    # The phone's IANA zone when it uploaded this row, so the activity keeps
+    # its own clock even after the person has flown somewhere else.
+    timezone:         Optional[str] = None
+
+    _zone = field_validator("timezone")(lambda cls, v: zone_or_none(v))
 
     before_hr:     Optional[float] = None; during_hr:     Optional[float] = None; after_hr:     Optional[float] = None
     before_rmssd:  Optional[float] = None; during_rmssd:  Optional[float] = None; after_rmssd:  Optional[float] = None
@@ -58,6 +80,7 @@ class ActivitySchema(BaseModel):
     before_pip:    Optional[float] = None; during_pip:    Optional[float] = None; after_pip:    Optional[float] = None
     before_dc:     Optional[float] = None; during_dc:     Optional[float] = None; after_dc:     Optional[float] = None
     before_dfa1:   Optional[float] = None; during_dfa1:   Optional[float] = None; after_dfa1:   Optional[float] = None
+    before_breath: Optional[float] = None; during_breath: Optional[float] = None; after_breath: Optional[float] = None
 
 
 class MetricSample(BaseModel):
@@ -73,9 +96,19 @@ class MetricSample(BaseModel):
     breath_bpm: Optional[float] = None
     dfa1: Optional[float] = None
     rcmse: Optional[float] = None
+    motion: Optional[float] = None
     pip: Optional[float] = None
     dc: Optional[float] = None
     vti: Optional[float] = None
+    # On-device read of how trustworthy this tick is — SignalQualityTier
+    # (0 poor … 2 good), the fraction of RR intervals dropped as implausible,
+    # and 1 - that fraction. Without these the server has no way to tell a
+    # garbage stretch of readings from a real one: a night that read 160 bpm
+    # with RMSSD 150 ms for ten hours (2026-10-24) looked, on its own numbers,
+    # like an outlier night rather than what it was — bad strap contact.
+    signal_quality: Optional[float] = None
+    rr_invalid_rate: Optional[float] = None
+    ecg_quality_tier: Optional[int] = None
 
 
 class MetricsUpload(BaseModel):
@@ -106,6 +139,11 @@ class ProfileUpload(BaseModel):
     # as agreement.
     consent_share_team:  bool = False
     consent_ai_insights: bool = False
+    # The phone's current IANA zone — the clock the dashboard shows this
+    # person's day in.
+    timezone:            Optional[str] = None
+
+    _zone = field_validator("timezone")(lambda cls, v: zone_or_none(v))
 
 
 class UsageEvent(BaseModel):
@@ -117,6 +155,27 @@ class UsageEvent(BaseModel):
 
 class UsageUpload(BaseModel):
     events: list[UsageEvent] = []
+
+
+class FeltStateLogUpload(BaseModel):
+    """One self check-in from the phone. Only id and timestamp are required:
+    the August build sends the five original keys and nothing else, and every
+    scale is optional because an untouched slider is null, never a default."""
+    id:           str
+    timestamp:    str                       # ISO8601 — when it was answered
+    kind:         Optional[str]   = None    # 'moment' | 'previous_day'; missing = moment
+    day_key:      Optional[str]   = None    # local yyyy-MM-dd the answer is about
+    timezone:     Optional[str]   = None
+    focus:        Optional[float] = None
+    energy:       Optional[float] = None
+    stress:       Optional[float] = None
+    mood:         Optional[float] = None
+    anxiety:      Optional[float] = None
+    sleep:        Optional[float] = None
+    state_key:    Optional[str]   = None
+    worn_minutes: Optional[float] = None
+
+    _zone = field_validator("timezone")(lambda cls, v: zone_or_none(v))
 
 
 class UploadResponse(BaseModel):
@@ -189,8 +248,63 @@ class MacroTrend(BaseModel):
     direction:  Optional[str] = None
 
 
+class SleepStageMinutes(BaseModel):
+    """Minutes in each stage. Cut at typical adult shares upstream, so these
+    are the night's SHAPE and must not be read as a clinical hypnogram."""
+    wake: Optional[int] = None
+    rem:  Optional[int] = None
+    n1:   Optional[int] = None
+    n2:   Optional[int] = None
+    n3:   Optional[int] = None
+
+
+class SleepPositionShare(BaseModel):
+    """How long the body held one orientation, over the whole night."""
+    position: str            # "Supine" | "Prone" | "Left side" | "Right side" | "Upright"
+    minutes:  int
+
+
+class SleepArc(BaseModel):
+    """One metric's first half against its second half.
+
+    A night average is a single number for eight hours and hides the only
+    thing worth acting on: whether recovery arrived, and WHEN. The halves are
+    the smallest honest way to carry that.
+    """
+    first_half:  Optional[float] = None
+    second_half: Optional[float] = None
+    night_avg:   Optional[float] = None
+
+
+class SleepNight(BaseModel):
+    """One measured night. Every number is computed on-device; the model
+    receives them and supplies language only."""
+    bedtime:     Optional[str] = None     # "22:05" local
+    wake_time:   Optional[str] = None     # "07:30" local
+    in_bed_min:  Optional[int] = None
+    asleep_min:  Optional[int] = None
+    score:       Optional[int] = None
+    # Section name -> 0-100, as the SECTIONS card shows them.
+    section_scores: Optional[dict[str, int]] = None
+    stages:      Optional[SleepStageMinutes] = None
+    wake_bouts:      Optional[int] = None
+    longest_wake_min: Optional[int] = None
+    # Sleep Regularity Index, 0-100 — how alike this night's timing is to the
+    # nights before it.
+    regularity:  Optional[float] = None
+    # Absent on nights recorded before orientation was stored at all. False
+    # means "the sensor never recorded it", NOT "the person never moved" —
+    # the two must never be described alike.
+    position_recorded: bool = False
+    positions:   Optional[list[SleepPositionShare]] = None
+    arcs:        Optional[dict[str, SleepArc]] = None
+    breath_bpm:  Optional[float] = None
+    lowest_hr:    Optional[float] = None
+    lowest_hr_at: Optional[str] = None    # "03:40" local
+
+
 class InsightRequest(BaseModel):
-    mode: str = "activity"            # "activity" | "live_state" | "day_potential" | "macro_trend"
+    mode: str = "activity"            # "activity" | "live_state" | "day_potential" | "macro_trend" | "sleep"
 
     # "activity" mode fields
     activity_type:    Optional[str] = None
@@ -208,6 +322,31 @@ class InsightRequest(BaseModel):
     before_lf_hf: Optional[float] = None
     during_lf_hf: Optional[float] = None
     after_lf_hf:  Optional[float] = None
+    # The rest of what the session detail charts. Optional like everything
+    # else here, so a client that predates them still gets a read — it just
+    # gets a thinner one. See `_ACTIVITY_METRICS` in routers/insights.py.
+    before_rmssd:  Optional[float] = None; during_rmssd:  Optional[float] = None; after_rmssd:  Optional[float] = None
+    before_dc:     Optional[float] = None; during_dc:     Optional[float] = None; after_dc:     Optional[float] = None
+    before_rcmse:  Optional[float] = None; during_rcmse:  Optional[float] = None; after_rcmse:  Optional[float] = None
+    before_pip:    Optional[float] = None; during_pip:    Optional[float] = None; after_pip:    Optional[float] = None
+    before_dfa1:   Optional[float] = None; during_dfa1:   Optional[float] = None; after_dfa1:   Optional[float] = None
+    before_stress: Optional[float] = None; during_stress: Optional[float] = None; after_stress: Optional[float] = None
+    before_breath: Optional[float] = None; during_breath: Optional[float] = None; after_breath: Optional[float] = None
+    # What this session is compared against, and the person's own recent
+    # average per metric within that group. Optional like everything else here:
+    # a first session has no history, and an older client sends none.
+    peer_group:    Optional[str] = None
+    peer_sessions: Optional[int] = None
+    usual_hr:     Optional[float] = None
+    usual_rsa:    Optional[float] = None
+    usual_sdnn:   Optional[float] = None
+    usual_rmssd:  Optional[float] = None
+    usual_dc:     Optional[float] = None
+    usual_rcmse:  Optional[float] = None
+    usual_pip:    Optional[float] = None
+    usual_dfa1:   Optional[float] = None
+    usual_stress: Optional[float] = None
+    usual_breath: Optional[float] = None
 
     # "live_state" mode fields
     window_minutes: Optional[int] = None
@@ -239,6 +378,9 @@ class InsightRequest(BaseModel):
     period:      Optional[str] = None    # "week" | "month" | "six_month"
     range_label: Optional[str] = None
     trends:      Optional[dict[str, MacroTrend]] = None
+
+    # "sleep" mode fields
+    sleep: Optional[SleepNight] = None
 
 
 class InsightResponse(BaseModel):

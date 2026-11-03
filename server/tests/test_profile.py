@@ -71,3 +71,34 @@ async def test_delete_my_data_removes_profile():
         r = await c.delete("/v1/me/data", headers={"Authorization": f"Bearer {tok}"})
         assert r.status_code == 200
         assert r.json()["profiles"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_profile_carries_the_phones_time_zone():
+    """The phone reports its IANA zone with the profile; the admin user page
+    reads it back so the dashboard can show that person's day in their own
+    clock. A zone the server does not recognise is stored as unknown, never as
+    a string the page would then hand to Intl and crash on."""
+    async with _client() as c:
+        r = await c.post("/v1/profile", json={**_PROFILE, "timezone": "Europe/Berlin"},
+                         headers={"X-User-ID": "prof-tz"})
+        assert r.status_code == 200
+        stats = (await c.get("/admin/stats", params={"range": "all"})).json()
+        me = next(u for u in stats["users"] if u["device_id"] == "prof-tz")
+        assert me["timezone"] == "Europe/Berlin"
+        det = (await c.get(f"/admin/users/{me['id']}")).json()
+        assert det["user"]["timezone"] == "Europe/Berlin"
+        assert det["profile"]["timezone"] == "Europe/Berlin"
+
+        r = await c.post("/v1/profile", json={**_PROFILE, "timezone": "Mars/Olympus"},
+                         headers={"X-User-ID": "prof-tz"})
+        assert r.status_code == 200
+        det = (await c.get(f"/admin/users/{me['id']}")).json()
+        assert det["user"]["timezone"] is None
+
+        # An older app that sends no zone at all leaves it unknown.
+        r = await c.post("/v1/profile", json=_PROFILE, headers={"X-User-ID": "prof-tz-old"})
+        assert r.status_code == 200
+        stats = (await c.get("/admin/stats", params={"range": "all"})).json()
+        old = next(u for u in stats["users"] if u["device_id"] == "prof-tz-old")
+        assert old["timezone"] is None

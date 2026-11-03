@@ -17,8 +17,10 @@ struct MetricProgressRow: View {
 
     /// Benefit-signed uplift this session (during vs before).
     private var uplift: Double? { stats.avgUpliftPct }
-    /// Benefit-signed change vs the 2-month average during-value.
-    private var vs2mo: Double? { def.benefitDelta(current: stats.duringMean, base: twoMonthValue) }
+    /// Benefit-signed change vs the 2-month average during-value. Raw, so the
+    /// row prints the change that was measured rather than the ±100 % bound
+    /// `benefitDelta` applies to protect the multi-metric mean.
+    private var vs2mo: Double? { def.rawBenefitDelta(current: stats.duringMean, base: twoMonthValue) }
 
     private func deltaColor(_ v: Double?) -> Color {
         guard let v else { return Theme.dim }

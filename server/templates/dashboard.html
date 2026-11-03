@@ -8,7 +8,7 @@
   :root {
     --bg: #0c0c0c; --card: #171717; --surface: #1f1f1f; --border: #2a2a2a;
     --text: #ffffff; --dim: #8a8a8a; --accent: #00e5a0; --warn: #ff6b6b;
-    --hrv: #818cf8; --rsa: #fb923c; --coh: #39d353; --breathe: #58a6ff;
+    --hrv: #818cf8; --rsa: #fb923c; --coh: #39d353; --breathe: #58a6ff; --hold: #f2c94c;
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
@@ -36,6 +36,13 @@
   button:hover, select:hover { border-color: var(--accent); }
   button:disabled { opacity: .35; cursor: default; border-color: var(--border); }
   #win-label { font-family: var(--mono); font-size: 11px; color: var(--dim); margin: 0 2px; }
+  /* The clock in effect: which zone every date and time on the page is in. */
+  .tzwrap { display: inline-flex; align-items: center; gap: 6px; }
+  .tztag { font: 10.5px var(--mono); letter-spacing: .04em; color: var(--dim); border: 1px solid var(--border);
+           border-radius: 999px; padding: 4px 9px; white-space: nowrap; max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
+  .tztag.known { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+                 background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .tztag.unknown { color: var(--hold); border-color: color-mix(in srgb, var(--hold) 35%, transparent); }
 
   .crumb { font-family: var(--mono); font-size: 12px; color: var(--dim); margin: 14px 0 4px; }
   .crumb a { color: var(--accent); cursor: pointer; text-decoration: none; }
@@ -46,8 +53,12 @@
   .kpi .label { font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
   .kpi .value { font-size: 26px; font-weight: 650; margin-top: 6px; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
   .kpi .value small { font-size: 13px; color: var(--dim); font-weight: 500; margin-left: 2px; }
+  .kpi .note { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 4px; }
+  .kpi .value.up { color: var(--accent); } .kpi .value.flat { color: var(--hold); }
 
   .panel { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 18px; margin-bottom: 20px; }
+  .panel h2 .toggle { float: right; font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em; text-transform: none;
+                      color: var(--dim); cursor: pointer; user-select: none; display: inline-flex; gap: 6px; align-items: center; }
   .panel h2 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim);
               margin: 0 0 14px; font-family: var(--mono); font-weight: 600; }
 
@@ -87,6 +98,7 @@
   th:hover { color: var(--accent); }
   th .arrow { opacity: .5; font-size: 9px; }
   td .device { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  td .email { font-family: var(--mono); font-size: 12px; }
   td .never { color: var(--dim); font-size: 12px; }
   .mini.track .delta { font: 11px var(--mono); margin: -2px 0 4px; }
   .mini.track .delta.up { color: var(--accent); }
@@ -97,8 +109,100 @@
   .ref { stroke: var(--dim); stroke-width: 1; stroke-dasharray: 4 4; opacity: .6; }
   .ref-t { opacity: .7; }
   .mini.actline svg { height: 150px; }
+  /* The tag on top of each activity card: green improved, yellow steady, red
+     worse — the same ±2 % band the app calls steady. */
+  .mini .tag { display: inline-block; font: 650 10px var(--mono); letter-spacing: .08em; text-transform: uppercase;
+               padding: 3px 8px; border-radius: 999px; margin-bottom: 8px; border: 1px solid transparent; }
+  .mini .tag.up   { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .mini .tag.flat { color: var(--hold);   background: color-mix(in srgb, var(--hold) 14%, transparent);   border-color: color-mix(in srgb, var(--hold) 35%, transparent); }
+  .mini .tag.down { color: var(--warn);   background: color-mix(in srgb, var(--warn) 14%, transparent);   border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+  .mini .tag.none { color: var(--dim); border-color: var(--border); }
+  /* Before → after, the way an ad would put it: the two numbers and one big
+     benefit-signed percentage. */
+  .mini .ba { display: flex; align-items: baseline; gap: 10px; margin: -2px 0 6px; font-variant-numeric: tabular-nums; }
+  .mini .ba .ph { font: 13px var(--mono); color: var(--text); }
+  .mini .ba .ph small { font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-right: 5px; }
+  .mini .ba .arr { color: var(--dim); font-size: 12px; }
+  .mini .ba .pct { margin-left: auto; font-weight: 700; font-size: 18px; letter-spacing: -0.01em; }
+  .mini .ba .pct small { font-size: 10px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; margin-left: 4px; }
+  .mini .ba .pct.up { color: var(--accent); } .mini .ba .pct.flat { color: var(--hold); } .mini .ba .pct.down { color: var(--warn); }
+  .mini .ba .pct.none { color: var(--dim); font-weight: 500; font-size: 12px; }
+  .mini .cap .t .unscored { color: var(--dim); opacity: .7; text-transform: none; letter-spacing: 0; margin-left: 6px; }
+  .avg.flat { fill: var(--hold); opacity: 1; font-weight: 650; }
+  /* The night: mirrors the app's night screen. */
+  .night-hero { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 28px; margin: 4px 0 18px; }
+  .night-hero .big { font-size: 34px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1; }
+  .night-hero .big small { font-size: 12px; font-weight: 500; color: var(--dim); letter-spacing: .06em; text-transform: uppercase; display: block; margin-bottom: 6px; font-family: var(--mono); }
+  .night-hero .sub2 { font: 12px var(--mono); color: var(--dim); margin-top: 6px; }
+  .night-hero .clock { font: 13px var(--mono); color: var(--text); }
+  .night-hero .clock b { font-weight: 650; }
+  .night-hero .clock .k { color: var(--dim); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; margin-right: 6px; }
+  .night-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 22px 28px; }
+  .night-grid h3 { font: 650 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin: 0 0 10px; }
+  .arith { font: 11px var(--mono); color: var(--text); margin-bottom: 10px; word-break: break-word; }
+  .bar-row { display: grid; grid-template-columns: 82px 1fr 40px; align-items: center; gap: 8px; margin: 5px 0; font-size: 12px; }
+  .bar-row .k { color: var(--dim); } .bar-row .n { font: 11px var(--mono); text-align: right; }
+  .bar-row .bar { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .bar-row .bar i { display: block; height: 100%; background: var(--hrv); border-radius: 3px; }
+  .slot { display: grid; grid-template-columns: 150px 1fr 42px; gap: 8px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .slot .k { font-weight: 600; } .slot .d { color: var(--dim); font-size: 11.5px; } .slot .v { font: 650 15px var(--mono); text-align: right; }
+  .slot .verdict { display: block; font: 10.5px var(--mono); margin-top: 2px; }
+  .slot .verdict.keep { color: var(--accent); } .slot .verdict.improve { color: var(--hold); } .slot .verdict.act { color: var(--warn); }
+  .slot .v.none { color: var(--dim); font-size: 11px; font-weight: 500; }
+  .legend-row { display: grid; grid-template-columns: 56px 92px 62px 40px; gap: 10px; align-items: center; padding: 4px 0; font-size: 13px; }
+  .legend-row .sw { height: 9px; border-radius: 5px; } .legend-row .m { font-weight: 600; font-variant-numeric: tabular-nums; } .legend-row .p { color: var(--dim); font-size: 12px; }
+  .gloss { font-size: 11px; color: var(--dim); margin-top: 8px; line-height: 1.45; }
+  .gloss b { color: var(--text); font-weight: 600; }
+  .score-big { font-size: 40px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; margin: 2px 0 8px; }
+  .score-big small { font-size: 12px; color: var(--dim); font-weight: 500; margin-left: 4px; }
+  .srow { display: grid; grid-template-columns: 82px 34px 1fr 40px; align-items: center; gap: 8px; margin: 6px 0; font-size: 12px; }
+  .srow .k { color: var(--dim); } .srow .s { text-align: right; line-height: 1.05; }
+  .srow .s b { font-size: 14px; } .srow .s small { display: block; font: 8.5px var(--mono); color: var(--dim); }
+  .srow .bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .srow .bar i { display: block; height: 100%; background: var(--hrv); border-radius: 3px; }
+  .srow .n { font: 11px var(--mono); text-align: right; }
+  .part { margin: 8px 0 10px; }
+  .part .h { display: flex; align-items: baseline; gap: 8px; font-size: 11px; }
+  .part .h .l { font-weight: 600; } .part .h .d { margin-left: auto; font: 11px var(--mono); }
+  .part .h .sc { font: 650 11px var(--mono); width: 24px; text-align: right; }
+  .part .track { position: relative; height: 9px; margin: 5px 0 3px; }
+  .part .track .rail { position: absolute; left: 0; right: 0; top: 2px; height: 5px; background: var(--border); border-radius: 3px; }
+  .part .track .fill { position: absolute; left: 0; top: 2px; height: 5px; border-radius: 3px; opacity: .5; }
+  .part .track .dot { position: absolute; top: 0; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--card); box-sizing: border-box; }
+  .part .ends { display: flex; justify-content: space-between; font: 8.5px var(--mono); color: var(--dim); }
+  .part.bad .d, .part.bad .fill, .part.bad .dot { color: var(--warn); background: var(--warn); }
+  .part.mid .d, .part.mid .fill, .part.mid .dot { color: var(--hold); background: var(--hold); }
+  .part.good .d, .part.good .fill, .part.good .dot { color: var(--accent); background: var(--accent); }
+  .part .d { background: none !important; }
+  .slot-open { margin: 2px 0 10px; padding: 0 0 8px; border-bottom: 1px solid var(--border); }
+  .weak { font-size: 10.5px; color: var(--dim); margin-top: 6px; line-height: 1.4; }
+  .weak b { font: 650 9px var(--mono); letter-spacing: .06em; color: var(--dim); display: block; margin-bottom: 2px; }
+  .hl { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 22px; margin: 0 0 20px; }
+  .hl .v { font-weight: 650; font-size: 15px; font-variant-numeric: tabular-nums; }
+  .hl .c { font-size: 11px; color: var(--dim); line-height: 1.35; margin-top: 2px; }
+  .montage .group { font: 650 10px var(--mono); fill: var(--dim); letter-spacing: .1em; text-transform: uppercase; }
+  .montage { width: 100%; height: 440px; display: block; }
+  .montage .lane-label { font: 650 10px var(--mono); fill: var(--dim); letter-spacing: .06em; text-transform: uppercase; }
+  .montage .lane-tech { font: 9.5px var(--mono); fill: var(--dim); opacity: .7; }
+  .montage .lane-val { font: 650 11px var(--mono); fill: var(--text); }
+  .montage .grid { stroke: var(--border); stroke-width: 1; }
+  .montage .awake { fill: #9e9e9e; opacity: .14; }
+  .montage .q-poor { fill: var(--warn); } .montage .q-okay { fill: var(--hold); } .montage .q-good { fill: var(--accent); }
+  .kpi .value.quality-poor { color: var(--warn); } .kpi .value.quality-okay { color: var(--hold); } .kpi .value.quality-good { color: var(--accent); }
+  .montage .stage-conn { stroke: var(--dim); stroke-width: 1; opacity: .35; }
+  .montage .line { fill: none; stroke-width: 1.6; }
+  .montage .nadir { font: 650 10px var(--mono); }
+  .montage .clock { font: 10px var(--mono); fill: var(--dim); }
+  .montage .chip { font: 650 9.5px var(--mono); fill: var(--text); }
+  .montage .pos-label { font: 650 9px var(--mono); letter-spacing: .05em; }
+  .montage-note { font: 11px var(--mono); color: var(--dim); margin-top: 8px; line-height: 1.5; }
   .band { opacity: .10; }
   .edge { stroke: var(--dim); stroke-width: 1; opacity: .45; stroke-dasharray: 3 3; }
+  .avg { fill: var(--text); font: 10px var(--mono); opacity: .75; }
+  .avg.better { fill: var(--accent); opacity: 1; font-weight: 650; }
+  .avg.worse  { fill: var(--warn);   opacity: 1; font-weight: 650; }
+  .mini.actline svg { cursor: crosshair; }
+  .mini.actline svg.pinned { outline: 1px solid var(--border); border-radius: 8px; }
   .phase { stroke: var(--text); stroke-width: 1.5; opacity: .55; stroke-dasharray: 5 3; }
   .tbar { opacity: .85; }
   .tbar.best  { stroke: var(--accent); stroke-width: 2; opacity: 1; }
@@ -133,6 +237,13 @@
       <span class="sub" id="updated"></span>
       <span class="spacer"></span>
       <div class="controls">
+        <span class="tzwrap">
+          <select id="clock" title="Which clock every time on this page is shown in">
+            <option value="phone">Phone time</option>
+            <option value="utc">UTC</option>
+          </select>
+          <span class="tztag" id="tz-tag"></span>
+        </span>
         <select id="range">
           <option value="today">Today</option>
           <option value="24h">Last 24 hours</option>
@@ -156,7 +267,8 @@
         <svg class="chart" id="chart" preserveAspectRatio="none"></svg>
       </div>
       <div class="panel">
-        <h2>Users <span class="sub" id="user-count">— click a row</span></h2>
+        <h2>Users <span class="sub" id="user-count">— click a row</span>
+          <label class="toggle"><input type="checkbox" id="show-all-users"> show everyone</label></h2>
         <div class="tablewrap"><table id="table"></table></div>
       </div>
     </section>
@@ -209,6 +321,10 @@
         <h2>Activities</h2>
         <div class="tablewrap"><table id="user-activities"></table></div>
       </div>
+      <div class="panel">
+        <h2>Check-ins <span class="sub">— what they said they felt, 0–100, "—" = slider untouched</span></h2>
+        <div class="tablewrap"><table id="user-checkins"></table></div>
+      </div>
     </section>
 
     <!-- Session detail -->
@@ -223,8 +339,26 @@
     <!-- Activity detail -->
     <section id="view-activity" style="display:none">
       <div class="kpis" id="activity-kpis"></div>
+      <div id="night" style="display:none">
+        <div class="panel">
+          <h2>The night <span class="sub" id="night-sub"></span></h2>
+          <div id="night-hero"></div>
+          <div id="night-highlights"></div>
+          <div class="night-grid">
+            <div><h3>The night score</h3><div id="night-arith"></div></div>
+            <div><h3>Sections</h3><div id="night-sections"></div></div>
+            <div><h3>Stages</h3><div id="night-stages"></div></div>
+            <div><h3>Position</h3><div id="night-positions"></div></div>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>The night, channel by channel <span class="sub">— one shared clock; awake shaded behind every trace</span></h2>
+          <svg id="montage" class="montage"></svg>
+          <div class="montage-note" id="montage-note"></div>
+        </div>
+      </div>
       <div class="panel">
-        <h2>Before · During · After <span class="sub">— the window around the activity; hover for values</span></h2>
+        <h2>Before · During · After <span class="sub">— the window around the activity; hover to read, click to pin</span></h2>
         <div class="charts" id="activity-charts"></div>
       </div>
       <div class="panel">
@@ -249,15 +383,100 @@
   const KEY_STORE = "wythin_admin_key";
   const $ = (s) => document.querySelector(s);
   const fmt = (n, d = 0) => (n == null ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }));
-  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString(undefined, { year: "2-digit", month: "short", day: "numeric" }) : "—";
-  const fmtTime = (iso) => iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+
+  // ── The clock ─────────────────────────────────────────────────────────
+  // Every instant on this page is shown in ONE zone: the phone's own, by
+  // default, so a night that began at 23:10 in Berlin reads 23:10 whoever is
+  // looking — or UTC, on the switch in the header. The phone reports its
+  // IANA zone with the profile (where it is now) and with each activity
+  // (where it was then); until a build that sends it has synced, the tag
+  // says so and the page falls back to the browser's zone.
+  const CLOCK_STORE = "wythin_admin_clock";
+  const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const clockMode = () => { try { return localStorage.getItem(CLOCK_STORE) === "utc" ? "utc" : "phone"; } catch { return "phone"; } };
+  const setClockMode = (m) => { try { localStorage.setItem(CLOCK_STORE, m); } catch {} };
+  const zoneOk = (z) => { if (!z) return false; try { new Intl.DateTimeFormat(undefined, { timeZone: z }); return true; } catch { return false; } };
+  // The zone in effect: UTC on the switch; otherwise the zone given, the
+  // view's zone, the browser's — the first that is known.
+  const tzFor = (zone) => clockMode() === "utc" ? "UTC"
+    : zoneOk(zone) ? zone : zoneOk(state.zone) ? state.zone : BROWSER_TZ;
+  const fmtCache = new Map();
+  const dtf = (opts, zone) => {
+    const tz = tzFor(zone), k = tz + "|" + JSON.stringify(opts);
+    let f = fmtCache.get(k);
+    if (!f) { f = new Intl.DateTimeFormat(undefined, { ...opts, timeZone: tz }); fmtCache.set(k, f); }
+    return f;
+  };
+  const F = {
+    date:  { year: "2-digit", month: "short", day: "numeric" },
+    time:  { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" },
+    clock: { hour: "2-digit", minute: "2-digit" },
+    md:    { month: "short", day: "numeric" },
+    mdn:   { month: "numeric", day: "numeric" },
+    full:  { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" },
+  };
+  const when = (t, opts, zone) => dtf(opts, zone).format(t instanceof Date ? t : new Date(t));
+  // Calendar fields of an instant in the zone in effect — for labels built
+  // by hand (the bar chart's MM-DD) and for the offset the server takes.
+  const fields = (t, zone) => {
+    const out = {};
+    dtf({ year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }, zone)
+      .formatToParts(t instanceof Date ? t : new Date(t))
+      .forEach(p => { if (p.type !== "literal") out[p.type] = Number(p.value); });
+    if (out.hour === 24) out.hour = 0;
+    return out;
+  };
+  // JS-style offset (UTC minus local, in minutes) of the zone in effect, now:
+  // what /admin/stats and /track take so their days break on that midnight.
+  const tzOffsetNow = () => {
+    const now = new Date(), f = fields(now);
+    const asUTC = Date.UTC(f.year, f.month - 1, f.day, f.hour, f.minute, f.second);
+    return Math.round((Math.floor(now.getTime() / 1000) * 1000 - asUTC) / 60000);
+  };
+  const zoneName = (z) => {
+    const m = /^Etc\/GMT([+-])(\d+)$/.exec(z || "");
+    if (m) return `UTC${m[1] === "-" ? "+" : "−"}${m[2]}`;
+    return z === "Etc/UTC" ? "UTC" : z;
+  };
+  const gmtLabel = (zone) => {
+    try {
+      return new Intl.DateTimeFormat("en-US", { timeZone: tzFor(zone), timeZoneName: "shortOffset" })
+        .formatToParts(new Date()).find(p => p.type === "timeZoneName").value;
+    } catch { return ""; }
+  };
+  // The tag in the header: which zone the page is in, and whose it is.
+  function renderClock() {
+    const tag = $("#tz-tag"), mode = clockMode();
+    $("#clock").value = mode;
+    tag.classList.remove("known", "unknown");
+    if (mode === "utc") { tag.textContent = "UTC"; tag.title = "Every time on this page is in UTC"; return; }
+    if (state.view === "overview") {
+      tag.textContent = `${BROWSER_TZ} · ${gmtLabel()} · your browser`;
+      tag.title = "The overview spans everyone, so it is in your browser's zone; each row's first- and last-seen are in that person's own zone where the phone has reported one";
+    } else if (zoneOk(state.zone) && state.zoneInferred) {
+      // A clock worked out from the person's nights or app opens: shown as
+      // an offset, in the unknown colour, and never called the phone's.
+      tag.classList.add("unknown");
+      tag.textContent = `${zoneName(state.zone)} · ${state.zoneFrom}`;
+      tag.title = "This phone has not reported its zone (that needs build 126 or later). The offset is inferred from when this person sleeps and opens the app, to about the hour; every time on this page is in it";
+    } else if (zoneOk(state.zone)) {
+      tag.classList.add("known");
+      tag.textContent = `${zoneName(state.zone)} · ${gmtLabel()}${state.zoneFrom ? " · " + state.zoneFrom : ""}`;
+      tag.title = "This person's phone zone; every time on this page is in it";
+    } else {
+      tag.classList.add("unknown");
+      tag.textContent = `${BROWSER_TZ} · ${gmtLabel()} · phone zone not synced yet`;
+      tag.title = "This phone has not reported its time zone yet — it arrives with the next app build. Times are in your browser's zone meanwhile";
+    }
+  }
+
+  const fmtDate = (iso, zone) => iso ? when(iso, F.date, zone) : "—";
+  const fmtTime = (iso, zone) => iso ? when(iso, F.time, zone) : "—";
   // Date big, clock time beside it — KPI cards get the exact moment without the
   // 26px value line growing long enough to wrap.
-  const fmtStamp = (iso, blank = "—") => {
+  const fmtStamp = (iso, blank = "—", zone) => {
     if (!iso) return blank;
-    const d = new Date(iso);
-    return `${d.toLocaleDateString(undefined, { year: "2-digit", month: "short", day: "numeric" })}`
-         + ` <small>${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</small>`;
+    return `${when(iso, F.date, zone)} <small>${when(iso, F.clock, zone)}</small>`;
   };
   const ago = (iso) => {
     if (!iso) return "never";
@@ -266,16 +485,27 @@
     if (d < 30) return Math.floor(d) + "d ago"; return fmtDate(iso);
   };
 
-  const state = { view: "overview", userId: null, overview: null, sortKey: "last_seen", sortDir: -1 };
+  // zone / zoneFrom: the phone zone of the person being looked at, and where
+  // it came from; cleared on the overview.
+  const state = { view: "overview", userId: null, overview: null, sortKey: "last_seen", sortDir: -1, zone: null, zoneFrom: "" };
   const getKey = () => localStorage.getItem(KEY_STORE) || "";
   const setKey = (k) => localStorage.setItem(KEY_STORE, k);
 
+  // Stamped by the server from the template's own bytes. This page never
+  // reloads itself — every refresh is a data fetch into the JS that was
+  // loaded when the tab opened — so after a deploy an open tab kept rendering
+  // the old columns from the new API and looked exactly like the deploy not
+  // having happened. Every response carries the version the server is
+  // serving; the first mismatch reloads the page.
+  const DASHBOARD_VERSION = "__DASHBOARD_VERSION__";
   async function api(path) {
     let res;
     try { res = await fetch(path, { headers: { "X-API-Key": getKey() } }); }
     catch (e) { showGate("Network error — is the server reachable?"); throw e; }
     if (res.status === 401) { showGate(getKey() ? "That key was rejected." : ""); throw new Error("401"); }
     if (!res.ok) { showGate("Server error " + res.status); throw new Error(res.status); }
+    const served = res.headers.get("X-Dashboard-Version");
+    if (served && served !== DASHBOARD_VERSION) { location.reload(); throw new Error("dashboard updated — reloading"); }
     hideGate();
     return res.json();
   }
@@ -284,7 +514,7 @@
     state.view = view;
     ["overview", "user", "session", "activity"].forEach(v => $("#view-" + v).style.display = v === view ? "" : "none");
   }
-  const stamp = () => $("#updated").textContent = "updated " + new Date().toLocaleTimeString();
+  const stamp = () => { $("#updated").textContent = "updated " + new Date().toLocaleTimeString(); renderClock(); };
 
   // ── Overview ──────────────────────────────────────────────────────────
   // Labels for the range picker. Day boundaries are the viewer's, not UTC's —
@@ -293,8 +523,9 @@
   const pad2 = (n) => String(n).padStart(2, "0");
 
   async function loadOverview() {
-    const d = await api(`stats?range=${$("#range").value}&tz_offset=${new Date().getTimezoneOffset()}`);
+    const d = await api(`stats?range=${$("#range").value}&tz_offset=${tzOffsetNow()}`);
     state.overview = d;
+    state.zone = null; state.zoneFrom = ""; state.zoneInferred = false;
     show("overview");
     $("#crumb").innerHTML = "";
     const k = d.kpis, r = RANGE_LABEL[d.range] || d.range;
@@ -315,21 +546,33 @@
     const hourly = d.bucket === "hour";
     $("#chart-title").textContent = hourly ? "Sessions per hour" : "Sessions per day";
     barChart($("#chart"), (d.sessions_per_day || []).map(s => {
-      const t = new Date(s.t);
+      const t = new Date(s.t), f = fields(t);
       return {
-        label: hourly ? pad2(t.getHours()) : `${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`,
+        label: hourly ? pad2(f.hour) : `${pad2(f.month)}-${pad2(f.day)}`,
         value: s.sessions,
-        title: `${hourly ? t.toLocaleString() : t.toLocaleDateString()}: ${s.sessions}`,
+        title: `${hourly ? when(t, F.full) : when(t, F.date)}: ${s.sessions}`,
       };
     }));
-    // The table lists only users active in the range; total users stays the
-    // all-time roster, so say how much of it is on screen.
-    const shown = (d.users || []).length;
-    $("#user-count").textContent = d.range === "all"
-      ? `— all ${shown}, click a row`
-      : `— ${shown} of ${k.total_users} active in ${r}, click a row`;
-    drawUserTable(d.users || []);
+    state.users = d.users || [];
+    state.usersRange = { range: d.range, r, total: k.total_users };
+    renderUsers();
     stamp();
+  }
+
+  // Real people by default: someone who has worn the strap AND completed
+  // onboarding. Test devices, abandoned installs and app-only accounts crowd
+  // the roster otherwise; "show everyone" brings them back.
+  const isRealUser = (u) => !!u.last_seen && !!u.onboarded;
+  function renderUsers() {
+    const all = state.users || [], { range, r, total } = state.usersRange || {};
+    const everyone = $("#show-all-users").checked;
+    const users = everyone ? all : all.filter(isRealUser);
+    const shown = users.length;
+    const who = everyone ? "" : " with strap data and onboarding";
+    $("#user-count").textContent = range === "all"
+      ? `— ${everyone ? "all " : ""}${shown}${who}, click a row`
+      : `— ${shown} of ${total}${who}, active in ${r}, click a row`;
+    drawUserTable(users);
   }
 
   // Device ids, display names and onboarding answers are all user-supplied and
@@ -337,11 +580,15 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
   const UCOLS = [
-    { k: "display_name", label: "User", cell: (u) => `<span class="name">${esc(u.display_name) || "—"}</span><br><span class="device">${esc((u.device_id||"").slice(0,12)) || u.id.slice(0,8)}</span>` },
+    // The name comes from onboarding; the display name the app set is the
+    // fallback, and the device id stays underneath so support can match a
+    // phone to a row.
+    { k: "full_name", label: "User", cell: (u) => `<span class="name">${esc(u.full_name) || esc(u.display_name) || "—"}</span><br><span class="device">${esc((u.device_id||"").slice(0,12)) || u.id.slice(0,8)}</span>` },
+    { k: "email", label: "Email", cell: (u) => u.email ? `<span class="email">${esc(u.email)}</span>` : "—" },
     // Onboarding answers live in the per-user drill-down, not here — the table
     // is for behaviour over time, and the answers are a profile, not a metric.
     { k: "first_seen", label: "First seen", cell: (u) =>
-        u.first_seen ? `<span title="${esc(new Date(u.first_seen).toLocaleString())}">${fmtDate(u.first_seen)}</span>` : "—" },
+        u.first_seen ? `<span title="${esc(when(u.first_seen, F.full, u.timezone))}">${fmtDate(u.first_seen, u.timezone)}</span>` : "—" },
     // Last seen = newest PolarH10 data. Show the moment itself, not "today" —
     // the relative age and the last non-strap signal ride along in the tooltip.
     { k: "last_seen", label: "Last strap", cell: (u) => {
@@ -349,11 +596,10 @@
           return `<span class="never" title="${u.last_signal ? "app signal " + ago(u.last_signal) + " — but no strap data ever" : "no data at all"}">no strap data</span>`;
         }
         // Always date + time. "21:54" alone is ambiguous the moment a row is
-        // not from today, and the whole point of this column is when.
-        const t = new Date(u.last_seen);
-        const label = t.toLocaleString(undefined,
-          { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-        return `<span title="${esc(t.toLocaleString())} — ${ago(u.last_seen)}${u.last_signal && u.last_signal > u.last_seen ? "; app signal " + ago(u.last_signal) : ""}">${label}</span>`;
+        // not from today, and the whole point of this column is when. In that
+        // person's own zone where the phone has reported one.
+        const label = when(u.last_seen, F.time, u.timezone);
+        return `<span title="${esc(when(u.last_seen, F.full, u.timezone))}${u.timezone ? " " + esc(u.timezone) : ""} — ${ago(u.last_seen)}${u.last_signal && u.last_signal > u.last_seen ? "; app signal " + ago(u.last_signal) : ""}">${label}</span>`;
       } },
     { k: "current_streak", label: "Streak", cell: (u) => u.current_streak ? `${u.current_streak}d${u.practiced_today ? " •" : ""}` : "—" },
     { k: "days_active_7d", label: "Active 7d", cell: (u) => fmt(u.days_active_7d) },
@@ -364,10 +610,15 @@
     { k: "total_minutes", label: "Minutes", cell: (u) => fmt(u.total_minutes, 0) },
     { k: "avg_coherence", label: "Avg coh", cell: (u) => u.avg_coherence == null ? "—" : fmt(u.avg_coherence, 2) },
     { k: "avg_rsa", label: "Avg RSA", cell: (u) => u.avg_rsa == null ? "—" : fmt(u.avg_rsa, 1) },
+    // Inner Noise (PIP, %): lower is calmer, so it is the one column where a
+    // small number is the good one.
+    { k: "avg_pip", label: "Inner noise", cell: (u) => u.avg_pip == null ? "—" : fmt(u.avg_pip, 0) },
     { k: null, label: "", cell: () => `<span class="chev">›</span>` },
   ];
-  function drawUserTable(users) {
+  const fullName = (u) => [u.first_name, u.last_name].filter(Boolean).join(" ") || null;
+  function drawUserTable(list) {
     const t = $("#table");
+    const users = list.map(u => ({ ...u, full_name: fullName(u) }));
     if (!users.length) { t.innerHTML = `<tr><td class="empty" colspan="${UCOLS.length}">no users active in this range</td></tr>`; return; }
     const sorted = [...users].sort((a, b) => {
       const av = a[state.sortKey], bv = b[state.sortKey];
@@ -391,7 +642,10 @@
     const d = await api(`users/${id}`);
     show("user");
     const u = d.user;
-    const who = u.display_name || (u.device_id || id).slice(0, 12);
+    state.zone = u.timezone || null;
+    state.zoneFrom = u.timezone_source || (u.timezone ? "phone, as last synced" : "");
+    state.zoneInferred = !!u.timezone_inferred;
+    const who = (d.profile && fullName(d.profile)) || u.display_name || (u.device_id || id).slice(0, 12);
     $("#crumb").innerHTML = `<a data-nav="/">Overview</a> › <strong>${who}</strong>`;
     const cards = [
       ["Sessions", fmt(u.session_count)], ["Practice minutes", fmt(u.total_minutes)],
@@ -400,8 +654,14 @@
       ["Last strap", fmtStamp(u.last_seen, "no strap data")],
       ["Avg coherence", u.avg_coherence == null ? "—" : fmt(u.avg_coherence, 2)],
       ["Avg RSA", u.avg_rsa == null ? "—" : fmt(u.avg_rsa, 1) + " <small>ms</small>"],
+      // The phone's zone — the clock this whole page is in for this person.
+      [u.timezone_inferred ? "Clock (inferred)" : "Phone clock", u.timezone
+          ? `<span style="font-size:15px;font-family:var(--mono)">${esc(zoneName(u.timezone))}</span> <small>${u.timezone_inferred ? "" : esc(gmtLabel(u.timezone))}</small>`
+          : "—",
+        u.timezone_inferred ? `${esc(u.timezone_source)} — the phone sends its zone from build 126`
+          : u.timezone ? "as last synced by the app" : "not synced yet — arrives with the next app build"],
     ];
-    $("#user-kpis").innerHTML = cards.map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+    $("#user-kpis").innerHTML = cards.map(([l, v, n]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div>${n ? `<div class="note">${n}</div>` : ""}</div>`).join("");
     drawOnboarding(d.profile);
     // Changing the window length restarts at the present; the arrows walk back
     // and forward a whole window at a time.
@@ -441,8 +701,31 @@
       t.querySelectorAll("tr.clickable").forEach(tr => tr.onclick = () => { location.hash = "/session/" + tr.dataset.id; });
     }
     drawActivities(d.activities || []);
+    drawCheckIns(d.check_ins || []);
     wireCrumb();
     stamp();
+  }
+
+  // ── Self check-ins ─────────────────────────────────────────────────────
+  // Two kinds: "moment" is answered while the strap is on (asked 10–15 min
+  // into a wear), "previous_day" on the first open of a day, about yesterday
+  // (its About column). Scales are 0–100 straight off the slider; a null is a
+  // slider the person never touched, shown as "—" rather than a midpoint.
+  const CHECKIN_SCALES = ["mood", "focus", "energy", "anxiety", "stress", "sleep"];
+  function drawCheckIns(list) {
+    const t = $("#user-checkins");
+    if (!list.length) { t.innerHTML = `<tr><td class="empty" colspan="10">no check-ins yet</td></tr>`; return; }
+    const head = "<tr><th>When</th><th>Kind</th><th>About</th>"
+      + CHECKIN_SCALES.map(k => `<th>${k[0].toUpperCase() + k.slice(1)}</th>`).join("")
+      + "<th>Worn</th></tr>";
+    const body = list.map(c => `<tr>
+        <td>${fmtTime(c.ts, c.timezone)}</td>
+        <td><span class="name">${c.kind === "previous_day" ? "Previous day" : "Moment"}</span></td>
+        <td>${c.day_key || "—"}</td>
+        ${CHECKIN_SCALES.map(k => `<td>${c[k] == null ? `<span class="muted">—</span>` : fmt(c[k], 0)}</td>`).join("")}
+        <td>${c.worn_minutes == null ? `<span class="muted">—</span>` : fmt(c.worn_minutes, 0) + " min"}</td>
+      </tr>`).join("");
+    t.innerHTML = head + body;
   }
 
   function actDelta(a, during, before, dp) {
@@ -454,15 +737,15 @@
   function drawActivities(list) {
     const t = $("#user-activities");
     if (!list.length) { t.innerHTML = `<tr><td class="empty" colspan="7">no activities logged</td></tr>`; return; }
-    const head = "<tr><th>When</th><th>Activity</th><th>Duration</th><th>Impact</th><th>HRV Δ</th><th>RSA Δ</th><th>HR Δ</th></tr>";
+    const head = "<tr><th>When</th><th>Activity</th><th>Duration</th><th>Score</th><th>HRV Δ</th><th>RSA Δ</th><th>HR Δ</th></tr>";
     const body = list.map(a => {
       const name = a.activity_subtype || (a.activity_type === "Custom" ? (a.custom_name || "Custom") : a.activity_type);
       const dur = (a.started_at && a.ended_at) ? (new Date(a.ended_at) - new Date(a.started_at)) / 60000 : null;
       return `<tr class="clickable" data-id="${a.id}">
-        <td>${fmtTime(a.started_at)}</td>
+        <td>${fmtTime(a.started_at, a.timezone)}</td>
         <td><span class="name">${name}</span><br><span class="device">${a.activity_type}${a.is_manual ? " · manual" : ""}</span></td>
         <td>${dur == null ? "—" : fmt(dur, 0) + " min"}</td>
-        <td>${a.impact_score == null ? "—" : a.impact_score + "%"}</td>
+        <td>${a.sleep ? (a.sleep.score == null ? "night —" : `night ${a.sleep.score}`) : (a.impact && a.impact.score != null ? a.impact.score : "—")}</td>
         <td>${actDelta(a, "during_rmssd", "before_rmssd", 0)}</td>
         <td>${actDelta(a, "during_rsa", "before_rsa", 0)}</td>
         <td>${actDelta(a, "during_hr", "before_hr", 0)}</td>
@@ -501,8 +784,7 @@
 
     // Name the window being shown. At offset 0 it is simply "now"; stepping
     // back, the dates matter more than the clock.
-    const fmtEdge = (iso) => new Date(iso).toLocaleString(undefined,
-      { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const fmtEdge = (iso) => when(iso, F.time);
     $("#win-label").textContent = off === 0
       ? `now — back to ${fmtEdge(d.start)}`
       : `${fmtEdge(d.start)} → ${fmtEdge(d.end)}`;
@@ -518,21 +800,30 @@
   // Everything the person answered at onboarding. All of it is user-typed or
   // user-picked, so every value goes through esc().
   function drawOnboarding(p) {
-    const when = $("#onboarding-when"), host = $("#onboarding");
+    const whenEl = $("#onboarding-when"), host = $("#onboarding");
     if (!p) {
-      when.textContent = "";
+      whenEl.textContent = "";
       host.innerHTML = `<div class="empty">no onboarding answers — this user has not completed onboarding, or their app has not synced the profile yet</div>`;
       return;
     }
-    when.textContent = p.updated_at ? `— answered ${fmtDate(p.updated_at)}` : "";
+    // A row without the mandatory answers is a skipped onboarding (possible
+    // on builds before 2026-08-10, or the blank default an old build sent on
+    // first launch) — say so, rather than "answered" over a grid of dashes.
+    const skipped = !(p.first_name && p.last_name && p.email);
+    whenEl.textContent = skipped
+      ? `— not completed: no name or email${p.updated_at ? `, row from ${fmtDate(p.updated_at)}` : ""}`
+      : (p.updated_at ? `— answered ${fmtDate(p.updated_at)}` : "");
     const one = (label, v) => `<div class="fact"><div class="k">${label}</div><div class="v">${v ? esc(v) : "—"}</div></div>`;
     const many = (label, arr) => `<div class="fact"><div class="k">${label}</div><div class="v">${
       arr && arr.length ? arr.map(a => `<span class="tag">${esc(a)}</span>`).join("") : "—"}</div></div>`;
     host.innerHTML = `<div class="facts">
+      ${one("First name", p.first_name)}
+      ${one("Last name", p.last_name)}
       ${one("Email", p.email)}
       ${one("Phone", p.phone)}
       ${one("Age range", p.age_range)}
       ${one("Gender", p.gender)}
+      ${one("Phone time zone", p.timezone)}
       ${many("Objectives", p.goals)}
       ${many("Practices", p.practices)}
       ${many("Devices", p.devices)}
@@ -545,8 +836,8 @@
 
   async function loadUserTrack(id) {
     const period = $("#track-period").value, off = state.trackOffset || 0;
-    const d = await api(`users/${id}/track?period=${period}&offset=${off}&tz_offset=${new Date().getTimezoneOffset()}`);
-    const day = (iso) => new Date(iso + (iso.endsWith("Z") ? "" : "")).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const d = await api(`users/${id}/track?period=${period}&offset=${off}&tz_offset=${tzOffsetNow()}`);
+    const day = (iso) => when(iso, F.md);
     $("#track-label").textContent = `${day(d.start)} → ${day(d.end)}`;
     $("#track-next").disabled = off === 0;
 
@@ -695,6 +986,10 @@
   async function openActivity(id) {
     const a = await api(`activities/${id}`);
     show("activity");
+    // The zone the phone was in when it recorded this, else where it is now.
+    state.zone = a.timezone || a.user_timezone || null;
+    state.zoneFrom = a.timezone ? "phone, when recorded" : a.user_timezone ? (a.user_timezone_source || "phone, as last synced") : "";
+    state.zoneInferred = !a.timezone && !!a.user_timezone_inferred;
     const name = a.activity_subtype || (a.activity_type === "Custom" ? (a.custom_name || "Custom") : a.activity_type);
     const back = state.userId ? `<a data-nav="/user/${state.userId}">user</a>` : `<a data-nav="/">Overview</a>`;
     $("#crumb").innerHTML = `<a data-nav="/">Overview</a> › ${back} › <strong>${name}</strong>`;
@@ -702,23 +997,454 @@
     $("#activity-kpis").innerHTML = [
       ["Activity", name], ["When", fmtTime(a.started_at)],
       ["Duration", dur == null ? "—" : fmt(dur, 0) + " <small>min</small>"],
-      ["Impact", a.impact_score == null ? "—" : a.impact_score + "%"],
-    ].map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
-    const head = "<tr><th>Metric</th><th>Before</th><th>During</th><th>After</th><th>Δ</th></tr>";
-    const body = ACT_METRICS.map(([label, key, dp, higherBetter, tech]) => {
+    ].map(([l, v]) => `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("")
+      + (a.activity_type === "Sleep" ? nightTile(a.sleep) : impactTile(a.impact))
+      + `<div id="quality-tile"></div>`;
+    $("#night").style.display = a.activity_type === "Sleep" ? "" : "none";
+    if (a.activity_type === "Sleep") renderNight(a);
+    // The two % columns are benefit-signed and come from the server with the
+    // app's direction rules, so the table agrees with the cards and the score.
+    const head = "<tr><th>Metric</th><th>Before</th><th>During</th><th>After</th><th>During vs before</th><th>After vs before</th><th>In score</th></tr>";
+    const pctCell = (pct) => {
+      if (pct == null) return "<span class='muted'>—</span>";
+      const cls = pct > 2 ? "var(--accent)" : pct < -2 ? "var(--warn)" : "var(--hold)";
+      return `<span style="color:${cls}">${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(0)}%</span>`;
+    };
+    const body = ACT_METRICS.map(([label, key, dp]) => {
       const b = a[`before_${key}`], dv = a[`during_${key}`], af = a[`after_${key}`];
-      let delta = "<span class='muted'>—</span>";
-      if (b != null && dv != null) {
-        const diff = dv - b, good = higherBetter ? diff >= 0 : diff <= 0;
-        delta = `<span style="color:${good ? "var(--coh)" : "var(--warn)"}">${diff >= 0 ? "+" : "−"}${fmt(Math.abs(diff), dp)}</span>`;
-      }
+      const m = (a.impact && a.impact.metrics && a.impact.metrics[key]) || {};
       const c = (v) => v == null ? "—" : fmt(v, dp);
-      return `<tr><td>${label}</td><td>${c(b)}</td><td>${c(dv)}</td><td>${c(af)}</td><td>${delta}</td></tr>`;
+      return `<tr><td>${label}</td><td>${c(b)}</td><td>${c(dv)}</td><td>${c(af)}</td>
+        <td>${pctCell(m.during_pct)}</td><td>${pctCell(m.after_pct)}</td><td>${m.scored ? "yes" : "<span class='muted'>no</span>"}</td></tr>`;
     }).join("");
     $("#activity-metrics").innerHTML = head + body;
     drawActivityCharts(a);
     wireCrumb();
     stamp();
+  }
+
+  // The Impact tile prints the number the app prints for this session — the
+  // restorative score rebuilt server-side from the same window averages — or
+  // says why there isn't one. An activating session (pulse up 15 bpm) is
+  // scored in the app against the person's own history, which the server
+  // does not have.
+  function impactTile(imp) {
+    let value = "—", cls = "", note = "";
+    if (!imp) {
+      note = "not computed";
+    } else if (imp.class === "activating") {
+      note = "activating session · ranked in-app against history";
+    } else if (imp.score == null) {
+      note = `${imp.counted} of ${imp.total} metrics measured · needs 3 to score`;
+    } else {
+      value = `${imp.score}<small>/100 · ${esc(imp.caption)}</small>`;
+      cls = imp.score >= 60 ? "up" : imp.score >= 20 ? "flat" : "";
+      note = `${imp.counted} of ${imp.total} metrics · as in the app`;
+    }
+    return `<div class="kpi"><div class="label">Impact</div><div class="value ${cls}">${value}</div><div class="note">${note}</div></div>`;
+  }
+
+  // A night's headline is its score — the app's five-section composite —
+  // never the restorative score, which is built for a practice.
+  const NIGHT_NOT_SYNCED = "recorded by an app build from before nights synced — the score, stages and position arrive once this phone runs the current build";
+
+  // ── Signal quality ───────────────────────────────────────────────────
+  // ecgQualityTier arrives bucket-averaged (AVG over possibly several ticks
+  // a bucket spans), so it lands anywhere in 0…2, not a clean integer. A
+  // bucket is called good only once its average sits mostly in the good
+  // tier, and poor the same way at the other end — the same two-sided cut
+  // that separated a night's one bad hour from its two clean ones when this
+  // was built (2026-10-24: ~160 bpm paired with ~150 ms RMSSD for ten hours,
+  // on a night with no way to tell "bad contact" from "an odd night" apart —
+  // see docs/superpowers/specs/2026-10-25-signal-quality-design.md).
+  const qualityTierOf = (v) => v == null ? null : v >= 1.5 ? "good" : v <= 0.5 ? "poor" : "okay";
+  const QUALITY_COLOR = { good: "var(--accent)", okay: "var(--hold)", poor: "var(--warn)" };
+  const QUALITY_LABEL = { good: "good", okay: "okay", poor: "poor" };
+  // One pass over the window's ticks: counts by tier, and the mean invalid-RR
+  // fraction among ticks that carried one. Used by both the KPI tile and the
+  // montage lane header, so the two numbers can never disagree.
+  function qualityStats(pts, x0, x1) {
+    const rows = pts.filter(p => p.t == null || (p.t >= x0 && p.t <= x1));
+    let good = 0, okay = 0, poor = 0, known = 0, invalidSum = 0, invalidN = 0;
+    for (const p of rows) {
+      const tier = qualityTierOf(p.ecg_quality_tier);
+      if (tier) { known++; if (tier === "good") good++; else if (tier === "okay") okay++; else poor++; }
+      if (p.rr_invalid_rate != null) { invalidSum += p.rr_invalid_rate; invalidN++; }
+    }
+    return { known, total: rows.length, good, okay, poor,
+             meanInvalid: invalidN ? invalidSum / invalidN : null };
+  }
+  // The KPI tile: one line, present for every activity type, not only sleep —
+  // a short meditation can have as bad a strap fit as a long night.
+  function signalQualityTile(pts, x0, x1) {
+    const withT = pts.map(p => ({ ...p, t: new Date(p.ts).getTime() }));
+    const st = qualityStats(withT, x0, x1);
+    if (!st.known) {
+      return `<div class="kpi"><div class="label">Signal quality</div><div class="value">—</div>
+        <div class="note">not in this upload — arrives from the current app build</div></div>`;
+    }
+    const pct = (n) => Math.round(n / st.known * 100);
+    const dom = st.good >= st.okay && st.good >= st.poor ? "good" : st.poor >= st.okay ? "poor" : "okay";
+    const invalid = st.meanInvalid == null ? "" : ` · ${Math.round(st.meanInvalid * 100)}% invalid RR`;
+    return `<div class="kpi"><div class="label">Signal quality</div>
+      <div class="value quality-${dom}">${pct(st.good)}%<small>good</small></div>
+      <div class="note">${pct(st.okay)}% okay · ${pct(st.poor)}% poor${invalid} · ${st.known} of ${st.total} ticks tiered</div></div>`;
+  }
+  function nightTile(n) {
+    if (!n) return `<div class="kpi"><div class="label">Night score</div><div class="value">—</div><div class="note">${NIGHT_NOT_SYNCED}</div></div>`;
+    const secs = sectionsFor(n);
+    const present = secs.filter(([k]) => n.sections && n.sections[k] != null).length;
+    const value = n.score == null ? "—" : `${n.score}<small>/100 night score</small>`;
+    const note = n.score == null ? `${present} of ${secs.length} sections · needs 2 to score`
+                                  : `${present} of ${secs.length} sections · as in the app · v${n.algorithm_version ?? "?"}`;
+    return `<div class="kpi"><div class="label">Night score</div><div class="value ${n.score == null ? "" : n.score >= 70 ? "up" : n.score >= 45 ? "flat" : ""}">${value}</div><div class="note">${note}</div></div>`;
+  }
+
+  // ── The night ─────────────────────────────────────────────────────────
+  // [key, name, weight, absent-reason] — SleepSection in the app, weights
+  // fixed and visible so the score is checkable by hand.
+  // [key, name, weight, absent-reason, where-it-is-weak] — SleepSection in the
+  // app: four sections, each a quarter. Breathing folded into continuity.
+  const SLEEP_SECTIONS = [
+    ["timing",     "Timing",     0.25, "no bedtime recorded",
+     "The hour is scored against a 22:00–23:00 window, and both ends count — very early nights are associated with raised risk much as late ones are. That evidence is weaker than the regularity evidence. Consistency needs three nights; until then the hour is scored on its own."],
+    ["duration",   "Duration",   0.25, "no sleep time",
+     "Sleep need varies by about ±0.7 h between people and is a fixed figure here rather than yours. Sleeping longer than your need is not scored as a fault."],
+    ["continuity", "Continuity", 0.25, "no stages",
+     "Wake is the weakest thing any wearable measures — specificity runs 29–52% — and arousals shorter than a minute are smoothed away entirely. Read this as a description of the night, not a count."],
+    ["autonomic",  "Autonomic",  0.25, "no heart rate",
+     "Vagal tone is read inside quiet sleep only: it drops through REM, so a whole-night average is partly a measure of how much REM you had. Needs a few nights before there is a baseline to compare against."],
+  ];
+  // Nights from the five-section pipeline (algorithm ≤ 19) carried Breathing
+  // as its own axis with the old weights; shown as they were scored.
+  const LEGACY_SECTIONS = [
+    ["timing", "Timing", 0.25, "needs a second night", ""], ["duration", "Duration", 0.25, "no sleep time", ""],
+    ["continuity", "Continuity", 0.15, "no stages", ""], ["autonomic", "Autonomic", 0.20, "no heart rate", ""],
+    ["breathing", "Breathing", 0.15, "needs respiratory effort", ""],
+  ];
+  const sectionsFor = (n) => (n.sections && n.sections.breathing != null) ? LEGACY_SECTIONS : SLEEP_SECTIONS;
+  const NEED_MIN = 465; // SleepThresholds.defaultNeedSec — 7h 45m
+  // SleepStageDetail order — depth is vertical position in the ribbon; wake
+  // takes a neutral rather than a rung on the sleep ramp.
+  const STAGES = [
+    ["wake", "Awake",      "#b9b3aa"],
+    ["rem",  "REM",        "#BCDCF7"],
+    ["n1",   "N1",         "#74AEE4"],
+    ["n2",   "N2 (light)", "#3F7CC0"],
+    ["n3",   "N3 (deep)",  "#22508F"],
+  ];
+  const STAGE_GLOSS = {
+    wake: "Lying awake, in bed. Brief arousals are normal — several an hour is ordinary.",
+    rem:  "Dreaming sleep. The heart behaves much as it does awake, so a cardiac signal reads it least confidently.",
+    n1:   "The doorway either side of a wake bout. Positional here, not measured.",
+    n2:   "The bulk of a normal night. Measured: coherence, variability and heart rate, ranked within this night.",
+    n3:   "The deepest, most restorative stretch, front-loaded into the first half of the night. Also measured.",
+  };
+  const POSITION_COLOR = { "Supine": "#4A5568", "Prone": "#2f3744", "Left side": "#7C8DA6", "Right side": "#A9B6C9", "Upright": "#C8A24C" };
+  const hm = (m) => m == null ? "—" : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+  const clockOf = (iso) => when(iso, F.clock);
+  const band = (v) => v < 45 ? "act" : v >= 70 ? "keep" : "improve";
+  const VERDICT = { act: "below your usual", improve: "about usual", keep: "a good night for you" };
+
+  function renderNight(a) {
+    const n = a.sleep;
+    if (!n) {
+      // The window and the synced ticks are all there is. Say what is missing
+      // and why rather than leaving four empty headings.
+      const inBed = (a.started_at && a.ended_at) ? Math.round((new Date(a.ended_at) - new Date(a.started_at)) / 60000) : null;
+      $("#night-sub").textContent = `— ${clockOf(a.started_at)} → ${a.ended_at ? clockOf(a.ended_at) : "…"}`;
+      $("#night-hero").innerHTML = `<div class="night-hero">
+        <div><div class="big"><small>In bed</small>${hm(inBed)}</div><div class="sub2">time asleep not in this upload</div></div>
+        <div class="clock"><span class="k">asleep</span><b>${clockOf(a.started_at)}</b></div>
+        <div class="clock"><span class="k">woke</span><b>${a.ended_at ? clockOf(a.ended_at) : "—"}</b></div>
+        <div class="clock" style="flex-basis:100%;color:var(--dim)">${NIGHT_NOT_SYNCED}. Pulse, HRV, breathing${" and movement"} below come from the synced ticks.</div>
+      </div>`;
+      ["#night-arith", "#night-sections", "#night-stages", "#night-positions"].forEach(id => $(id).innerHTML = `<div class="gloss">not in this upload</div>`);
+      return;
+    }
+    const inBed = n.in_bed_min ?? ((a.started_at && a.ended_at) ? Math.round((new Date(a.ended_at) - new Date(a.started_at)) / 60000) : null);
+    const eff = (n.asleep_min != null && inBed) ? Math.round(n.asleep_min / inBed * 100) : null;
+    const secs = sectionsFor(n);
+    $("#night-sub").textContent = `— ${clockOf(a.started_at)} → ${a.ended_at ? clockOf(a.ended_at) : "…"}`;
+    const corrected = n.detected_start && n.detected_end
+      ? `<div class="clock" style="flex-basis:100%;color:var(--dim)">the detector proposed ${clockOf(n.detected_start)} → ${clockOf(n.detected_end)}; the sleeper moved it${n.corrected_at ? " on " + fmtTime(n.corrected_at) : ""}</div>` : "";
+    $("#night-hero").innerHTML = `<div class="night-hero">
+      <div><div class="big"><small>Time asleep</small>${hm(n.asleep_min)}</div>
+           <div class="sub2">${hm(inBed)} in bed${eff == null ? "" : ` · ${eff}% efficiency`}</div></div>
+      <div class="clock"><span class="k">asleep</span><b>${clockOf(a.started_at)}</b></div>
+      <div class="clock"><span class="k">woke</span><b>${a.ended_at ? clockOf(a.ended_at) : "—"}</b></div>
+      ${n.bedtime_sd_min != null ? `<div class="clock"><span class="k">bedtime varies</span><b>±${Math.round(n.bedtime_sd_min)}m</b></div>` : n.regularity != null ? `<div class="clock"><span class="k">regularity</span><b>${Math.round(n.regularity)}</b></div>` : ""}
+      ${n.wake_bouts != null ? `<div class="clock"><span class="k">wake bouts</span><b>${n.wake_bouts}</b>${n.longest_wake_min != null ? ` <span class="k">· longest wake</span><b>${n.longest_wake_min} min</b>` : ""}</div>` : ""}
+      ${n.longest_unbroken_min != null ? `<div class="clock"><span class="k">longest unbroken</span><b>${hm(n.longest_unbroken_min)}</b></div>` : ""}
+      ${n.stage_summary ? `<div class="clock" style="flex-basis:100%">${esc(n.stage_summary)}</div>` : ""}
+      ${corrected}
+    </div>`;
+
+    // The night score, the app's way: the total, then each section's score,
+    // its weight and the points it contributed — the right-hand column sums
+    // to the headline, which is the whole claim being made.
+    const rows = secs.map(([k, name, w]) => [name, n.sections ? n.sections[k] : null, w]);
+    const live = rows.filter(r => r[1] != null).reduce((t, r) => t + r[2], 0) || 1;
+    $("#night-arith").innerHTML = `<div class="score-big">${n.score ?? "—"}<small>/ 100</small></div>
+      <div class="gloss" style="margin:0 0 8px">${secs.length === 4 ? "Four sections, each worth a quarter." : "Five sections, weighted as they were scored."} Every one is scored against the person's own baseline, never a population threshold.</div>`
+      + rows.map(([name, v, w]) => `<div class="srow"><span class="k">${name}</span>
+          <span class="s"><b>${v == null ? "—" : v}</b><small>×${Math.round(w / live * 100)}%</small></span>
+          <span class="bar"><i style="width:${v == null ? 0 : v}%"></i></span>
+          <span class="n">${v == null ? "—" : (w / live * v).toFixed(1)}</span></div>`).join("")
+      + (n.arithmetic ? `<div class="weak"><b>THE ARITHMETIC</b>${esc(n.arithmetic)}</div>` : "");
+
+    // Section detail lines, worded as the app words them.
+    const need = `${Math.floor(NEED_MIN / 60)}h ${String(NEED_MIN % 60).padStart(2, "0")}m`;
+    const detail = {
+      timing:     `asleep ${clockOf(a.started_at)}${n.bedtime_sd_min != null ? ` · varies ±${Math.round(n.bedtime_sd_min)}m` : n.regularity != null ? ` · regularity index ${Math.round(n.regularity)}` : ""}`,
+      duration:   n.asleep_min != null ? `${hm(n.asleep_min)} of your ${need} need` : "time asleep",
+      continuity: n.stage_summary || "how unbroken the night was",
+      autonomic:  "how far the heart rate settled, when, and vagal tone against the usual",
+      breathing:  "steadiness of breathing overnight",
+    };
+    // What each section was made of: a value on the range it was read
+    // against, with the score that position earned. Absent on nights from
+    // before the app stored its working.
+    const partBar = (p) => {
+      const pos = p.best === p.worst ? 0 : Math.min(1, Math.max(0, (p.value - p.worst) / (p.best - p.worst)));
+      const cls = p.score < 34 ? "bad" : p.score < 67 ? "mid" : "good";
+      return `<div class="part ${cls}"><div class="h"><span class="l">${esc(p.label)}</span><span class="d">${esc(p.display)}</span><span class="sc">${Math.round(p.score)}</span></div>
+        <div class="track"><span class="rail"></span><span class="fill" style="width:${(pos * 100).toFixed(1)}%"></span><span class="dot" style="left:calc(${(pos * 100).toFixed(1)}% - 4px)"></span></div>
+        <div class="ends"><span>${esc(p.worstLabel)}</span>${p.weight < 1 ? `<span>${Math.round(p.weight * 100)}% of this section</span>` : ""}<span>${esc(p.bestLabel)}</span></div></div>`;
+    };
+    $("#night-sections").innerHTML = secs.map(([k, name, w, whenEmpty, weak]) => {
+      const v = n.sections ? n.sections[k] : null;
+      const parts = (n.parts && n.parts[k]) || [];
+      return `<div class="slot"><span class="k">${name}<span class="d" style="display:block;font-weight:400">${esc(detail[k])}</span></span>
+        <span class="d">${v == null ? whenEmpty : `<span class="verdict ${band(v)}">${VERDICT[band(v)]}</span>`}</span>
+        <span class="v ${v == null ? "none" : ""}">${v == null ? "not measured" : v}</span></div>`
+        + (parts.length || weak ? `<div class="slot-open">${parts.map(partBar).join("")}${weak ? `<div class="weak"><b>WHERE IT IS WEAK</b>${weak}</div>` : ""}</div>` : "");
+    }).join("");
+
+    const st = n.stages || {};
+    const asleep = ["rem", "n1", "n2", "n3"].reduce((s, k) => s + (st[k] || 0), 0);
+    $("#night-stages").innerHTML = STAGES.filter(([k]) => (st[k] || 0) > 0 || k === "wake").map(([k, label, col]) =>
+      `<div class="legend-row"><span class="sw" style="background:${col}"></span><span>${label}</span><span class="m">${hm(st[k] || 0)}</span>
+       <span class="p">${k !== "wake" && asleep ? Math.round((st[k] || 0) / asleep * 100) + "%" : ""}</span></div>`).join("")
+      + `<div class="gloss">${STAGES.map(([k, label]) => `<b>${label}</b> ${STAGE_GLOSS[k]}`).join("<br>")}</div>`;
+
+    const pos = n.positions || [];
+    const known = pos.reduce((s, p) => s + p.minutes, 0);
+    $("#night-positions").innerHTML = pos.length
+      ? pos.map(p => `<div class="legend-row"><span class="sw" style="background:${POSITION_COLOR[p.position] || "#888"}"></span><span>${esc(p.position)}</span><span class="m">${hm(p.minutes)}</span><span class="p">${known ? Math.round(p.minutes / known * 100) + "%" : ""}</span></div>`).join("")
+        + `<div class="gloss">Shares are of the time a position was readable; the gaps between turns are the rolls themselves. Left and right depend on which way round the strap was fastened; on the back, front and upright do not.</div>`
+      : `<div class="gloss">${n.position_recorded === false
+          ? "Not recorded on this night. The strap stored only the strength of movement, not its direction, so which way the person lay was never on disk."
+          : n.position_recorded ? "Measured, but no one position was held for two minutes together, so there is no stretch long enough to draw."
+          : "Position was not part of this upload — the night predates the sync, or the app has not re-recorded it yet."}</div>`;
+    $("#night-highlights").innerHTML = "";
+  }
+
+  // Highlights, the app's card: only what can be computed, and nothing that
+  // is true of every night. The nadir comes from the night's own record; the
+  // rest is read off the synced ticks against the hypnogram, so it waits for
+  // the series.
+  function renderHighlights(a, pts) {
+    const n = a.sleep || {}, host = $("#night-highlights");
+    const x0 = new Date(a.started_at).getTime(), x1 = new Date(a.ended_at || a.started_at).getTime();
+    const runs = (n.stage_runs || []).map(r => ({ stage: r.stage, s: new Date(r.start).getTime(), e: new Date(r.end).getTime() }));
+    const inStage = (t, stage) => runs.some(r => r.stage === stage && t >= r.s && t < r.e);
+    const series = (col) => pts.map(p => ({ t: new Date(p.ts).getTime(), v: p[col] })).filter(p => p.v != null && p.t >= x0 && p.t <= x1);
+    const items = [];
+    const hr = series("mean_bpm");
+    if (n.lowest_hr != null && n.lowest_hr_at) {
+      const typ = hr.length ? hr.map(p => p.v).sort((p, q) => p - q)[Math.floor(hr.length / 2)] : null;
+      items.push([`${Math.round(n.lowest_hr)} bpm at ${clockOf(n.lowest_hr_at)}`, `the lowest pulse${typ != null ? ` — ${Math.round(typ - n.lowest_hr)} bpm under the night's typical` : ""}`]);
+    }
+    const dc = series("dc");
+    if (dc.length) {
+      const hi = dc.reduce((m, p) => p.v > m.v ? p : m, dc[0]), lo = Math.min(...dc.map(p => p.v));
+      items.push([`${hi.v.toFixed(1)} ms at ${clockOf(hi.t)}`, `vagal tone at its strongest; it ran as low as ${lo.toFixed(1)} ms`]);
+    }
+    const br = series("breath_bpm");
+    if (br.length && runs.length) {
+      const mean = (arr) => arr.length ? arr.reduce((t, p) => t + p.v, 0) / arr.length : null;
+      const deep = mean(br.filter(p => inStage(p.t, "n3"))), wake = mean(br.filter(p => inStage(p.t, "wake")));
+      if (deep != null && wake != null) items.push([`${deep.toFixed(1)} vs ${wake.toFixed(1)} br/min`,
+        deep > wake ? "breathed faster in deep sleep than during the awake stretches — sleep breathing is regular rather than slow, and the awake minutes here are lying still"
+                    : "breath ran slower in deep sleep than during the awake stretches"]);
+    }
+    if (runs.length) {
+      let best = 0, run = 0;
+      runs.forEach(r => { if (r.stage !== "wake") { run += r.e - r.s; best = Math.max(best, run); } else run = 0; });
+      if (best > 0) items.push([hm(Math.round(best / 60000)), "the longest unbroken stretch of sleep"]);
+    }
+    const pos = n.positions || [], known = pos.reduce((t, p) => t + p.minutes, 0), sup = pos.find(p => p.position === "Supine");
+    if (known && sup) items.push([`${Math.round(sup.minutes / known * 100)}% on the back`, "of the time the position was known"]);
+    host.innerHTML = items.length ? `<h3 style="font:650 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:0 0 8px">Highlights from the night</h3><div class="hl">`
+      + items.map(([v, c]) => `<div><div class="v">${esc(v)}</div><div class="c">${esc(c)}</div></div>`).join("") + `</div>` : "";
+  }
+
+  // The montage: hypnogram ribbon, position bands, then pulse with its nadir,
+  // HRV and breathing from the server's tick stream, on one shared clock.
+  // No movement lane — motion is not synced.
+  function drawMontage(a, pts) {
+    const svg = $("#montage"), n = a.sleep || {};
+    const W = Math.max(320, Math.round(svg.clientWidth || 900));
+    const x0 = new Date(a.started_at).getTime(), x1 = new Date(a.ended_at || a.started_at).getTime();
+    const span = Math.max(1, x1 - x0);
+    const L = 150, R = 14, top = 8;
+    const px = (t) => L + (t - x0) / span * (W - L - R);
+    const runs = (n.stage_runs || []).map(r => ({ stage: r.stage, s: new Date(r.start).getTime(), e: new Date(r.end).getTime() }));
+    const wake = runs.filter(r => r.stage === "wake");
+    let el = "", y = top;
+    const shadeWake = (y0, h) => wake.map(r => `<rect class="awake" x="${px(r.s).toFixed(1)}" y="${y0}" width="${Math.max(1, px(r.e) - px(r.s)).toFixed(1)}" height="${h}"/>`).join("");
+    // Label, technical name, then the value on its own line — three short
+    // lines in a fixed gutter, so a long label never runs into its number.
+    const laneHead = (y0, label, tech, val) =>
+      `<text class="lane-label" x="0" y="${y0 + 11}">${label}</text><text class="lane-tech" x="0" y="${y0 + 23}">${tech}</text>`
+      + (val ? `<text class="lane-val" x="0" y="${y0 + 37}">${val}</text>` : "");
+
+    // Sleep — lane ribbon. Depth is vertical position; every state has equal mass.
+    const laneH = 12, gap = 4, ribbonH = STAGES.length * (laneH + gap);
+    el += laneHead(y, "Sleep", "hypnogram", hm(n.asleep_min) + " asleep");
+    el += shadeWake(y, ribbonH);
+    const laneY = (stage) => y + STAGES.findIndex(s => s[0] === stage) * (laneH + gap);
+    runs.forEach((r, i) => {
+      const col = (STAGES.find(s => s[0] === r.stage) || [])[2] || "#888";
+      el += `<rect x="${px(r.s).toFixed(1)}" y="${laneY(r.stage)}" width="${Math.max(1.5, px(r.e) - px(r.s)).toFixed(1)}" height="${laneH}" rx="2" fill="${col}"/>`;
+      if (i) {
+        const prev = runs[i - 1];
+        const ya = laneY(prev.stage) + laneH / 2, yb = laneY(r.stage) + laneH / 2;
+        el += `<line class="stage-conn" x1="${px(r.s).toFixed(1)}" y1="${ya}" x2="${px(r.s).toFixed(1)}" y2="${yb}"/>`;
+      }
+    });
+    if (!runs.length) el += `<text class="clock" x="${L}" y="${y + 20}">${a.sleep ? "no hypnogram in this upload" : "stages are staged on the phone and arrive with the night once it runs the current app build"}</text>`;
+    y += ribbonH + 14;
+
+    // Position — gravity-vector bands.
+    const bands = (n.position_bands || []).map(b => ({ p: b.position, s: new Date(b.start).getTime(), e: new Date(b.end).getTime() }));
+    el += laneHead(y, "Position", "gravity vector", "");
+    if (bands.length) {
+      bands.forEach(b => {
+        const w = Math.max(2, px(b.e) - px(b.s)), col = POSITION_COLOR[b.p] || "#888";
+        el += `<rect x="${px(b.s).toFixed(1)}" y="${y + 2}" width="${w.toFixed(1)}" height="22" rx="4" fill="${col}"/>`;
+        if (w > 74) el += `<text class="pos-label" x="${(px(b.s) + w / 2).toFixed(1)}" y="${y + 17}" text-anchor="middle" fill="${b.p === "Supine" || b.p === "Prone" ? "#f4f4f4" : "#111"}">${esc(b.p.toUpperCase())}</text>`;
+      });
+    } else {
+      el += `<text class="clock" x="${L}" y="${y + 17}">${!a.sleep ? "position arrives with the night from the current app build" : n.position_recorded === false ? "not recorded on this night" : "no stretch held long enough to draw"}</text>`;
+    }
+    y += 26 + 16;
+
+    // Movement — the accelerometer strip, from the synced ticks. Like the
+    // app: ticks that stand out from this night's own stillness (twice the
+    // median, never under 8 mg), each drawn to how loud it was.
+    const motion = pts.filter(s => s.motion_max != null && isFinite(s.motion_max))
+                      .map(s => ({ t: new Date(s.ts).getTime(), avg: s.motion, max: s.motion_max }))
+                      .filter(p => p.t >= x0 && p.t <= x1);
+    const MH = 28;
+    const meds = motion.map(p => p.avg).filter(v => v != null).sort((p, q) => p - q);
+    const threshold = Math.max((meds[Math.floor(meds.length / 2)] || 0) * 2, 8);
+    const loud = motion.filter(p => p.max > threshold);
+    el += laneHead(y, "Movement", "accelerometer", motion.length ? `${loud.length} moves` : "");
+    if (motion.length) {
+      el += shadeWake(y, MH);
+      el += `<line class="grid" x1="${L}" y1="${y + MH}" x2="${W - R}" y2="${y + MH}"/>`;
+      loud.forEach(p => {
+        const h = Math.max(3, Math.min(1, p.max / (threshold * 4)) * (MH - 4));
+        el += `<rect x="${(px(p.t) - 1).toFixed(1)}" y="${(y + MH - h).toFixed(1)}" width="2" height="${h.toFixed(1)}" fill="var(--dim)" opacity=".8"/>`;
+      });
+      el += `<text class="clock" x="${W - R}" y="${y - 3}" text-anchor="end">over ${threshold.toFixed(0)} mg</text>`;
+    } else {
+      el += `<text class="clock" x="${L}" y="${y + 17}">movement is not in this phone's synced ticks yet — it syncs from the current app build</text>`;
+    }
+    y += MH + 16;
+
+    // Signal quality — a tier strip, read first because it explains the
+    // traces below: a stretch that reads "poor" here is the reason a line
+    // further down might look nothing like sleep. One rect per tick, as
+    // Movement draws its ticks, so a short bad stretch is never averaged
+    // away into an innocent-looking blur.
+    const quality = pts.map(s => ({ t: new Date(s.ts).getTime(), tier: qualityTierOf(s.ecg_quality_tier) }))
+                       .filter(p => p.tier != null && p.t >= x0 && p.t <= x1);
+    const QH = 16;
+    const qStats = qualityStats(pts.map(s => ({ t: new Date(s.ts).getTime(), ecg_quality_tier: s.ecg_quality_tier, rr_invalid_rate: s.rr_invalid_rate })), x0, x1);
+    const qVal = qStats.known
+      ? `${Math.round(qStats.good / qStats.known * 100)}% good`
+      : "";
+    el += laneHead(y, "Signal quality", "ECG artifact tier", qVal);
+    if (quality.length) {
+      el += `<rect x="${L}" y="${y}" width="${(W - L - R).toFixed(1)}" height="${QH}" fill="var(--border)" opacity=".5"/>`;
+      quality.forEach(p => {
+        el += `<rect class="q-${p.tier}" x="${(px(p.t) - 1).toFixed(1)}" y="${y}" width="2" height="${QH}"/>`;
+      });
+      const pct = (n) => qStats.known ? Math.round(n / qStats.known * 100) : 0;
+      el += `<text class="clock" x="${W - R}" y="${y - 3}" text-anchor="end">${pct(qStats.okay)}% okay · ${pct(qStats.poor)}% poor</text>`;
+    } else {
+      el += `<text class="clock" x="${L}" y="${y + 12}">signal quality is not in this phone's synced ticks yet — it syncs from the current app build</text>`;
+    }
+    // laneHead's third line sits at y+37 regardless of the strip's own
+    // height; the gap after a lane has to clear that, not just the strip.
+    y += QH + 28;
+
+    // Metric lanes from the tick stream, clipped to the night.
+    const series = (col) => pts.map(s => ({ t: new Date(s.ts).getTime(), v: s[col] }))
+                               .filter(p => p.v != null && isFinite(p.v) && p.t >= x0 && p.t <= x1);
+    // Grouped the way the app groups them: each section's traces under the
+    // section, then the channels nothing scores. Timing and duration have no
+    // trace — one is a fact about a fortnight of bedtimes, the other a total.
+    const groups = [
+      ["Continuity — what feeds the score", [["Breath Rate", "br/min", "breath_bpm", "var(--breathe)", 1]]],
+      ["Autonomic — what feeds the score", [
+        ["Pulse", "HR · bpm", "mean_bpm", "var(--warn)", 0],
+        ["Vagal Tone", "DC · ms", "dc", "var(--coh)", 1],
+        ["Calm Power", "RMSSD · ms", "rmssd", "var(--hrv)", 0],
+        ["Inner Noise", "PIP · %", "pip", "var(--breathe)", 0]]],
+      ["Other channels — recorded, not scored", [
+        ["Conscious Breathing", "RSA · ms", "rsa_ms", "var(--rsa)", 0],
+        ["Adaptive Capacity", "RCMSE", "rcmse", "var(--accent)", 2],
+        ["Harmony", "DFA α1", "dfa1", "var(--coh)", 2],
+        ["HRV Spread", "SDNN · ms", "sdnn", "var(--hrv)", 0]]],
+    ];
+    const H = 70;
+    const lanes = [];
+    groups.forEach(([title, ls]) => { lanes.push(["__group__", title]); ls.forEach(l => lanes.push(l)); });
+    lanes.forEach(([label, tech, col, color, dp]) => {
+      if (label === "__group__") { el += `<text class="group" x="0" y="${y + 12}">${tech}</text>`; y += 22; return; }
+      const s = series(col);
+      const avg = s.length ? s.reduce((t, p) => t + p.v, 0) / s.length : null;
+      el += laneHead(y, label, tech, avg == null ? "" : fmt(avg, dp) + " avg");
+      el += shadeWake(y, H);
+      el += `<line class="grid" x1="${L}" y1="${y + H}" x2="${W - R}" y2="${y + H}"/>`;
+      if (s.length >= 2) {
+        let lo = Math.min(...s.map(p => p.v)), hi = Math.max(...s.map(p => p.v));
+        if (lo === hi) { lo -= 1; hi += 1; }
+        const py = (v) => y + 6 + (1 - (v - lo) / (hi - lo)) * (H - 12);
+        el += `<line class="phase" x1="${L}" y1="${py(avg).toFixed(1)}" x2="${W - R}" y2="${py(avg).toFixed(1)}"/>`;
+        el += `<path class="line" stroke="${color}" d="${s.map((p, i) => `${i ? "L" : "M"}${px(p.t).toFixed(1)},${py(p.v).toFixed(1)}`).join(" ")}"/>`;
+        // The nadir is marked on the pulse lane: the app's own reading when
+        // the night carries one (the same number the hero prints), else the
+        // low of the bucketed line.
+        if (col === "mean_bpm") {
+          const own = (n.lowest_hr != null && n.lowest_hr_at) ? { t: new Date(n.lowest_hr_at).getTime(), v: n.lowest_hr } : null;
+          const low = (own && own.t >= x0 && own.t <= x1) ? own : s.reduce((m, p) => p.v < m.v ? p : m, s[0]);
+          const nx = px(low.t), ny = py(Math.max(lo, Math.min(hi, low.v)));
+          el += `<circle cx="${nx.toFixed(1)}" cy="${ny.toFixed(1)}" r="4" fill="${color}" stroke="var(--card)" stroke-width="2"/>`;
+          el += `<text class="nadir" x="${(nx + (nx > W - 90 ? -8 : 8)).toFixed(1)}" y="${(ny + 4).toFixed(1)}" text-anchor="${nx > W - 90 ? "end" : "start"}" fill="${color}">nadir ${fmt(low.v, 0)} · ${clockOf(low.t)}</text>`;
+        }
+        el += `<text class="clock" x="${W - R}" y="${y + 10}" text-anchor="end">${fmt(hi, dp)}</text><text class="clock" x="${W - R}" y="${y + H - 2}" text-anchor="end">${fmt(lo, dp)}</text>`;
+      } else {
+        el += `<text class="clock" x="${L}" y="${y + H / 2}">no ${label.toLowerCase()} in the synced ticks</text>`;
+      }
+      y += H + 14;
+    });
+
+    // The shared clock: an hour tick every hour, and the two chips.
+    const hour = 3600e3, firstTick = Math.ceil(x0 / hour) * hour;
+    for (let t = firstTick; t <= x1; t += hour) {
+      el += `<line class="grid" x1="${px(t).toFixed(1)}" y1="${top}" x2="${px(t).toFixed(1)}" y2="${y}" stroke-dasharray="2 4"/>`;
+      el += `<text class="clock" x="${px(t).toFixed(1)}" y="${y + 12}" text-anchor="middle">${when(t, F.clock)}</text>`;
+    }
+    el += `<text class="chip" x="${L}" y="${y + 26}">ASLEEP ${clockOf(x0)}</text><text class="chip" x="${W - R}" y="${y + 26}" text-anchor="end">WOKE ${clockOf(x1)}</text>`;
+    svg.setAttribute("viewBox", `0 0 ${W} ${y + 32}`);
+    svg.style.height = (y + 32) + "px";
+    svg.innerHTML = el;
+    $("#montage-note").textContent = "Signal quality is the on-device read of how much to trust a stretch of readings: a 'poor' tier means the metric lines below it should not be taken at face value — values during a poor stretch can run far outside anything physiological. How the stages were read: N2 and N3 are measured — the depth axis is coherence, variability and heart rate, ranked within this night. N1 is positional: it marks the light sleep either side of a wake bout. Stage totals are cut at typical adult shares, so read the shape rather than the minutes. Wake is the least reliable channel any wearable has — treat the awake minutes as approximate. The hypnogram and position come from the app's own record of the night; every trace is the synced ticks, bucketed to a minute.";
   }
 
   // One card per metric: three bars — before, during, after — so the shape of
@@ -733,11 +1459,13 @@
   async function drawActivityCharts(a) {
     const host = $("#activity-charts");
     let d;
-    try { d = await api(`activities/${a.id}/series`); }
+    try { d = await api(`activities/${a.id}/series${a.activity_type === "Sleep" ? "?buckets=480" : ""}`); }
     catch { host.innerHTML = `<div class="empty">could not load the window series</div>`; return; }
     const pts = d.samples || [];
     if (!pts.length) {
       host.innerHTML = `<div class="empty">no per-tick data recorded around this activity</div>`;
+      $("#quality-tile").outerHTML = signalQualityTile([], 0, 0);
+      if (a.activity_type === "Sleep") { drawMontage(a, []); if (a.sleep) renderHighlights(a, []); };
       return;
     }
     const meta = {
@@ -746,22 +1474,36 @@
       wStart: new Date(d.window_start).getTime(),
       wEnd:   new Date(d.window_end).getTime(),
     };
+    $("#quality-tile").outerHTML = signalQualityTile(pts, meta.wStart, meta.wEnd);
+    if (a.activity_type === "Sleep") { drawMontage(a, pts); if (a.sleep) renderHighlights(a, pts); }
     host.innerHTML = ACT_METRICS.map(([label, key, dp, higherBetter]) => {
       const col = ACT_SERIES_COL[key];
-      if (!col || !pts.some(s => s[col] != null)) return "";
       const af = a[`after_${key}`];
       const b  = a[`before_${key}`];
-      let chip = "";
-      if (b != null && af != null) {
-        const delta = af - b, better = higherBetter ? delta > 0 : delta < 0;
-        chip = `<div class="delta ${better ? "up" : "down"}">${delta >= 0 ? "+" : "−"}${fmt(Math.abs(delta), dp)} after vs before</div>`;
-      }
-      return `<div class="mini track actline" data-key="${col}" data-dp="${dp}"
+      const hasSeries = col && pts.some(s => s[col] != null);
+      if (!hasSeries && b == null && a[`during_${key}`] == null && af == null) return "";
+      const m  = (a.impact && a.impact.metrics && a.impact.metrics[key]) || {};
+      // The tag and the big percentage read the held change (after vs
+      // before); when the after-window is missing they fall back to the
+      // shift itself and say so.
+      const held = m.after_pct != null, pct = held ? m.after_pct : m.during_pct;
+      const tag = m.tag || "none";
+      const TAG_WORD = { up: "▲ improved", flat: "● steady", down: "▼ worse", none: "no comparison" };
+      const pctWord = tag === "up" ? "better" : tag === "down" ? "worse" : tag === "flat" ? "steady" : "";
+      const pctText = pct == null ? "—"
+        : `${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(0)}%<small>${pctWord}${held ? "" : " during"}</small>`;
+      const unscored = m.scored === false ? `<span class="unscored">not in score</span>` : "";
+      return `<div class="mini track actline" data-key="${col || ""}" data-dp="${dp}"
                    data-color="${ACT_COLOR[key] || "var(--accent)"}"
+                   data-pcts='${esc(JSON.stringify({ during: m.during_pct ?? null, after: m.after_pct ?? null }))}'
                    data-phases='${esc(JSON.stringify({ before: b, during: a[`during_${key}`], after: af }))}'>
-        <div class="cap"><span class="t">${esc(label)}</span>
+        <div class="tag ${tag}">${TAG_WORD[tag]}</div>
+        <div class="cap"><span class="t">${esc(label)}${unscored}</span>
           <span class="v" style="color:${ACT_COLOR[key] || "var(--accent)"}">${af == null ? "—" : fmt(af, dp)}</span></div>
-        ${chip}<svg tabindex="0" role="img" aria-label="${esc(label)} across the activity"></svg></div>`;
+        <div class="ba"><span class="ph"><small>before</small>${b == null ? "—" : fmt(b, dp)}</span><span class="arr">→</span>
+          <span class="ph"><small>${held || af != null ? "after" : "during"}</small>${held || af != null ? (af == null ? "—" : fmt(af, dp)) : fmt(a[`during_${key}`], dp)}</span>
+          <span class="pct ${tag}">${pctText}</span></div>
+        <svg tabindex="0" role="img" aria-label="${esc(label)} across the activity"></svg></div>`;
     }).join("") || `<div class="empty">no metrics recorded around this activity</div>`;
 
     const boxes = [...host.querySelectorAll(".mini.actline")];
@@ -774,19 +1516,25 @@
   // Column each activity metric reads in the per-tick series.
   const ACT_SERIES_COL = {
     hr: "mean_bpm", rsa: "rsa_ms", rmssd: "rmssd", sdnn: "sdnn", vti: "vti",
-    stress: "lf_hf", rcmse: "rcmse", pip: "pip", dc: "dc", dfa1: "dfa1",
+    rcmse: "rcmse", pip: "pip", dc: "dc", dfa1: "dfa1",
+    // No per-tick stress column: the app derives the dial from RMSSD against
+    // a baseline. Its card shows the three window averages only — drawing the
+    // LF/HF line under stress-dial rules put the line on the floor.
   };
 
   function drawActivityLine(box, pts, meta) {
     const svg = box.querySelector("svg"), col = box.dataset.key;
     const dp = Number(box.dataset.dp), color = box.dataset.color;
     const phases = JSON.parse(box.dataset.phases);
-    const series = pts.map(s => ({ t: new Date(s.ts).getTime(), v: s[col] }))
-                      .filter(p => p.v != null && isFinite(p.v));
+    const series = col ? pts.map(s => ({ t: new Date(s.ts).getTime(), v: s[col] }))
+                            .filter(p => p.v != null && isFinite(p.v)) : [];
     const W = Math.max(200, Math.round(svg.clientWidth || 320)), H = 150;
     const pad = { l: 6, r: 8, t: 10, b: 20 };
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    if (series.length < 2) {
+    // A metric with no per-tick column (Stress Balance) still gets its three
+    // window averages drawn as rules; one with too few samples gets nothing.
+    const hasLine = series.length >= 2;
+    if (!hasLine && Object.values(phases).every(v => v == null)) {
       svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" class="tick">not enough data</text>`;
       return;
     }
@@ -807,27 +1555,51 @@
       el += `<line class="edge" x1="${pxOf(t).toFixed(1)}" y1="${pad.t}" x2="${pxOf(t).toFixed(1)}" y2="${base}"/>`;
     });
 
-    // Phase averages, each spanning only its own phase.
-    const rule = (v, from, to) => {
+    // Phase averages, each spanning only its own phase, each labelled the way
+    // the app labels them: the average, plus the benefit-signed % vs before
+    // the server computed with the app's direction rules (green better,
+    // yellow steady, red worse). Harmony is scored against a target of 1.0,
+    // which a plain higher/lower flag got wrong.
+    const pcts = JSON.parse(box.dataset.pcts || "{}");
+    const rule = (v, from, to, pct) => {
       if (v == null) return "";
-      const y = pyOf(v).toFixed(1);
-      return `<line class="phase" x1="${pxOf(from).toFixed(1)}" y1="${y}" x2="${pxOf(to).toFixed(1)}" y2="${y}"/>`;
+      const y = pyOf(v), x1 = pxOf(from), x2 = pxOf(to);
+      let s = `<line class="phase" x1="${x1.toFixed(1)}" y1="${y.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y.toFixed(1)}"/>`;
+      let label = fmt(v, dp);
+      let pctCls = "";
+      if (pct != null) {
+        label += `  ${pct >= 0 ? "+" : "−"}${Math.abs(pct).toFixed(0)}%`;
+        pctCls = pct > 2 ? " better" : pct < -2 ? " worse" : " flat";
+      }
+      // Keep the label inside the plot: an average near the top would other-
+      // wise render above the frame and be clipped to half a digit.
+      const mid = (x1 + x2) / 2;
+      const ly = Math.max(pad.t + 9, y - 4);
+      s += `<text class="avg${pctCls}" x="${mid.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle">${label}</text>`;
+      return s;
     };
-    el += rule(phases.before, meta.wStart, meta.start);
-    el += rule(phases.during, meta.start, meta.end);
-    el += rule(phases.after, meta.end, meta.wEnd);
+    el += rule(phases.before, meta.wStart, meta.start, null);
+    el += rule(phases.during, meta.start, meta.end, pcts.during);
+    el += rule(phases.after, meta.end, meta.wEnd, pcts.after);
 
-    const d = series.map((p, i) => `${i ? "L" : "M"}${pxOf(p.t).toFixed(1)},${pyOf(p.v).toFixed(1)}`).join(" ");
-    el += `<path class="line" stroke="${color}" d="${d}"/>`;
+    if (hasLine) {
+      const d = series.map((p, i) => `${i ? "L" : "M"}${pxOf(p.t).toFixed(1)},${pyOf(p.v).toFixed(1)}`).join(" ");
+      el += `<path class="line" stroke="${color}" d="${d}"/>`;
+    }
     el += `<line class="axis" x1="${pad.l}" y1="${base}" x2="${W - pad.r}" y2="${base}"/>`;
     // Only the activity's own boundaries get labelled: the window edges sit 5
     // and 10 minutes away and their labels collide with these at card width.
-    const clock = (t) => new Date(t).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    const clock = (t) => when(t, F.clock);
     [meta.start, meta.end].forEach(t => {
       const x = pxOf(t);
       const anchor = x < 34 ? "start" : x > W - 34 ? "end" : "middle";
       el += `<text class="tick" x="${x.toFixed(1)}" y="${H - 5}" text-anchor="${anchor}">${clock(t)}</text>`;
     });
+    if (!hasLine) {
+      el += `<text class="tick" x="${W - pad.r}" y="${pad.t + 9}" text-anchor="end">window averages only</text>`;
+      svg.innerHTML = el;
+      return;
+    }
     el += `<g class="cursor" style="display:none"><line class="hair" y1="${pad.t}" y2="${base}"/>
              <circle class="dot" r="3.5" fill="${color}"/></g>`;
     svg.innerHTML = el;
@@ -844,15 +1616,29 @@
       const r = svg.getBoundingClientRect();
       showTip(r.left + x * (r.width / W), r.top + y * (r.height / H), sig, p, span);
     };
-    svg.addEventListener("pointermove", (e) => {
+    const nearest = (clientX) => {
       const r = svg.getBoundingClientRect();
-      const t = x0 + ((e.clientX - r.left) / r.width * W - pad.l) / (W - pad.l - pad.r) * span;
+      const t = x0 + ((clientX - r.left) / r.width * W - pad.l) / (W - pad.l - pad.r) * span;
       let best = 0;
       for (let i = 1; i < series.length; i++)
         if (Math.abs(series[i].t - t) < Math.abs(series[best].t - t)) best = i;
-      setCursor(best);
+      return best;
+    };
+    // Hover previews; a click pins the readout so a value can be read, copied
+    // or compared without holding the pointer still. Click again to release.
+    svg.addEventListener("pointermove", (e) => { if (!box.dataset.pinned) setCursor(nearest(e.clientX)); });
+    svg.addEventListener("pointerleave", () => {
+      if (box.dataset.pinned) return;
+      cursor.style.display = "none"; hideTip();
     });
-    svg.addEventListener("pointerleave", () => { cursor.style.display = "none"; hideTip(); });
+    svg.addEventListener("click", (e) => {
+      if (box.dataset.pinned) { delete box.dataset.pinned; svg.classList.remove("pinned"); }
+      else { box.dataset.pinned = "1"; svg.classList.add("pinned"); }
+      setCursor(nearest(e.clientX));
+    });
+    svg.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { delete box.dataset.pinned; svg.classList.remove("pinned"); cursor.style.display = "none"; hideTip(); }
+    });
   }
 
   // ── Charts ────────────────────────────────────────────────────────────
@@ -886,12 +1672,11 @@
     const who = document.createElement("div"); who.className = "who";
     const key = document.createElement("span"); key.className = "key"; key.style.background = sig.color;
     who.append(key, document.createTextNode(sig.label));
-    const when = document.createElement("div"); when.className = "when";
+    const whenEl = document.createElement("div"); whenEl.className = "when";
     // Always dated: a 24h window straddles midnight, so a bare clock time
     // cannot be placed on a calendar.
-    when.textContent = new Date(p.t).toLocaleString(undefined,
-      { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-    tip.append(val, who, when);
+    whenEl.textContent = when(p.t, F.time);
+    tip.append(val, who, whenEl);
     tip.classList.add("on");
     const r = tip.getBoundingClientRect();
     tip.style.left = Math.min(innerWidth - r.width - 8, Math.max(8, cx - r.width / 2)) + "px";
@@ -984,10 +1769,9 @@
     // stays bare so three dated stamps don't collide in a 300px card.
     const hourly = span <= 36 * 3600e3;
     const fmtT = (t, dated) => {
-      const d = new Date(t);
-      if (!hourly) return d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
-      const clock = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-      return dated ? `${d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" })} ${clock}` : clock;
+      if (!hourly) return when(t, F.mdn);
+      const clock = when(t, F.clock);
+      return dated ? `${when(t, F.mdn)} ${clock}` : clock;
     };
     el += `<line class="axis" x1="${pad.l}" y1="${base}" x2="${W - pad.r}" y2="${base}"/>`;
     [[x0, pad.l, "start", true],
@@ -1056,6 +1840,10 @@
   $("#changeKey").onclick = () => { $("#keyInput").value = getKey(); showGate(""); };
   $("#refresh").onclick = route;
   $("#range").onchange = () => { if (state.view === "overview") loadOverview().catch(() => {}); };
+  // Phone time ⇄ UTC: remembered per browser, and the whole view redraws.
+  $("#clock").onchange = () => { setClockMode($("#clock").value); fmtCache.clear(); route(); };
+  $("#clock").value = clockMode();
+  $("#show-all-users").onchange = () => { if (state.users) renderUsers(); };
   window.addEventListener("hashchange", route);
 
   route();

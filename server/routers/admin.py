@@ -10,12 +10,16 @@ GET /admin/sessions/{id}/export  — CSV download
 from __future__ import annotations
 
 import csv
+import hashlib
+import json
 import io
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse, HTMLResponse
 from ..db import get_pool
+from ..impact import impact_for
+from .. import zones
 from ..models import AdminUserRow
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -55,6 +59,12 @@ def _range_window(rng: str, off: timedelta) -> tuple[datetime | None, str]:
 _DASHBOARD_HTML = (
     Path(__file__).resolve().parent.parent / "templates" / "dashboard.html"
 ).read_text(encoding="utf-8")
+# The version an open tab compares against: a digest of the template itself,
+# so it changes exactly when the page does. Stamped into the page and sent as
+# a header on every /admin response (see main.py); a tab that sees a different
+# one reloads.
+DASHBOARD_VERSION = hashlib.sha1(_DASHBOARD_HTML.encode("utf-8")).hexdigest()[:12]
+_DASHBOARD_HTML = _DASHBOARD_HTML.replace("__DASHBOARD_VERSION__", DASHBOARD_VERSION)
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
@@ -62,7 +72,8 @@ async def dashboard_page() -> HTMLResponse:
     # The page carries its own JS, so without this browsers heuristically cache
     # it and keep running a previous deploy's dashboard against the new API —
     # which looks exactly like the deploy not having happened.
-    return HTMLResponse(_DASHBOARD_HTML, headers={"Cache-Control": "no-store, must-revalidate"})
+    return HTMLResponse(_DASHBOARD_HTML, headers={"Cache-Control": "no-store, must-revalidate",
+                                                 "X-Dashboard-Version": DASHBOARD_VERSION})
 
 
 @router.get("/stats")
@@ -169,7 +180,9 @@ async def usage_stats(
                 GROUP BY user_id
             ),
             metrics AS (
-                SELECT user_id, AVG(coherence) AS avg_coherence, AVG(rsa_ms) AS avg_rsa
+                SELECT user_id, AVG(coherence) AS avg_coherence, AVG(rsa_ms) AS avg_rsa,
+                       -- Inner Noise (PIP): lower is calmer.
+                       AVG(pip) AS avg_pip
                 FROM metric_samples
                 WHERE ($2::timestamptz IS NULL OR ts >= $2)
                 GROUP BY user_id
@@ -217,6 +230,7 @@ async def usage_stats(
               COALESCE(ir.total_minutes, 0)      AS total_minutes,
               m.avg_coherence                    AS avg_coherence,
               m.avg_rsa                          AS avg_rsa,
+              m.avg_pip                          AS avg_pip,
               COALESCE(c.current_streak, 0)      AS current_streak,
               COALESCE(c.days_active_7d, 0)      AS days_active_7d,
               COALESCE(c.practiced_today, FALSE) AS practiced_today,
@@ -225,9 +239,36 @@ async def usage_stats(
               COALESCE(ua.ecg_total::float / ua.usage_days, 0)    AS avg_ecg_day,
               -- What they told onboarding they're optimising for.
               COALESCE(pr.goals, '{}')                            AS goals,
-              COALESCE(pr.practices, '{}')                        AS practices
+              COALESCE(pr.practices, '{}')                        AS practices,
+              pr.email                                            AS email,
+              pr.first_name                                       AS first_name,
+              pr.last_name                                        AS last_name,
+              pr.timezone                                         AS timezone,
+              -- The circular mean of this person's night midpoints (UTC, as a
+              -- fraction of the day) — the seed for an inferred zone when the
+              -- phone has not sent one. See server/zones.py.
+              nz.mid_frac                                         AS night_mid_frac,
+              nz.nights                                           AS night_count,
+              -- Onboarded means the mandatory answers are there — a name, a
+              -- surname and an email — not merely that a row exists. Builds
+              -- before 2026-08-10 let the contact step be skipped, and the
+              -- app used to upload the blank default on its first sync tick.
+              (pr.user_id IS NOT NULL
+                 AND COALESCE(pr.first_name, '') <> ''
+                 AND COALESCE(pr.last_name, '')  <> ''
+                 AND COALESCE(pr.email, '')      <> '')            AS onboarded
             FROM users u
             LEFT JOIN profiles pr   ON pr.user_id = u.id
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS nights,
+                       (atan2(avg(sin(2 * pi() * f)), avg(cos(2 * pi() * f))) / (2 * pi())) AS mid_frac
+                FROM (
+                    SELECT (EXTRACT(EPOCH FROM (started_at + (ended_at - started_at) / 2))::numeric % 86400) / 86400.0 AS f
+                    FROM activities a
+                    WHERE a.user_id = u.id AND a.activity_type = 'Sleep' AND a.ended_at IS NOT NULL
+                    ORDER BY started_at DESC LIMIT 60
+                ) m
+            ) nz ON TRUE
             LEFT JOIN in_range ir   ON ir.user_id = u.id
             LEFT JOIN seen sn       ON sn.user_id = u.id
             LEFT JOIN signal sg     ON sg.user_id = u.id
@@ -275,6 +316,12 @@ async def usage_stats(
                 "id":            str(r["id"]),
                 "device_id":     r["device_id"],
                 "display_name":  r["display_name"],
+                "email":         r["email"],
+                "first_name":    r["first_name"],
+                "last_name":     r["last_name"],
+                "timezone":      r["timezone"] or zones.from_night_fraction(r["night_mid_frac"], r["night_count"]),
+                "timezone_inferred": not r["timezone"] and zones.from_night_fraction(r["night_mid_frac"], r["night_count"]) is not None,
+                "onboarded":     r["onboarded"],
                 "first_seen":    r["first_seen"].isoformat() if r["first_seen"] else None,
                 "last_seen":     r["last_seen"].isoformat() if r["last_seen"] else None,
                 "last_signal":   r["last_signal"].isoformat() if r["last_signal"] else None,
@@ -282,6 +329,7 @@ async def usage_stats(
                 "total_minutes": round(_f(r["total_minutes"]), 1),
                 "avg_coherence": round(_f(r["avg_coherence"]), 3) if r["avg_coherence"] is not None else None,
                 "avg_rsa":       round(_f(r["avg_rsa"]), 1) if r["avg_rsa"] is not None else None,
+                "avg_pip":       round(_f(r["avg_pip"]), 1) if r["avg_pip"] is not None else None,
                 "current_streak":  r["current_streak"],
                 "days_active_7d":  r["days_active_7d"],
                 "practiced_today": r["practiced_today"],
@@ -298,13 +346,18 @@ async def usage_stats(
 
 def _activity_row(r) -> dict:
     """asyncpg activities Record → JSON-safe dict (all columns, incl. the full
-    before/during/after metric grid)."""
+    before/during/after metric grid), plus `impact`: the score the app shows
+    for this session, rebuilt from those same averages — see server/impact.py."""
     d = dict(r)
     d["id"] = str(d["id"])
     d.pop("user_id", None)
     for k in ("started_at", "ended_at", "created_at"):
         if d.get(k) is not None:
             d[k] = d[k].isoformat()
+    # asyncpg hands jsonb back as text unless a codec is registered.
+    if isinstance(d.get("sleep"), str):
+        d["sleep"] = json.loads(d["sleep"])
+    d["impact"] = impact_for(d)
     return d
 
 
@@ -366,6 +419,16 @@ async def user_detail(user_id: str):
             """,
             user_id,
         )
+        check_ins = await conn.fetch(
+            """
+            SELECT client_id, kind, ts, day_key, timezone, focus, energy, stress, mood,
+                   anxiety, sleep, state_key, worn_minutes
+            FROM felt_state_logs
+            WHERE user_id = $1::uuid
+            ORDER BY ts DESC
+            """,
+            user_id,
+        )
         # Everything they answered at onboarding, contact details included.
         profile = await conn.fetchrow(
             """
@@ -373,17 +436,23 @@ async def user_detail(user_id: str):
                    height_cm, weight_kg, goals, practices, devices,
                    state_focus, state_anxiety, state_energy,
                    state_sleep_quality, state_stress,
-                   consent_share_team, consent_ai_insights, updated_at
+                   consent_share_team, consent_ai_insights, timezone, updated_at
             FROM profiles WHERE user_id = $1::uuid
             """,
             user_id,
         )
+        # The clock this person lives in — the phone's, or inferred from
+        # their nights and app opens when no build has sent it yet.
+        clock = await zones.resolve(conn, u["id"])
 
     def _f(v):
         return float(v) if v is not None else None
 
     def _dur(a, b):
         return round((b - a).total_seconds() / 60.0, 1) if a and b else None
+
+    def _opt(v):
+        return None if v is None else round(float(v), 1)
 
     return {
         "user": {
@@ -396,6 +465,11 @@ async def user_detail(user_id: str):
             "total_minutes": round(_f(u["total_minutes"]), 1),
             "avg_coherence": round(_f(u["avg_coherence"]), 3) if u["avg_coherence"] is not None else None,
             "avg_rsa":       round(_f(u["avg_rsa"]), 1) if u["avg_rsa"] is not None else None,
+            # The zone every time on the page is shown in: the phone's when it
+            # has said, else inferred and labelled as such — see server/zones.py.
+            "timezone":          clock["zone"],
+            "timezone_source":   clock["source"],
+            "timezone_inferred": clock["inferred"],
         },
         "sessions": [
             {
@@ -411,9 +485,29 @@ async def user_detail(user_id: str):
             for r in sessions
         ],
         "activities": [_activity_row(r) for r in activities],
+        # Self check-ins, newest first. Scales are 0-100 or null (untouched).
+        "check_ins": [
+            {
+                "id":           r["client_id"],
+                "kind":         r["kind"],
+                "ts":           r["ts"].isoformat(),
+                "day_key":      r["day_key"],
+                "timezone":     r["timezone"],
+                "focus":        _opt(r["focus"]),
+                "energy":       _opt(r["energy"]),
+                "stress":       _opt(r["stress"]),
+                "mood":         _opt(r["mood"]),
+                "anxiety":      _opt(r["anxiety"]),
+                "sleep":        _opt(r["sleep"]),
+                "state_key":    r["state_key"],
+                "worn_minutes": _opt(r["worn_minutes"]),
+            }
+            for r in check_ins
+        ],
         "profile": None if profile is None else {
             "first_name": profile["first_name"],
             "last_name":  profile["last_name"],
+            "timezone":   profile["timezone"],
             "phone":      profile["phone"],
             "email":      profile["email"],
             "age_range":  profile["age_range"],
@@ -697,17 +791,31 @@ async def activity_detail(activity_id: str):
         row = await conn.fetchrow(
             "SELECT * FROM activities WHERE id = $1::uuid", activity_id
         )
-    if row is None:
-        raise HTTPException(status_code=404, detail="activity not found")
-    return _activity_row(row)
+        if row is None:
+            raise HTTPException(status_code=404, detail="activity not found")
+        # The fallback clock for a row uploaded by a build that did not yet
+        # say which zone it was recorded in: the phone's zone now, or one
+        # inferred from this person's nights — see server/zones.py.
+        clock = await zones.resolve(conn, row["user_id"])
+    d = _activity_row(row)
+    d["user_timezone"] = clock["zone"]
+    d["user_timezone_source"] = clock["source"]
+    d["user_timezone_inferred"] = clock["inferred"]
+    return d
 
 
 @router.get("/activities/{activity_id}/series")
-async def activity_series(activity_id: str):
+async def activity_series(activity_id: str, buckets: int = 120):
     """The metric line across one activity's window — the same shape the app's
     ActivityWindowChart draws: five minutes before the start through ten after
     the end, bucketed to ~120 points so an hour-long sit and a five-minute one
-    both read the same."""
+    both read the same. A night asks for more (`buckets`, capped at 720) so a
+    minute of movement is not averaged into a four-minute bucket.
+
+    Movement travels twice: `motion` is the bucket's mean, `motion_max` its
+    loudest tick — the strip the app draws keeps the loudest tick per slot,
+    because thinning by average drops the very movements it exists to show."""
+    buckets = max(30, min(720, buckets))
     pool = get_pool()
     async with pool.acquire() as conn:
         act = await conn.fetchrow(
@@ -721,12 +829,14 @@ async def activity_series(activity_id: str):
         window_start = started - timedelta(minutes=5)
         window_end = ended + timedelta(minutes=10)
         span = (window_end - window_start).total_seconds()
-        bucket = timedelta(seconds=max(span / 120, 1))
+        bucket = timedelta(seconds=max(span / buckets, 1))
 
-        avg_cols = ", ".join(f"AVG({c}) AS {c}" for c in _METRIC_COLS)
+        cols = _METRIC_COLS + ("motion", "signal_quality", "rr_invalid_rate", "ecg_quality_tier")
+        avg_cols = ", ".join(f"AVG({c}) AS {c}" for c in cols)
         rows = await conn.fetch(
             f"""
-            SELECT date_bin($2::interval, ts, $3) AS bucket, {avg_cols}
+            SELECT date_bin($2::interval, ts, $3) AS bucket, {avg_cols},
+                   MAX(motion) AS motion_max
             FROM metric_samples
             WHERE user_id = $1 AND ts >= $3 AND ts <= $4
             GROUP BY bucket
@@ -744,7 +854,8 @@ async def activity_series(activity_id: str):
         "window_start": window_start.isoformat(),
         "window_end":   window_end.isoformat(),
         "samples": [
-            {"ts": r["bucket"].isoformat(), **{c: _f(r[c]) for c in _METRIC_COLS}}
+            {"ts": r["bucket"].isoformat(), **{c: _f(r[c]) for c in cols},
+             "motion_max": _f(r["motion_max"])}
             for r in rows
         ],
     }

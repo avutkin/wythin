@@ -81,7 +81,11 @@ struct MetricsHistoryPoint {
     let rcmse:         Float?   // RCMSE mean entropy (scales 1–5)
     let pip:           Float?   // HR Fragmentation: % inflection points
     let ials:          Float?   // HR Fragmentation: inverse avg segment length
+    let pss:           Float?   // HR Fragmentation: % beats in short segments
+    let hra:           Float?   // Heart Rate Asymmetry (Guzik's Index, %)
+    let qtvi:          Float?   // QT Variability Index (Berger 1997)
     let dc:            Float?   // Deceleration Capacity (ms)
+    let ac:            Float?   // Acceleration Capacity (ms) — negative; DC's mirror
     let motion:        Float?   // SD of ACC vector magnitude (mg) — stillness
     /// Which way the body was facing. Nil where unknown — while moving, or on
     /// any night recorded before position was stored at all.
@@ -115,7 +119,11 @@ struct MetricsHistoryPoint {
         rcmse         = tick.rcmse
         pip           = tick.pip
         ials          = tick.ials
+        pss           = tick.pss
+        hra           = tick.hra
+        qtvi          = tick.qtvi
         dc            = tick.dc
+        ac            = tick.ac
         motion        = tick.motion
         bodyPosition  = tick.bodyPosition
         breathSource  = tick.breathSource
@@ -146,7 +154,11 @@ struct MetricsHistoryPoint {
         rcmse         = sample.rcmse
         pip           = sample.pip
         ials          = sample.ials
+        pss           = sample.pss
+        hra           = sample.hra
+        qtvi          = sample.qtvi
         dc            = sample.dc
+        ac            = sample.ac
         motion        = sample.motion
         bodyPosition  = sample.bodyPositionRaw.flatMap(BodyPosition.init(rawValue:))
         breathSource  = sample.breathSourceRaw.flatMap(BreathSource.init(rawValue:))
@@ -169,6 +181,10 @@ struct MetricsHistoryPoint {
         rcmse:     Float? = nil,
         pip:       Float? = nil,
         dc:        Float? = nil,
+        ac:        Float? = nil,
+        pss:       Float? = nil,
+        hra:       Float? = nil,
+        qtvi:      Float? = nil,
         motion:    Float? = nil,
         bodyPosition: BodyPosition? = nil,
         signalQuality:  Float? = nil,
@@ -199,6 +215,10 @@ struct MetricsHistoryPoint {
         self.pip = pip
         self.ials = nil
         self.dc = dc
+        self.ac = ac
+        self.pss = pss
+        self.hra = hra
+        self.qtvi = qtvi
         self.motion = motion
         self.bodyPosition = bodyPosition
     }
@@ -246,7 +266,26 @@ struct MetricsHistoryPoint {
         self.pip = pip
         self.ials = nil
         self.dc = dc
+        self.ac = nil
+        self.pss = nil
+        self.hra = nil
+        self.qtvi = nil
         self.motion = motion
         self.bodyPosition = bodyPosition
     }
+
+    /// Acceleration Capacity as the Live chart draws it: a magnitude, so a
+    /// bigger number means a stronger acceleration, like every other chart in
+    /// the stack. `ac` itself keeps the negative sign the literature reports
+    /// (Bauer et al. 2006) — this is the single place the flip happens, so the
+    /// card cannot quietly disagree with the stored data.
+    var activationCapacity: Double? { ac.map { Double(abs($0)) } }
+
+    /// Rhythm Stability as the Live chart draws it.
+    ///
+    /// `pss` counts fragmentation, so it rises as the rhythm gets *worse*. A
+    /// chart named for stability whose line falls as things improve reads
+    /// backwards against every other card, so the sense is flipped here — one
+    /// place, tested — while the stored value keeps the published convention.
+    var rhythmStability: Double? { pss.map { 100 - Double($0) } }
 }

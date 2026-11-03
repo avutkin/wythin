@@ -93,11 +93,21 @@ enum ActivityType: String, CaseIterable, Codable {
             return ["Nature Walk", "City Walk", "Hiking", "Treadmill"]
         case .meditation:
             return ["Vipassana", "Guided", "Body Scan", "Loving-Kindness",
-                    "Transcendental", "Zen", "Mantra", "Open Awareness", "Yoga Nidra"]
+                    "Transcendental", "Zen", "Mantra", "Open Awareness", "Yoga Nidra",
+                    // The control condition: attention on an unaltered breath.
+                    "Anapanasati"]
         case .breathwork:
             return ["Resonance", "Wim Hof", "Box Breathing", "4-7-8", "Holotropic",
-                    "Pranayama", "Coherent Breathing", "Tummo", "Nadi Shodhana",
-                    "Breath Hold"]
+                    "Pranayama", "Coherent Breathing", "Relaxing Breathing",
+                    "Breath Stacking", "Breath Retention",
+                    "Tummo", "Nadi Shodhana", "Breath Hold",
+                    // The shortlist practices. Each is its own subtype rather
+                    // than filed under "Pranayama", because the session log is
+                    // what the measurement protocol reads: a sheet saying
+                    // "four breathing techniques" and no technique names is a
+                    // session whose data cannot be compared with any other.
+                    "Cyclic Sighing", "4-7-8 Breathing", "Bhramari", "Ujjayi",
+                    "Full Yogic Breath", "Sitali", "Kapalabhati", "Hook Breath"]
         case .meal:
             return ["Breakfast", "Lunch", "Dinner", "Snack", "Fast Breaking"]
         case .nap:
@@ -132,7 +142,7 @@ struct ImpactCoverage: Equatable {
 
     var isComplete: Bool { counted == total }
 
-    /// "avg of 8/9 metrics" — printed under the headline so the denominator is
+    /// "avg of 7/8 metrics" — printed under the headline so the denominator is
     /// never implicit.
     var summary: String { "avg of \(counted)/\(total) metrics" }
 }
@@ -157,6 +167,26 @@ final class ActivityLog {
     /// timer. Always nil for retrospective entries.
     var targetMinutes: Int?
 
+    /// When the stored windows were last computed with the after-window
+    /// complete. Nil means whatever is stored was computed early — while the
+    /// session was still running, or inside the ten minutes after it — and
+    /// must be recomputed once the window has actually happened.
+    ///
+    /// The old rule was "after fields nil means not yet computed", which held
+    /// only while nothing computed them early. The live row does exactly that,
+    /// every tick, so the marker has to be explicit.
+    var settledAt: Date?
+
+    /// The end the windows are computed against while the session has none.
+    ///
+    /// Set for the length of one `refreshLive` and cleared again, so a running
+    /// entry can be read up to this moment without acquiring an `endedAt` —
+    /// which would end it. Never persisted; never consulted by `isActive`.
+    @Transient var previewEnd: Date? = nil
+
+    /// The end every window computation uses: the real one, or the preview.
+    var computeEnd: Date? { endedAt ?? previewEnd }
+
     /// OpenAI-generated interpretation + recommendation for this activity's
     /// HRV response. `nil` means "not yet generated" — eligible for retry
     /// by `InsightGenerator.flushPending`.
@@ -176,6 +206,11 @@ final class ActivityLog {
     var beforePIP:   Float?;  var duringPIP:   Float?;  var afterPIP:   Float?
     var beforeDC:    Float?;  var duringDC:    Float?;  var afterDC:    Float?
     var beforeDFA1:  Float?;  var duringDFA1:  Float?;  var afterDFA1:  Float?
+    /// Breaths per minute, the ninth named metric. Stored like the rest
+    /// because the list row holds no sample series to recompute from.
+    /// Nil on every session recorded before this field existed — those rows
+    /// show a dash rather than a fabricated number.
+    var beforeBreath: Float?;  var duringBreath: Float?;  var afterBreath: Float?
 
     // MARK: Sleep
     //
@@ -195,7 +230,43 @@ final class ActivityLog {
     var sleepAsleepMinutes: Int?
     /// Sleep Regularity Index over the trailing nights available at record
     /// time. Nil until there are at least two nights to compare.
+    /// Superseded by `sleepBedtimeSDMin`. Held the Sleep Regularity Index,
+    /// which is not measurable on a device worn for a few nights at a time —
+    /// see `BedtimeConsistency`. No longer written; kept so existing stores
+    /// migrate without a schema change, and read by nothing.
     var sleepRegularity: Float?
+    /// Circular SD of sleep onset across the recorded nights, in minutes.
+    var sleepBedtimeSDMin: Double?
+    /// Median RMSSD and deceleration capacity taken **inside quiet sleep only**,
+    /// not across the night.
+    ///
+    /// A whole-night mean averages over states that are physiologically
+    /// opposite: vagal tone runs high in quiet sleep and drops through REM,
+    /// which is sympathetically activated. The mean is therefore weighted by
+    /// whatever stage mix the night happened to produce, so two nights with the
+    /// same recovery and different REM fractions report different numbers for a
+    /// reason that has nothing to do with recovery.
+    ///
+    /// Stored per night because the score compares them against this sleeper's
+    /// own recent nights rather than against a population figure.
+    /// The score's own working — each section's inputs, their ranges and where
+    /// this night landed. Stored rather than recomputed because the detail
+    /// screen has no access to the baselines the score was built against.
+    var sleepPartsJSON: String?
+    var sleepQuietRMSSD: Float?
+    var sleepQuietDC:    Float?
+    /// What the detector proposed for this night, before the sleeper's
+    /// correction was laid over it. Nil when the night was never corrected.
+    ///
+    /// Kept because a correction is the only ground truth this app will ever
+    /// have for where a night begins and ends — someone who was there, saying
+    /// so. Storing only the corrected value throws the label away and leaves
+    /// the pair unrecoverable: the detector's answer is gone, so there is
+    /// nothing to measure the error against.
+    var sleepDetectedStart: Date?
+    var sleepDetectedEnd:   Date?
+    /// When the correction was made.
+    var sleepCorrectedAt:   Date?
 
     /// The five sections, stored individually so the row can render them
     /// without recomputing, and so an ABSENT section stays absent. A section
@@ -205,6 +276,9 @@ final class ActivityLog {
     var sleepDuration: Int?
     var sleepContinuity: Int?
     var sleepAutonomic: Int?
+    /// Superseded. Breath steadiness is an input to continuity now, not a
+    /// section — see `SleepSection`. No longer written; kept so existing stores
+    /// migrate without a schema change.
     var sleepBreathing: Int?
 
     /// Four-stage minutes. Stored so the row and detail can show them without
@@ -218,6 +292,28 @@ final class ActivityLog {
     var sleepN1Minutes: Int?
     /// Which version of the sleep pipeline wrote this. Stale rows are rebuilt.
     var sleepAlgorithmVersion: Int?
+    /// The written read of this night — what it shows, and what to change.
+    ///
+    /// Its own field rather than `insightText`, because `insightText` on a
+    /// night is already occupied by junk: nights are `ActivityLog` rows, the
+    /// insight sweep did not exclude them, and so every recorded night was sent
+    /// to a prompt built around a session's before / during / after with all
+    /// three nil. Nothing ever displayed the result, so nothing caught it.
+    /// Reusing the field would mean showing that text on the night screen with
+    /// no way to tell it from a real read; a separate field makes the stale
+    /// value simply unreferenced.
+    var sleepReadText: String?
+    /// The rest of the night, as JSON (`SleepNightDetail`): the run-length
+    /// hypnogram, the position bands and minutes, the wake bouts and longest
+    /// wake the Continuity section was scored on, and the heart-rate nadir.
+    ///
+    /// Written once, at record time, from the night's own points. Everything
+    /// in it used to be recomputed from the tick stream each time the night
+    /// was opened and never left the device; the server's tick stream has no
+    /// motion and no body position, so this is the only way the dashboard can
+    /// draw the night the app draws. One string rather than a dozen columns:
+    /// the row is read whole or not at all.
+    var sleepDetailJSON: String?
 
     // MARK: Exercise response
     //
@@ -295,6 +391,24 @@ final class ActivityLog {
     /// How much recording there was after the session, in minutes.
     var recoveryObservedMinutes: Double?
 
+    /// The same arc in heart rate: minutes until it had fallen halfway back
+    /// from its peak toward the pre-session level, and how long we watched.
+    ///
+    /// Stored beside the vagal timing rather than derived from it. Heart rate
+    /// needs no DC, so it produces a reading on the sessions where every vagal
+    /// measure goes blank — which is precisely when the recovery section would
+    /// otherwise be left with one checkpoint and print it as the whole score.
+    var hrReturnMinutes:         Double?
+    var hrReturnObservedMinutes: Double?
+
+    /// T30 ranked against this person's own recent sessions, 0-100.
+    ///
+    /// Stored rather than computed on demand because ranking needs a fetch and
+    /// the row has no context. `nil` until there are enough peers to rank
+    /// against — T30 has no published range this app can defend, so it
+    /// contributes nothing rather than being scored against a made-up anchor.
+    var t30Score:                Int?
+
     /// Vagal tone rose with heart rate rather than falling — yoga, mobility,
     /// anything where the brake comes on. Not a failure to measure.
     var vagalRoseDuring:       Bool = false
@@ -305,7 +419,7 @@ final class ActivityLog {
     var scoreHistoryCount:     Int?
 
     /// Mean benefit-signed change from the before-window to the during-window
-    /// across the nine metrics — literally the average of the per-metric
+    /// across the named metrics — literally the average of the per-metric
     /// numbers shown on the rows below the meter, so the two agree to within
     /// rounding at the displayed whole-percent precision. (The one residual
     /// source of drift: VTI is deliberately computed as ln(mean(RMSSD)), not
@@ -460,12 +574,17 @@ final class ActivityLog {
     func needsWindowRefresh(now: Date = .now) -> Bool {
         guard let end = endedAt else { return false }        // still recording
         if duringStress == nil { return true }               // never computed at all
-        guard afterStress == nil else { return false }       // already has one
+        guard settledAt == nil else { return false }         // computed with the window complete
         guard now >= end.addingTimeInterval(ActivityLog.afterWindowSeconds) else {
             return false                                     // the window is still filling
         }
         return now.timeIntervalSince(end) < ActivityLog.afterWindowRetryCutoff
     }
+
+    /// The stored-shape version every finished entry must have been computed
+    /// under. Bumping it schedules a re-derive; see `migrateInBackground` for
+    /// what that costs and why it is not done on the main thread.
+    static let currentBackfillVersion = 11
 
     static func backfillMissingWindows(context: ModelContext) {
         // Bump when the stored metric set changes. v2 adds DC / DFA1 / RCMSE / PIP,
@@ -491,16 +610,37 @@ final class ActivityLog {
         //     stored under the old label-based rule must be re-evaluated.
         // v8  readinessScore/readinessPeerCount — how you arrived, scored
         //     against your own recent pre-session windows.
-        let currentVersion = 8
+        // v9  the half-recovery hold is bounded, so every entry stored under
+        //     v4-v8 carries a verdict the current code would not produce. One
+        //     session came back inside four minutes and is still showing 0.
+        //
+        //     THIS BUMP WAS TRIED ONCE AND BRICKED THE APP. Build 98 ran the
+        //     re-derive on the main context from launch, blew past the
+        //     watchdog, and — because the progress marker was written only
+        //     after the whole loop — could never finish, so it never started.
+        //     It is safe now only because `migrateInBackground` owns the work:
+        //     detached, chunked, and banking its cursor after every slice.
+        //     Do not move a migration back onto this path.
+        //
+        // v10 the recovery section is a composite, so every entry needs the
+        //     checkpoints it is composed from: hrReturnMinutes /
+        //     hrReturnObservedMinutes (the heart-rate arc, previously drawn but
+        //     never scored) and t30Score. Entries stored under v4-v9 carry a
+        //     single-checkpoint verdict — including the pickleball session
+        //     showing 0 above a chart of a four-minute return.
+        let currentVersion = ActivityLog.currentBackfillVersion
         let versionKey = "activityBackfillVersion"
         let migrating = UserDefaults.standard.integer(forKey: versionKey) < currentVersion
 
+        // A migration is NOT done here. It selects every finished entry, and
+        // each one costs a session-span fetch plus a four-hour, 20,000-row
+        // fetch — on the main context, from launch and from every foreground.
+        // Build 98 shipped that and never drew a frame. `migrateInBackground`
+        // owns that work now; this stays the cheap ongoing guard it always was.
+        guard !migrating else { return }
+
         guard let all = try? context.fetch(FetchDescriptor<ActivityLog>()) else { return }
-        let needsFill = all.filter { entry in
-            guard entry.endedAt != nil else { return false }
-            if migrating { return true }
-            return entry.needsWindowRefresh()
-        }
+        let needsFill = all.filter { $0.endedAt != nil && $0.needsWindowRefresh() }
         if !needsFill.isEmpty {
             for entry in needsFill {
                 entry.computeHRVWindows(context: context)
@@ -508,7 +648,75 @@ final class ActivityLog {
             }
             try? context.save()
         }
-        UserDefaults.standard.set(currentVersion, forKey: versionKey)
+    }
+
+    /// How many entries one slice of a migration re-derives before saving.
+    ///
+    /// Small enough that a slice is short, so an interruption costs at most
+    /// this much repeated work rather than the entire history.
+    static let migrationChunk = 6
+
+    /// Re-derives every stored entry after a version bump, off the main thread
+    /// and in slices that record their own progress.
+    ///
+    /// **Three properties, each of which build 98 lacked and needed.**
+    ///
+    /// It runs on a detached task with its own `ModelContext`, so the recompute
+    /// cannot hold up the first frame — the previous version ran on the main
+    /// context and was killed by the watchdog before the UI appeared.
+    ///
+    /// It saves and records a cursor after every slice. The old code wrote its
+    /// version marker as the last statement after the whole loop, so a kill
+    /// partway through wrote nothing and the next launch started again from the
+    /// beginning: a migration that could not finish in one go could never
+    /// finish at all.
+    ///
+    /// It walks oldest-first from that cursor, so the work is monotonic. Newest
+    /// entries are the ones a person is most likely to open, but they are also
+    /// the ones the cheap ongoing guard already keeps fresh; the stale verdicts
+    /// live in the history.
+    static func migrateInBackground(container: ModelContainer) {
+        Task.detached(priority: .utility) {
+            migrate(context: ModelContext(container))
+        }
+    }
+
+    /// The migration itself, synchronous so it can be driven by a test.
+    ///
+    /// Callers other than a test must reach this through `migrateInBackground`.
+    static func migrate(context: ModelContext) {
+        let versionKey = "activityBackfillVersion"
+        let cursorKey = "activityBackfillCursor"
+        guard UserDefaults.standard.integer(forKey: versionKey) < currentBackfillVersion else {
+            return
+        }
+
+        let desc = FetchDescriptor<ActivityLog>(sortBy: [SortDescriptor(\.startedAt)])
+        guard let all = try? context.fetch(desc) else { return }
+
+        let cursor = UserDefaults.standard.object(forKey: cursorKey) as? Date
+        let pending = all.filter { entry in
+            guard entry.endedAt != nil else { return false }
+            guard let cursor else { return true }
+            return entry.startedAt > cursor
+        }
+
+        for slice in stride(from: 0, to: pending.count, by: migrationChunk) {
+            let chunk = Array(pending[slice..<min(slice + migrationChunk, pending.count)])
+            for entry in chunk {
+                entry.computeHRVWindows(context: context)
+                entry.computeExerciseResponse(context: context)
+            }
+            try? context.save()
+            // Progress is banked BEFORE the next slice starts, so whatever has
+            // been re-derived stays re-derived.
+            if let last = chunk.last {
+                UserDefaults.standard.set(last.startedAt, forKey: cursorKey)
+            }
+        }
+
+        UserDefaults.standard.set(currentBackfillVersion, forKey: versionKey)
+        UserDefaults.standard.removeObject(forKey: cursorKey)
     }
 
     // MARK: HRV window computation
@@ -519,12 +727,35 @@ final class ActivityLog {
     /// Hard ceiling so a corrupt end date cannot ask the store for everything.
     static let windowFetchCeiling: Int = 200_000
 
+    /// Recompute the stored windows and the response for a session that is
+    /// running or has just stopped, reading everything up to `now`.
+    ///
+    /// The Activities list calls this on every strap tick for a live row, so
+    /// the score and its axes move while the session happens rather than
+    /// appearing, fixed, when it ends. A running entry is computed against a
+    /// preview end of `now`; an entry inside its after-window is computed
+    /// against its real end, and the after fields fill as the minutes arrive.
+    func refreshLive(context: ModelContext, now: Date = .now) {
+        previewEnd = endedAt == nil ? now : nil
+        defer { previewEnd = nil }
+        computeHRVWindows(context: context, now: now)
+        computeExerciseResponse(context: context)
+    }
+
     /// Queries HRVSample records for the three windows around this activity
-    /// and stores per-metric averages. Call after setting `endedAt`.
-    func computeHRVWindows(context: ModelContext) {
-        guard let end = endedAt else { return }
+    /// and stores per-metric averages. Call after setting `endedAt`, or with a
+    /// `previewEnd` set for a session still running.
+    ///
+    /// - Parameter now: when this is being computed — decides whether the
+    ///   after-window was complete, and so whether the result is settled.
+    func computeHRVWindows(context: ModelContext, now: Date = .now) {
+        guard let end = computeEnd else { return }
         let beforeStart = startedAt.addingTimeInterval(-300)   // 5 min before
-        let afterEnd    = end.addingTimeInterval(ActivityLog.afterWindowSeconds)
+        // A preview of a running session has no after-window by definition —
+        // the "after" has not happened — so it is not read, whatever the store
+        // happens to hold past the preview end.
+        let previewing  = endedAt == nil
+        let afterEnd    = previewing ? end : end.addingTimeInterval(ActivityLog.afterWindowSeconds)
 
         let allPredicate = #Predicate<HRVSample> {
             $0.timestamp >= beforeStart && $0.timestamp <= afterEnd
@@ -555,7 +786,7 @@ final class ActivityLog {
         // owns the boundary timestamp.
         let before = samples.filter { $0.timestamp >= beforeStart && $0.timestamp < startedAt }
         let during = samples.filter { $0.timestamp >= startedAt   && $0.timestamp < end        }
-        let after  = samples.filter { $0.timestamp >= end         && $0.timestamp <= afterEnd  }
+        let after  = previewing ? [] : samples.filter { $0.timestamp >= end && $0.timestamp <= afterEnd }
 
         func avg(_ arr: [HRVSample], _ kp: KeyPath<HRVSample, Float?>) -> Float? {
             let vals = arr.compactMap { $0[keyPath: kp] }
@@ -593,6 +824,13 @@ final class ActivityLog {
         beforePIP   = avg(before, \.pip);        duringPIP   = avg(during, \.pip);        afterPIP   = avg(after, \.pip)
         beforeDC    = avg(before, \.dc);         duringDC    = avg(during, \.dc);         afterDC    = avg(after, \.dc)
         beforeDFA1  = avg(before, \.dfa1);       duringDFA1  = avg(during, \.dfa1);       afterDFA1  = avg(after, \.dfa1)
+        beforeBreath = avg(before, \.breathBPM);  duringBreath = avg(during, \.breathBPM);  afterBreath = avg(after, \.breathBPM)
+
+        // Settled only when the whole after-window had happened by the time it
+        // was read. A preview (no real end) or an early read leaves this nil,
+        // and `needsWindowRefresh` brings the entry back once the ten minutes
+        // are up.
+        settledAt = (endedAt != nil && now >= afterEnd) ? now : nil
     }
 
     // MARK: Exercise response computation
@@ -644,7 +882,7 @@ final class ActivityLog {
         // Computed from the measurement, not the label — but the windows must
         // exist first, so this runs after computeHRVWindows has filled them.
         guard measuredClass == .activating else { return }
-        guard let end = endedAt else { return }
+        guard let end = computeEnd else { return }
 
         computeReadiness(context: context)
 
@@ -743,7 +981,7 @@ final class ActivityLog {
     /// Mean DC across the last two minutes of the after-window — the level
     /// recovery actually reached, rather than its average on the way there.
     private func computeRecoveryTail(context: ModelContext) {
-        guard let end = endedAt else { return }
+        guard let end = computeEnd else { return }
         let windowEnd  = end.addingTimeInterval(600)
         let tailStart  = end.addingTimeInterval(480)
         let predicate = #Predicate<HRVSample> {
@@ -758,14 +996,52 @@ final class ActivityLog {
         afterTailDC = vals.isEmpty ? afterDC : vals.reduce(0, +) / Float(vals.count)
     }
 
+    /// How long after a session the recovery channels keep being read.
+    ///
+    /// One constant for the stored numbers and the charts alike. They used to
+    /// disagree — the score looked four hours out, the chart ten minutes — so
+    /// the caption under a curve could say "halfway back 0 minutes" while the
+    /// headline above it said ">34 min". Two windows, two answers, printed a
+    /// centimetre apart.
+    static let recoveryWindowSeconds: TimeInterval = 3600
+
+    /// How far past the session the vagal rebound is looked for — and now also
+    /// how far the recovery curves are drawn.
+    ///
+    /// The brake reactivates over minutes to HOURS (Stanley, Peake & Buchheit,
+    /// Sports Medicine 2013), so the number has always been computed over four
+    /// of them while the chart under it was drawn over one. A return at
+    /// seventy minutes was therefore scored and then drawn off the right-hand
+    /// edge, which is the same class of disagreement this file keeps having to
+    /// fix. One constant, one window.
+    static let recoveryScoringWindowSeconds: TimeInterval = 4 * 3600
+
+    /// This person's recent T30 values, for ranking today's against.
+    private func t30Peers(context: ModelContext) -> [Double] {
+        let start = startedAt
+        let predicate = #Predicate<ActivityLog> { $0.startedAt < start && $0.t30Seconds != nil }
+        var desc = FetchDescriptor<ActivityLog>(predicate: predicate,
+                                                sortBy: [SortDescriptor(\.startedAt, order: .reverse)])
+        desc.fetchLimit = 60
+        return ((try? context.fetch(desc)) ?? [])
+            .filter { $0.measuredClass == .activating }
+            .compactMap { $0.t30Seconds }
+    }
+
     /// How fast heart rate fell once the session ended.
     ///
     /// Separate from the vagal measures on purpose: it needs only heart rate,
     /// so it produces a number on the resistance sessions where DC cannot be
     /// computed and every vagal measure goes blank.
     private func computeHeartRateRecovery(context: ModelContext) {
-        guard let end = endedAt else { return }
-        let horizon = end.addingTimeInterval(300)
+        guard let end = computeEnd else { return }
+        // An hour, not the five minutes this used to take. HRR60 and T30 both
+        // land inside the first minute, but the heart-rate RETURN — halfway
+        // back from the peak — routinely takes longer than five, and a window
+        // that ends before the answer does reports "never came back" for a
+        // session that came back at seven. It is also the span the chart now
+        // draws, so the picture and the number see the same recording.
+        let horizon = end.addingTimeInterval(ActivityLog.recoveryWindowSeconds)
         let predicate = #Predicate<HRVSample> {
             $0.timestamp >= end && $0.timestamp <= horizon
         }
@@ -785,17 +1061,36 @@ final class ActivityLog {
                                            hrAtEnd: after.first?.hr ?? duringHR.map(Double.init),
                                            restingHR: resting, peakHR: peak)
         t30Seconds = HeartRateRecovery.t30(after: after, restingHR: resting, peakHR: peak)
+
+        // The heart-rate arc, scored the same way the vagal one is: a time to
+        // come halfway back, through the one crossing rule both charts and both
+        // numbers now share.
+        switch RecoveryTiming.heartRateReturn(
+                after: after.map { (minutes: $0.seconds / 60, hr: $0.hr) },
+                hrPre: resting, hrPeak: peak) {
+        case let .reached(minutes):
+            hrReturnMinutes = minutes
+            hrReturnObservedMinutes = after.last.map { $0.seconds / 60 }
+        case let .notReached(observed):
+            hrReturnMinutes = nil
+            hrReturnObservedMinutes = observed
+        case .notObserved:
+            hrReturnMinutes = nil
+            hrReturnObservedMinutes = nil
+        }
+
+        t30Score = RecoveryIndex.t30Score(t30Seconds, peers: t30Peers(context: context))
     }
 
     /// Time for the vagal brake to come halfway back, which is what "recovery"
     /// actually means. A level at a fixed moment could not distinguish a session
     /// climbing back from one still falling.
     private func computeRecoveryTiming(context: ModelContext) {
-        guard let end = endedAt else { return }
+        guard let end = computeEnd else { return }
         // Looks past the stored 10-minute window: recovery that takes longer is
         // exactly the case worth reporting, and cutting it off at ten minutes
         // would report "never" for a session that came back at twelve.
-        let horizon = end.addingTimeInterval(4 * 3600)
+        let horizon = end.addingTimeInterval(ActivityLog.recoveryScoringWindowSeconds)
         let predicate = #Predicate<HRVSample> {
             $0.timestamp >= end && $0.timestamp <= horizon
         }
@@ -907,9 +1202,27 @@ final class ActivityLog {
     var recoveryAxis: AxisValue {
         let outcome = recoveryOutcome
         guard let score = RecoveryTiming.score(outcome) else {
-            return .unavailable(reason: "not enough recording after")
+            // A session that never withdrew the brake is not a session with a
+            // short recording, and saying so blamed the strap for a quiet hour.
+            return .unavailable(reason: vagalExcursionScorable
+                                ? "not enough recording after"
+                                : "the brake barely dipped")
         }
         return .score(score, word: ExerciseResponse.word(for: score))
+    }
+
+    /// Whether the brake fell far enough for "how fast did it come back" to be
+    /// a measurable question. One rule, shared with the chart and the score.
+    var vagalExcursionScorable: Bool {
+        RecoveryTiming.Direction.upward.movedEnough(pre: beforeDC, extreme: duringDCTrough)
+    }
+
+    /// The heart-rate arc, in the shape the views and the index consume.
+    var heartRateReturnOutcome: RecoveryTiming.Outcome {
+        if let m = hrReturnMinutes { return .reached(minutes: m) }
+        if let o = hrReturnObservedMinutes,
+           o >= RecoveryTiming.minimumObservationMinutes { return .notReached(observedMinutes: o) }
+        return .notObserved
     }
 
     /// The stored timing, back in the shape the views and the score consume.

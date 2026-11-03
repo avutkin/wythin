@@ -166,17 +166,38 @@ cmd_testflight() {
   run_suite
 
   say "querying ASC build high-water mark"
-  local top next
+  local top next repo
   top=$(asc_latest_builds 1 | awk '{print $2}')
   [ -n "$top" ] || die "could not read latest ASC build number"
   next=$((top + 1))
-  ok "ASC is at $top → uploading as $next"
+  # **Never let the number go backwards.** ASC's high-water mark is the
+  # authority on what it will accept, but it is NOT the authority on what this
+  # repo has already called itself: builds installed straight to a phone never
+  # reach ASC, so the repo can run well ahead. On 2026-08-19 the repo was at 96
+  # while ASC had seen only 90, and this line reset it to 91 — leaving a build
+  # 39 commits NEWER carrying a lower number than one already on the phone,
+  # which reads as a regression and prompted exactly that question.
+  repo=$(grep -m1 -oE 'CURRENT_PROJECT_VERSION = [0-9]+;' \
+           "$RELEASE_WT/ios/Wythin.xcodeproj/project.pbxproj" | grep -oE '[0-9]+')
+  if [ -n "$repo" ] && [ "$repo" -ge "$next" ]; then
+    next=$((repo + 1))
+    ok "ASC is at $top, repo at $repo → uploading as $next (kept monotonic)"
+  else
+    ok "ASC is at $top → uploading as $next"
+  fi
 
   sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9]*;/CURRENT_PROJECT_VERSION = $next;/g" \
     "$RELEASE_WT/ios/Wythin.xcodeproj/project.pbxproj"
+  # Tolerate the number already being right. `sed` is a no-op when the repo
+  # already carries $next, so `git commit` finds nothing staged and exits
+  # non-zero — and under `set -e` that aborted the entire upload *after* the
+  # archive-worthy work had been decided. It happened: a build number bumped by
+  # hand to match ASC's next value killed the TestFlight run at this line, with
+  # "nothing to commit, working tree clean" as the only clue.
   git -C "$RELEASE_WT" commit -aqm "chore: build $next
 
-Co-Authored-By: ship.sh <noreply@anthropic.com>"
+Co-Authored-By: ship.sh <noreply@anthropic.com>" \
+    || say "build number already $next in the repo — nothing to record"
   # Record the number on origin/main so parallel sessions see it. A racing
   # push loses gracefully: the upload still carries the right number.
   git -C "$RELEASE_WT" push origin HEAD:main --quiet 2>/dev/null \

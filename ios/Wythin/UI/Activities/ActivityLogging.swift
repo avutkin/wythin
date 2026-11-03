@@ -69,6 +69,25 @@ enum ActivityLogging {
         entries.filter(\.isActive).sorted { $0.startedAt < $1.startedAt }
     }
 
+    /// The entries whose numbers are still moving: every one recording now,
+    /// and every one that stopped inside its after-window. The Activities list
+    /// recomputes these on each strap tick; everything older is settled and
+    /// left alone.
+    static func liveRefreshCandidates(in entries: [ActivityLog],
+                                      now: Date = .now) -> [ActivityLog] {
+        entries.filter { ActivityLivePhase.of(startedAt: $0.startedAt,
+                                              endedAt: $0.endedAt,
+                                              now: now,
+                                              isManual: $0.isManual) != nil }
+    }
+
+    /// Recompute every live candidate from the samples in store.
+    static func refreshLive(entries: [ActivityLog], context: ModelContext, now: Date = .now) {
+        let live = liveRefreshCandidates(in: entries, now: now)
+        guard !live.isEmpty else { return }
+        for entry in live { entry.refreshLive(context: context, now: now) }
+    }
+
     /// Finish a live activity: stamp endedAt, fill HRV windows, save, generate insight.
     ///
     /// `client` is optional so the repair path above can run without one; a nil
@@ -100,5 +119,31 @@ enum ActivityLogging {
         entry.computeExerciseResponse(context: context)
         try? context.save()
         Task { await InsightGenerator(client: client).generate(for: entry, context: context) }
+    }
+}
+
+// MARK: - ActivityLivePhase
+
+/// Where a session is in the arc the app measures: running, or stopped and
+/// still inside the ten minutes its recovery is read over. Nil once that is
+/// over — the row is then an ordinary finished entry.
+///
+/// The five minutes before the start are part of the same arc, but they are
+/// already in the past when the session begins; the row names them rather
+/// than counting them.
+enum ActivityLivePhase: Equatable {
+    /// Seconds since the session began.
+    case live(elapsed: TimeInterval)
+    /// Seconds of after-window still to come.
+    case settling(remaining: TimeInterval)
+
+    static func of(startedAt: Date, endedAt: Date?, now: Date = .now,
+                   isManual: Bool = false) -> ActivityLivePhase? {
+        guard !isManual else { return nil }
+        guard let end = endedAt else {
+            return .live(elapsed: max(0, now.timeIntervalSince(startedAt)))
+        }
+        let remaining = ActivityLog.afterWindowSeconds - now.timeIntervalSince(end)
+        return remaining > 0 ? .settling(remaining: remaining) : nil
     }
 }

@@ -11,11 +11,47 @@ final class CloudRestoreTests: XCTestCase {
         return ModelContext(container)
     }
 
-    private func sample(_ ts: String, rmssd: Float? = 40) -> MetricExportSample {
+    private func sample(_ ts: String, rmssd: Float? = 40,
+                        motion: Float? = nil, ecgQualityTier: Int? = nil) -> MetricExportSample {
         MetricExportSample(ts: ts, mean_bpm: 62, rmssd: rmssd, sdnn: nil, pnn50: nil,
                            lf_hf: 1.2, rsa_ms: 25, coherence: nil, cbi: nil,
                            breath_bpm: nil, dfa1: 1.0, rcmse: nil, pip: 40,
-                           dc: 7.5, vti: 3.7)
+                           dc: 7.5, vti: 3.7, motion: motion,
+                           signal_quality: nil, rr_invalid_rate: nil, ecg_quality_tier: ecgQualityTier)
+    }
+
+    /// A restored night has to carry motion, or it scores differently from the
+    /// night the device recorded — every gate in the sleep pipeline is relative
+    /// to it. A page written before motion was carried decodes with nil.
+    func testRestoredSamplesCarryMotion() throws {
+        let json = """
+        {"samples": [
+          {"ts": "2026-09-06T04:00:00Z", "mean_bpm": 57, "motion": 3.9},
+          {"ts": "2026-09-06T04:00:30Z", "mean_bpm": 58}
+        ], "next_cursor": null}
+        """.data(using: .utf8)!
+        let page = try JSONDecoder().decode(MetricExportPage.self, from: json)
+        XCTAssertEqual(page.samples.count, 2)
+        XCTAssertEqual(page.samples[0].motion ?? -1, 3.9, accuracy: 0.001)
+        XCTAssertNil(page.samples[1].motion, "a page written before motion was carried still decodes")
+    }
+
+    /// 2026-10-24: a night read 160 bpm with RMSSD 150 ms for ten hours, and
+    /// there was no way from the server side to tell "bad strap contact" from
+    /// "an unusually active night" — the on-device quality read never left
+    /// the phone. It has to restore the same way motion does.
+    func testRestoredSamplesCarrySignalQuality() throws {
+        let json = """
+        {"samples": [
+          {"ts": "2026-10-24T04:00:00Z", "mean_bpm": 58,
+           "signal_quality": 0.95, "rr_invalid_rate": 0.02, "ecg_quality_tier": 2},
+          {"ts": "2026-10-24T08:00:00Z", "mean_bpm": 60}
+        ], "next_cursor": null}
+        """.data(using: .utf8)!
+        let page = try JSONDecoder().decode(MetricExportPage.self, from: json)
+        XCTAssertEqual(page.samples[0].ecg_quality_tier, 2)
+        XCTAssertEqual(page.samples[0].rr_invalid_rate ?? -1, 0.02, accuracy: 0.001)
+        XCTAssertNil(page.samples[1].ecg_quality_tier, "a page written before quality was carried still decodes")
     }
 
     // MARK: Timestamp parsing
@@ -50,6 +86,31 @@ final class CloudRestoreTests: XCTestCase {
         let again = CloudRestoreService.insert([sample("2026-07-27T10:00:00Z")], into: ctx)
         XCTAssertEqual(again, 0)
         XCTAssertEqual(try ctx.fetch(FetchDescriptor<HRVSample>()).count, 1)
+    }
+
+    func testPartialRestoreDoesNotDuplicateLocallyRecordedSubmillisecondSample() throws {
+        let ctx = try freshContext()
+        let rounded = try XCTUnwrap(CloudRestoreService.date("2026-07-27T10:00:00.123Z"))
+        let local = rounded.addingTimeInterval(0.000456)
+        ctx.insert(HRVSample(anchorTestTimestamp: local, meanBPM: 62))
+        try ctx.save()
+
+        // ISO8601DateFormatter uploads only milliseconds, while SwiftData
+        // retains the original Date precision. A partial restore must match
+        // the local point rather than insert a second copy of that tick.
+        let imported = CloudRestoreService.insert(
+            [sample("2026-07-27T10:00:00.123+00:00")], into: ctx)
+        XCTAssertEqual(imported, 0)
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<HRVSample>()).count, 1)
+    }
+
+    /// Carried the same way motion is: present when the export page has it,
+    /// nil on a page written before it existed.
+    func testImportCarriesTheQualityTier() throws {
+        let ctx = try freshContext()
+        _ = CloudRestoreService.insert([sample("2026-07-27T10:00:00Z", ecgQualityTier: 0)], into: ctx)
+        let stored = try ctx.fetch(FetchDescriptor<HRVSample>()).first
+        XCTAssertEqual(stored?.ecgQualityTier, 0)
     }
 
     // MARK: Activity import

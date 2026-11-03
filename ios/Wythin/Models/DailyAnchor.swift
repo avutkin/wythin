@@ -227,3 +227,62 @@ enum AnchorBackfill {
         return outcome
     }
 }
+
+// MARK: - Sleep window override
+
+/// A night's boundaries as the sleeper corrected them.
+///
+/// Lives here rather than in its own file for the same reason `DailyAnchor`
+/// does: it is one row per day, keyed the same way, and adding a Swift file to
+/// this project means a hand-edited `project.pbxproj` whose reference tokens
+/// are assigned by hand — a merge of that file left `main` uncompilable once
+/// already.
+///
+/// **Why an override exists at all.** The detector is inference, and it will
+/// keep being inference: a chest strap cannot see you close your eyes. It has
+/// put a night's onset in the evening it was recorded in, and it has ended a
+/// night three hours early. Each of those was a real bug and each was fixed —
+/// but the class of error does not go away, because the boundary genuinely is
+/// ambiguous for the last person who can settle it. So the app proposes, and
+/// the sleeper corrects.
+///
+/// **Keyed by wake date, and that matters.** `SleepWindow.day` is already the
+/// date a night is filed under — the 20th-to-21st night is the 21st's — so an
+/// override keyed the same way survives the thing that would otherwise erase
+/// it. Every algorithm bump purges stored nights and re-detects them from the
+/// samples; a correction stored *on the night* would be deleted with it, and
+/// the sleeper would have to make the same correction after every release. Kept
+/// beside the night instead, it is re-applied to whatever the detector produces
+/// next.
+@Model
+final class SleepWindowOverride {
+    /// Start of the local day the night is filed under — its WAKE date.
+    /// One row per night.
+    var day: Date
+    /// The corrected boundaries. Either may be nil: correcting only the end is
+    /// the common case, and forcing the sleeper to restate a start the detector
+    /// already had right would be a good way to introduce a second error.
+    var startedAt: Date?
+    var endedAt: Date?
+    /// When the correction was made, so a later one supersedes an earlier.
+    var correctedAt: Date
+
+    init(day: Date, startedAt: Date? = nil, endedAt: Date? = nil, correctedAt: Date = .now) {
+        self.day = day
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.correctedAt = correctedAt
+    }
+
+    /// The window with this correction laid over it.
+    ///
+    /// Ordering is enforced rather than trusted: a drag that puts the start
+    /// past the end would otherwise store a negative-length night that every
+    /// downstream duration, share and score would then divide by.
+    func applied(to window: SleepWindow) -> SleepWindow {
+        let start = startedAt ?? window.startedAt
+        let end = endedAt ?? window.endedAt
+        guard end > start else { return window }
+        return SleepWindow(startedAt: start, endedAt: end)
+    }
+}

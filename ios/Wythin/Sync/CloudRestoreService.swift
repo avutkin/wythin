@@ -113,8 +113,9 @@ final class CloudRestoreService {
 
     // MARK: - Pure import steps (unit-tested against an in-memory store)
 
-    /// Inserts every sample the store doesn't already hold at that exact
-    /// timestamp; returns how many were new.
+    /// Inserts every sample the store doesn't already hold. Uploads round
+    /// timestamps to milliseconds (older clients to seconds), while SwiftData
+    /// retains submillisecond precision, so exact Date equality is unsafe.
     nonisolated static func insert(_ samples: [MetricExportSample],
                                    into context: ModelContext) -> Int {
         let dated: [(Date, MetricExportSample)] = samples.compactMap { s in
@@ -122,18 +123,34 @@ final class CloudRestoreService {
         }
         guard let first = dated.first?.0, let last = dated.last?.0 else { return 0 }
 
+        let lower = first.addingTimeInterval(-1)
+        let upper = last.addingTimeInterval(1)
         let desc = FetchDescriptor<HRVSample>(
-            predicate: #Predicate { $0.timestamp >= first && $0.timestamp <= last })
-        let existing = Set(((try? context.fetch(desc)) ?? []).map(\.timestamp))
+            predicate: #Predicate { $0.timestamp >= lower && $0.timestamp <= upper })
+        var existingBySecond: [Int64: [Date]] = [:]
+        for row in (try? context.fetch(desc)) ?? [] {
+            let second = Int64(floor(row.timestamp.timeIntervalSince1970))
+            existingBySecond[second, default: []].append(row.timestamp)
+        }
 
         var inserted = 0
-        for (ts, s) in dated where !existing.contains(ts) {
+        for (ts, s) in dated {
+            let second = Int64(floor(ts.timeIntervalSince1970))
+            let alreadyStored = (second - 1 ... second + 1).contains { candidate in
+                existingBySecond[candidate]?.contains {
+                    abs($0.timeIntervalSince(ts)) < 1
+                } ?? false
+            }
+            if alreadyStored { continue }
             context.insert(HRVSample(
                 cloudTs: ts,
                 meanBPM: s.mean_bpm, rmssd: s.rmssd, sdnn: s.sdnn, pnn50: s.pnn50,
                 lfHF: s.lf_hf, rsaMs: s.rsa_ms, coherence: s.coherence, cbi: s.cbi,
                 breathBPM: s.breath_bpm, dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip,
-                dc: s.dc, vti: s.vti))
+                dc: s.dc, vti: s.vti, motion: s.motion,
+                signalQuality: s.signal_quality, rrInvalidRate: s.rr_invalid_rate,
+                ecgQualityTier: s.ecg_quality_tier))
+            existingBySecond[second, default: []].append(ts)
             inserted += 1
         }
         return inserted
@@ -173,6 +190,7 @@ final class CloudRestoreService {
             log.beforePIP   = p.beforePIP;   log.duringPIP   = p.duringPIP;   log.afterPIP   = p.afterPIP
             log.beforeDC    = p.beforeDC;    log.duringDC    = p.duringDC;    log.afterDC    = p.afterDC
             log.beforeDFA1  = p.beforeDFA1;  log.duringDFA1  = p.duringDFA1;  log.afterDFA1  = p.afterDFA1
+            log.beforeBreath = p.beforeBreath; log.duringBreath = p.duringBreath; log.afterBreath = p.afterBreath
             context.insert(log)
             inserted += 1
         }

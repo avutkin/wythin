@@ -105,7 +105,7 @@ struct NudgeSignals {
 
     /// The autonomic balance dial exactly as the chart draws it
     /// (`MetricsChartsView` passes `baselineRmssd: nil`), which reduces to
-    /// `100 × 40/(RMSSD + 40)`. Its reference lines and the Energy Reserve
+    /// `100 × 40/(RMSSD + 40)`. Its reference lines and the Calm Power
     /// reference lines agree: dial 50 is RMSSD 40, dial 65 is RMSSD 21.5.
     static func balance(_ pt: MetricsHistoryPoint) -> Float? {
         AutonomicCompute.balance(rmssd: pt.rmssd, lf: pt.lfPower, hf: pt.hfPower,

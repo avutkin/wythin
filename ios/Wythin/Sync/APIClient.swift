@@ -47,16 +47,55 @@ struct InsightPayload: Codable {
     let beforeHR: Float?;    let duringHR: Float?;    let afterHR: Float?
     let beforeRSA: Float?;   let duringRSA: Float?;   let afterRSA: Float?
     let beforeSDNN: Float?;  let duringSDNN: Float?;  let afterSDNN: Float?
-    let beforeLFHF: Float?;  let duringLFHF: Float?;  let afterLFHF: Float?
+    // The rest of what the session detail charts. The read is printed under
+    // those charts, so it is written from the same numbers rather than from a
+    // four-metric subset of them. The raw LF/HF ratio is deliberately not sent
+    // at all: it climbs during slow paced breathing, and a coach handed it
+    // calls the calmest thing you can do sympathetic activation.
+    let beforeRMSSD: Float?; let duringRMSSD: Float?; let afterRMSSD: Float?
+    let beforeDC: Float?;    let duringDC: Float?;    let afterDC: Float?
+    let beforeRCMSE: Float?; let duringRCMSE: Float?; let afterRCMSE: Float?
+    let beforePIP: Float?;   let duringPIP: Float?;   let afterPIP: Float?
+    let beforeDFA1: Float?;  let duringDFA1: Float?;  let afterDFA1: Float?
+    let beforeStress: Float?; let duringStress: Float?; let afterStress: Float?
+    let beforeBreath: Float?; let duringBreath: Float?; let afterBreath: Float?
+
+    /// What this session is being compared against, and how many sessions are
+    /// behind that comparison.
+    ///
+    /// Without these the read could only narrate the chart the person is
+    /// already looking at — "your Pulse decreased" under a line visibly going
+    /// down. The screen itself shows "vs 2mo −4%"; the coach was the only part
+    /// of it that could not see that number, so it had nothing to say that the
+    /// charts had not already said.
+    let peerGroup: String?
+    let peerSessions: Int?
+    /// The person's own recent average DURING value per metric, same peer
+    /// group. Absent when they have no history to compare against yet.
+    let usualHR: Float?; let usualRSA: Float?; let usualSDNN: Float?
+    let usualRMSSD: Float?; let usualDC: Float?; let usualRCMSE: Float?
+    let usualPIP: Float?; let usualDFA1: Float?; let usualStress: Float?
+    let usualBreath: Float?
 
     enum CodingKeys: String, CodingKey {
+        case peerGroup = "peer_group"; case peerSessions = "peer_sessions"
+        case usualHR = "usual_hr"; case usualRSA = "usual_rsa"; case usualSDNN = "usual_sdnn"
+        case usualRMSSD = "usual_rmssd"; case usualDC = "usual_dc"; case usualRCMSE = "usual_rcmse"
+        case usualPIP = "usual_pip"; case usualDFA1 = "usual_dfa1"; case usualStress = "usual_stress"
+        case usualBreath = "usual_breath"
         case activityType    = "activity_type"
         case activitySubtype = "activity_subtype"
         case durationMin     = "duration_min"
         case beforeHR = "before_hr"; case duringHR = "during_hr"; case afterHR = "after_hr"
         case beforeRSA = "before_rsa"; case duringRSA = "during_rsa"; case afterRSA = "after_rsa"
         case beforeSDNN = "before_sdnn"; case duringSDNN = "during_sdnn"; case afterSDNN = "after_sdnn"
-        case beforeLFHF = "before_lf_hf"; case duringLFHF = "during_lf_hf"; case afterLFHF = "after_lf_hf"
+        case beforeRMSSD = "before_rmssd"; case duringRMSSD = "during_rmssd"; case afterRMSSD = "after_rmssd"
+        case beforeDC = "before_dc"; case duringDC = "during_dc"; case afterDC = "after_dc"
+        case beforeRCMSE = "before_rcmse"; case duringRCMSE = "during_rcmse"; case afterRCMSE = "after_rcmse"
+        case beforePIP = "before_pip"; case duringPIP = "during_pip"; case afterPIP = "after_pip"
+        case beforeDFA1 = "before_dfa1"; case duringDFA1 = "during_dfa1"; case afterDFA1 = "after_dfa1"
+        case beforeStress = "before_stress"; case duringStress = "during_stress"; case afterStress = "after_stress"
+        case beforeBreath = "before_breath"; case duringBreath = "during_breath"; case afterBreath = "after_breath"
     }
 }
 
@@ -243,6 +282,20 @@ struct MetricSamplePayload: Codable {
     let ts: String
     let mean_bpm, rmssd, sdnn, pnn50, lf_hf, rsa_ms: Float?
     let coherence, cbi, breath_bpm, dfa1, rcmse, pip, dc, vti: Float?
+    /// Stillness, in mg. Sent because the sleep pipeline's every gate is
+    /// relative to it and it was the one channel that never left the device —
+    /// so a night that scored wrong could only be examined with the phone in
+    /// hand, and the tools in tools/ could not reproduce what the device did.
+    let motion: Float?
+    /// How trustworthy this tick is, read on-device: 1 − the fraction of RR
+    /// intervals dropped as implausible, that fraction itself, and the ECG
+    /// artifact tier (0 poor … 2 good). Sent for the same reason motion is —
+    /// a night that read 160 bpm with RMSSD 150 ms for ten hours (2026-10-24)
+    /// looked, on its stored numbers alone, like an outlier night rather than
+    /// what it was: bad strap contact for most of it.
+    let signal_quality: Float?
+    let rr_invalid_rate: Float?
+    let ecg_quality_tier: Int?
 }
 struct MetricsUploadPayload: Codable { let samples: [MetricSamplePayload] }
 
@@ -252,6 +305,13 @@ struct MetricExportSample: Codable {
     let ts: String
     let mean_bpm, rmssd, sdnn, pnn50, lf_hf, rsa_ms: Float?
     let coherence, cbi, breath_bpm, dfa1, rcmse, pip, dc, vti: Float?
+    /// Optional so a page written before motion was carried still decodes.
+    let motion: Float?
+    /// Optional for the same reason: a page written before quality was
+    /// carried still decodes, with these nil.
+    let signal_quality: Float?
+    let rr_invalid_rate: Float?
+    let ecg_quality_tier: Int?
 }
 
 struct MetricExportPage: Codable {
@@ -284,6 +344,10 @@ struct ProfilePayload: Codable {
     /// can't read is not a control, it's a label.
     let consent_share_team:  Bool
     let consent_ai_insights: Bool
+    /// The phone's IANA time zone, so the dashboard shows this person's day in
+    /// their own clock. Travels with the profile because the profile is the one
+    /// thing re-sent whenever it changes — a new zone is a changed profile.
+    let timezone:            String
 }
 
 struct ServerSession: Codable {
@@ -448,6 +512,16 @@ struct APIClient {
 
     func generateLiveStateInsight(_ payload: LiveStateInsightPayload) async throws -> InsightResponse {
         var req = request(path: "/insights", method: "POST")
+        req.addValue(DeviceIdentity.current, forHTTPHeaderField: "X-User-ID")
+        req.httpBody = try JSONEncoder().encode(payload)
+        let (data, _) = try await session.data(for: req)
+        return try JSONDecoder().decode(InsightResponse.self, from: data)
+    }
+
+    func generateSleepInsight(_ payload: SleepInsightPayload) async throws -> InsightResponse {
+        var req = request(path: "/insights", method: "POST")
+        // Without this header the server cannot check consent, and a request
+        // whose consent cannot be checked is refused rather than waved through.
         req.addValue(DeviceIdentity.current, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
         let (data, _) = try await session.data(for: req)
@@ -707,7 +781,12 @@ final class MetricSyncService {
         // the next tick (~120 s) instead of needing the app relaunched, which is
         // how five days of profiles were lost to a 404 nobody noticed.
         // Gated by the cloud-sync toggle above (it carries PII).
+        // Never a profile without its mandatory fields. The first sync tick
+        // used to send the blank default two seconds after first launch, and
+        // on the dashboard a blank row reads as "onboarded" — which is how a
+        // person nobody could identify came to have an "answered" profile.
         let p = ClientProfileStore().load()
+        if p.hasRequiredContact {
         let profile = ProfilePayload(
             first_name: p.firstName, last_name: p.lastName,
             phone: p.phone, email: p.email, age_range: p.ageRange, gender: p.gender,
@@ -717,13 +796,15 @@ final class MetricSyncService {
             state_energy: p.state.energy, state_sleep_quality: p.state.sleepQuality,
             state_stress: p.state.stress,
             consent_share_team: OnboardingConsent.shareWithTeam(),
-            consent_ai_insights: OnboardingConsent.aiInsights())
+            consent_ai_insights: OnboardingConsent.aiInsights(),
+            timezone: TimeZone.current.identifier)
         if let encoded = try? Self.profileEncoder.encode(profile) {
             let canonical = String(decoding: encoded, as: UTF8.self)
             if canonical != syncedProfile,
                (try? await client.uploadProfile(profile, userID: userID)) != nil {
                 syncedProfile = canonical
             }
+        }
         }
 
         var after = lastSyncedEpoch > 0
@@ -752,7 +833,9 @@ final class MetricSyncService {
                     mean_bpm: s.meanBPM, rmssd: s.rmssd, sdnn: s.sdnn, pnn50: s.pnn50,
                     lf_hf: s.lfHF, rsa_ms: s.rsaMs, coherence: s.coherence, cbi: s.cbi,
                     breath_bpm: s.breathBPM, dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip,
-                    dc: s.dc, vti: s.vti) })
+                    dc: s.dc, vti: s.vti, motion: s.motion,
+                    signal_quality: s.signalQuality, rr_invalid_rate: s.rrInvalidRate,
+                    ecg_quality_tier: s.ecgQualityTier) })
             do {
                 _ = try await client.uploadMetrics(payload, userID: userID)
             } catch {
@@ -814,6 +897,7 @@ enum DeviceIdentity {
 protocol InsightAPIClient {
     func generateInsight(_ payload: InsightPayload) async throws -> InsightResponse
     func generateLiveStateInsight(_ payload: LiveStateInsightPayload) async throws -> InsightResponse
+    func generateSleepInsight(_ payload: SleepInsightPayload) async throws -> InsightResponse
 }
 
 extension APIClient: InsightAPIClient {}
@@ -825,6 +909,14 @@ protocol UsageAPIClient {
 }
 
 extension APIClient: UsageAPIClient {}
+
+/// Narrow protocol over `APIClient.uploadFeltStateLog` so `FeltStateLogUploader`
+/// can be tested with a fake instead of a real network call.
+protocol FeltStateAPIClient {
+    func uploadFeltStateLog(_ payload: FeltStateUploadPayload, userID: String) async throws
+}
+
+extension APIClient: FeltStateAPIClient {}
 
 // MARK: - Payload builders
 
@@ -873,14 +965,32 @@ extension TickPayload {
 }
 
 extension InsightPayload {
-    init(from entry: ActivityLog) {
+    /// - Parameter usual: metric id → the person's own recent average during
+    ///   value for this peer group. Empty for a first session, which is the
+    ///   honest state and reads as "no comparison yet" rather than as zero.
+    init(from entry: ActivityLog, usual: [String: Double] = [:], peers: Int = 0) {
+        func avg(_ metric: LiveMetric) -> Float? {
+            usual[metricDef(metric).id].map(Float.init)
+        }
+        self.peerGroup    = peers > 0 ? entry.scoreGroupKey : nil
+        self.peerSessions = peers > 0 ? peers : nil
+        self.usualHR = avg(.hr); self.usualRSA = avg(.rsa); self.usualSDNN = nil
+        self.usualRMSSD = avg(.rmssd); self.usualDC = avg(.dc); self.usualRCMSE = avg(.rcmse)
+        self.usualPIP = avg(.pip); self.usualDFA1 = avg(.dfa1); self.usualStress = avg(.stressBalance)
+        self.usualBreath = avg(.breathBPM)
         self.activityType    = entry.activityType
         self.activitySubtype = entry.activitySubtype
         self.durationMin     = entry.duration.map { Int($0 / 60) }
         self.beforeHR   = entry.beforeHR;   self.duringHR   = entry.duringHR;   self.afterHR   = entry.afterHR
         self.beforeRSA  = entry.beforeRSA;  self.duringRSA  = entry.duringRSA;  self.afterRSA  = entry.afterRSA
         self.beforeSDNN = entry.beforeSDNN; self.duringSDNN = entry.duringSDNN; self.afterSDNN = entry.afterSDNN
-        self.beforeLFHF = entry.beforeLFHF; self.duringLFHF = entry.duringLFHF; self.afterLFHF = entry.afterLFHF
+        self.beforeRMSSD = entry.beforeRMSSD; self.duringRMSSD = entry.duringRMSSD; self.afterRMSSD = entry.afterRMSSD
+        self.beforeDC = entry.beforeDC; self.duringDC = entry.duringDC; self.afterDC = entry.afterDC
+        self.beforeRCMSE = entry.beforeRCMSE; self.duringRCMSE = entry.duringRCMSE; self.afterRCMSE = entry.afterRCMSE
+        self.beforePIP = entry.beforePIP; self.duringPIP = entry.duringPIP; self.afterPIP = entry.afterPIP
+        self.beforeDFA1 = entry.beforeDFA1; self.duringDFA1 = entry.duringDFA1; self.afterDFA1 = entry.afterDFA1
+        self.beforeStress = entry.beforeStress; self.duringStress = entry.duringStress; self.afterStress = entry.afterStress
+        self.beforeBreath = entry.beforeBreath; self.duringBreath = entry.duringBreath; self.afterBreath = entry.afterBreath
     }
 }
 

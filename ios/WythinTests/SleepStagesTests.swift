@@ -14,6 +14,7 @@ final class SleepStagesTests: XCTestCase {
                          coherence: Float,
                          lfHF: Float,
                          sdnn: Float,
+                         position: BodyPosition? = nil,
                          spacing: Double = 30) -> [MetricsHistoryPoint] {
         var comps = DateComponents(year: 2026, month: 7, day: 20)
         comps.hour = 23
@@ -22,7 +23,7 @@ final class SleepStagesTests: XCTestCase {
         return (0..<count).map { i in
             MetricsHistoryPoint(anchorTestTimestamp: base.addingTimeInterval(Double(i) * spacing),
                                 meanBPM: hr, vti: 3.9, dc: 8, pip: 45, dfa1: 1.0,
-                                breathBPM: 13, motion: motion,
+                                breathBPM: 13, motion: motion, bodyPosition: position,
                                 signalQuality: 0.97, rrInvalidRate: 0.01, ecgQualityTier: 2,
                                 coherence: coherence, sdnn: sdnn, lfHF: lfHF)
         }
@@ -55,6 +56,45 @@ final class SleepStagesTests: XCTestCase {
                       "high coherence with low LF/HF and low SDNN is the quiet signature")
         XCTAssertTrue(middle.allSatisfy { $0 == .active },
                       "coherence collapses and variability rises — still asleep, not quiet")
+    }
+
+    func testUprightAloneDoesNotMarkWake() {
+        // This asserted the opposite for one build, on the reasoning that
+        // nobody sleeps standing up. The reasoning is sound; the channel it
+        // trusted is not. Shipped, it reported a real sleeper upright for
+        // 1 h 42 m of a night in bed — a quarter of it — with prone at another
+        // 37 %, and turned that into 4 h 37 m of "awake".
+        //
+        // Those shares do not describe a night. They describe a classifier that
+        // cannot reliably tell which way up a chest strap is, and the fix for
+        // that is calibration, not a vote in a wake rule. Posture is still
+        // recorded and still drawn; it just no longer decides anything.
+        var points = quiet(60, from: 0)
+        points += stretch(minutes: 10, from: 60, motion: 4, hr: 50,
+                          coherence: 0.94, lfHF: 0.5, sdnn: 54, position: .upright)
+        points += quiet(60, from: 70)
+        let stages = SleepStages.classify(points)
+
+        XCTAssertFalse(stages.contains(.wake),
+                       "an uncalibrated channel must not be able to call a night awake")
+    }
+
+    func testTwoWeakCuesAgreeingAreScoredAwake() {
+        // Neither channel clears its own gate: motion 8 against a bar of 12
+        // (3x the 4 mg median), pulse 56 against a bar of 60 (median + 10). On
+        // the single-channel rules this stretch is sleep, and that is how a
+        // remembered 3 a.m. awakening ends up missing from the hypnogram.
+        // Together the two clear the corroborated bar, and agreement between
+        // independent channels is the evidence.
+        var points = quiet(60, from: 0)
+        points += stretch(minutes: 10, from: 60, motion: 8, hr: 56,
+                          coherence: 0.94, lfHF: 0.5, sdnn: 54)
+        points += quiet(60, from: 70)
+        let stages = SleepStages.classify(points)
+
+        XCTAssertTrue(stages[120..<140].allSatisfy { $0 == .wake },
+                      "raised movement and raised pulse together are an awakening")
+        XCTAssertFalse(stages[0..<120].contains(.wake))
     }
 
     func testMovementInsideANightReadsAsAwake() {

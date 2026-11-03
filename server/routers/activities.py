@@ -5,6 +5,7 @@ Upserts on client_activity_id so re-uploads (backfill / retry) are idempotent.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 from fastapi import APIRouter, Header
@@ -16,7 +17,7 @@ router = APIRouter(prefix="/activities", tags=["activities"])
 
 # before/during/after column names for every stored metric, in a fixed order.
 _METRICS = ("hr", "rmssd", "sdnn", "rsa", "vti", "lfhf", "stress",
-            "rcmse", "pip", "dc", "dfa1")
+            "rcmse", "pip", "dc", "dfa1", "breath")
 _METRIC_COLS = [f"{w}_{m}" for m in _METRICS for w in ("before", "during", "after")]
 
 
@@ -36,16 +37,21 @@ async def save_activity(
     base_cols = [
         "client_activity_id", "user_id", "activity_type", "activity_subtype",
         "custom_name", "started_at", "ended_at", "is_manual", "impact_score",
-        "impact_delta_pct", "notes",
+        "impact_delta_pct", "notes", "sleep", "timezone",
     ]
     cols = base_cols + _METRIC_COLS
+    started, ended = _parse_dt(activity.started_at), _parse_dt(activity.ended_at)
     vals = [
         activity.id, user_db_id, activity.activity_type, activity.activity_subtype,
-        activity.custom_name, _parse_dt(activity.started_at), _parse_dt(activity.ended_at),
+        activity.custom_name, started, ended,
         activity.is_manual, activity.impact_score, activity.impact_delta_pct, activity.notes,
+        json.dumps(activity.sleep) if activity.sleep is not None else None,
+        activity.timezone,
     ] + [getattr(activity, c) for c in _METRIC_COLS]
 
-    placeholders = ", ".join(f"${i + 1}" for i in range(len(cols)))
+    placeholders = ", ".join(
+        f"${i + 1}::jsonb" if c == "sleep" else f"${i + 1}" for i, c in enumerate(cols)
+    )
     # impact_score is special: the current app never sends it (Task 9 replaced
     # it with impact_delta_pct), so it's absent — not explicitly null — on
     # every upload from a current build. A plain EXCLUDED overwrite would read
@@ -65,7 +71,25 @@ async def save_activity(
 
     pool = get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(sql, *vals)
+        async with conn.transaction():
+            # One night per window. The app purges and re-records a night —
+            # under a new id — on every algorithm bump and on every correction
+            # the sleeper makes to its edges, and never tells the server about
+            # the row it deleted. Without this, every rebuilt night sits beside
+            # its predecessor and the same date shows twice. Only Sleep rows
+            # take part: a practice logged in the middle of a night is a
+            # different thing from a second copy of the night.
+            if activity.activity_type == "Sleep" and ended is not None:
+                await conn.execute(
+                    """
+                    DELETE FROM activities
+                    WHERE user_id = $1 AND activity_type = 'Sleep'
+                      AND client_activity_id <> $2
+                      AND started_at < $4 AND COALESCE(ended_at, started_at) > $3
+                    """,
+                    user_db_id, activity.id, started, ended,
+                )
+            row = await conn.fetchrow(sql, *vals)
     return UploadResponse(id=str(row["id"]))
 
 

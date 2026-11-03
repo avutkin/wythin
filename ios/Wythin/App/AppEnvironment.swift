@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import Combine
+import UIKit
 
 /// Gates expensive computation by actual sensor arrivals, not a background
 /// timer that iOS may suspend while the strap is still transmitting.
@@ -36,6 +37,21 @@ final class WaveformDisplay {
 //
 // Single dependency container injected at the root.
 // All services are long-lived and share state.
+
+/// Whether the app counts as on screen at the moment `AppEnvironment` is built.
+///
+/// The flag used to default to `true` and change only on a scene phase change.
+/// A Bluetooth state-restoration relaunch starts in `.background` and never
+/// changes phase, so the app ran its on-screen workload in the background:
+/// a full metrics pass every 2 s instead of 30, the 10 fps waveform loop, and
+/// the live WebSocket stream. iOS throttled and then stopped it, and the
+/// server saw 37-second bursts of 2-second points, then silence.
+/// A tap-to-open cold launch is still `.inactive` while `init` runs.
+enum LaunchForeground {
+    static func isForeground(_ state: UIApplication.State) -> Bool {
+        state != .background
+    }
+}
 
 @MainActor
 @Observable
@@ -83,7 +99,10 @@ final class AppEnvironment {
 
     var isInForeground: Bool = true {
         didSet {
-            ble.captureAudit?.recordPhase(isInForeground ? "foreground" : "background")
+            if oldValue != isInForeground {
+                BLEDiag.log("PHASE foreground=\(isInForeground) ble=\(ble.state)")
+                ble.captureAudit?.recordPhase(isInForeground ? "foreground" : "background")
+            }
             if !isInForeground {
                 // Record the just-ended foreground interval as a usage event.
                 if let start = foregroundStart {
@@ -99,6 +118,7 @@ final class AppEnvironment {
                 // Make sure the paired strap is (re)armed for seamless auto-connect.
                 ble.ensureAutoConnect()
                 surfacePendingFocusWindow()
+                checkIns.appDidBecomeActive()
                 // tickHistory is kept current in the background now, so refresh the
                 // charts from it immediately on open (no fetch/refill wait).
                 historyRevision += 1
@@ -167,6 +187,9 @@ final class AppEnvironment {
     private(set) var lastNudgeSuppression: NudgeSuppressionReason?
 
     let notifications: NudgeDelivering = NudgeNotificationService()
+    /// The two self check-ins — when to ask, the sheet, the saved row. See
+    /// docs/superpowers/specs/2026-09-13-self-checkin-design.md.
+    let checkIns: CheckInCoordinator
 
     private var nudgeBaseline: AnchorBaseline?
     private var nudgeBaselineAt: Date?
@@ -215,7 +238,24 @@ final class AppEnvironment {
         // times a minute on the main thread. That is the lag.
         guard now.timeIntervalSince(lastSleepCheckAt) >= sleepCheckInterval else { return }
         lastSleepCheckAt = now
-        SleepRecorder.recordInBackground(container: modelContainer, now: now)
+        recordSleepInBackground(now: now)
+    }
+
+    /// The sleep pass, followed by an activity upload when it wrote anything.
+    ///
+    /// The upload at launch and the first record pass start together, and the
+    /// upload is usually done before the rebuilt nights exist — after an
+    /// algorithm bump every night is rewritten under a new id, the recorder
+    /// rewinds the upload mark for them, and then nothing sent them until the
+    /// next cold start. This is the flush that follows the rewrite.
+    func recordSleepInBackground(now: Date = .now) {
+        let container = modelContainer, client = sync.client, userID = userID
+        SleepRecorder.recordInBackground(container: container, now: now) { _ in
+            Task { @MainActor in
+                await ActivityUploader(client: client, userID: userID)
+                    .flushPending(context: container.mainContext)
+            }
+        }
     }
 
     private func detectAnchorIfDue(now: Date) {
@@ -402,7 +442,17 @@ final class AppEnvironment {
     /// Temporal filter over the per-tick breathing estimates — see
     /// `BreathRateTracker`. Lives here because the metrics engine is pure.
     private var breathTracker = BreathRateTracker()
+    /// Accumulates QT across ticks so QTVI has enough beats to mean anything.
+    /// Stateful for the same reason `breathTracker` is: the engine is a pure
+    /// per-snapshot function, and one ECG window holds ~11 beats where
+    /// Berger's index wants hundreds.
+    private let qtTracker = QTTracker()
     private var lastBreathTickAt: Date?
+    /// Every computed tick, foreground or background — see the off-body check.
+    private var lastComputedTick: MetricsTick?
+    /// Background ticks since launch, for the diagnostic heartbeat.
+    private var backgroundTickCount = 0
+    private var lifecycleObservers: [NSObjectProtocol] = []
 
     // MARK: Init
 
@@ -412,10 +462,24 @@ final class AppEnvironment {
             .flatMap(URL.init) ?? URL(string: "https://api.77.42.73.250.sslip.io")!)
         self.metricSync = MetricSyncService(client: sync.client, userID: AppEnvironment.currentUserID(),
                                              container: modelContainer)
+        self.checkIns = CheckInCoordinator(container: modelContainer,
+                                           notifier: CheckInNotificationService(),
+                                           client: sync.client,
+                                           userID: AppEnvironment.currentUserID())
         self.rawSync = ble.packetJournal.map {
             RawChunkSyncService(client: sync.client, userID: AppEnvironment.currentUserID(),
                                 journal: $0)
         }
+
+        // Before any loop starts: a restoration relaunch is a background launch
+        // and no scene phase change will ever say so. See `LaunchForeground`.
+        let launchState = UIApplication.shared.applicationState
+        if !LaunchForeground.isForeground(launchState) {
+            foregroundStart = nil   // no on-screen interval to log
+            isInForeground = false
+        }
+        BLEDiag.log("LAUNCH state=\(launchState.rawValue) foreground=\(isInForeground)")
+        observeLifecycleForDiagnostics()
 
         bindBLE()
         loadHistory()
@@ -659,12 +723,16 @@ final class AppEnvironment {
     // After `offBodyStandbySeconds` of continuous off-body ticks we drop the
     // strap into low-power standby (auto-reconnects when worn again).
     private var offBodySince: Date?
-    private let offBodyStandbySeconds:     TimeInterval = 60   // borderline consensus (score 2)
-    // 12 s of strong agreement, not 20: rrIntervalsLive already needs 8 s of
-    // silence before it goes false, so doffing reaches standby in ~20 s total —
-    // the budget Alex asked for. The score can't strengthen faster than that
-    // window, so the two constants must be read together.
-    private let offBodyStandbyFastSeconds: TimeInterval = 12   // strong agreement (score ≥ 3)
+    private var lastOffBodyEvaluationAt: Date = .distantPast
+    private let offBodyStandbySeconds:     TimeInterval = 45   // borderline consensus (score 2)
+    // Read together with the 4 s liveness windows in BLEService: the cues go
+    // true ~4 s after doffing, plus 5 s of sustained strong agreement lands
+    // standby ~10 s after the strap comes off — Alex's chosen budget — in
+    // the background too, since every cue is a liveness flag, none needs a
+    // metrics tick. The worn-strap safety margin is the bpm cue: a worn H10
+    // keeps reporting a heart rate straight through motion-artifact gaps, so
+    // the fast path can't assemble on a wearer even at these windows.
+    private let offBodyStandbyFastSeconds: TimeInterval = 5    // strong agreement (score ≥ 3)
 
     // Accelerometer motion: worn straps always jitter a little (breathing,
     // ballistocardiogram, posture); a strap set down is dead-still. Rolling
@@ -683,14 +751,13 @@ final class AppEnvironment {
     // Fuse four cues into a confidence score so no single cue can wrongly
     // trip (false positive) or be missed:
     //   • skin-contact bit — authoritative: worn (−1) / off (+3)
-    //   • ECG poor OR the ECG stream dead: +1
-    //   • RR intervals stopped arriving (rrIntervalsLive, 8 s window) or the
-    //     last tick's RR mostly invalid: +1
-    //   • accelerometer dead-still AND heartbeat gone (sleepers are still too,
-    //     but their RR keeps flowing): +1
-    // score ≥ 2 ⇒ off-body. Strong agreement (≥3) trips in ~12 s, borderline
-    // needs 60 s. Runs on the 2 s loop cadence with no FFT: liveness flags
-    // and an ACC stddev only, so it is background-safe every iteration.
+    //   • ECG stream stopped arriving: +1
+    //   • RR intervals stopped arriving: +1
+    //   • accelerometer dead-still while both streams stopped: +1
+    // score ≥ 2 ⇒ off-body. Strong agreement (≥3) trips after a short dwell,
+    // borderline needs 45 s. Check incoming ECG, ACC and HR notifications,
+    // including frames without RR intervals; a 5 s poll covers foreground
+    // periods with no notifications. This path does no FFT.
     private func evaluateOffBodyStandby() {
         accMotion = computeAccMotion()
         guard case .connected = ble.state else {
@@ -698,9 +765,8 @@ final class AppEnvironment {
             return
         }
         let contact = ble.sensorContact
-        // `latestTick` is a foreground UI value; using it here kept a poor
-        // foreground quality reading alive for the whole background period.
-        // Base the stop decision only on live stream evidence.
+        // Quality can remain stale after notifications stop. Only current
+        // stream liveness can authorize an automatic stop.
         let ecgLive = ble.ecgStreamLive
         let rrLive = ble.rrIntervalsLive
         let ecgPoor = !ecgLive
@@ -723,6 +789,15 @@ final class AppEnvironment {
         }
     }
 
+    /// Check on any incoming sensor notification, including HR frames with no
+    /// RR intervals. A metric tick requires fresh RR, but losing RR is itself
+    /// an off-body cue and must not stop the standby detector's clock.
+    private func evaluateOffBodyIfDue(now: Date = Date()) {
+        guard now.timeIntervalSince(lastOffBodyEvaluationAt) >= 1 else { return }
+        lastOffBodyEvaluationAt = now
+        evaluateOffBodyStandby()
+    }
+
     /// Mean per-axis standard deviation of the rolling ACC window — the live
     /// motion level. nil until enough samples have accumulated.
     private func computeAccMotion() -> Float? {
@@ -734,6 +809,25 @@ final class AppEnvironment {
             return v.squareRoot()
         }
         return (std(w.map(\.x)) + std(w.map(\.y)) + std(w.map(\.z))) / 3
+    }
+
+    // MARK: - Lifecycle diagnostics
+
+    /// Memory pressure and termination are the two ways iOS ends a background
+    /// recording without the app ever seeing a disconnect. Neither was logged,
+    /// so a silent night could not be told apart from a dropped strap.
+    private func observeLifecycleForDiagnostics() {
+        let center = NotificationCenter.default
+        lifecycleObservers.append(center.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil, queue: .main) { _ in
+                BLEDiag.log("MEMORY WARNING")
+            })
+        lifecycleObservers.append(center.addObserver(
+            forName: UIApplication.willTerminateNotification,
+            object: nil, queue: .main) { _ in
+                BLEDiag.log("WILL TERMINATE")
+            })
     }
 
     // MARK: - Usage telemetry
@@ -769,6 +863,12 @@ final class AppEnvironment {
                     self.logUsageEvent(type: "ecg_recording", start: start)
                     recordingStart = nil
                 }
+                // The check-in rides the same wear clock: a moment is asked
+                // 10–15 minutes into a wear, and cancelled if the strap comes
+                // off first.
+                self.checkIns.strapPolled(connected: connected, wornSince: recordingStart,
+                                          now: Date(), isForeground: self.isInForeground)
+                self.evaluateOffBodyIfDue()
             }
         }
     }
@@ -785,6 +885,7 @@ final class AppEnvironment {
         ble.ecgSubject
             .sink { [weak self] samples in
                 guard let self else { return }
+                self.evaluateOffBodyIfDue()
                 Task { await self.dataBuffer.appendECG(samples) }
             }
             .store(in: &cancellables)
@@ -799,6 +900,7 @@ final class AppEnvironment {
                 if self.accWindow.count > self.accWindowMax {
                     self.accWindow.removeFirst(self.accWindow.count - self.accWindowMax)
                 }
+                self.evaluateOffBodyIfDue()
                 Task { await self.dataBuffer.appendACC(xyz: xyz) }
             }
             .store(in: &cancellables)
@@ -807,6 +909,7 @@ final class AppEnvironment {
         ble.hrSubject
             .sink { [weak self] frame in
                 guard let self else { return }
+                self.evaluateOffBodyIfDue()
                 Task {
                     await self.dataBuffer.appendRR(frame.rrIntervalsMs)
                     await self.dataBuffer.appendBPM(Float(frame.bpm))
@@ -828,6 +931,9 @@ final class AppEnvironment {
                 guard let self else { return }
                 self.metricSchedule.reset()
                 self.breathTracker.reset()
+                // The beats either side of a gap are not consecutive, so the
+                // QT series cannot span it any more than the RR buffer can.
+                self.qtTracker.reset()
                 Task { await self.dataBuffer.clear() }
             }
             .store(in: &cancellables)
@@ -854,16 +960,11 @@ final class AppEnvironment {
                     // Whatever breathing resumes later belongs to a different
                     // stretch of time — don't drag the old rate across the gap.
                     self.breathTracker.reset()
+                    self.qtTracker.reset()
                     continue
                 }
 
                 let inForeground = self.isInForeground
-
-                // Off-body check runs on the 2 s cadence in BOTH foreground and
-                // background — it reads stream liveness and an ACC stddev, no
-                // FFT. Behind the 30 s throttle below it added up to a minute
-                // of latency to standby, blowing the ~20 s doffing budget.
-                self.evaluateOffBodyStandby()
 
                 let snapshot = await self.dataBuffer.snapshot(
                     ecgLive: self.ble.ecgStreamLive,
@@ -884,6 +985,17 @@ final class AppEnvironment {
                 tick.breathBPM = self.breathTracker.update(
                     tick.breathBPM.map { [.init(bpm: $0, confidence: tick.breathConfidence ?? 3)] } ?? [],
                     dt: dt)
+
+                // QT needs the waveform, not the tachogram, and more beats
+                // than one window holds — so it accumulates here rather than
+                // in the engine. Skipped when the ECG stream is dead, since
+                // delineating silence just burns CPU.
+                if !snapshot.ecg.isEmpty {
+                    tick.qtvi = self.qtTracker.update(
+                        ecg: snapshot.ecg,
+                        fs: Float(PolarH10Profile.ecgSampleRate),
+                        windowEnd: tick.timestamp)
+                }
 
                 // Keep the chart history current in BOTH foreground and background
                 // so the charts are already up-to-date the instant the app is
@@ -909,6 +1021,17 @@ final class AppEnvironment {
                 self.evaluateNudgesIfDue(now: point.timestamp)
                 self.detectAnchorIfDue(now: point.timestamp)
                 self.recordSleepIfDue(now: point.timestamp)
+
+                // The off-body check needs signal quality in the background
+                // too. `latestTick` is foreground-only, so it used to freeze at
+                // the last on-screen value the moment the app left the screen.
+                self.lastComputedTick = tick
+                self.backgroundTickCount += inForeground ? 0 : 1
+                if !inForeground, self.backgroundTickCount % 10 == 1 {
+                    // One line every ~5 min of background recording: proves the
+                    // loop is alive and shows exactly when it stopped.
+                    BLEDiag.log("BG TICK n=\(self.backgroundTickCount) ble=\(self.ble.state)")
+                }
 
                 // ── Foreground-only: live table + live cloud stream ───────────
                 if inForeground {

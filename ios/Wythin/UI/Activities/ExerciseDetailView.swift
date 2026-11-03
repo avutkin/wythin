@@ -13,6 +13,14 @@ struct ExerciseDetailView: View {
     @Bindable var entry: ActivityLog
 
     @State private var chartPoints: [MetricsHistoryPoint] = []
+    /// The same four hours `computeRecoveryTiming` scores over.
+    ///
+    /// Separate from `chartPoints` rather than widening it: the metric window
+    /// charts and every `ActivityMetricStats` on this screen define their
+    /// "after" as everything past the end, so handing them four hours would
+    /// silently redefine a ten-minute after-average into a four-hour one. Only
+    /// the recovery card wants the long view.
+    @State private var recoveryPoints: [MetricsHistoryPoint] = []
     @State private var restingHR: Float = 60
     @State private var ceiling:   Float = 180
     /// Open by default. The disclosure was hiding nine charts behind a tap that
@@ -33,7 +41,10 @@ struct ExerciseDetailView: View {
 
     private func loadChartPoints() {
         let beforeStart = entry.startedAt.addingTimeInterval(-300)
-        let afterEnd    = windowEnd.addingTimeInterval(600)
+        // The same hour the recovery checkpoints are computed over. At ten
+        // minutes the curve ended before the answer did, so the chart and the
+        // number beside it were reading different recordings.
+        let afterEnd    = windowEnd.addingTimeInterval(ActivityLog.recoveryWindowSeconds)
         let predicate = #Predicate<HRVSample> {
             $0.timestamp >= beforeStart && $0.timestamp <= afterEnd
         }
@@ -42,6 +53,24 @@ struct ExerciseDetailView: View {
         desc.fetchLimit = 10_000
         let samples = (try? ctx.fetch(desc)) ?? []
         chartPoints = MetricsQualityFilter.filter(samples.map { MetricsHistoryPoint(from: $0) })
+    }
+
+    /// The recovery card's own, longer window — the one the stored vagal
+    /// rebound was computed over.
+    private func loadRecoveryPoints() {
+        let beforeStart = entry.startedAt.addingTimeInterval(-300)
+        let afterEnd    = windowEnd.addingTimeInterval(ActivityLog.recoveryScoringWindowSeconds)
+        let predicate = #Predicate<HRVSample> {
+            $0.timestamp >= beforeStart && $0.timestamp <= afterEnd
+        }
+        var desc = FetchDescriptor<HRVSample>(predicate: predicate,
+                                              sortBy: [SortDescriptor(\.timestamp)])
+        // Sized like `computeRecoveryTiming`'s: the fetch sorts ascending, so a
+        // limit under the window drops its TAIL, and the tail of a recovery
+        // window is the part that answers the question.
+        desc.fetchLimit = 20_000
+        let samples = (try? ctx.fetch(desc)) ?? []
+        recoveryPoints = MetricsQualityFilter.filter(samples.map { MetricsHistoryPoint(from: $0) })
     }
 
     /// The same reserve span the stored response was computed against, so the
@@ -92,12 +121,12 @@ struct ExerciseDetailView: View {
                     overallCard
                     // The session as five questions in the order they happened,
                     // above the raw metric cards rather than replacing them.
-                    ExerciseQuestionSections(entry: entry)
+                    ExerciseQuestionSections(entry: entry, points: chartPoints,
+                                             recoveryPoints: recoveryPoints,
+                                             windowEnd: windowEnd)
                     coachCard
                     sessionCard
                     suppressionCard
-                    heartRateRecoveryCard
-                    recoveryCard
                     efficiencyCard
                     rawMetrics
                 }
@@ -120,9 +149,9 @@ struct ExerciseDetailView: View {
                     .foregroundStyle(Theme.accent)
                 }
             }
-            .onAppear { loadChartPoints(); loadReserveSpan() }
-            .onChange(of: entry.startedAt) { loadChartPoints(); loadReserveSpan() }
-            .onChange(of: entry.endedAt)   { loadChartPoints(); loadReserveSpan() }
+            .onAppear { loadChartPoints(); loadRecoveryPoints(); loadReserveSpan() }
+            .onChange(of: entry.startedAt) { loadChartPoints(); loadRecoveryPoints(); loadReserveSpan() }
+            .onChange(of: entry.endedAt)   { loadChartPoints(); loadRecoveryPoints(); loadReserveSpan() }
         }
     }
 
@@ -274,60 +303,7 @@ struct ExerciseDetailView: View {
         .cardStyle()
     }
 
-    private var recoveryCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            switch entry.recoveryOutcome {
-            case let .reached(minutes):
-                unitHeadline("VAGAL REBOUND", "\(Int(minutes.rounded()))",
-                             "minutes after you stopped", Theme.accent)
-            case let .notReached(observed):
-                unitHeadline("VAGAL REBOUND", ">\(Int(observed.rounded()))",
-                             "minutes — still less than halfway back when the recording ends",
-                             Theme.domainHeavy)
-            case .notObserved:
-                unitHeadline("RECOVERY", "—",
-                             "not enough recording after this session to see recovery",
-                             Theme.dim)
-            }
-            Text("How long your vagal brake took to come halfway back to its resting level. A time, not a level — a session still falling ten minutes later is not partly recovered, and a percentage could not tell the difference.")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(Theme.dim)
-                .fixedSize(horizontal: false, vertical: true)
-            RecoveryCurveChart(points: chartPoints, startedAt: entry.startedAt,
-                               endedAt: windowEnd, dcPre: entry.beforeDC)
-        }
-        .cardStyle()
-    }
 
-    /// How fast heart rate fell, kept beside the vagal rebound rather than
-    /// merged into it — the gap between the two is the point.
-    @ViewBuilder
-    private var heartRateRecoveryCard: some View {
-        if entry.hrr60Bpm != nil || entry.t30Seconds != nil {
-            VStack(alignment: .leading, spacing: 10) {
-                if let hrr = entry.hrr60Bpm {
-                    unitHeadline("HEART RATE DROP", "\(Int(hrr.rounded()))",
-                                 "bpm lost in the first minute after stopping", Theme.rsa)
-                }
-                Text("How fast your heart rate came down. It needs only heart rate, so it works on sessions where vagal tone cannot be measured at all.")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(Theme.dim)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let t30 = entry.t30Seconds {
-                    readout([("T30", String(format: "%.0f s", t30))])
-                }
-                if let hrr = entry.hrr60Bpm, case let .reached(mins) = entry.recoveryOutcome {
-                    // The finding neither number shows alone.
-                    Text(String(format: "Your heart rate dropped %d bpm in a minute while your vagal brake took %d minutes to come halfway back. Heart rate settles first; the brake is the slower half of recovery.",
-                                Int(hrr.rounded()), Int(mins.rounded())))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Theme.text.opacity(0.85))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .cardStyle()
-        }
-    }
 
     @ViewBuilder
     private var efficiencyCard: some View {
@@ -425,7 +401,7 @@ struct ExerciseDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The nine metrics, unchanged, for when you want the underlying numbers.
+    /// The named metrics, unchanged, for when you want the underlying numbers.
     private var rawMetrics: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button {

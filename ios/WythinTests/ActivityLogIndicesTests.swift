@@ -18,7 +18,11 @@ final class ActivityLogIndicesTests: XCTestCase {
     func testAnIndexAppearsOnlyWhenItsInputIsThere() {
         let entry = lift()
         XCTAssertNil(entry.bounceBackIndex)
+        // One checkpoint is not a recovery section — see
+        // `testALoneCheckpointIsShownButNotScored` below for why.
         entry.hrr60Bpm = 34
+        XCTAssertNil(entry.bounceBackIndex)
+        entry.halfRecoveryMinutes = 9
         XCTAssertNotNil(entry.bounceBackIndex)
     }
 
@@ -106,27 +110,42 @@ final class ActivityLogIndicesTests: XCTestCase {
 
 extension ActivityLogIndicesTests {
 
-    func testASessionThatNeverReachedHalfwayStillScores() {
-        // The commonest real case on a short session: nothing got halfway back
-        // inside the recording, but the recovery axis scores it anyway. Reading
-        // only halfRecoveryMinutes dropped it and left the grid empty.
+    /// A session whose brake never came halfway back scores zero on that ONE
+    /// checkpoint. It used to become the section, and a recorded pickleball
+    /// session printed **0** above a chart showing heart rate home in four
+    /// minutes. The checkpoint is still shown; it is no longer the score.
+    func testALoneCheckpointIsShownButNotScored() {
         let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Yoga")
         entry.recoveryObservedMinutes = 10
-        XCTAssertNotNil(entry.recoveryAxis.scoreValue,
-                        "precondition: the axis scores this session")
-        XCTAssertNotNil(entry.bounceBackIndex,
-                        "the index must score every session the axis does")
+        XCTAssertEqual(entry.recoveryAxis.scoreValue, 0,
+                       "precondition: the vagal checkpoint alone scores zero")
+        XCTAssertNil(entry.bounceBackIndex,
+                     "a single checkpoint was allowed to stand as the section")
+    }
+
+    /// And the moment a second checkpoint lands, the section scores again —
+    /// well clear of the zero the vagal channel contributes on its own.
+    func testASecondCheckpointRescuesTheSectionFromTheLoneZero() {
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Yoga")
+        entry.recoveryObservedMinutes = 10        // vagal: never got halfway
+        entry.hrReturnMinutes = 4                 // heart rate: home in four
+        guard let index = entry.bounceBackIndex else {
+            return XCTFail("two checkpoints landed; expected a score")
+        }
+        XCTAssertGreaterThan(index.value, 0)
     }
 
     func testTheDetailSaysHalfwayWasNotReachedRatherThanInventingATime() {
         let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Yoga")
         entry.recoveryObservedMinutes = 10
+        entry.hrr60Bpm = 30
         XCTAssertEqual(entry.bounceBackIndex?.detail, "not halfway in 10 min")
     }
 
     func testReachingHalfwayStillReportsTheTime() {
         let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Yoga")
         entry.halfRecoveryMinutes = 9
+        entry.hrr60Bpm = 30
         XCTAssertEqual(entry.bounceBackIndex?.detail, "halfway in 9.0 min")
     }
 }

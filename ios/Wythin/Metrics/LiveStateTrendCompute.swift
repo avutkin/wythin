@@ -54,7 +54,7 @@ enum LiveStateTrendCompute {
         ("dfa1",       { $0.dfa1 }),    // fractal organization — focus proxy
         ("dc",         { $0.dc }),      // vagal tone (deceleration capacity)
         ("rcmse",      { $0.rcmse }),   // adaptive capacity (entropy)
-        ("vti",        { $0.vti }),     // calm power (vagal tone index)
+        ("vti",        { $0.vti }),     // ln RMSSD — the recovery axis input
     ]
 
     /// Minimum quality-passing points required in the window before summarizing

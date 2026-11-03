@@ -87,6 +87,16 @@ enum DeviceRanking {
 // block-buffered), so PMD-level diagnostics also land in a file in the app
 // container that can be pulled over the wire:
 //   xcrun devicectl device copy from --domain-type appDataContainer ...
+/// Whether the Settings diagnostics row has anything to offer. Hidden for a
+/// fresh install or right after `BLEDiag`'s own rotation has just cleared the
+/// file — there is no value in a share sheet for an empty log.
+enum BLEDiagExport {
+    static func isAvailable(fileSize: Int?) -> Bool {
+        guard let fileSize else { return false }
+        return fileSize > 0
+    }
+}
+
 enum BLEDiag {
     static let url = FileManager.default.urls(for: .applicationSupportDirectory,
                                               in: .userDomainMask)[0]
@@ -138,6 +148,20 @@ enum StandbyPolicy {
         // overnight it reached the off-body threshold on its own — dropping the
         // strap into standby in the middle of the night the app most wants.
         if still && rrBad { score += 1 }
+
+        // Live, plausible RR is the strongest evidence a body is present: a
+        // doffed H10 stops producing it within seconds, while a worn one on
+        // dry electrodes produces it all night. So when RR is flowing,
+        // nothing else reaches the off-body threshold on its own — not even
+        // an explicit contact=false.
+        //
+        // This is the same correction `still && rrBad` already made for
+        // stillness, applied to the cue that was left out of it. Electrodes
+        // dry across a night, the strap asserts no contact, and this scored
+        // 4 — the fast path — on a sleeping wearer whose heart was in plain
+        // view. Every other case is untouched: with RR gone, the weights
+        // below are exactly as they were.
+        if !rrBad { return min(score, 1) }
         return score
     }
 }
@@ -154,6 +178,12 @@ struct StandbyResumeGate {
     /// Consecutive plausible frames required when the contact bit is absent
     /// (~4 s at the HR characteristic's 1 Hz cadence).
     static let requiredRun = 4
+    /// Consecutive plausible frames required to overrule an explicit
+    /// `contact == false` (~16 s). Four times the usual bar, because this
+    /// overrides a stated negative rather than filling in for a missing one
+    /// — long enough that doffing noise can never accumulate it, short
+    /// enough that a worn strap is not held down for a night.
+    static let requiredRunAgainstContact = 16
     /// Human heart-rate band; outside it is beacon/noise, not a wearer.
     static let plausibleBPM = 30...220
     /// Human RR band in ms (30–200 bpm).
@@ -174,7 +204,24 @@ struct StandbyResumeGate {
             run = 0; lastBPM = nil
             return true
         case .some(false):
-            run = 0; lastBPM = nil
+            // Previously an unconditional `false`, and `enterStandby` keeps
+            // the GATT link — so the connect path that clears standby never
+            // fires either. Between them, a strap whose contact bit stuck
+            // false was held in standby indefinitely: link up, beats
+            // arriving, nothing recorded for as long as the bit lied.
+            //
+            // The bit still has the first word, and keeps it through the
+            // doffing transient. It no longer has the last one.
+            guard secondsInStandby >= Self.entryGraceSeconds else {
+                run = 0; lastBPM = nil
+                return false
+            }
+            run = isPlausible(bpm: bpm, rr: rrIntervalsMs) ? run + 1 : 0
+            lastBPM = bpm
+            if run >= Self.requiredRunAgainstContact {
+                run = 0; lastBPM = nil
+                return true
+            }
             return false
         case .none:
             guard secondsInStandby >= Self.entryGraceSeconds else {
@@ -188,14 +235,92 @@ struct StandbyResumeGate {
         }
     }
 
-    private func isPlausible(bpm: Int, rr: [Int]) -> Bool {
-        guard Self.plausibleBPM.contains(bpm), !rr.isEmpty,
-              rr.allSatisfy({ Self.plausibleRRms.contains($0) }) else { return false }
+    /// The single-frame half of plausibility: is this one HR frame, on its
+    /// own, consistent with a real worn heart? No history, so it carries no
+    /// opinion on whether a run of noise is masquerading as a resume — that
+    /// judgment needs `isPlausible`'s added jump check and `step`'s run
+    /// length. It exists separately so a caller gating "is this one frame
+    /// worth keeping" doesn't have to carry gate state to ask that question.
+    static func isPhysiologicallyPlausible(bpm: Int, rr: [Int]) -> Bool {
+        guard plausibleBPM.contains(bpm), !rr.isEmpty,
+              rr.allSatisfy({ plausibleRRms.contains($0) }) else { return false }
         // The beats must explain the number: mean RR ↔ bpm within tolerance.
         let meanRR = rr.reduce(0, +) / rr.count
         guard abs(bpm - 60_000 / meanRR) <= 25 else { return false }
+        return true
+    }
+
+    private func isPlausible(bpm: Int, rr: [Int]) -> Bool {
+        guard Self.isPhysiologicallyPlausible(bpm: bpm, rr: rr) else { return false }
         if let last = lastBPM, abs(bpm - last) > Self.maxBPMJump { return false }
         return true
+    }
+}
+
+// MARK: - Connection Failure Pattern (pure, testable)
+//
+// The H10 is a single-link BLE peripheral — only one central can hold its
+// GATT connection. A native Polar app running its own background connection
+// competes for that one slot, and CoreBluetooth gives the losing side
+// nothing distinctive: the same `CBError.connectionTimeout` an out-of-range
+// or powered-off strap would also produce. There is no code that means
+// "someone else has it," so this can never name the cause with certainty.
+// What it can notice honestly is the shape only contention tends to
+// produce — several failures in quick succession — and say so as a
+// possibility, not a diagnosis.
+enum ConnectionFailurePattern {
+    static let minCount = 3
+    static let windowSeconds: TimeInterval = 60
+
+    static func looksLikeContention(recentFailureCount: Int, windowSeconds: TimeInterval) -> Bool {
+        recentFailureCount >= minCount && windowSeconds <= Self.windowSeconds
+    }
+}
+
+// MARK: - Standby Gap Policy (pure, testable)
+//
+// Forwarding plausible RR during standby stops a brief misclassification
+// from costing data, but it also means a GENUINE standby — the strap really
+// off for real minutes — now bridges that gap silently in the RR array: the
+// last pre-removal beat sits directly adjacent to the first post-reattachment
+// one, no marker between them. PRSA reads that seam as an ordinary step, and
+// with few beats yet in the post-gap window, one artificial jump can
+// dominate the average.
+//
+// The two cases are told apart by the one signal that differs between them:
+// whether a beat was forwarded recently. Continuous misclassification keeps
+// forwarding throughout, so the gap since the last one stays near the H10's
+// ~1 Hz cadence. A genuine standby forwards nothing for the whole real gap.
+enum StandbyGapPolicy {
+    /// Beats arrive about once per second under normal operation. Silence
+    /// well beyond that is a real stop, not ordinary inter-frame spacing.
+    static let genuineGapSeconds: TimeInterval = 10
+
+    static func shouldClearOnResume(secondsSinceLastForwardedBeat: TimeInterval?) -> Bool {
+        guard let gap = secondsSinceLastForwardedBeat else { return true }
+        return gap >= genuineGapSeconds
+    }
+}
+
+// MARK: - Discovery Retry Policy (pure, testable)
+//
+// `didDiscoverServices` and `didDiscoverCharacteristicsFor` used to print
+// their error and return: no retry, no user-visible signal, `state` left at
+// `.connected`. CoreBluetooth discovery errors are documented to happen, most
+// often right after a background state-restoration connect — and when one
+// did, the strap stayed "connected" with no characteristics ever subscribed:
+// no HR, no PMD, nothing recorded, until something external intervened. This
+// is the policy that stops it being permanent.
+enum DiscoveryRetryPolicy {
+    static let maxRetries = 2
+
+    enum Action: Equatable {
+        case retry
+        case giveUpAndReconnect
+    }
+
+    static func decide(retriesUsed: Int) -> Action {
+        retriesUsed < maxRetries ? .retry : .giveUpAndReconnect
     }
 }
 
@@ -450,7 +575,15 @@ final class BLEService: NSObject {
     /// beacon frames but stop producing beats almost immediately.
     private(set) var lastRRIntervalAt: Date?
     var rrIntervalsLive: Bool {
-        lastRRIntervalAt.map { Date().timeIntervalSince($0) < 8 } ?? false
+        lastRRIntervalAt.map { Date().timeIntervalSince($0) < 4 } ?? false
+    }
+    /// The strap's own verdict, at 1 Hz: a worn H10 always reports a human
+    /// bpm; within seconds of doffing it reports 0. Unlike tick-derived ECG
+    /// quality this needs no computation and no foreground, so it is the cue
+    /// that keeps off-body detection fast while the app is backgrounded.
+    private(set) var lastPlausibleBPMAt: Date?
+    var heartbeatLive: Bool {
+        lastPlausibleBPMAt.map { Date().timeIntervalSince($0) < 4 } ?? false
     }
     private var lastECGStartCmd: Data?
     /// True once the fast budget has been spent and `lastError` surfaced —
@@ -458,6 +591,18 @@ final class BLEService: NSObject {
     private var inSlowRetry = false
     private var lastACCRetryAt:  Date?
     private var accRetryCount:   Int = 0
+    /// Resets on every fresh `discoverServices()` call, so an old failure
+    /// never counts against a brand-new connection.
+    private var discoveryRetryCount: Int = 0
+    /// Recent `didFailToConnect` timestamps, pruned to the last 5 minutes —
+    /// evidence for `ConnectionFailurePattern`, cleared on a successful
+    /// connect so a resolved problem cannot flag a later, unrelated one.
+    private var recentConnectFailures: [Date] = []
+    /// When a beat was last actually forwarded into the pipeline — not when
+    /// a frame merely arrived, since an off-body frame can still carry a
+    /// non-empty (noise) RR array. `StandbyGapPolicy` reads this at resume
+    /// to tell a genuine standby from a brief misclassification.
+    private var lastForwardedBeatAt: Date?
     private var lastACCStartCmd: Data?
 
     // ACC watchdog tuning. At 200 Hz the H10 delivers ACC notifications many
@@ -688,6 +833,7 @@ final class BLEService: NSObject {
     func enterStandby() {
         guard case .connected = state, let p = peripheral, !inStandby else { return }
         print("🌙 BLE: entering standby — strap off-body (paused in place)")
+        BLEDiag.log("STANDBY enter")
         inStandby = true
         resumeGate = StandbyResumeGate()   // fresh run for the wake decision
         standbyEnteredAt = Date()          // starts the resume grace window
@@ -695,7 +841,14 @@ final class BLEService: NSObject {
         reconnectTask?.cancel()
         watchdogTask?.cancel()
         accWatchdogTask?.cancel()
-        connectionGapSubject.send()      // discard buffered off-body beats
+        // No `connectionGapSubject.send()` here any more. That used to wipe
+        // the RR buffer on every standby entry — right, for a strap that is
+        // genuinely off, but exactly wrong for a misclassification, which
+        // cost real beats and sent Vagal Tone back to a 192-beat rebuild on
+        // every brief flicker. RR itself is never silently discarded any
+        // more either (see the `inStandby` branch below), so there is
+        // nothing here worth clearing on this path. A real connection gap
+        // still clears everything — see `handleUnexpectedDisconnect`.
         stopPMDStreams()                 // stop ECG/ACC; keep HR for contact
         pmdStreamsStarted = false        // allow a clean restart on resume
         state = .standby(name: p.name ?? "Polar H10")
@@ -705,7 +858,18 @@ final class BLEService: NSObject {
     /// Restart the ECG/ACC streams and mark the link live.
     private func resumeFromStandby(name: String) {
         guard inStandby, peripheral != nil else { return }
+        let gap = lastForwardedBeatAt.map { Date().timeIntervalSince($0) }
+        if StandbyGapPolicy.shouldClearOnResume(secondsSinceLastForwardedBeat: gap) {
+            // A real content gap: whatever is buffered predates it and is not
+            // continuous with what is about to be measured. Clear now, right
+            // as fresh measurement begins — not on entry, which would cost a
+            // brief misclassification its whole pre-existing history for
+            // nothing, the regression this exists to avoid.
+            print("🌙 BLE: resuming after a real gap (\(gap.map { "\(Int($0))s" } ?? "no prior data")) — clearing buffered beats")
+            connectionGapSubject.send()
+        }
         print("🌙 BLE: resuming from standby — strap worn again")
+        BLEDiag.log("STANDBY resume")
         inStandby = false
         state = .connected(name: name)
         startPMDStreams()
@@ -775,6 +939,27 @@ final class BLEService: NSObject {
             self.lastError = "H10 not responding. Is it powered on and in range?"
             // Restart scan so the device list becomes visible for manual retry.
             self.startScanning()
+        }
+    }
+
+    /// Acts on `DiscoveryRetryPolicy`'s decision for a failed discovery
+    /// callback. A retry simply restarts the whole chain — service and
+    /// characteristic discovery are cheap and idempotent, so there is no
+    /// benefit to resuming from the exact failed step. Giving up forces a
+    /// disconnect rather than inventing a second recovery path: clearing
+    /// `suppressNextDisconnect` routes it through `handleUnexpectedDisconnect`,
+    /// the same persistent no-timeout pending-reconnect every other drop uses.
+    private func retryOrGiveUpOnDiscoveryFailure(_ p: CBPeripheral) {
+        switch DiscoveryRetryPolicy.decide(retriesUsed: discoveryRetryCount) {
+        case .retry:
+            discoveryRetryCount += 1
+            print("🟡 BLE: discovery failed — retrying (\(discoveryRetryCount)/\(DiscoveryRetryPolicy.maxRetries))")
+            discoverServices()
+        case .giveUpAndReconnect:
+            print("🔴 BLE: discovery failed \(DiscoveryRetryPolicy.maxRetries) times — forcing a reconnect")
+            lastError = "Bluetooth setup failed — reconnecting"
+            suppressNextDisconnect = false
+            centralManager.cancelPeripheralConnection(p)
         }
     }
 
@@ -1019,6 +1204,7 @@ final class BLEService: NSObject {
     /// Keeps the peripheral reference and attempts a direct reconnect (no scan needed —
     /// iOS will reconnect to the known peripheral as soon as it's available).
     private func handleUnexpectedDisconnect(_ p: CBPeripheral, error: Error?) {
+        BLEDiag.log("DISCONNECT unexpected: \(error?.localizedDescription ?? "no error")")
         connectionTimeoutTask?.cancel()
         reconnectTask?.cancel()
         clearCharacteristics()          // keep `peripheral` for the pending reconnect
@@ -1087,13 +1273,26 @@ extension BLEService: CBCentralManagerDelegate {
                 // Already connected — just attach
                 self.peripheral = p
                 self.pmdStreamsStarted = false
+                self.discoveryRetryCount = 0
                 self.state = .connected(name: p.name ?? "Polar H10")
                 self.discoverServices()
+                // `didConnect` always arms this; this path skipped it, so a
+                // silent drop sometime after a restoration-triggered relaunch
+                // went uncaught — no watchdog running to notice. The gap this
+                // closes: the app comes back (system relaunch, or Kate opening
+                // it), attaches to an already-connected peripheral, and if the
+                // OS-level link quietly dies hours later there was nothing
+                // watching for it until the next unrelated trigger.
+                self.startWatchdog()
             } else {
                 // Was connecting — try again via doConnect so timeout is set correctly
                 self.state = .connecting(name: p.name ?? "Polar H10")
                 self.doConnect(p)
             }
+            // The one event this whole investigation keeps lacking evidence
+            // for: was the app even running overnight, and in what state did
+            // it come back? This is the only place that can answer it.
+            BLEDiag.log("RESTORE state=\(p.state.rawValue) → \(self.state)")
         }
     }
 
@@ -1157,6 +1356,8 @@ extension BLEService: CBCentralManagerDelegate {
             UserDefaults.standard.set(peripheral.identifier.uuidString,
                                        forKey: self.savedDeviceKey)
             self.reconnectDelay = 2.0   // successful connection resets backoff
+            self.discoveryRetryCount = 0
+            self.recentConnectFailures.removeAll()
             self.state = .connected(name: peripheral.name ?? "Polar H10")
             self.discoverServices()
             self.startWatchdog()
@@ -1166,11 +1367,30 @@ extension BLEService: CBCentralManagerDelegate {
     nonisolated func centralManager(_ central: CBCentralManager,
                                     didFailToConnect peripheral: CBPeripheral,
                                     error: Error?) {
-        print("❌ BLE: failed to connect — \(error?.localizedDescription ?? "unknown")")
+        let nsError = error as NSError?
+        print("❌ BLE: failed to connect — \(error?.localizedDescription ?? "unknown")"
+              + (nsError.map { " (\($0.domain) \($0.code))" } ?? ""))
         Task { @MainActor in
             self.connectionTimeoutTask?.cancel()
             self.clearCharacteristics()   // keep the peripheral for a re-arm
-            self.lastError = "Could not connect: \(error?.localizedDescription ?? "unknown error")"
+
+            let now = Date()
+            self.recentConnectFailures.append(now)
+            self.recentConnectFailures.removeAll { now.timeIntervalSince($0) > 300 }
+            let span = self.recentConnectFailures.first.map { now.timeIntervalSince($0) } ?? 0
+            let looksLikeContention = ConnectionFailurePattern.looksLikeContention(
+                recentFailureCount: self.recentConnectFailures.count, windowSeconds: span)
+            BLEDiag.log("connect failed: \(nsError.map { "\($0.domain) \($0.code)" } ?? "unknown")"
+                       + (looksLikeContention ? " — repeated in \(Int(span))s" : ""))
+
+            var message = "Could not connect: \(error?.localizedDescription ?? "unknown error")"
+            if looksLikeContention {
+                // Hedged on purpose — this is a pattern, not a detection. The
+                // H10 cannot be read by two apps at once, and this is the
+                // only shape the losing side ever sees.
+                message += " — if another app (e.g. the Polar app) is also connected to this sensor, close it fully and try again."
+            }
+            self.lastError = message
             // For a paired strap, re-arm the persistent pending connect instead of
             // giving up to a scan — stays seamless. Only scan if nothing is saved.
             if !self.userDisconnected,
@@ -1213,7 +1433,10 @@ extension BLEService: CBPeripheralDelegate {
                                 didDiscoverServices error: Error?) {
         if let error { print("❌ BLE: service discovery error — \(error)") }
         Task { @MainActor in
-            guard error == nil, let services = peripheral.services else { return }
+            guard error == nil, let services = peripheral.services else {
+                self.retryOrGiveUpOnDiscoveryFailure(peripheral)
+                return
+            }
             for svc in services {
                 switch svc.uuid {
                 case PolarH10Profile.pmdService:
@@ -1234,7 +1457,10 @@ extension BLEService: CBPeripheralDelegate {
                                 error: Error?) {
         if let error { print("❌ BLE: char discovery error — \(error)") }
         Task { @MainActor in
-            guard error == nil, let chars = service.characteristics else { return }
+            guard error == nil, let chars = service.characteristics else {
+                self.retryOrGiveUpOnDiscoveryFailure(peripheral)
+                return
+            }
             for c in chars {
                 switch c.uuid {
                 case PolarH10Profile.pmdControl:
@@ -1385,6 +1611,7 @@ extension BLEService: CBPeripheralDelegate {
                     // link is alive while ECG and ACC are both stalled.
                     self.lastRRSampleAt = Date()
                     if !frame.rrIntervalsMs.isEmpty { self.lastRRIntervalAt = Date() }
+                    if frame.bpm >= 30 { self.lastPlausibleBPMAt = Date() }
                     self.sensorContact = frame.contact
                     // Paused for off-body: keep watching the contact bit over the
                     // lightweight HR link and resume the moment the strap is worn
@@ -1400,6 +1627,20 @@ extension BLEService: CBPeripheralDelegate {
                                                 rrIntervalsMs: frame.rrIntervalsMs,
                                                 secondsInStandby: inStandbyFor) {
                             self.resumeFromStandby(name: name)
+                        } else if inStandbyFor >= StandbyResumeGate.entryGraceSeconds,
+                                  StandbyResumeGate.isPhysiologicallyPlausible(
+                                      bpm: frame.bpm, rr: frame.rrIntervalsMs) {
+                            // Standby's classification may be wrong, or correct
+                            // but about to end — either way this beat is real,
+                            // so it is not thrown away pending that verdict.
+                            // The grace window still screens out the doffing
+                            // transient, exactly as it does for the resume
+                            // decision above. State stays `.standby` — ECG/ACC
+                            // remain off and the UI is untouched — only RR
+                            // keeps accumulating so a correct resume, whenever
+                            // it comes, starts from a warm buffer, not zero.
+                            self.lastForwardedBeatAt = Date()
+                            self.hrSubject.send(frame)
                         }
                         return
                     }
@@ -1412,6 +1653,7 @@ extension BLEService: CBPeripheralDelegate {
                     if case .connected = self.state {} else {
                         self.state = .connected(name: name)
                     }
+                    self.lastForwardedBeatAt = Date()
                     self.hrSubject.send(frame)
                 }
             }

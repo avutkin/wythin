@@ -85,7 +85,7 @@ async def test_stats_shape():
     row = data["users"][0]
     assert set(row) >= {
         "id", "device_id", "display_name", "first_seen", "last_seen",
-        "session_count", "total_minutes", "avg_coherence", "avg_rsa",
+        "session_count", "total_minutes", "avg_coherence", "avg_rsa", "avg_pip",
     }
 
     u = next(x for x in data["users"] if x["session_count"] >= 1)
@@ -191,6 +191,16 @@ async def test_activity_detail():
     assert d["activity_subtype"] == "Vipassana"
     assert d["impact_score"] == 62
     assert d["during_rsa"] == 30.0 and d["before_rsa"] == 20.0
+
+    # The Impact tile prints what the app prints: a class, a score built from
+    # the stored averages (None here — one metric is too few), and a
+    # benefit-signed % per metric for the cards.
+    imp = d["impact"]
+    assert imp["class"] == "restorative"
+    assert imp["score"] is None and imp["counted"] == 1 and imp["total"] == 9
+    assert round(imp["metrics"]["rsa"]["during_pct"]) == 50
+    assert round(imp["metrics"]["rsa"]["after_pct"]) == 30
+    assert imp["metrics"]["rsa"]["tag"] == "up" and imp["metrics"]["rsa"]["scored"] is True
 
     # A missing activity is a clean 404.
     async with _client() as client:
@@ -309,12 +319,18 @@ async def test_stats_carries_onboarding_goals_and_practices():
     practices = ["Breathwork", "Meditation"]
     async with _client() as client:
         r = await client.post("/v1/profile", headers={"X-User-ID": with_profile}, json={
+            "first_name": "Some", "last_name": "One",
             "email": "someone@example.com", "age_range": "35-44",
             "goals": goals, "practices": practices, "devices": ["Polar H10"],
         })
         assert r.status_code == 200, r.text
-        # Both users need a signal so the range filter keeps them.
-        for device in (with_profile, without):
+        # A row with no name or email — what an older build uploaded when the
+        # contact step was skipped — is not onboarded.
+        blank = f"test-blank-{sfx}"
+        r = await client.post("/v1/profile", headers={"X-User-ID": blank}, json={"goals": goals})
+        assert r.status_code == 200, r.text
+        # Every user needs a signal so the range filter keeps them.
+        for device in (with_profile, without, blank):
             u = await client.post("/v1/usage", headers={"X-User-ID": device}, json={"events": [
                 {"client_event_id": str(uuid.uuid4()), "event_type": "foreground",
                  "ts": (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat(),
@@ -327,9 +343,18 @@ async def test_stats_carries_onboarding_goals_and_practices():
     row = next(u for u in data["users"] if u["device_id"] == with_profile)
     assert row["goals"] == goals
     assert row["practices"] == practices
+    assert row["email"] == "someone@example.com"
+    assert row["onboarded"] is True
+    assert row["first_name"] == "Some"
 
     bare = next(u for u in data["users"] if u["device_id"] == without)
     assert bare["goals"] == [] and bare["practices"] == []
+    assert bare["email"] is None
+    assert bare["onboarded"] is False
+
+    skipped = next(u for u in data["users"] if u["device_id"] == blank)
+    assert skipped["goals"] == goals
+    assert skipped["onboarded"] is False, "a blank contact block is not a finished onboarding"
 
 
 @pytest.mark.asyncio
@@ -708,3 +733,136 @@ async def test_activity_series_spans_the_window():
     async with _client() as client:
         nf = await client.get("/admin/activities/00000000-0000-0000-0000-0000000000fe/series")
     assert nf.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_an_open_tab_can_tell_the_dashboard_changed():
+    """The page carries its own version and every admin response says which
+    version the server serves; the two agree, so a tab that sees a different
+    header knows to reload. The version is a digest of the template, so it
+    moves exactly when the page does."""
+    from server.routers.admin import DASHBOARD_VERSION
+    async with _client() as client:
+        page = await client.get("/admin/dashboard")
+        stats = await client.get("/admin/stats", params={"range": "24h"})
+    assert page.status_code == 200
+    assert f'const DASHBOARD_VERSION = "{DASHBOARD_VERSION}"' in page.text
+    assert "__DASHBOARD_VERSION__" not in page.text
+    assert page.headers["x-dashboard-version"] == DASHBOARD_VERSION
+    assert stats.headers["x-dashboard-version"] == DASHBOARD_VERSION
+    assert len(DASHBOARD_VERSION) == 12
+
+
+@pytest.mark.asyncio
+async def test_a_nights_series_carries_movement_at_the_resolution_asked():
+    """The montage's movement lane reads the loudest tick per bucket, and a
+    night asks for finer buckets than a sit — a minute of turning over must
+    not vanish into a four-minute average. Requires a database."""
+    import uuid
+    from datetime import datetime, timezone, timedelta
+    dev = f"test-night-motion-{uuid.uuid4().hex[:6]}"
+    start = datetime(2025, 7, 1, 23, 0, tzinfo=timezone.utc)
+    samples = []
+    for i in range(0, 8 * 60 * 60, 30):
+        t = start + timedelta(seconds=i)
+        samples.append({"ts": t.isoformat(), "mean_bpm": 55.0,
+                        # still all night bar one loud turn at 03:00
+                        "motion": 60.0 if i == 4 * 3600 else 4.0})
+    async with _client() as client:
+        for k in range(0, len(samples), 500):
+            r = await client.post("/v1/metrics", json={"samples": samples[k:k + 500]}, headers={"X-User-ID": dev})
+            assert r.status_code == 200, r.text
+        up = await client.post("/activities", headers={"X-User-ID": dev}, json={
+            "id": str(uuid.uuid4()), "activity_type": "Sleep",
+            "started_at": start.isoformat(), "ended_at": (start + timedelta(hours=8)).isoformat(),
+        })
+        sid = up.json()["id"]
+        coarse = (await client.get(f"/admin/activities/{sid}/series")).json()["samples"]
+        fine = (await client.get(f"/admin/activities/{sid}/series", params={"buckets": 480})).json()["samples"]
+    assert 100 <= len(coarse) <= 125 and 400 <= len(fine) <= 490
+    loud = [s for s in fine if s["motion_max"] is not None and s["motion_max"] >= 60]
+    assert len(loud) == 1, "the one turn survives as its bucket's loudest tick"
+    assert loud[0]["motion"] < 60, "the bucket mean is not the strip's number"
+    assert all("motion_max" in s for s in coarse)
+
+
+
+@pytest.mark.asyncio
+async def test_a_nights_series_carries_the_quality_tier_per_bucket():
+    """The montage's quality lane needs to know, bucket by bucket, whether the
+    signal behind a reading can be trusted. A night with a clean first hour
+    and a garbage middle hour must show that shape, not an average blur of
+    the two. Requires a database."""
+    import uuid
+    from datetime import datetime, timezone, timedelta
+    dev = f"test-night-quality-{uuid.uuid4().hex[:6]}"
+    start = datetime(2025, 7, 2, 23, 0, tzinfo=timezone.utc)
+    samples = []
+    for i in range(0, 2 * 3600, 30):
+        t = start + timedelta(seconds=i)
+        bad = 3600 <= i < 5400  # the second half-hour is garbage
+        samples.append({"ts": t.isoformat(),
+                        "mean_bpm": 165.0 if bad else 58.0,
+                        "signal_quality": 0.1 if bad else 0.95,
+                        "rr_invalid_rate": 0.7 if bad else 0.02,
+                        "ecg_quality_tier": 0 if bad else 2})
+    async with _client() as client:
+        for k in range(0, len(samples), 500):
+            r = await client.post("/v1/metrics", json={"samples": samples[k:k + 500]}, headers={"X-User-ID": dev})
+            assert r.status_code == 200, r.text
+        up = await client.post("/activities", headers={"X-User-ID": dev}, json={
+            "id": str(uuid.uuid4()), "activity_type": "Sleep",
+            "started_at": start.isoformat(), "ended_at": (start + timedelta(hours=2)).isoformat()})
+        sid = up.json()["id"]
+        fine = (await client.get(f"/admin/activities/{sid}/series", params={"buckets": 480})).json()["samples"]
+    clean = [s for s in fine if s["ecg_quality_tier"] is not None and s["ts"] < samples[119]["ts"]]
+    garbage = [s for s in fine if s["ecg_quality_tier"] is not None and samples[120]["ts"] <= s["ts"] < samples[179]["ts"]]
+    assert clean and all(s["ecg_quality_tier"] >= 1.5 for s in clean), "the clean half reads as good tier"
+    assert garbage and all(s["ecg_quality_tier"] <= 0.5 for s in garbage), "the garbage half reads as poor tier"
+    assert all(s["rr_invalid_rate"] is None or 0 <= s["rr_invalid_rate"] <= 1 for s in fine)
+
+
+@pytest.mark.asyncio
+async def test_a_phone_that_never_said_its_zone_gets_one_from_its_nights():
+    """A build before 126 sends no zone. The person's nights still place
+    them: two nights with midpoints near 00:45 UTC read as UTC+3, and the
+    user page, the activity page and the users table all say so — and say
+    it is inferred. Requires a database."""
+    import uuid
+    dev = f"test-zone-{uuid.uuid4().hex[:6]}"
+    async with _client() as client:
+        for cid, start, end in (
+            ("00000000-0000-0000-0000-0000000000e1", "2025-08-01T21:11:00Z", "2025-08-02T04:23:00Z"),
+            ("00000000-0000-0000-0000-0000000000e2", "2025-08-02T21:40:00Z", "2025-08-03T04:00:00Z"),
+        ):
+            r = await client.post("/activities", headers={"X-User-ID": dev}, json={
+                "id": cid, "activity_type": "Sleep", "started_at": start, "ended_at": end})
+            assert r.status_code == 200, r.text
+            sid = r.json()["id"]
+        stats = (await client.get("/admin/stats", params={"range": "all"})).json()
+        row = next(u for u in stats["users"] if u["device_id"] == dev)
+        det = (await client.get(f"/admin/users/{row['id']}")).json()
+        act = (await client.get(f"/admin/activities/{sid}")).json()
+    assert row["timezone"] == "Etc/GMT-3" and row["timezone_inferred"] is True
+    assert det["user"]["timezone"] == "Etc/GMT-3" and det["user"]["timezone_inferred"] is True
+    assert "inferred from 2 nights" in det["user"]["timezone_source"]
+    assert det["profile"] is None
+    assert act["user_timezone"] == "Etc/GMT-3" and act["user_timezone_inferred"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_phone_that_said_its_zone_is_believed_over_any_inference():
+    import uuid
+    dev = f"test-zone-said-{uuid.uuid4().hex[:6]}"
+    async with _client() as client:
+        r = await client.post("/v1/profile", headers={"X-User-ID": dev}, json={"email": "z@example.com", "timezone": "Asia/Jakarta"})
+        assert r.status_code == 200, r.text
+        r = await client.post("/activities", headers={"X-User-ID": dev}, json={
+            "id": "00000000-0000-0000-0000-0000000000e3", "activity_type": "Sleep",
+            "started_at": "2025-08-01T21:11:00Z", "ended_at": "2025-08-02T04:23:00Z"})
+        sid = r.json()["id"]
+        stats = (await client.get("/admin/stats", params={"range": "all"})).json()
+        row = next(u for u in stats["users"] if u["device_id"] == dev)
+        det = (await client.get(f"/admin/users/{row['id']}")).json()
+    assert row["timezone"] == "Asia/Jakarta" and row["timezone_inferred"] is False
+    assert det["user"]["timezone"] == "Asia/Jakarta" and det["user"]["timezone_inferred"] is False

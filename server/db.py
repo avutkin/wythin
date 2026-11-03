@@ -102,6 +102,10 @@ CREATE TABLE IF NOT EXISTS activities (
     before_pip    REAL, during_pip    REAL, after_pip    REAL,
     before_dc     REAL, during_dc     REAL, after_dc     REAL,
     before_dfa1   REAL, during_dfa1   REAL, after_dfa1   REAL,
+    before_breath REAL, during_breath REAL, after_breath REAL,
+    -- A recorded night: the app's score, sections, stage minutes, positions
+    -- and run-length hypnogram, as uploaded. NULL for every other activity.
+    sleep              JSONB,
     created_at         TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -112,6 +116,8 @@ CREATE TABLE IF NOT EXISTS metric_samples (
     mean_bpm REAL, rmssd REAL, sdnn REAL, pnn50 REAL, lf_hf REAL, rsa_ms REAL,
     coherence REAL, cbi REAL, breath_bpm REAL,
     dfa1 REAL, rcmse REAL, pip REAL, dc REAL, vti REAL,
+    -- How trustworthy this tick is, read on-device — see server/models.py.
+    signal_quality REAL, rr_invalid_rate REAL, ecg_quality_tier SMALLINT,
     PRIMARY KEY (user_id, ts)
 );
 CREATE INDEX IF NOT EXISTS metric_samples_user_ts ON metric_samples(user_id, ts);
@@ -185,7 +191,23 @@ CREATE INDEX IF NOT EXISTS raw_chunks_user_created ON raw_chunks(user_id, create
 -- is idempotent, so this block is safe to re-run and safe to grow. Columns
 -- added to a CREATE TABLE body above only reach a database that does not yet
 -- exist; existing deployments need them stated here as well.
+-- Motion (SD of the ACC vector magnitude, mg). The one channel the sleep
+-- pipeline leans on hardest and the only one that never left the phone, so a
+-- night that scored wrong could not be examined without the device in hand —
+-- and the profiling tools in tools/ were structurally unable to reproduce what
+-- the device did. See tools/nights.sql.
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS motion REAL;
+-- Signal-quality telemetry — see server/models.py and docs/superpowers/specs/2026-10-25-signal-quality-design.md.
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS signal_quality REAL;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS rr_invalid_rate REAL;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS ecg_quality_tier SMALLINT;
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS impact_delta_pct REAL;
+-- Breath Rate, the ninth named metric, added once it earned a tile of its own.
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS before_breath REAL;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS during_breath REAL;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS after_breath  REAL;
+-- The night's own summary — see docs/superpowers/specs/2026-09-06-sleep-night-sync-design.md.
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS sleep JSONB;
 
 -- Existing samples predate upload-time tracking; leave their receipt unknown
 -- rather than falsely stamping them all with this migration's deployment time.
@@ -208,6 +230,37 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS state_stress        INT;
 -- careless `WHERE consent_ai_insights IS NOT FALSE` would let through.
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS consent_share_team  BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS consent_ai_insights BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- The phone's IANA time zone: on the profile as it is now, on each activity
+-- as it was when the row was uploaded. The dashboard shows a person's day in
+-- their own clock, not the viewer's.
+ALTER TABLE profiles   ADD COLUMN IF NOT EXISTS timezone TEXT;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS timezone TEXT;
+
+-- Self check-ins: what the person says they felt, one row per answer. Two
+-- kinds share the table — 'moment' (asked while the strap is on) and
+-- 'previous_day' (asked on the first open of a day, about yesterday; day_key
+-- is that day). Scales are 0-100 and NULL means the slider was never touched;
+-- see docs/superpowers/specs/2026-09-13-self-checkin-design.md.
+CREATE TABLE IF NOT EXISTS felt_state_logs (
+    id            BIGSERIAL PRIMARY KEY,
+    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    client_id     TEXT UNIQUE NOT NULL,   -- FeltStateLog.id on the phone → idempotent upload
+    kind          TEXT NOT NULL DEFAULT 'moment',
+    ts            TIMESTAMPTZ NOT NULL,   -- when it was answered
+    day_key       TEXT,                   -- local yyyy-MM-dd the answer is about
+    timezone      TEXT,
+    focus         REAL,
+    energy        REAL,
+    stress        REAL,
+    mood          REAL,
+    anxiety       REAL,
+    sleep         REAL,
+    state_key     TEXT,                   -- the live state the app showed at the time, if any
+    worn_minutes  REAL,                   -- how long the strap had been on when asked
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS felt_state_logs_user_ts ON felt_state_logs(user_id, ts DESC);
 """
 
 

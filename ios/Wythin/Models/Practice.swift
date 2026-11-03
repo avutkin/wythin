@@ -58,11 +58,31 @@ enum PracticeState: String, CaseIterable, Identifiable {
 
 enum BiofeedbackMode: Equatable, Hashable { case resonance, workout }
 
+/// How a pacer's speed is set in its session.
+///
+/// A breath with holds is counted against a metronome, so it is set in beats a
+/// phase and a tempo. A hold-free breath is normally described the way people
+/// say it — "five and a half seconds each way" — and derives its own tempo.
+///
+/// Coherent Breathing is deliberately the other kind: the click count per phase
+/// and the tempo are the two things you work with there, and the seconds fall
+/// out of them. That is what makes it a different practice from Resonance
+/// Breathing rather than the same one under a second name.
+enum PaceControl: Equatable, Hashable {
+    case seconds          // seconds a side, in halves; tempo derived
+    case beatsAndTempo    // beats (clicks) a phase + metronome BPM
+    /// Tempo, note value, and a count for each phase set separately. The seconds
+    /// fall out of those three, which is the point: the click you hear and the
+    /// count you keep are what you work with, not a duration.
+    case clicksAndNote(defaultNote: NoteValue)
+}
+
 enum PracticeKind: Equatable, Hashable {
     case content                        // browse + Log it
     case biofeedback(BiofeedbackMode)   // live session (resonance pacer / workout feedback)
     case pacer(BreathPattern)           // guided breath session on a fixed pattern
     case holdTrainer(HoldProtocol)      // set-based breath-hold session
+    case scripted(BreathScript)         // a sequence of named moves, some self-paced
 }
 
 /// Local art token — an optional SF Symbol over a two-stop gradient. There is no
@@ -135,6 +155,92 @@ struct Practice: Identifiable, Hashable {
     let tags:                [String]
     let art:                 PracticeArt
     let kind:                PracticeKind
+    /// How the session's pace is set. Defaults to the shape of the breath — beats
+    /// and a tempo when it has holds, seconds when it does not — so only a
+    /// practice that wants the other one has to say so.
+    let paceControl:         PaceControl
+    /// The numbers that decide what this practice can be compared with.
+    ///
+    /// Its rate is derived from the pattern and tempo above wherever the
+    /// practice is paced, so a catalogue entry cannot claim one speed while
+    /// its pacer runs another. Only the unpaced practices state a rate, and
+    /// they state it as a band or as "not changed".
+    let passport:            RespiratoryPassport
+
+    init(id: String, title: String, subtitle: String,
+         category: PracticeCategory, states: [PracticeState],
+         activityType: ActivityType, subtype: String?,
+         defaultDurationMins: Int, defaultBPM: Int,
+         description: String, howItWorks: [String],
+         evidence: [PracticeEvidence], tags: [String],
+         art: PracticeArt, kind: PracticeKind,
+         catalogNumber: Int,
+         mechanism: BreathMechanism,
+         difficulty: PracticeDifficulty = .easy,
+         supervision: PracticeSupervision = .unsupervised,
+         /// Only for practices with no fixed pattern to read a rate off.
+         rate: BreathRate? = nil,
+         paceControl: PaceControl? = nil) {
+        self.id                  = id
+        self.title               = title
+        self.subtitle            = subtitle
+        self.category            = category
+        self.states              = states
+        self.activityType        = activityType
+        self.subtype             = subtype
+        self.defaultDurationMins = defaultDurationMins
+        self.defaultBPM          = defaultBPM
+        self.description         = description
+        self.howItWorks          = howItWorks
+        self.evidence            = evidence
+        self.tags                = tags
+        self.art                 = art
+        self.kind                = kind
+        if let paceControl {
+            self.paceControl = paceControl
+        } else if case .pacer(let pattern) = kind {
+            self.paceControl = pattern.hasHolds ? .beatsAndTempo : .seconds
+        } else {
+            self.paceControl = .seconds
+        }
+
+        // Read the rate off the pacer rather than believing a number typed
+        // beside it. A passport whose figure can disagree with the practice it
+        // describes is worse than none: it would be the one number in the
+        // catalogue people compare practices on.
+        let note: NoteValue
+        if case .clicksAndNote(let n) = self.paceControl { note = n } else { note = .quarter }
+        let derived: BreathRate?
+        if case .pacer(let pattern) = kind {
+            derived = .derived(pattern: pattern, bpm: defaultBPM, note: note)
+        } else {
+            derived = nil
+        }
+        self.passport = RespiratoryPassport(
+            catalogNumber: catalogNumber,
+            rate: derived ?? rate ?? .unrated("—"),
+            hasHolds: {
+                if case .pacer(let pattern) = kind { return pattern.hasHolds }
+                if case .holdTrainer = kind { return true }
+                return false
+            }(),
+            mechanism: mechanism,
+            difficulty: difficulty,
+            supervision: supervision)
+    }
+
+    /// The move sequence a scripted session walks, or nil for everything else.
+    var breathScript: BreathScript? {
+        if case .scripted(let script) = kind { return script }
+        return nil
+    }
+
+    /// The note value a clicks-and-note session opens on. Meaningless for the
+    /// other pace controls, which have no note to set.
+    var defaultNote: NoteValue {
+        if case .clicksAndNote(let note) = paceControl { return note }
+        return .quarter
+    }
 
     /// The featured practice, shown with a ★ above the grid.
     var isStarred: Bool { kind == .biofeedback(.resonance) }

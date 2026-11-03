@@ -22,7 +22,9 @@ final class InsightGenerator {
     /// `entry.insightText` nil on any failure — picked up by the next
     /// `flushPending` call on foreground.
     func generate(for entry: ActivityLog, context: ModelContext) async {
-        guard let response = try? await client.generateInsight(InsightPayload(from: entry)) else { return }
+        let (usual, peers) = Self.recentAverages(for: entry, context: context)
+        let payload = InsightPayload(from: entry, usual: usual, peers: peers)
+        guard let response = try? await client.generateInsight(payload) else { return }
         // Another concurrent `generate` call for the same entry (e.g. an
         // activity-end trigger racing the foreground retry sweep) may have
         // already succeeded while this call was awaiting the network —
@@ -31,6 +33,63 @@ final class InsightGenerator {
         entry.insightText = response.text
         try? context.save()
     }
+
+    /// Generate and persist the read for one measured night.
+    ///
+    /// Separate from `generate(for:context:)` because a night is not a session:
+    /// it has no before / during / after, and sending it down the activity path
+    /// asked the model to narrate an all-nil payload. It also needs the
+    /// `PreparedNight` — the staging, the arcs, the position bands — which only
+    /// exists once the night screen has loaded it, so this is called from
+    /// there rather than from the foreground sweep.
+    func generate(for entry: ActivityLog,
+                  night: PreparedNight,
+                  context: ModelContext) async {
+        guard entry.sleepReadText == nil,
+              let payload = SleepInsightPayload(entry: entry, night: night),
+              let response = try? await client.generateSleepInsight(payload) else { return }
+        guard entry.sleepReadText == nil else { return }   // a racing call won
+        entry.sleepReadText = response.text
+        try? context.save()
+    }
+
+    /// This person's own average DURING value per metric across their recent
+    /// sessions of the same kind, and how many sessions that is drawn from.
+    ///
+    /// Grouped by `scoreGroupKey` — the subtype when there is one, the type
+    /// otherwise — which is the same peer group the session's own scores are
+    /// ranked against. Keying strictly on subtype would leave most sessions
+    /// with no peers at all, and a coach with no comparison is the thing this
+    /// was added to fix.
+    ///
+    /// Returns an empty dictionary rather than zeros when there is no history.
+    /// A first session genuinely has nothing to be compared with, and the read
+    /// has to say so instead of inventing a baseline of nought.
+    static func recentAverages(for entry: ActivityLog,
+                               context: ModelContext) -> ([String: Double], Int) {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -60, to: entry.startedAt)
+            ?? .distantPast
+        let myID = entry.id
+        let predicate = #Predicate<ActivityLog> {
+            $0.startedAt >= cutoff && $0.endedAt != nil && $0.id != myID
+        }
+        let key = entry.scoreGroupKey
+        let peers = ((try? context.fetch(FetchDescriptor<ActivityLog>(predicate: predicate))) ?? [])
+            .filter { $0.scoreGroupKey == key }
+        guard peers.count >= minPeersForComparison else { return ([:], 0) }
+
+        var out: [String: Double] = [:]
+        for def in activityMetricDefs {
+            let values = peers.compactMap { $0[keyPath: def.duringKey].map(Double.init) }
+            guard !values.isEmpty else { continue }
+            out[def.id] = values.reduce(0, +) / Double(values.count)
+        }
+        return (out, peers.count)
+    }
+
+    /// Two sessions is not a habit to be measured against. Below this the read
+    /// is written from the session alone, which is what it honestly has.
+    static let minPeersForComparison = 3
 
     /// Retry every completed activity still missing an insight.
     func flushPending(context: ModelContext, limit: Int = 10) async {
@@ -41,9 +100,17 @@ final class InsightGenerator {
 
     /// Completed activities still missing an insight, most recent first,
     /// capped to bound the retry burst after a long offline period.
+    ///
+    /// Nights are excluded. They are `ActivityLog` rows like everything else
+    /// and so used to be swept up here, which sent a payload with no before,
+    /// during or after to a prompt built entirely around those three — and
+    /// stored the result in the very field the night read needs. Nights are
+    /// read by `generate(for:night:context:)`, from the night screen.
     static func pendingActivities(context: ModelContext, limit: Int = 10) -> [ActivityLog] {
+        let sleep = ActivityType.sleep.rawValue
         var descriptor = FetchDescriptor<ActivityLog>(
-            predicate: #Predicate { $0.endedAt != nil && $0.insightText == nil },
+            predicate: #Predicate { $0.endedAt != nil && $0.insightText == nil
+                                    && $0.activityType != sleep },
             sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
         )
         descriptor.fetchLimit = limit

@@ -48,6 +48,60 @@ enum SleepStages {
         return smooth(raw, points: points)
     }
 
+    /// Classification for *reporting*, inside a window already known to be
+    /// sleep. This is what the hypnogram and the awake total are built from.
+    ///
+    /// `classify` is tuned to find the edges of a night, and it has to be
+    /// generous to do that: heart rate alone, or breathing alone, is enough to
+    /// call a tick awake, because lying awake before sleep shows up in nothing
+    /// else — motion is already at sleeping levels, and if those channels did
+    /// not count on their own the night would open hours too early.
+    ///
+    /// **The same generosity is wrong once the edges are known**, and it was
+    /// being used for both. Heart rate and breathing are precisely the two
+    /// channels REM imitates: this file already records that RMSSD and HF
+    /// "barely separate deep sleep from REM", and REM is the stage whose pulse
+    /// and breathing look awake. REM is a fifth to a quarter of a night. Scored
+    /// by those two channels alone it reads as wake, and the night comes back
+    /// with hours of awake in it that the sleeper did not experience.
+    ///
+    /// What separates REM from wake is **movement**. REM has muscle atonia —
+    /// the body does not move — while being awake for any length of time
+    /// involves shifting. So inside the night a wake bout has to be
+    /// corroborated by the accelerometer or by posture; heart rate and
+    /// breathing may raise the question and no longer settle it alone.
+    ///
+    /// Deliberately not applied by `SleepDetector`, which still needs the
+    /// generous rule to find the boundaries in the first place.
+    static func withinSleep(_ points: [MetricsHistoryPoint]) -> [SleepStage] {
+        let raw = classify(points)
+        let base = Baseline(points)
+        var out = raw
+        for run in runs(of: raw) where raw[run[0]] == .wake && !moved(run, points, base) {
+            // Not "asleep" by fiat — re-asked as the sleep question it now is.
+            for i in run { out[i] = quietVotes(points[i], base) >= 2 ? .quiet : .active }
+        }
+        return out
+    }
+
+    /// Whether anything in this run actually moved.
+    ///
+    /// A low bar on purpose — `stirMotionMultiple`, not `wakeMotionMultiple`.
+    /// The question is not "was this vigorous", it is "did the body move at
+    /// all", because the state being excluded is one in which it cannot.
+    private static func moved(_ run: [Int],
+                              _ points: [MetricsHistoryPoint],
+                              _ base: Baseline) -> Bool {
+        run.contains { i in
+        // The accelerometer only. Posture used to corroborate here too, which
+        // quietly disabled this entire rule: a channel reporting `upright` for
+        // a quarter of the night corroborates nearly every bout it is asked
+        // about, so nothing was ever downgraded and REM stayed scored as wake.
+            guard base.motion > 0, let motion = points[i].motion else { return false }
+            return motion >= base.motion * SleepThresholds.stirMotionMultiple
+        }
+    }
+
     /// What this recording's own signal looks like.
     ///
     /// The published per-stage tables do not transfer. Measured against one
@@ -70,18 +124,17 @@ enum SleepStages {
         let lfHF: Float
         let sdnn: Float
 
+        /// Per minute, not per sample. A live session ticks several times a
+        /// second where the background ticks twice a minute, so a median over
+        /// samples is calibrated to whichever the recording did most *ticks* of
+        /// — and an hour of session then outweighs a night of sleep. See
+        /// `TimeWeightedMedian`.
         init(_ points: [MetricsHistoryPoint]) {
-            motion = Self.median(points.compactMap(\.motion)) ?? 0
-            hr = Self.median(points.compactMap(\.meanBPM)) ?? 0
-            coherence = Self.median(points.compactMap(\.coherence)) ?? 0
-            lfHF = Self.median(points.compactMap(\.lfHF)) ?? 0
-            sdnn = Self.median(points.compactMap(\.sdnn)) ?? 0
-        }
-
-        private static func median(_ v: [Float]) -> Float? {
-            guard !v.isEmpty else { return nil }
-            let s = v.sorted()
-            return s[s.count / 2]
+            motion = TimeWeightedMedian.of(points) { $0.motion } ?? 0
+            hr = TimeWeightedMedian.of(points) { $0.meanBPM } ?? 0
+            coherence = TimeWeightedMedian.of(points) { $0.coherence } ?? 0
+            lfHF = TimeWeightedMedian.of(points) { $0.lfHF } ?? 0
+            sdnn = TimeWeightedMedian.of(points) { $0.sdnn } ?? 0
         }
     }
 
@@ -106,7 +159,7 @@ enum SleepStages {
         for _ in 0..<4 {
             var changed = false
             for run in runs(of: out)
-            where runSeconds(run, points: points, tick: tick) < SleepThresholds.minStageRunSec {
+            where runSeconds(run, points: points, tick: tick) < floor(for: out, run) {
                 guard let replacement = neighbour(of: run, in: out) else { continue }
                 for i in run { out[i] = replacement }
                 changed = true
@@ -114,6 +167,16 @@ enum SleepStages {
             if !changed { break }
         }
         return out
+    }
+
+    /// Wake gets its own, much lower floor. A brief awakening is a real event
+    /// worth counting; a brief stage flicker is not. Sharing one threshold
+    /// erased every awakening under three minutes.
+    private static func floor(for stages: [SleepStage], _ run: [Int]) -> Double {
+        guard let first = run.first else { return SleepThresholds.minStageRunSec }
+        return stages[first] == .wake
+            ? SleepThresholds.minWakeRunSec
+            : SleepThresholds.minStageRunSec
     }
 
     private static func runs(of stages: [SleepStage]) -> [[Int]] {
@@ -168,6 +231,19 @@ enum SleepStages {
     /// 29–52% — so anything built on this must carry that uncertainty forward
     /// rather than presenting a wake count as fact.
     private static func isWake(_ p: MetricsHistoryPoint, _ base: Baseline) -> Bool {
+        // Posture is deliberately NOT consulted here, and the reason is
+        // measured. Wiring `upright` in as a wake cue looked unarguable —
+        // nobody sleeps standing up — and on a real night it reported the
+        // sleeper upright for 1 h 42 m, a quarter of the night, with prone at
+        // another 37 %. Those shares do not describe anyone's night in bed;
+        // they describe a classifier that cannot tell which way up a chest
+        // strap is. Fed into wake detection they produced 4 h 37 m of "awake"
+        // out of 11 h in bed.
+        //
+        // The channel may well be recoverable — the left/right axis is already
+        // known to need calibration, and this looks like the same fault along a
+        // different axis. Until it is calibrated it does not get a vote, and
+        // certainly not a casting one.
         // Either channel alone is enough, and that is deliberate. Getting up
         // shows as motion; lying awake in bed before sleep shows only as an
         // elevated heart rate, with motion no higher than during sleep.
@@ -177,6 +253,13 @@ enum SleepStages {
            motion >= base.motion * SleepThresholds.wakeMotionMultiple { return true }
         if let hr = p.meanBPM, base.hr > 0,
            hr >= base.hr + SleepThresholds.wakeHRRise { return true }
+        // Neither channel clears its own bar, but both are raised at once.
+        // Two independent signals agreeing is its own evidence, and it is the
+        // only thing that catches the quiet awakening that moves each of them
+        // a little and neither a lot.
+        if let motion = p.motion, let hr = p.meanBPM, base.motion > 0, base.hr > 0,
+           motion >= base.motion * SleepThresholds.stirMotionMultiple,
+           hr >= base.hr + SleepThresholds.stirHRRise { return true }
         return false
     }
 

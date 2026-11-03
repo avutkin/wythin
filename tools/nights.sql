@@ -36,11 +36,11 @@ SELECT
     lf_hf,
     coherence,
     breath_bpm,
-    -- motion is not synced to the server today: it lives only in the on-device
-    -- HRVSample rows. Without it the wake channel is blind, so stage output
-    -- from this extract will over-report sleep. Worth knowing before reading
-    -- the numbers — and worth fixing in the sync payload.
-    NULL AS motion
+    -- Carried since 2026-09-06. Null for every sample uploaded before that,
+    -- so a night older than the change still has a blind wake channel and will
+    -- over-report sleep — check that motion is actually present before reading
+    -- stage output from an old extract.
+    motion
 FROM metric_samples
 WHERE user_id = :uid::uuid
 ORDER BY ts;

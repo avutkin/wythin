@@ -97,7 +97,7 @@ final class ImpactDeltaTests: XCTestCase {
         let moves = [
             MetricMovement(name: "RSA", uplift: 12, vs2mo: 5),
             MetricMovement(name: "HRV", uplift: 15, vs2mo: 6),
-            MetricMovement(name: "VTI", uplift: 1,  vs2mo: -1),
+            MetricMovement(name: "Calm Power", uplift: 1,  vs2mo: -1),
             MetricMovement(name: "HR",  uplift: 3,  vs2mo: nil),
         ]
         XCTAssertEqual(ActivityImpact.trendLine(moves),
@@ -136,7 +136,7 @@ extension ImpactDeltaTests {
 
     // MARK: Coverage
     //
-    // The headline percentage is a mean over however many of the nine metrics
+    // The headline percentage is a mean over however many of the named metrics
     // had both a before and a during value. That denominator is now shown to the
     // user, so it has to be exactly the one the mean used — a coverage line that
     // disagrees with the number beside it is worse than no coverage line.
@@ -163,12 +163,12 @@ extension ImpactDeltaTests {
         e.beforeHR = 70;      e.duringHR = 63
         e.beforeRMSSD = 40;   e.duringRMSSD = 50
         e.beforeRSA = 30;     e.duringRSA = 45
-        e.beforeVTI = 3.6;    e.duringVTI = 3.9
         e.beforeStress = 50;  e.duringStress = 44
         e.beforeRCMSE = 1.0;  e.duringRCMSE = 1.5
         e.beforePIP = 40;     e.duringPIP = 34
         e.beforeDC = 6;       e.duringDC = 9
         e.beforeDFA1 = 0.9;   e.duringDFA1 = 1.0
+        e.beforeBreath = 14;  e.duringBreath = 6.5
 
         let coverage = e.impactCoverage
         XCTAssertTrue(coverage.isComplete, "missing: \(coverage.missing.map(\.label))")
@@ -214,7 +214,7 @@ extension ImpactDeltaTests {
         let e = ActivityLog(activityType: "Breathwork")
         e.beforeRMSSD = 0; e.duringRMSSD = 50
 
-        guard let gap = e.impactCoverage.missing.first(where: { $0.label == "Energy Reserve" }) else {
+        guard let gap = e.impactCoverage.missing.first(where: { $0.label == "Calm Power" }) else {
             return XCTFail("a zero baseline should be reported missing")
         }
         XCTAssertTrue(gap.reason.lowercased().contains("zero"), gap.reason)

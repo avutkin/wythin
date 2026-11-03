@@ -15,7 +15,7 @@ from .db import init_pool, close_pool, create_schema
 from .auth import key_ok
 from .auth_user import resolve_bearer, AuthError
 from .mcp_server import mcp
-from .routers import sessions, stream, admin, insights, tokens, me, activities, metrics, profile, usage, raw
+from .routers import sessions, stream, admin, insights, tokens, me, activities, metrics, profile, usage, raw, felt_state
 
 
 @asynccontextmanager
@@ -83,7 +83,13 @@ async def api_key_gate(request: Request, call_next):
     # configured — see server/auth.py).
     if not key_ok(request.headers.get("x-api-key")):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
-    return await call_next(request)
+    response = await call_next(request)
+    # Every admin response says which dashboard the server is serving, so an
+    # open tab — which only ever fetches data, never the page — notices a
+    # deploy and reloads itself instead of drawing old columns from new data.
+    if path.startswith("/admin"):
+        response.headers["X-Dashboard-Version"] = admin.DASHBOARD_VERSION
+    return response
 
 
 app.include_router(sessions.router)
@@ -97,6 +103,7 @@ app.include_router(metrics.router)
 app.include_router(profile.router)
 app.include_router(usage.router)
 app.include_router(raw.router)
+app.include_router(felt_state.router)
 
 app.mount("/mcp", mcp.streamable_http_app())
 

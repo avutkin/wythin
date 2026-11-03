@@ -31,7 +31,7 @@ enum TimeWindow: String, CaseIterable, Identifiable {
 
 // MARK: - Reference Line
 
-private struct RefLine {
+struct RefLine {
     let value: Double
     let label: String
     let color: Color
@@ -92,7 +92,7 @@ enum ChartSegmenter {
 
 // MARK: - Bucketed Data Point
 
-private struct ChartPoint: Identifiable {
+struct ChartPoint: Identifiable {
     let id:      Int    // bucket key — stable across re-renders
     let date:    Date
     let val:     Double
@@ -108,7 +108,7 @@ private struct ChartPoint: Identifiable {
 
 /// A contiguous time span where raw ticks existed but every tick failed the quality filter —
 /// indicating sensor removal or severe contact noise.
-private struct AnomalyBand: Identifiable {
+struct AnomalyBand: Identifiable {
     let id:    Int    // index
     let start: Date
     let end:   Date
@@ -116,7 +116,7 @@ private struct AnomalyBand: Identifiable {
 
 // MARK: - Metric Info
 
-private struct MetricInfo {
+struct MetricInfo {
     let description: String
     let calculation: String?   // the actual method, in plain words
     let physical:    String
@@ -142,7 +142,7 @@ private struct MetricInfo {
 
 // MARK: - Metric Info Sheet
 
-private struct MetricInfoSheet: View {
+struct MetricInfoSheet: View {
     let title: String
     let color: Color
     let info:  MetricInfo
@@ -205,7 +205,36 @@ private struct MetricInfoSheet: View {
 
 // MARK: - Generic Chart Card
 
-private struct MetricChartCard: View {
+/// Shared, despite living here. Sleep needs the *same* card, not one that
+/// merely looks like it: the ask was to press a night's charts and read the
+/// numbers off "the same charts I have in Live", and behaviour parity written
+/// twice is behaviour parity until the next change to one of them. It stays in
+/// this file because moving it means a hand-edited `project.pbxproj`, and a
+/// bad merge of that file is what left `main` uncompilable once already.
+///
+/// Two modes, selected by `night`:
+///
+/// - **nil** — Live's own: a `TimeWindow` slid over a day via `panOffset`.
+/// - **set** — a fixed span with no panning, so every chart in a sleep detail
+///   shares one clock with the hypnogram above it.
+
+struct MetricChartCard: View {
+    /// Plot height. Defaults to the Live screen's 130, where one chart is the
+    /// subject of the screen. The sleep sections pass something shorter: four
+    /// traces stacked under one heading is a different reading task, and at
+    /// full height the group scrolls past the score it is there to explain.
+    /// A stretch of one sleep stage, drawn as a colour along the foot of the
+    /// plot. Time-aligned for free, because it is a mark inside the same chart
+    /// rather than a strip stacked beneath one.
+    struct StageBand: Identifiable, Equatable {
+        let id = UUID()
+        let start: Date
+        let end: Date
+        let colour: Color
+    }
+    let stageBands: [StageBand]
+
+    let chartHeight:   CGFloat
     let title:         String   // consumer name — shown in white
     let technicalName: String   // short technical name — shown in gray after title
     let technicalFull: String   // spelled-out technical name — its own line under the title
@@ -236,15 +265,21 @@ private struct MetricChartCard: View {
     let bucketTransform:  ((Double) -> Double)?
 
     let win: TimeWindow                    // shared window, chosen at the Today header
+    /// A fixed span to draw instead of `win` — set by callers that own their
+    /// own clock. A night is the case that forced it: `TimeWindow` offers 30 m,
+    /// 2 h and 24 h anchored to midnight, and a night crosses midnight, so
+    /// none of the three can frame one.
+    let night: ClosedRange<Date>?
     @Binding var selectedX: Date?
     @Binding var panOffset: TimeInterval   // seconds the window is panned from its newest edge (≤ 0)
     @State private var showInfo = false
 
     init(title: String, technicalName: String = "", technicalFull: String = "",
-         subtitle: String, yLabel: String,
+         subtitle: String, yLabel: String, chartHeight: CGFloat = 130,
          color: Color, windows: [TimeWindow], refs: [RefLine],
          yDomain: ClosedRange<Double>,
          win: TimeWindow,
+         night: ClosedRange<Date>? = nil,
          selectedX: Binding<Date?>,
          panOffset: Binding<TimeInterval>,
          smooth: Bool = false,
@@ -256,7 +291,10 @@ private struct MetricChartCard: View {
          rawHistory: [MetricsHistoryPoint] = [],
          date: Date,
          bucketTransform: ((Double) -> Double)? = nil,
+         stageBands: [StageBand] = [],
          extract: @escaping (MetricsHistoryPoint) -> Double?) {
+        self.stageBands      = stageBands
+        self.chartHeight     = chartHeight
         self.title           = title
         self.technicalName   = technicalName
         self.technicalFull   = technicalFull
@@ -277,6 +315,7 @@ private struct MetricChartCard: View {
         self.bucketTransform = bucketTransform
         self.extract         = extract
         self.win   = win
+        self.night = night
         _selectedX = selectedX
         _panOffset = panOffset
     }
@@ -288,7 +327,7 @@ private struct MetricChartCard: View {
     private var poorQualityBands: [AnomalyBand] {
         guard !history.isEmpty else { return [] }
         let (wStart, wEnd) = windowDates
-        let bucket = win.bucketSeconds
+        let bucket = bucketSeconds
 
         // Accumulate per-bucket quality sums
         var sums:   [Int: Float] = [:]
@@ -328,7 +367,7 @@ private struct MetricChartCard: View {
     private var anomalyBands: [AnomalyBand] {
         guard !rawHistory.isEmpty else { return [] }
         let (wStart, wEnd) = windowDates
-        let bucket = win.bucketSeconds
+        let bucket = bucketSeconds
 
         var rawCounts: [Int: Int]  = [:]
         var qualCounts: [Int: Int] = [:]
@@ -367,6 +406,7 @@ private struct MetricChartCard: View {
     /// Data bucketing range — always loads the full day so selection-based
     /// panning can reach any point without a data gap.
     private var bucketDates: (start: Date, end: Date) {
+        if let night { return (night.lowerBound, night.upperBound) }
         let cal = Calendar.current
         if cal.isDateInToday(date) {
             return (cal.startOfDay(for: date), Date())
@@ -378,16 +418,34 @@ private struct MetricChartCard: View {
     /// Newest edge the window can reach (right edge at pan 0): now for today,
     /// end-of-day for a past day.
     private var anchorEnd: Date {
+        if let night { return night.upperBound }
         let cal = Calendar.current
         return cal.isDateInToday(date)
             ? Date()
             : cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: date))!
     }
 
+    /// How wide the drawn window is. `win.seconds` unless a caller pinned a
+    /// span of its own.
+    private var spanSeconds: TimeInterval {
+        night.map { $0.upperBound.timeIntervalSince($0.lowerBound) } ?? win.seconds
+    }
+
+    /// Same target as `TimeWindow.bucketSeconds` — about 120 points across
+    /// whatever is being shown — so a pinned span gets the same granularity
+    /// per pixel that the live windows do.
+    private var bucketSeconds: TimeInterval {
+        night == nil ? win.bucketSeconds : max(1, spanSeconds / 120)
+    }
+
     /// Allowed pan range in seconds (≤ 0). Panning back is bounded by the
     /// earliest data; you can't pan past the newest edge (0).
     private var panBounds: ClosedRange<TimeInterval> {
-        let span = anchorEnd.timeIntervalSince(bucketDates.start) - win.seconds
+        // A pinned span is already exactly the thing being looked at; there is
+        // nothing to pan to, and allowing it would slide the sleep charts out
+        // of register with the hypnogram they sit under.
+        if night != nil { return 0...0 }
+        let span = anchorEnd.timeIntervalSince(bucketDates.start) - spanSeconds
         return min(0, -span)...0
     }
 
@@ -397,10 +455,17 @@ private struct MetricChartCard: View {
     private var windowDates: (start: Date, end: Date) {
         let clamped = min(max(panOffset, panBounds.lowerBound), panBounds.upperBound)
         let end     = anchorEnd.addingTimeInterval(clamped)
-        return (end.addingTimeInterval(-win.seconds), end)
+        return (end.addingTimeInterval(-spanSeconds), end)
     }
 
     private var windowLabel: String {
+        if night != nil {
+            let fmt = DateFormatter()
+            fmt.dateFormat = "HH:mm"
+            let mins = Int(bucketSeconds / 60)
+            let grain = mins < 1 ? "\(Int(bucketSeconds))s avg" : "\(mins) min avg"
+            return "\(fmt.string(from: windowDates.start))–\(fmt.string(from: windowDates.end))  ·  \(grain)"
+        }
         // Panned back from the newest edge → show the window's start time.
         if panOffset < -1 {
             let fmt = DateFormatter()
@@ -415,7 +480,7 @@ private struct MetricChartCard: View {
 
     private var points: [ChartPoint] {
         let (start, end) = bucketDates
-        let bucket = win.bucketSeconds
+        let bucket = bucketSeconds
         var sums:    [Int: Double] = [:]
         var counts:  [Int: Int]    = [:]
         var qualSum: [Int: Float]  = [:]
@@ -476,7 +541,13 @@ private struct MetricChartCard: View {
     /// Keep the full day visible at 24h. Cropping to the first and last sample
     /// hides precisely the missing hours that a recording chart must disclose.
     private var visibleDates: (start: Date, end: Date) {
-        win == .h24 ? bucketDates : windowDates
+        // A pinned span is drawn exactly as given. Clamping it to each metric's
+        // own data envelope is what would break the alignment the sleep detail
+        // is built on: heart rate and breath rate start and stop at different
+        // ticks, so each chart would silently get a slightly different
+        // x-domain and the crosshair would point at a different moment in each.
+        if night != nil { return windowDates }
+        return win == .h24 ? bucketDates : windowDates
     }
 
     var body: some View {
@@ -613,6 +684,20 @@ private struct MetricChartCard: View {
                 .frame(width: 14)
 
             Chart {
+                // The night's architecture, along the foot of the plot. Drawn
+                // first so the trace and the quality tints sit over it, and
+                // sized as a fraction of the visible domain so it keeps the
+                // same apparent thickness whatever the metric's units are.
+                ForEach(stageBands) { band in
+                    RectangleMark(
+                        xStart: .value("stage start", band.start),
+                        xEnd:   .value("stage end",   band.end),
+                        yStart: .value("stage foot",  domain.lowerBound),
+                        yEnd:   .value("stage head",  domain.lowerBound
+                                       + (domain.upperBound - domain.lowerBound) * 0.08)
+                    )
+                    .foregroundStyle(band.colour)
+                }
                 // Poor quality: amber tint (artifact rate > 20%, signal present but noisy)
                 ForEach(poorBands) { band in
                     RectangleMark(
@@ -706,7 +791,7 @@ private struct MetricChartCard: View {
             .chartPlotStyle { plot in
                 plot.background(Color.black.opacity(0.2))
             }
-            .frame(height: 130)
+            .frame(height: chartHeight)
         }
     }
 
@@ -829,8 +914,13 @@ struct MetricsChartsView: View, Equatable {
             lfhfCard          // Stress Balance
             breathRateCard
             rsaCard           // Conscious Breathing
-            vtiCard           // Calm Power
+            rmssdCard         // Calm Power
             hrCard            // Pulse
+            sdnnCard          // Overall Variability
+            acCard            // Throttle
+            hraCard           // Brake Bias
+            rhythmStabilityCard
+            qtviCard          // Repolarisation Stability
 
             signalQualitySection
         }
@@ -978,8 +1068,8 @@ struct MetricsChartsView: View, Equatable {
 
     private var hrCard: some View {
         MetricChartCard(
-            title:    "Pulse",
-            technicalName: "Heart Rate (HR)",
+            title:    metricDef(.hr).label,
+            technicalName: metricDef(.hr).techFull,
             subtitle: "Your heart rate",
             yLabel:   "bpm",
             color:    Theme.warn,
@@ -1068,12 +1158,12 @@ struct MetricsChartsView: View, Equatable {
         ) { $0.ieRatio.map(Double.init) }
     }
 
-    // MARK: VTI
+    // MARK: RMSSD
 
-    private var vtiCard: some View {
+    private var rmssdCard: some View {
         MetricChartCard(
-            title:   "Calm Power",
-            technicalName: "Root Mean Square of Successive Differences (RMSSD)",
+            title:   metricDef(.rmssd).label,
+            technicalName: metricDef(.rmssd).techFull,
             subtitle: "Total strength of your recovery drive",
             yLabel:  "ms",
             color:   Theme.breathe,
@@ -1096,6 +1186,224 @@ struct MetricsChartsView: View, Equatable {
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.rmssd.map(Double.init) }
+    }
+
+    // MARK: SDNN
+
+    /// Overall Variability. Track charts SDNN as a *daily* average, where it
+    /// approximates the classic 24-hour clinical measure; here it is the raw
+    /// per-window spread, which is a different — smaller — number, so the
+    /// reference lines below are short-window ones and the info sheet says so.
+    /// Both screens take the name from `sdnnMetricDef`.
+    private var sdnnCard: some View {
+        MetricChartCard(
+            title:   sdnnMetricDef.label,
+            technicalName: sdnnMetricDef.techFull,
+            subtitle: "The full spread of your beat-to-beat intervals",
+            yLabel:  "ms",
+            color:   Theme.ulf,
+            windows: TimeWindow.allCases,
+            refs: [
+                RefLine(value:  20, label: "20  narrow",  color: Theme.warn),
+                RefLine(value:  50, label: "50  typical", color: Theme.rsa),
+                RefLine(value: 100, label: "100  broad",  color: Theme.coh),
+            ],
+            yDomain: 0...150,
+            win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
+            dynamicY: true,
+            info: MetricInfo(
+                "The total spread of your beat-to-beat intervals — every rhythm your heart is running at once, fast and slow, folded into one number. Calm Power (RMSSD) hears only the fast, breath-linked rhythms; this hears all of them.",
+                calculation: "Standard deviation of the NN (artifact-free RR) intervals across the current window. Because it is a standard deviation, it grows with the length of the window: slow rhythms only show up once the window is long enough to contain them.",
+                physical:    "How much the gap between one heartbeat and the next drifts over the whole stretch you're looking at — not just from beat to beat, but across minutes.",
+                physiology:  "A wide spread means your nervous system has room to move: it speeds up, slows down, and responds to what the day asks of it. A narrow one means something is holding the heart to a fixed rhythm — stress, illness, alcohol, or hard training you haven't recovered from.",
+                training:    "Read it as range rather than recovery. Calm Power answers “am I recovered right now”; this answers “how much range does my system have”. It is most meaningful over a long window, so prefer 24h — and Track’s daily version, averaged across a whole day of wear, is the one that lines up with the published research.",
+                sensitivity: "Window-dependent above all — the same body reads far higher over 24h than over 30 minutes, so only compare like with like. Within a window it moves with posture, breathing, and any burst of effort.",
+                levels:      "Over a 30m or 2h window\nNarrow:  under 20 ms\nTypical: 20–80 ms\nBroad:   80+ ms\n\nThe familiar clinical cut-offs (50 ms, 100 ms) are 24-hour numbers and do not apply to a short window.",
+                notes:       "A single big artifact inflates it more than any other metric here, since one wrong interval enters the sum squared. Trust it most where the Signal Artifacts chart below is low."
+            ),
+            history: history, rawHistory: rawHistory, date: date
+        ) { $0.sdnn.map(Double.init) }
+    }
+
+    // MARK: AC
+
+    /// Throttle — Vagal Tone's mirror, and free: the same PRSA pass
+    /// that yields DC yields AC, and the engine simply used to drop it.
+    ///
+    /// Drawn as a magnitude via `activationCapacity`. AC is negative by
+    /// definition (Bauer 2006 reports ~-6 ms), but a chart whose line falls as
+    /// the thing it measures gets stronger reads backwards against every other
+    /// card in this stack, so the sign is flipped for display only — the
+    /// stored `ac` keeps it. The reference lines mirror the DC card's for the
+    /// same reason the two metrics share a scale: they come off one curve.
+    private var acCard: some View {
+        MetricChartCard(
+            title:    "Throttle",
+            technicalName: "Acceleration Capacity (AC)",
+            subtitle: "How sharply your heart can speed up",
+            yLabel:   "ms",
+            color:    Color(red: 0.95, green: 0.45, blue: 0.75),
+            windows:  TimeWindow.allCases,
+            refs: [
+                RefLine(value: 4.5,  label: "Reduced",    color: Theme.warn),
+                RefLine(value: 6.1,  label: "Developing", color: Color(hex: "#FCD34D")),
+                RefLine(value: 10.0, label: "Strong",     color: Theme.coh),
+            ],
+            yDomain: 0...20,
+            win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
+            smooth: true,
+            dynamicY: true,
+            info: MetricInfo(
+                "How readily your heart speeds up \u{2014} the accelerating half of the same machinery Vagal Tone measures. Vagal Tone is the brake; this is the throttle.",
+                calculation: "Phase-Rectified Signal Averaging (Bauer et al., 2006) \u{2014} the same pass that produces Vagal Tone, anchored on the opposite beats: every beat where the heart sped up becomes an anchor, the beats around all anchors are averaged into one curve, and a Haar wavelet reads the characteristic acceleration from it. The published value is negative (about \u{2212}6 ms); this chart plots its size, so a bigger number means a stronger acceleration.",
+                physical:    "Every time your heart nudges itself faster between beats \u{2014} reacting to a breath in, a movement, a thought \u{2014} that is the throttle. This tracks how big and how consistent those pushes are.",
+                physiology:  "Acceleration is the vagal brake easing off, plus sympathetic drive on top. A system with range has both a strong brake and a strong throttle. A throttle that is strong while the brake is weak is the signature of a body stuck in go-mode; both weak means range has gone altogether.",
+                training:    "Read it beside Vagal Tone rather than on its own \u{2014} the pair is the point. Both climbing over weeks means widening range; the two drifting apart says more than either number does alone.",
+                sensitivity: "Moves slowly, like Vagal Tone \u{2014} read it as a trend over days and weeks. It needs a couple of minutes of clean signal, and at least 20 accelerating beats inside the window, before it reports anything at all.",
+                levels:      "Building: under 4.5\nTypical:  around 6\nStrong:   10+\nShown as size, so higher = a stronger throttle.\n(Short readings aren\u{2019}t directly comparable to overnight ones.)",
+                notes:       "Blank before 2026-08-31: AC was computed and discarded until then, so no earlier history holds a value. It shares Vagal Tone\u{2019}s gate of ~192 clean intervals, so the two appear and disappear together."
+            ),
+            history: history, rawHistory: rawHistory, date: date
+        ) { $0.activationCapacity }
+    }
+
+    // MARK: HRA
+
+    /// Brake Bias — Heart Rate Asymmetry (Guzik's Index).
+    ///
+    /// The third member of the brake/throttle set: Vagal Tone is how hard the
+    /// brake pulls, Throttle is how hard the accelerator pushes, and this is
+    /// which of the two is doing more of the work. Unlike either, it survives
+    /// a change in overall variability — a system can halve its RMSSD and keep
+    /// the same bias, which is exactly the independence this chart is for.
+    ///
+    /// 50 is the axis, not the floor, so the domain is centred on it and the
+    /// reference lines mark the even point rather than a good/bad boundary.
+    private var hraCard: some View {
+        MetricChartCard(
+            title:    "Brake Bias",
+            technicalName: "Heart Rate Asymmetry (Guzik's Index)",
+            subtitle: "Which side of the rhythm does the work",
+            yLabel:   "%",
+            color:    Color(red: 0.45, green: 0.85, blue: 0.75),
+            windows:  TimeWindow.allCases,
+            refs: [
+                RefLine(value: 46, label: "46  throttle-led", color: Theme.rsa),
+                RefLine(value: 50, label: "50  even",         color: Theme.dim),
+                RefLine(value: 54, label: "54  brake-led",    color: Theme.coh),
+            ],
+            yDomain: 35...65,
+            win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
+            smooth: true,
+            dynamicY: true,
+            info: MetricInfo(
+                "Your heart does not slow and speed up in equal steps. This is the share of your beat-to-beat variation that comes from slowing down rather than speeding up \u{2014} the balance between the brake and the throttle, rather than the strength of either.",
+                calculation: "Guzik\u{2019}s Index: each beat-to-beat change is squared, and the ones where the heart slowed are taken as a percentage of all of them. Squaring is what makes it a share of variance rather than a count \u{2014} one large deceleration counts for more than several small ones.",
+                physical:    "Watch your pulse over a minute and it does not wobble evenly: the slowdowns and the speed-ups come in different sizes. This measures which of the two carries more of that wobble.",
+                physiology:  "A healthy heart is lopsided on purpose \u{2014} decelerations tend to carry slightly more than half the variance. The asymmetry appears to come from the vagus acting faster than sympathetic drive can. Losing it, and drifting toward a flat 50, is the pattern seen with age and with illness.",
+                training:    "Read it beside Vagal Tone and Throttle rather than alone. Those two say how much brake and throttle you have; this says which one is shaping your rhythm. It is a slow measure \u{2014} weeks, not sessions.",
+                sensitivity: "Needs at least 100 clean beats before it reports at all, and moves slowly after that. Distance from 50 is the signal; small wanders around it are noise.",
+                levels:      "Low \u{2014} throttle-led:  under 46\nMiddle \u{2014} even:        46\u{2013}54  (50 is dead even)\nHigh \u{2014} brake-led:    54+\n\nUnlike most charts here, high is not simply better. Resting adults usually sit a little above 50, so brake-led is the familiar resting pattern and a drift toward a flat 50 is the one worth noticing. Read the distance from 50, in either direction, rather than chasing a number."
+            ),
+            history: history, rawHistory: rawHistory, date: date
+        ) { $0.hra.map(Double.init) }
+    }
+
+    // MARK: Rhythm Stability
+
+    /// The fragmentation dimension's other half. Inner Noise (PIP) counts how
+    /// often the rhythm changes direction; this counts how much of it is made
+    /// of very short runs \u{2014} the difference between a rhythm that wanders and
+    /// one that is chopped into pieces.
+    ///
+    /// Deliberately without reference lines. The literature\u{2019}s cut-offs are
+    /// for 24-hour Holter recordings and the source comment\u{2019}s "~62 %" could
+    /// not be verified, so drawing bands here would invent a threshold rather
+    /// than report one. Personal trend only, like VLF Power \u{2014} bands can be
+    /// added once there is enough stored history to know the real spread.
+    private var rhythmStabilityCard: some View {
+        MetricChartCard(
+            title:    "Rhythm Stability",
+            technicalName: "Percentage of Short Segments (PSS), inverted",
+            subtitle: "How much of the rhythm holds together",
+            yLabel:   "%",
+            color:    Color(red: 0.6, green: 0.75, blue: 1.0),
+            windows:  TimeWindow.allCases,
+            refs: [
+                RefLine(value: 30, label: "30  choppy",  color: Theme.warn),
+                RefLine(value: 38, label: "38  typical", color: Color(hex: "#FCD34D")),
+                RefLine(value: 50, label: "50  steady",  color: Theme.coh),
+            ],
+            yDomain: 0...100,
+            win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
+            smooth: true,
+            dynamicY: true,
+            info: MetricInfo(
+                "How much of your heart rhythm runs in sustained stretches rather than being chopped into very short pieces. Higher means the rhythm holds a line; lower means it keeps breaking up.",
+                calculation: "The percentage of beats sitting in runs of two or fewer before the rhythm changes direction \u{2014} then flipped, so the number rises as the rhythm steadies. The published measure (PSS) counts the fragmentation itself and runs the other way.",
+                physical:    "Between changes of direction, your heart rate travels in short runs. This asks how long those runs are: a steady rhythm moves in long sweeps, a fragmented one in constant tiny reversals.",
+                physiology:  "Fragmentation is not the same thing as low variability, which is why it earns its own chart \u{2014} a rhythm can be wide and still be chopped up. It rises with age and with disease of the sinus node, and it is thought to reflect the pacemaker itself misbehaving rather than the nerves that steer it.",
+                training:    "Not something to chase in a session. Watch it across weeks, and read it beside Inner Noise \u{2014} the two describe the same dimension from different angles, and they should broadly agree.",
+                sensitivity: "Needs a couple of minutes of clean signal. Artifacts inflate fragmentation directly, so trust it least where the Signal Artifacts chart below is high.",
+                levels:      "Low \u{2014} choppy:    under 30 %\nMiddle \u{2014} typical:  30\u{2013}50 %\nHigh \u{2014} steady:    50 %+\n\nHigher is better: more of your rhythm is running in sustained stretches rather than breaking up into very short runs.",
+                notes:       "Treat these bands as orientation, not diagnosis. They are anchored on the fragmentation literature\u{2019}s healthy midpoint, but those figures come from 24-hour recordings and this is a short window \u{2014} so the shape of your own trend is the trustworthy part, and the band you land in is the rough part. Blank before this shipped: the value was computed and discarded until now."
+            ),
+            history: history, rawHistory: rawHistory, date: date
+        ) { $0.rhythmStability }
+    }
+
+    // MARK: QTVI
+
+    /// Repolarisation Stability — Berger's QT Variability Index.
+    ///
+    /// The only chart here that is not a transformation of the tachogram.
+    /// Every other card measures the sinus node — how the pacemaker is being
+    /// steered. This measures the ventricular muscle recovering between
+    /// beats, which is different tissue with different failure modes, and
+    /// QTVI is built to be the part heart-rate variability does *not*
+    /// explain: both variabilities are normalised by their own mean before
+    /// the ratio is taken.
+    ///
+    /// Plotted inverted, so the line rises as repolarisation gets steadier
+    /// and the card agrees with its own title. Raw QTVI runs the other way —
+    /// negative is healthy, around −1.5 to −1.9 in the literature — which is
+    /// why the axis is labelled and the info sheet gives the real numbers.
+    ///
+    /// Treat it as provisional. The H10 samples at 130 Hz where the QT
+    /// literature uses 500–1000 Hz, and T-wave end on a single bipolar chest
+    /// lead is the least certain landmark in electrocardiography. The
+    /// beat-to-beat *precision* the index actually depends on is tested; the
+    /// absolute calibration against clinical equipment is not, and cannot be
+    /// from this codebase.
+    private var qtviCard: some View {
+        MetricChartCard(
+            title:    "Repolarisation Stability",
+            technicalName: "QT Variability Index (QTVI), inverted",
+            subtitle: "How steadily the heart muscle resets",
+            yLabel:   "index",
+            color:    Color(red: 0.85, green: 0.6, blue: 0.95),
+            windows:  TimeWindow.allCases,
+            refs: [
+                RefLine(value: 1.0, label: "1.0  unsteady", color: Theme.warn),
+                RefLine(value: 1.5, label: "1.5  typical",  color: Color(hex: "#FCD34D")),
+                RefLine(value: 1.9, label: "1.9  steady",   color: Theme.coh),
+            ],
+            yDomain: -1...3,
+            win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
+            smooth: true,
+            dynamicY: true,
+            info: MetricInfo(
+                "Every heartbeat has two halves: the squeeze, and the electrical reset that readies the muscle for the next one. Every other chart here watches the squeeze being scheduled. This one watches the reset — and how much it wobbles from beat to beat.",
+                calculation: "Berger\u{2019}s QT Variability Index: the QT interval is measured on each beat from the raw ECG, and its variability is compared against heart-rate variability, each divided by the square of its own average. Because both sides are scaled that way, what is left is the wobble in the reset that changes in heart rate do not account for. Shown inverted, so higher is steadier.",
+                physical:    "After each beat your heart muscle has to recharge before it can beat again. That recharge takes a few tenths of a second, and it should take about the same time every beat. This measures how much that time drifts.",
+                physiology:  "This is the one measure here that is not about your nerves steering the pacemaker \u{2014} it is about the ventricular muscle itself. An unsteady reset is the pattern linked with arrhythmic risk, and it also rises with sustained sympathetic load, depression and anxiety, which is why it earns a place next to the autonomic charts rather than inside them.",
+                training:    "Not a dial to move in a session. It is a slow, whole-system marker: read it across weeks, and read a change as a question rather than an answer.",
+                sensitivity: "Needs a clean ECG and at least 32 delineated beats before it reports anything, and it rebuilds from scratch after the strap comes off. Movement is its enemy \u{2014} the T wave is small and easily buried.",
+                levels:      "Low \u{2014} unsteady:  under 1.0\nMiddle \u{2014} typical:  1.0\u{2013}1.9\nHigh \u{2014} steady:    1.9+\n\nHigher is steadier. These come from the published QTVI range, which is negative \u{2014} about \u{2212}1.9 (steady) to \u{2212}1.0 (unsteady), with anything above \u{2212}1.0 treated as abnormal. This chart plots the sign-flipped value, so the numbers read the right way up.",
+                notes:       "Read the bands with real caution. The strap samples at 130 Hz where this literature uses 500\u{2013}1000 Hz, and early readings here sit well below the published range \u{2014} which says our scale is offset, not that your heart is unwell. Until it is calibrated against a clinical recording, the direction your own line moves is the only part worth trusting. Blank before this shipped, and blank on any window the ECG stream was not running."
+            ),
+            history: history, rawHistory: rawHistory, date: date
+        ) { $0.qtvi.map { -Double($0) } }
     }
 
     // MARK: Breath Rate
@@ -1142,8 +1450,8 @@ struct MetricsChartsView: View, Equatable {
 
     private var rsaCard: some View {
         MetricChartCard(
-            title:   "Conscious Breathing",
-            technicalName: "Respiratory Sinus Arrhythmia (RSA)",
+            title:   metricDef(.rsa).label,
+            technicalName: metricDef(.rsa).techFull,
             subtitle: "How your breath moves your heart rate",
             yLabel:  "ms",
             color:   Theme.rsa,
@@ -1206,8 +1514,8 @@ struct MetricsChartsView: View, Equatable {
 
     private var dcCard: some View {
         MetricChartCard(
-            title:    "Vagal Tone",
-            technicalName: "Deceleration Capacity (DC)",
+            title:    metricDef(.dc).label,
+            technicalName: metricDef(.dc).techFull,
             subtitle: "Your relaxation and recovery capacity",
             yLabel:   "ms",
             color:    Color(red: 0.4, green: 0.7, blue: 1.0),
@@ -1238,8 +1546,8 @@ struct MetricsChartsView: View, Equatable {
 
     private var rcmseCard: some View {
         MetricChartCard(
-            title:    "Adaptive Capacity",
-            technicalName: "Multiscale Sample Entropy (RCMSE)",
+            title:    metricDef(.rcmse).label,
+            technicalName: metricDef(.rcmse).techFull,
             subtitle: "How flexibly your system adapts across timescales",
             yLabel:   "entropy",
             color:    Color(red: 0.8, green: 0.5, blue: 1.0),
@@ -1270,8 +1578,8 @@ struct MetricsChartsView: View, Equatable {
 
     private var pipCard: some View {
         MetricChartCard(
-            title:    "Inner Noise",
-            technicalName: "Percentage of Inflection Points (PIP)",
+            title:    metricDef(.pip).label,
+            technicalName: metricDef(.pip).techFull,
             subtitle: "Beat-to-beat fragmentation — rises with stress and fatigue",
             yLabel:   "%",
             color:    Color(red: 1.0, green: 0.7, blue: 0.3),
@@ -1302,8 +1610,8 @@ struct MetricsChartsView: View, Equatable {
 
     private var dfa1Card: some View {
         MetricChartCard(
-            title:   "Harmony",
-            technicalName: "Detrended Fluctuation Analysis (DFA α1)",
+            title:   metricDef(.dfa1).label,
+            technicalName: metricDef(.dfa1).techFull,
             subtitle: "How ordered vs random your heart rhythm is",
             yLabel:  "α1",
             color:   Theme.ulf,
@@ -1335,8 +1643,8 @@ struct MetricsChartsView: View, Equatable {
 
     private var lfhfCard: some View {
         MetricChartCard(
-            title:   "Stress Balance",
-            technicalName: "100·(1 − RMSSD index) (SNS %)",
+            title:   metricDef(.stressBalance).label,
+            technicalName: metricDef(.stressBalance).techFull,
             subtitle: "Balance of activation vs rest",
             yLabel:  "%",
             color:   Theme.rsa,

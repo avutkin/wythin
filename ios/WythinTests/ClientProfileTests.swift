@@ -203,8 +203,16 @@ final class ClientProfileTests: XCTestCase {
         XCTAssertFalse(OnboardingValidation.isValidEmail("nope"))
         XCTAssertFalse(OnboardingValidation.isValidEmail("a@b"))
         XCTAssertFalse(OnboardingValidation.isValidEmail("a@b."))
+        XCTAssertFalse(OnboardingValidation.isValidEmail("a@b.c"))          // one-letter top level
+        XCTAssertFalse(OnboardingValidation.isValidEmail("a@b..com"))       // doubled dot
+        XCTAssertFalse(OnboardingValidation.isValidEmail(".a@b.com"))       // leading dot
+        XCTAssertFalse(OnboardingValidation.isValidEmail("a b@c.com"))      // space
+        XCTAssertFalse(OnboardingValidation.isValidEmail("a@@b.com"))
+        XCTAssertFalse(OnboardingValidation.isValidEmail("a@-b.com"))       // label starts on a hyphen
         XCTAssertTrue(OnboardingValidation.isValidEmail("a@b.com"))
         XCTAssertTrue(OnboardingValidation.isValidEmail("First.Last@Example.co.uk"))
+        XCTAssertTrue(OnboardingValidation.isValidEmail("user+tag@sub.example.io"))
+        XCTAssertTrue(OnboardingValidation.isValidEmail("  padded@example.com  "))
     }
 
     // MARK: Name validation
@@ -212,7 +220,42 @@ final class ClientProfileTests: XCTestCase {
     func testNameValidation() {
         XCTAssertFalse(OnboardingValidation.isValidName(""))
         XCTAssertFalse(OnboardingValidation.isValidName("   "))
+        XCTAssertFalse(OnboardingValidation.isValidName("x"))               // one keystroke
+        XCTAssertFalse(OnboardingValidation.isValidName("Ó"))
+        XCTAssertFalse(OnboardingValidation.isValidName("123"))
+        XCTAssertFalse(OnboardingValidation.isValidName("a1"))
+        XCTAssertFalse(OnboardingValidation.isValidName("Ada!"))
+        XCTAssertFalse(OnboardingValidation.isValidName("ada@example.com"))
+        XCTAssertFalse(OnboardingValidation.isValidName("-Ada"))            // must start on a letter
+        XCTAssertFalse(OnboardingValidation.isValidName("--"))
+        XCTAssertFalse(OnboardingValidation.isValidName(String(repeating: "a", count: 61)))
         XCTAssertTrue(OnboardingValidation.isValidName("Ada"))
-        XCTAssertTrue(OnboardingValidation.isValidName("Ó"))
+        XCTAssertTrue(OnboardingValidation.isValidName("Lu"))
+        XCTAssertTrue(OnboardingValidation.isValidName("Ada Lovelace"))
+        XCTAssertTrue(OnboardingValidation.isValidName("O'Brien"))
+        XCTAssertTrue(OnboardingValidation.isValidName("Jean-Luc"))
+        XCTAssertTrue(OnboardingValidation.isValidName("Zoë"))
+        XCTAssertTrue(OnboardingValidation.isValidName("Иван"))
+        XCTAssertTrue(OnboardingValidation.isValidName("María José"))
+        XCTAssertTrue(OnboardingValidation.isValidName("St. John"))
+    }
+
+    // MARK: Required contact
+
+    /// Onboarding cannot finish, and the profile never uploads, without a
+    /// first name, a surname and an email that look like one.
+    func testRequiredContactNeedsBothNamesAndAnEmail() {
+        var p = ClientProfile()
+        XCTAssertFalse(p.hasRequiredContact, "the blank default is not a finished profile")
+        p.firstName = "Ada"; p.lastName = "Lovelace"; p.email = "ada@example.com"
+        XCTAssertTrue(p.hasRequiredContact)
+        p.email = "ada@example"
+        XCTAssertFalse(p.hasRequiredContact)
+        p.email = "ada@example.com"; p.lastName = ""
+        XCTAssertFalse(p.hasRequiredContact)
+        p.lastName = "L"
+        XCTAssertFalse(p.hasRequiredContact, "one keystroke is not a surname")
+        p.lastName = "Lovelace"; p.firstName = "7"
+        XCTAssertFalse(p.hasRequiredContact)
     }
 }

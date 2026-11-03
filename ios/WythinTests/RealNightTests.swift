@@ -72,7 +72,22 @@ final class RealNightTests: XCTestCase {
         }
         XCTAssertEqual(stage(at: "07:30"), .wake, "motion 30 mg, HR 77 — up for the day")
         XCTAssertNotEqual(stage(at: "03:00"), .wake, "mid-night must not read as awake")
-        XCTAssertNotEqual(stage(at: "05:45"), .wake, "a brief stir is not a wake bout")
+        // 05:45 was asserted to be a stir rather than a wake bout. Measured
+        // against this night's own baseline — 58 bpm, 5.2 mg — that reading
+        // does not survive: 05:25 through 05:40 are wake on unsettled
+        // breathing, and 05:50 is 73 bpm, which clears the single-channel
+        // heart-rate gate on its own. 05:45 sat between them as a five-minute
+        // island of sleep inside a half-hour awakening.
+        //
+        // The corroborated-stir rule closes that hole, and closing it is the
+        // whole of what it does here: across all 143 buckets of this night it
+        // newly marks exactly one, this one. It is not smearing wake outward —
+        // it is refusing to punch a hole in a bout that is wake either side.
+        XCTAssertEqual(stage(at: "05:45"), .wake, "hr 64, motion 14.4, wake on both sides")
+        // The guard the old assertion was really providing. 05:55 is 56 bpm at
+        // 6.6 mg — this night's resting signature — and is the first bucket
+        // after the bout. A rule that bled wake outward would take it.
+        XCTAssertNotEqual(stage(at: "05:55"), .wake, "wake must not bleed past the bout")
     }
 
     // MARK: - Onset, breathing, and the duration rule
@@ -111,10 +126,11 @@ final class RealNightTests: XCTestCase {
         // causally harmful while long sleep is a marker of illness rather than
         // a cause, and says in terms: do not tell users that sleeping long is
         // harmful.
-        var over = SleepScoreInput(regularityIndex: nil, asleepSec: 10.1 * 3600,
+        var over = SleepScoreInput(bedtimeSDMin: nil, asleepSec: 10.1 * 3600,
                                    needSec: 7.75 * 3600, wakeBouts: 3,
                                    longestUnbrokenSec: 3 * 3600, hrNadirDip: 14,
-                                   hrNadirFraction: 0.45, meanRMSSD: 52, steadyFraction: 0.9)
+                                   hrNadirFraction: 0.45, quietRMSSD: 52, quietRMSSDBaseline: 50,
+                                   steadyFraction: 0.9)
         let long = SleepScore.compute(over).sections[.duration] ?? 0
         over.asleepSec = 4 * 3600
         let short = SleepScore.compute(over).sections[.duration] ?? 100

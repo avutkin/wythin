@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import Wythin
 
 /// BLE packet parser tests — run on simulator or device.
@@ -371,6 +372,59 @@ final class BLETests: XCTestCase {
         XCTAssertEqual(cmd, PolarH10Profile.cmdACCStart)
     }
 
+    // MARK: - Connection failure pattern (possible multi-app contention)
+    //
+    // The H10 is a single-link BLE peripheral: only one central can hold its
+    // GATT connection. A native Polar app with its own background connection
+    // competes for that one slot, and CoreBluetooth gives the losing side
+    // nothing distinctive back — just the same connectionTimeout a dead
+    // battery or an out-of-range strap would also produce. There is no CBError
+    // code that means "someone else has it," so this cannot name the cause.
+    // What it CAN do honestly is notice the shape only contention produces:
+    // several failures in quick succession, not a single one.
+    func testConnectionFailurePatternIsQuietOnAFirstFailure() {
+        XCTAssertFalse(ConnectionFailurePattern.looksLikeContention(
+            recentFailureCount: 1, windowSeconds: 20))
+    }
+
+    func testConnectionFailurePatternFlagsARapidRun() {
+        XCTAssertTrue(ConnectionFailurePattern.looksLikeContention(
+            recentFailureCount: 3, windowSeconds: 20))
+    }
+
+    func testConnectionFailurePatternIgnoresFailuresSpreadOverTime() {
+        // Three failures is only informative if they were fast — spread
+        // across an hour they are just as consistent with "nobody's home."
+        XCTAssertFalse(ConnectionFailurePattern.looksLikeContention(
+            recentFailureCount: 3, windowSeconds: 3600))
+    }
+
+    // MARK: - Discovery retry policy
+    //
+    // `didDiscoverServices` and `didDiscoverCharacteristicsFor` used to print
+    // their error and return — no retry, state left at `.connected`, nothing
+    // user-visible. A transient CoreBluetooth discovery error (documented to
+    // happen, especially right after a background state-restoration connect)
+    // left the strap connected forever with no characteristics ever
+    // subscribed: no HR, no PMD, nothing recorded, until something external
+    // (a manual reconnect, an app kill) intervened. This is a second, distinct
+    // way to reproduce "the strap shows connected but nothing is happening" —
+    // DiscoveryRetryPolicy is the decision; BLEService wires it to a few
+    // retries, then forces a disconnect so the existing, already-tested
+    // pending-reconnect path takes over rather than staying silently stuck.
+
+    func testDiscoveryRetryPolicyRetriesBelowTheLimit() {
+        XCTAssertEqual(DiscoveryRetryPolicy.decide(retriesUsed: 0), .retry)
+        XCTAssertEqual(DiscoveryRetryPolicy.decide(retriesUsed: 1), .retry)
+    }
+
+    func testDiscoveryRetryPolicyGivesUpAtTheLimit() {
+        XCTAssertEqual(DiscoveryRetryPolicy.decide(retriesUsed: DiscoveryRetryPolicy.maxRetries),
+                       .giveUpAndReconnect)
+        XCTAssertEqual(DiscoveryRetryPolicy.decide(retriesUsed: DiscoveryRetryPolicy.maxRetries + 5),
+                       .giveUpAndReconnect, "must not retry forever on a wedged peripheral")
+    }
+
     // MARK: - Standby policy (contact bit optional in BOTH directions)
 
     func testLiveSensorStreamCannotBeStoppedByStaleQualityOrContact() {
@@ -389,9 +443,16 @@ final class BLETests: XCTestCase {
     }
 
     func testOffBodyScoreContactAuthoritative() {
-        XCTAssertEqual(StandbyPolicy.offBodyScore(
-            contact: false, ecgPoor: false, rrBad: false, still: false), 3,
-            "contact=false alone trips the fast path")
+        // Was: contact=false alone scored 3 and tripped the 5 s fast path.
+        // It cannot any more. A doffed strap stops producing plausible RR
+        // within seconds, so live RR contradicts the bit outright — and the
+        // bit lies, on dry electrodes, for a whole night at a time.
+        XCTAssertLessThan(StandbyPolicy.offBodyScore(
+            contact: false, ecgPoor: false, rrBad: false, still: false), 2,
+            "a contact bit contradicted by live RR must not reach standby alone")
+        XCTAssertGreaterThanOrEqual(StandbyPolicy.offBodyScore(
+            contact: false, ecgPoor: true, rrBad: true, still: false), 3,
+            "but a genuinely doffed strap still trips the fast path")
         XCTAssertEqual(StandbyPolicy.offBodyScore(
             contact: true, ecgPoor: true, rrBad: true, still: true), 2,
             "a stuck contact=true dampens but cannot veto three signal cues")
@@ -417,6 +478,19 @@ final class BLETests: XCTestCase {
         XCTAssertLessThan(StandbyPolicy.offBodyScore(
             contact: nil, ecgPoor: true, rrBad: false, still: true), 2,
             "a motionless sleeper with good RR must not be dropped into standby")
+    }
+
+    /// The overnight failure, with the contact bit present.
+    ///
+    /// `testStillSleeperWithLiveHeartbeatIsNotOffBody` fixed this for straps
+    /// that never report contact at all. Straps that DO report it were left
+    /// exposed: electrodes dry out across a night, the H10 asserts no
+    /// contact, and the score reached the fast path in five seconds while
+    /// the wearer slept on with a perfectly good heartbeat.
+    func testWornStrapWithALyingContactBitIsNotDroppedIntoStandby() {
+        XCTAssertLessThan(StandbyPolicy.offBodyScore(
+            contact: false, ecgPoor: true, rrBad: false, still: true), 2,
+            "dry electrodes lie about contact; live RR is the honest witness")
     }
 
     func testStillnessStillCountsWhenTheHeartbeatIsGone() {
@@ -458,12 +532,133 @@ final class BLETests: XCTestCase {
                        "run restarted — only three plausible frames since the reset")
     }
 
+    // MARK: - Diagnostics export visibility
+    //
+    // `BLEDiag` has written real evidence to a durable file since the ACC
+    // watchdog work — connect failures, PMD start results, raw CP bytes —
+    // and none of it was ever retrievable. Every report so far (Kate's
+    // included) has been reverse-engineered from a chart screenshot because
+    // there was no way to see what the BLE stack actually did. This is the
+    // visibility gate for the Settings row that fixes that: hidden when
+    // there's nothing to share, so a fresh install or a freshly-rotated log
+    // doesn't offer an empty file.
+
+    func testDiagExportIsHiddenWhenTheFileHasNeverBeenWritten() {
+        XCTAssertFalse(BLEDiagExport.isAvailable(fileSize: nil))
+    }
+
+    func testDiagExportIsHiddenForAnEmptyFile() {
+        XCTAssertFalse(BLEDiagExport.isAvailable(fileSize: 0))
+    }
+
+    func testDiagExportIsAvailableOnceSomethingHasBeenLogged() {
+        XCTAssertTrue(BLEDiagExport.isAvailable(fileSize: 42))
+    }
+
+    // MARK: - Standby resume: genuine gap vs continuous data
+    //
+    // Forwarding plausible RR during standby (above) stopped a brief
+    // misclassification from costing data — but it also means a GENUINE
+    // standby, where the strap really was off for real minutes, now bridges
+    // that real gap silently: the last beat before removal and the first
+    // beat after re-donning sit directly adjacent in the RR array, with no
+    // marker between them. PRSA reads that seam as one ordinary beat-to-beat
+    // step, and with few beats yet in the post-gap window, that one
+    // artificial jump can dominate Vagal Tone/Throttle's average — exactly
+    // the spike reported right where a "no signal" band ends.
+    //
+    // The fix distinguishes the two cases by the one signal that actually
+    // tells them apart: whether a beat was forwarded recently. Continuous
+    // misclassification keeps forwarding throughout, so the gap since the
+    // last one stays tiny. A genuine standby forwards nothing for the whole
+    // real gap, so it doesn't.
+
+    func testStandbyGapPolicyDoesNotClearAfterContinuousForwarding() {
+        // ~1 Hz cadence; a couple of seconds since the last beat is normal.
+        XCTAssertFalse(StandbyGapPolicy.shouldClearOnResume(secondsSinceLastForwardedBeat: 2))
+    }
+
+    func testStandbyGapPolicyClearsAfterARealGap() {
+        XCTAssertTrue(StandbyGapPolicy.shouldClearOnResume(secondsSinceLastForwardedBeat: 180))
+    }
+
+    func testStandbyGapPolicyClearsWhenNothingWasEverForwarded() {
+        // First connection of a session, or a buffer that was already empty —
+        // clearing is a safe no-op, and treating "unknown" as "assume a gap"
+        // is the conservative direction to be wrong in.
+        XCTAssertTrue(StandbyGapPolicy.shouldClearOnResume(secondsSinceLastForwardedBeat: nil))
+    }
+
+    // MARK: - Single-frame plausibility (forwarding during standby)
+    //
+    // `StandbyResumeGate.isPlausible` decides "has standby genuinely ended,"
+    // and rightly demands a RUN of good frames so a burst of doffing noise
+    // can't fake a resume. But that same bar was, until now, also the reason
+    // real beats from a worn-and-misclassified strap were thrown away one
+    // frame at a time: `didUpdateValueFor` returned before ever forwarding
+    // RR while `inStandby`, so a stretch of perfectly good data was deleted
+    // the instant the (possibly wrong) classification fired.
+    //
+    // `isPhysiologicallyPlausible` is the single-frame half of that check —
+    // the one that needs no history — so it can gate "is this frame worth
+    // keeping" independently of "has standby actually ended."
+
+    func testSingleFramePlausibilityAcceptsAnOrdinaryRestingBeat() {
+        XCTAssertTrue(StandbyResumeGate.isPhysiologicallyPlausible(bpm: 65, rr: [923]))
+    }
+
+    func testSingleFramePlausibilityRejectsAZeroBPMFrame() {
+        // The H10's tell for doffed: bpm reports 0 within seconds.
+        XCTAssertFalse(StandbyResumeGate.isPhysiologicallyPlausible(bpm: 0, rr: []))
+    }
+
+    func testSingleFramePlausibilityRejectsRRThatDoesNotExplainTheBPM() {
+        // 60 bpm implies ~1000 ms RR; 400 ms is a different heart entirely —
+        // the signature of noise, not a slow or fast real beat.
+        XCTAssertFalse(StandbyResumeGate.isPhysiologicallyPlausible(bpm: 60, rr: [400]))
+    }
+
+    func testSingleFramePlausibilityRejectsNonHumanRRIntervals() {
+        XCTAssertFalse(StandbyResumeGate.isPhysiologicallyPlausible(bpm: 70, rr: [50]))
+    }
+
     func testResumeGateExplicitOffBodyNeverResumes() {
         var gate = StandbyResumeGate()
         for i in 0..<6 {
             XCTAssertFalse(gate.step(contact: false, bpm: 70, rrIntervalsMs: [857],
                                      secondsInStandby: TimeInterval(20 + i)),
                            "contact=false is authoritative — plausible-looking noise loses")
+        }
+    }
+
+    /// The deadlock. `enterStandby` keeps the GATT link, so the connect path
+    /// that clears standby never runs, and the only way out was a resume gate
+    /// that returned false for `contact == false` unconditionally. A strap
+    /// whose bit stuck false was held down indefinitely — link up, beats
+    /// arriving, nothing recorded. That is a lost night, and Kate lost one.
+    ///
+    /// Sustained physiological evidence now outvotes the bit. It takes four
+    /// times the usual run, because this is overriding an explicit negative
+    /// rather than filling in for a missing one.
+    func testASustainedRunOfGoodBeatsOverridesAStuckContactBit() {
+        var gate = StandbyResumeGate()
+        var resumed = false
+        for i in 0..<40 where !resumed {
+            resumed = gate.step(contact: false, bpm: 70, rrIntervalsMs: [857],
+                                secondsInStandby: TimeInterval(20 + i))
+        }
+        XCTAssertTrue(resumed, "a worn strap must not be held in standby forever")
+    }
+
+    /// The override must not rescue a strap that is actually off. A doffed
+    /// H10 stops reporting a human heart within seconds, so there is no run
+    /// of plausible frames for it to accumulate.
+    func testADoffedStrapIsNeverRescuedByTheOverride() {
+        var gate = StandbyResumeGate()
+        for i in 0..<60 {
+            XCTAssertFalse(gate.step(contact: false, bpm: 0, rrIntervalsMs: [],
+                                     secondsInStandby: TimeInterval(20 + i)),
+                           "no heartbeat, no resume")
         }
     }
 
@@ -595,5 +790,21 @@ final class BLETests: XCTestCase {
         await buf.appendRR([800, 200, 800, 2500, 800])   // 200 and 2500 are artifacts
         let snap = await buf.snapshot()
         XCTAssertEqual(snap.rr.count, 3, "Artifacts should be rejected on append")
+    }
+}
+
+/// A system relaunch for Bluetooth state restoration starts the app in the
+/// background with no scene phase change to follow. The foreground flag must
+/// come from the launch state, or the app runs its on-screen workload in the
+/// background until iOS stops it.
+final class LaunchForegroundTests: XCTestCase {
+    func testBackgroundLaunchIsNotForeground() {
+        XCTAssertFalse(LaunchForeground.isForeground(.background))
+    }
+
+    func testNormalColdLaunchIsForeground() {
+        // A tap-to-open cold launch is still `.inactive` while `init` runs.
+        XCTAssertTrue(LaunchForeground.isForeground(.inactive))
+        XCTAssertTrue(LaunchForeground.isForeground(.active))
     }
 }

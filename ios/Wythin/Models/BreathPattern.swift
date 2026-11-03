@@ -96,6 +96,30 @@ struct BreathPattern: Equatable, Hashable {
     }
 }
 
+// MARK: - Note value
+//
+// What one count is worth against the tempo. The tempo is read in quarter notes,
+// the way a metronome is set, so an eighth-note count clicks twice per beat.
+// That is what lets a phase of eleven counts run 5.5 s at a 60 BPM tempo rather
+// than 11 s — the tempo you set and the count you keep stay independent.
+//
+// Only halves of a quarter are offered, so the click rate is always a whole
+// number of beats a minute and the accent cannot land between clicks.
+
+enum NoteValue: Int, CaseIterable, Identifiable {
+    case quarter = 4
+    case eighth  = 8
+
+    var id: Int { rawValue }
+
+    /// "1/4", "1/8" — how the control names it.
+    var label: String { "1/\(rawValue)" }
+
+    /// Clicks per quarter-note beat: the factor the tempo is multiplied by to
+    /// get the rate the engine actually ticks at.
+    var clicksPerBeat: Int { rawValue / 4 }
+}
+
 // MARK: - Even cadence
 //
 // A hold-free breath is the one practice people describe in seconds — "five and

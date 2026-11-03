@@ -24,7 +24,20 @@ final class HRVSample {
     var rcmse:          Float?
     var pip:            Float?
     var ials:           Float?
+    /// HR Fragmentation: % of beats in short segments, and Heart Rate
+    /// Asymmetry (Guzik's Index, %). Optional attributes on a plain @Model, so
+    /// SwiftData migrates existing stores — nil on every sample recorded
+    /// before these existed. Not synced, so a cloud restore leaves them nil.
+    var pss:            Float?
+    var hra:            Float?
+    /// QT Variability Index. Optional attribute, so SwiftData migrates.
+    var qtvi:           Float?
     var dc:             Float?
+    /// Acceleration Capacity (ms), DC's mirror. Optional attribute on a plain
+    /// @Model, so SwiftData migrates existing stores automatically — nil on
+    /// every sample recorded before this existed. Not synced to the server
+    /// yet, so a cloud restore leaves it nil; can be added without migration.
+    var ac:             Float?
     var motion:         Float?   // SD of ACC vector magnitude (mg) — stillness
     /// Body position from the gravity direction (`BodyPosition.rawValue`), and
     /// the confidence of that call. Optional so existing stores migrate without
@@ -64,7 +77,11 @@ final class HRVSample {
         self.rcmse         = tick.rcmse
         self.pip           = tick.pip
         self.ials          = tick.ials
+        self.pss           = tick.pss
+        self.hra           = tick.hra
+        self.qtvi          = tick.qtvi
         self.dc            = tick.dc
+        self.ac            = tick.ac
         self.motion        = tick.motion
         self.bodyPositionRaw    = tick.bodyPosition?.rawValue
         self.positionConfidence = tick.positionConfidence
@@ -76,15 +93,22 @@ final class HRVSample {
         self.hfPower    = tick.hfPower
     }
 
-    /// Restore initializer: exactly the fourteen fields continuous sync
-    /// uploads, so a cloud read-back round-trips to the same shape it left in.
-    /// Everything sync never carried (powers, quality, motion…) stays nil —
-    /// restored history is chart-and-baseline grade, not raw-signal grade.
+    /// Restore initializer: exactly the fields continuous sync uploads, so a
+    /// cloud read-back round-trips to the same shape it left in. Everything
+    /// sync never carried (powers, position…) stays nil — restored history is
+    /// chart-and-baseline grade, not raw-signal grade.
+    ///
+    /// `motion` and the quality triad are the exceptions, and default to nil
+    /// so a page uploaded before they were carried still restores. Motion is
+    /// here because the sleep pipeline cannot be reproduced without it; the
+    /// quality fields are here because without them a restored night cannot
+    /// be told apart from a garbage one — the whole point of carrying them.
     init(cloudTs: Date,
          meanBPM: Float?, rmssd: Float?, sdnn: Float?, pnn50: Float?,
          lfHF: Float?, rsaMs: Float?, coherence: Float?, cbi: Float?,
          breathBPM: Float?, dfa1: Float?, rcmse: Float?, pip: Float?,
-         dc: Float?, vti: Float?) {
+         dc: Float?, vti: Float?, motion: Float? = nil,
+         signalQuality: Float? = nil, rrInvalidRate: Float? = nil, ecgQualityTier: Int? = nil) {
         self.timestamp = cloudTs
         self.meanBPM   = meanBPM
         self.rmssd     = rmssd
@@ -100,11 +124,17 @@ final class HRVSample {
         self.pip       = pip
         self.dc        = dc
         self.vti       = vti
+        self.motion    = motion
 
-        self.rsaIdx = nil; self.ieRatio = nil; self.signalQuality = nil
+        self.ac = nil
+        self.rsaIdx = nil; self.ieRatio = nil
+        self.signalQuality  = signalQuality
         self.breathSourceRaw = nil
-        self.rrInvalidRate = nil; self.rrCorrectedRate = nil; self.ecgQualityTier = nil
-        self.ials = nil; self.motion = nil
+        self.rrInvalidRate   = rrInvalidRate
+        self.rrCorrectedRate = nil
+        self.ecgQualityTier  = ecgQualityTier
+        self.ials = nil
+        self.pss = nil; self.hra = nil; self.qtvi = nil
         self.bodyPositionRaw = nil; self.positionConfidence = nil
         self.ulfPower = nil; self.vlfPower = nil; self.lfPower = nil; self.hfPower = nil
     }
@@ -134,6 +164,7 @@ final class HRVSample {
         self.rmssd     = rmssd
         self.sdnn      = sdnn
         self.dc        = dc
+        self.ac        = nil
         self.pip       = pip
         self.dfa1      = dfa1
         self.breathBPM = breathBPM
@@ -145,6 +176,7 @@ final class HRVSample {
         self.pnn50 = nil; self.lfHF = nil; self.rsaMs = nil; self.rsaIdx = nil
         self.coherence = nil; self.cbi = nil; self.ieRatio = nil
         self.rrCorrectedRate = nil; self.rcmse = nil; self.ials = nil
+        self.pss = nil; self.hra = nil; self.qtvi = nil
         self.breathSourceRaw = nil
         self.ulfPower = nil; self.vlfPower = nil; self.lfPower = nil; self.hfPower = nil
     }

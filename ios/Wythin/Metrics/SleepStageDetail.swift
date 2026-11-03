@@ -15,11 +15,18 @@ import Foundation
 /// 1. **N1 is not reported.** It is roughly 5% of a night, human scorers agree
 ///    on it at κ 0.24 — worse than any other stage — and no cardiac method in
 ///    the literature recovers it. It is folded into light.
-/// 2. **The proportions are imposed, not discovered.** Ticks are ranked on a
-///    depth axis and cut at typical adult shares. That means the *ordering* is
-///    measured and the *totals* are assumed, so a night with unusually little
-///    deep sleep will still be reported near the typical share. Trust the
-///    shape; do not read the minutes as a measurement.
+/// 2. **The totals are calibrated, not validated.** Ticks are placed on a
+///    within-night depth axis and cut at fixed thresholds on it, so a night
+///    with no depth structure does report less deep sleep than one with a
+///    textbook cycle — the totals follow the night. But where those thresholds
+///    sit was set against a single real capture, with no polysomnography to
+///    check them, so the *ordering* is measured and the *level* is a judgement.
+///    Trust the shape; read the minutes as an estimate.
+///
+///    (Until 2026-09-06 this said the proportions were imposed, which had been
+///    true: the cut was by rank at 21% and 23%, so every night ever recorded
+///    reported those shares back. The code was fixed and the comment was not,
+///    which cost an afternoon of an investigation that trusted it.)
 enum SleepStageDetail: Int, CaseIterable {
     case wake = 0, rem = 1, n1 = 2, n2 = 3, n3 = 4
 
@@ -38,10 +45,6 @@ enum SleepStageDetail: Int, CaseIterable {
 }
 
 extension SleepStages {
-
-    /// Typical adult shares of *sleep* time, used as the cut points.
-    private static let deepShare = 0.21
-    private static let remShare = 0.23
 
     /// Splits a night into four stages.
     ///
@@ -133,7 +136,10 @@ extension SleepStages {
 
     static func detailed(_ points: [MetricsHistoryPoint]) -> [SleepStageDetail] {
         guard !points.isEmpty else { return [] }
-        let coarse = classify(points)
+        // `withinSleep`, not `classify`: this is only ever called on a window
+        // already established to be sleep, and inside one the generous
+        // edge-finding rule reports REM as wake. See `SleepStages.withinSleep`.
+        let coarse = withinSleep(points)
         let tick = medianInterval(points)
         let depth = depthAxis(points)
 

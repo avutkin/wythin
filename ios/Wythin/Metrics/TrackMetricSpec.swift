@@ -37,10 +37,11 @@ enum TrackMetrics {
     /// cases — the app's canonical display order, which the Live history
     /// charts and Live metric tiles follow too, so Track and Live agree on
     /// which metric reads as "first" instead of each screen inventing its own
-    /// ordering. Pulse (`.hr`) and Calm Power (`.vti`) are deliberately
-    /// excluded, along with every other `LiveMetric` case Track has no chart
-    /// for (`.sdnn`, `.coherence`, `.breathBPM`, `.cbi`); the 7 that remain
-    /// keep `LiveMetric`'s relative order.
+    /// ordering. Pulse (`.hr`) is deliberately excluded, along with every
+    /// other `LiveMetric` case Track has no chart for (`.vti`, `.coherence`,
+    /// `.breathBPM`, `.cbi`); the 7 that remain keep `LiveMetric`'s relative
+    /// order, and `.sdnn` is added as a day-level trend (Live charts it too,
+    /// per-window, from the same `sdnnMetricDef`).
     static let all: [TrackMetricSpec] = [
         .init(def: def("Vagal Tone"),          rollup: { $0.dc },
               color: Theme.accent,  zeroBased: true,  fallbackReference: 6.0,  trendKey: "dc",
@@ -60,22 +61,16 @@ enum TrackMetrics {
         .init(def: def("Conscious Breathing"), rollup: { $0.rsaMs },
               color: Theme.rsa,     zeroBased: true,  fallbackReference: 40.0, trendKey: "rsa",
               trendWhy: "Conscious Breathing (Respiratory Sinus Arrhythmia) is the swing of heart rate with each breath — the clearest sign of vagal tone. A trend climbing over days suggests your breathing practice is taking hold; a flat line means it hasn't shown up yet in daily life."),
-        .init(def: def("Energy Reserve"),      rollup: { $0.rmssd },
+        .init(def: def("Calm Power"),          rollup: { $0.rmssd },
               color: Theme.hrv,     zeroBased: true,  fallbackReference: 40.0, trendKey: "rmssd",
-              trendWhy: "Energy Reserve (RMSSD) is your core beat-to-beat variability — the headline marker of recovery and vagal tone. A trend climbing over days points to a system that's recovering well; a sustained dip is a cue to prioritise rest."),
-        // Overall Variability rides Track only: its def is built inline
-        // rather than added to `activityMetricDefs`, so the Activities grid
-        // keeps its nine slots. Averaged over a full day of wear, daily SDNN
-        // approximates the classic 24-hour clinical measure — which is why it
-        // lives here as a day-level trend and not on the Live screen.
-        .init(def: ActivityMetricDef(
-                  label: "Overall Variability", techLabel: "SDNN",
-                  techFull: "Standard Deviation of NN intervals (SDNN)", unit: "ms",
-                  direction: .higher,
-                  extract: { $0.sdnn.map(Double.init) },
-                  format: { $0.map { String(format: "%.1f", $0) } ?? "—" },
-                  beforeKey: \.beforeSDNN, duringKey: \.duringSDNN,
-                  why: "Overall Variability (SDNN) is the total spread of your beat-to-beat intervals — every rhythm, fast and slow, folded into one number."),
+              trendWhy: "Calm Power (RMSSD) is your core beat-to-beat variability — the headline marker of recovery and vagal tone. A trend climbing over days points to a system that's recovering well; a sustained dip is a cue to prioritise rest."),
+        // Overall Variability is charted here as a *day-level* trend: averaged
+        // over a full day of wear, daily SDNN approximates the classic 24-hour
+        // clinical measure, which a single moment of it does not. Live charts
+        // the same metric too (its within-window spread) since 2026-08-21 —
+        // both read `sdnnMetricDef`, which sits beside `activityMetricDefs`
+        // rather than in it so the Activities grid keeps its nine slots.
+        .init(def: sdnnMetricDef,
               rollup: { $0.mean[LiveMetric.sdnn.rawValue] },
               color: Theme.ulf, zeroBased: true, fallbackReference: 50.0, trendKey: "sdnn",
               trendWhy: "Overall Variability (SDNN) is the day's total beat-to-beat spread — the classic 24-hour HRV measure, meaningful precisely because it is averaged over the whole day rather than a moment. A rising trend across weeks means broader autonomic range; a sustained fall under steady routine is worth a lighter week."),
