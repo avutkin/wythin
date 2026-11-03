@@ -8,6 +8,127 @@ enum RawArchiveFeature {
     static let isAvailable = false
 }
 
+/// Small, bounded forensic record independent of metric computation and the
+/// deferred raw archive. The Bluetooth delegate records packet counts before
+/// handing work to the main actor; comparing these counts with saved metrics
+/// distinguishes sensor delivery loss from a stalled processing pipeline.
+final class CaptureAuditLog: @unchecked Sendable {
+    struct Entry: Codable {
+        let at: String
+        let event: String
+        let ecgPackets: Int
+        let accPackets: Int
+        let hrPackets: Int
+        let rrIntervals: Int
+        let savedMetrics: Int
+        let failedSaves: Int
+        let invalidPackets: Int
+    }
+
+    private let lock = NSLock()
+    private let directory: URL
+    private let file: URL
+    private let maxBytes = 10_000_000
+    private var lastSnapshotAt: Date?
+    private var ecgPackets = 0
+    private var accPackets = 0
+    private var hrPackets = 0
+    private var rrIntervals = 0
+    private var savedMetrics = 0
+    private var failedSaves = 0
+    private var invalidPackets = 0
+
+    init(directory: URL) throws {
+        self.directory = directory
+        self.file = directory.appendingPathComponent("capture-audit.jsonl")
+        try FileManager.default.createDirectory(at: directory,
+                                                withIntermediateDirectories: true)
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: directory.path)
+        if !FileManager.default.fileExists(atPath: file.path) {
+            guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            try? FileManager.default.setAttributes(
+                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: file.path)
+        }
+        try append(event: "launch", at: Date())
+    }
+
+    func recordBLE(_ stream: RawPacketRecord.Stream, rrCount: Int,
+                   valid: Bool = true, at: Date = Date()) {
+        lock.lock()
+        defer { lock.unlock() }
+        switch stream {
+        case .ecg: ecgPackets += 1
+        case .acc: accPackets += 1
+        case .hr: hrPackets += 1
+        }
+        rrIntervals += rrCount
+        if !valid { invalidPackets += 1 }
+        snapshotIfDue(at: at)
+    }
+
+    func recordMetricSave(success: Bool, at: Date = Date()) {
+        lock.lock()
+        defer { lock.unlock() }
+        if success { savedMetrics += 1 } else { failedSaves += 1 }
+        snapshotIfDue(at: at)
+    }
+
+    func recordPhase(_ phase: String, at: Date = Date()) {
+        lock.lock()
+        defer { lock.unlock() }
+        try? append(event: phase, at: at)
+    }
+
+    /// Read-only export for device diagnostics and regression tests.
+    func entries() throws -> [Entry] {
+        lock.lock()
+        defer { lock.unlock() }
+        let previous = directory.appendingPathComponent("capture-audit.previous.jsonl")
+        return try [previous, file].filter { FileManager.default.fileExists(atPath: $0.path) }
+            .flatMap { try String(contentsOf: $0, encoding: .utf8).split(separator: "\n") }
+            .compactMap { try? JSONDecoder().decode(Entry.self, from: Data($0.utf8)) }
+    }
+
+    private func snapshotIfDue(at date: Date) {
+        guard lastSnapshotAt.map({ date.timeIntervalSince($0) >= 10 }) ?? true else { return }
+        do {
+            try append(event: "snapshot", at: date)
+            lastSnapshotAt = date
+        } catch {
+            // A failed diagnostic write must not stop the Bluetooth callback.
+            // Retry on the next packet instead of advancing the snapshot clock.
+        }
+    }
+
+    private func append(event: String, at date: Date) throws {
+        let entry = Entry(at: ISO8601DateFormatter().string(from: date), event: event,
+                          ecgPackets: ecgPackets, accPackets: accPackets,
+                          hrPackets: hrPackets, rrIntervals: rrIntervals,
+                          savedMetrics: savedMetrics, failedSaves: failedSaves,
+                          invalidPackets: invalidPackets)
+        var bytes = try JSONEncoder().encode(entry)
+        bytes.append(0x0A)
+        if (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) ?? 0 >= maxBytes {
+            let previous = directory.appendingPathComponent("capture-audit.previous.jsonl")
+            try? FileManager.default.removeItem(at: previous)
+            try FileManager.default.moveItem(at: file, to: previous)
+            guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+        }
+        let handle = try FileHandle(forWritingTo: file)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: bytes)
+        try handle.synchronize()
+    }
+}
+
 /// Exact Core Bluetooth notification bytes, before parsing or downsampling.
 struct RawPacketRecord: Codable {
     enum Stream: String, Codable { case ecg, acc, hr }
@@ -226,11 +347,11 @@ actor DataBuffer {
     // MARK: Read — Snapshot
 
     /// Returns copies of all buffers for off-actor metric computation.
-    func snapshot() -> DataSnapshot {
+    func snapshot(ecgLive: Bool = true, accLive: Bool = true) -> DataSnapshot {
         DataSnapshot(
-            ecg:    ecgBuf.toArray(),
-            accZ:   accZBuf.toArray(),
-            accXYZ: accXYZBuf.toArray(),
+            ecg:    ecgLive ? ecgBuf.toArray() : [],
+            accZ:   accLive ? accZBuf.toArray() : [],
+            accXYZ: accLive ? accXYZBuf.toArray() : [],
             rr:     rrBuf.toArray(),
             bpm:    bpmBuf.toArray()
         )

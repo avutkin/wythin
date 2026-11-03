@@ -83,6 +83,7 @@ final class AppEnvironment {
 
     var isInForeground: Bool = true {
         didSet {
+            ble.captureAudit?.recordPhase(isInForeground ? "foreground" : "background")
             if !isInForeground {
                 // Record the just-ended foreground interval as a usage event.
                 if let start = foregroundStart {
@@ -697,14 +698,17 @@ final class AppEnvironment {
             return
         }
         let contact = ble.sensorContact
-        // DEAD counts as bad, not as absent: when the strap comes off, data
-        // stops entirely — and "no data" once read as "no problem".
-        let ecgPoor = latestTick?.ecgQuality?.tier == .poor || !ble.ecgStreamLive
-        let rrBad   = !ble.rrIntervalsLive
-                      || (latestTick?.signalQuality.map { $0 < 0.5 } ?? false)
+        // `latestTick` is a foreground UI value; using it here kept a poor
+        // foreground quality reading alive for the whole background period.
+        // Base the stop decision only on live stream evidence.
+        let ecgLive = ble.ecgStreamLive
+        let rrLive = ble.rrIntervalsLive
+        let ecgPoor = !ecgLive
+        let rrBad = !rrLive
         let still   = accMotion.map { $0 < self.accStillnessThreshold } ?? false
         let score   = StandbyPolicy.offBodyScore(
-            contact: contact, ecgPoor: ecgPoor, rrBad: rrBad, still: still)
+            contact: contact, ecgPoor: ecgPoor, rrBad: rrBad, still: still,
+            rrLive: rrLive, ecgLive: ecgLive)
 
         if score >= 2 {
             let since = offBodySince ?? Date()
@@ -861,7 +865,9 @@ final class AppEnvironment {
                 // of latency to standby, blowing the ~20 s doffing budget.
                 self.evaluateOffBodyStandby()
 
-                let snapshot = await self.dataBuffer.snapshot()
+                let snapshot = await self.dataBuffer.snapshot(
+                    ecgLive: self.ble.ecgStreamLive,
+                    accLive: self.ble.accStreamLive)
 
                 // Use lower CPU priority in background so BLE callbacks stay responsive.
                 let priority: TaskPriority = inForeground ? .userInitiated : .utility
@@ -933,8 +939,10 @@ final class AppEnvironment {
                 // minute of metrics that were already computed from RR frames.
                 do {
                     try context.save()
+                    self.ble.captureAudit?.recordMetricSave(success: true)
                     self.recordingError = nil
                 } catch {
+                    self.ble.captureAudit?.recordMetricSave(success: false)
                     self.recordingError = "Metric recording failed: \(error.localizedDescription)"
                 }
             }

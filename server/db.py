@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS activities (
 CREATE TABLE IF NOT EXISTS metric_samples (
     user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     ts          TIMESTAMPTZ NOT NULL,
+    received_at TIMESTAMPTZ DEFAULT NOW(),
     mean_bpm REAL, rmssd REAL, sdnn REAL, pnn50 REAL, lf_hf REAL, rsa_ms REAL,
     coherence REAL, cbi REAL, breath_bpm REAL,
     dfa1 REAL, rcmse REAL, pip REAL, dc REAL, vti REAL,
@@ -185,6 +186,11 @@ CREATE INDEX IF NOT EXISTS raw_chunks_user_created ON raw_chunks(user_id, create
 -- added to a CREATE TABLE body above only reach a database that does not yet
 -- exist; existing deployments need them stated here as well.
 ALTER TABLE activities ADD COLUMN IF NOT EXISTS impact_delta_pct REAL;
+
+-- Existing samples predate upload-time tracking; leave their receipt unknown
+-- rather than falsely stamping them all with this migration's deployment time.
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ;
+ALTER TABLE metric_samples ALTER COLUMN received_at SET DEFAULT NOW();
 
 -- Onboarding v2: name, body metrics and the self-reported baseline.
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS first_name          TEXT;

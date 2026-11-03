@@ -90,3 +90,95 @@ final class CloudRestoreTests: XCTestCase {
         XCTAssertEqual(n, 0)
     }
 }
+
+private final class MetricSyncURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var calls = 0
+    nonisolated(unsafe) private static var failFirst = true
+
+    static func reset() {
+        lock.lock(); defer { lock.unlock() }
+        calls = 0
+        failFirst = true
+    }
+
+    static func metricCalls() -> Int {
+        lock.lock(); defer { lock.unlock() }
+        return calls
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "sync.invalid"
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let isMetrics = request.url?.path == "/v1/metrics"
+        var shouldFail = false
+        if isMetrics {
+            Self.lock.lock()
+            Self.calls += 1
+            shouldFail = Self.failFirst
+            Self.failFirst = false
+            Self.lock.unlock()
+        }
+        let code = shouldFail ? 503 : 200
+        // A gateway can preserve the response shape while returning 503.
+        // The uploader must trust the HTTP status, not just decodable JSON.
+        let body = Data("{\"stored\":2}".utf8)
+        let response = HTTPURLResponse(url: request.url!, statusCode: code,
+                                       httpVersion: "HTTP/1.1", headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+@MainActor
+final class MetricSyncBacklogTests: XCTestCase {
+    func testFailedBatchRetriesAndThenDrainsEntireBacklog() async throws {
+        let defaults = UserDefaults.standard
+        let keys = ["cloudSyncEnabled", "metricsLastSyncedAt", "metricsLastSyncedEpoch",
+                    "metricsLastUploadAtEpoch", "profileLastSynced"]
+        let old = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, value) in zip(keys, old) {
+                if let value { defaults.set(value, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+        }
+        defaults.set(true, forKey: "cloudSyncEnabled")
+        for key in keys.dropFirst() { defaults.removeObject(forKey: key) }
+
+        let container = try ModelContainer(for: HRVSession.self, HRVSample.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = ModelContext(container)
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        for i in 0..<5 {
+            context.insert(HRVSample(anchorTestTimestamp: start.addingTimeInterval(Double(i * 2)),
+                                     meanBPM: 65))
+        }
+        try context.save()
+
+        MetricSyncURLProtocol.reset()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MetricSyncURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let service = MetricSyncService(
+            client: APIClient(baseURL: URL(string: "https://sync.invalid")!, session: session),
+            userID: "test-device", container: container, batchSize: 2)
+
+        await service.syncIfEnabled()
+        XCTAssertEqual(MetricSyncURLProtocol.metricCalls(), 1)
+        XCTAssertEqual(defaults.double(forKey: "metricsLastSyncedEpoch"), 0,
+                       "a rejected batch must not advance the cursor")
+
+        await service.syncIfEnabled()
+        XCTAssertEqual(MetricSyncURLProtocol.metricCalls(), 4,
+                       "five samples in batches of two need three successful requests")
+        XCTAssertEqual(defaults.double(forKey: "metricsLastSyncedEpoch"),
+                       start.addingTimeInterval(8).timeIntervalSince1970, accuracy: 0.001)
+    }
+}

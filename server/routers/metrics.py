@@ -117,11 +117,13 @@ async def export_metrics(
     after = _dt(cursor) if cursor else datetime(1970, 1, 1, tzinfo=timezone.utc)
     pool = await get_pool()
     rows = await pool.fetch(
-        f"SELECT ts, {', '.join(_COLS)} FROM metric_samples "
+        f"SELECT ts, received_at, {', '.join(_COLS)} FROM metric_samples "
         "WHERE user_id = $1 AND ts > $2 ORDER BY ts LIMIT $3",
         user_id, after, limit)
     samples = [
-        {"ts": r["ts"].isoformat(), **{c: r[c] for c in _COLS}}
+        {"ts": r["ts"].isoformat(),
+         "received_at": r["received_at"].isoformat() if r["received_at"] else None,
+         **{c: r[c] for c in _COLS}}
         for r in rows
     ]
     return {

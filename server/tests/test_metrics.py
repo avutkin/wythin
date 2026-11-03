@@ -149,3 +149,28 @@ async def test_minute_summary_rejects_unbounded_ranges():
                         params={"start": "2026-07-27T00:00:00Z",
                                 "end": "2026-07-29T00:00:00Z"})
         assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_metric_upload_records_first_server_receipt_time():
+    """Collection time and server arrival time must be distinguishable."""
+    import uuid
+    from datetime import datetime, timezone
+    from server.db import get_pool, get_or_create_user
+
+    device = f"ms-received-{uuid.uuid4().hex[:8]}"
+    sample = {"samples": [{"ts": "2026-10-26T09:06:00Z", "mean_bpm": 65}]}
+    async with _client() as c:
+        r = await c.post("/v1/metrics", headers={"X-User-ID": device}, json=sample)
+        assert r.status_code == 200, r.text
+        user_id = await get_or_create_user(device)
+        first = await get_pool().fetchval(
+            "SELECT received_at FROM metric_samples WHERE user_id=$1 AND ts=$2",
+            uuid.UUID(user_id), datetime(2026, 10, 26, 9, 6, tzinfo=timezone.utc))
+        assert first is not None
+        assert abs((datetime.now(timezone.utc) - first).total_seconds()) < 10
+
+        retry = await c.post("/v1/metrics", headers={"X-User-ID": device}, json=sample)
+        assert retry.status_code == 200
+        page = await c.get("/v1/metrics/export", headers={"X-User-ID": device})
+        assert page.json()["samples"][0]["received_at"] == first.isoformat()

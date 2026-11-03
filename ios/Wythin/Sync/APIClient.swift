@@ -302,8 +302,13 @@ struct UploadResponse: Codable {
 
 struct APIClient {
     let baseURL: URL
-    private let session = URLSession.shared
+    private let session: URLSession
     private let iso = ISO8601DateFormatter()
+
+    init(baseURL: URL, session: URLSession = .shared) {
+        self.baseURL = baseURL
+        self.session = session
+    }
 
     // MARK: Sessions
 
@@ -385,7 +390,11 @@ struct APIClient {
         var req = request(path: "/v1/metrics", method: "POST")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
-        let (data, _) = try await session.data(for: req)
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
         return try JSONDecoder().decode(MetricsUploadResponse.self, from: data)
     }
 
@@ -665,7 +674,7 @@ final class MetricSyncService {
         return f
     }()
     private let legacyISO = ISO8601DateFormatter()
-    private let batch = 2000
+    private let batch: Int
     private var isSyncing = false
     private(set) var lastUploadedAt: Date?
     private(set) var lastError: String?
@@ -678,8 +687,10 @@ final class MetricSyncService {
         return e
     }()
 
-    init(client: APIClient, userID: String, container: ModelContainer) {
+    init(client: APIClient, userID: String, container: ModelContainer,
+         batchSize: Int = 2000) {
         self.client = client; self.userID = userID; self.container = container
+        self.batch = min(max(batchSize, 1), 5000)
         let uploaded = UserDefaults.standard.double(forKey: "metricsLastUploadAtEpoch")
         self.lastUploadedAt = uploaded > 0 ? Date(timeIntervalSince1970: uploaded) : nil
     }
