@@ -4,6 +4,58 @@ import XCTest
 /// BLE packet parser tests — run on simulator or device.
 final class BLETests: XCTestCase {
 
+    func testRawJournalPreservesPacketBytesAcrossRestart() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let journal = try RawPacketJournal(directory: directory)
+        let payload = Data([0x00, 0xFF, 0x81, 0x42])
+        try journal.append(stream: .ecg, payload: payload,
+                                 receivedAt: Date(timeIntervalSince1970: 100),
+                                 deviceTimestampNs: 42)
+        try journal.seal()
+        let reopened = try RawPacketJournal(directory: directory)
+        let chunks = try reopened.pendingChunks()
+        XCTAssertEqual(chunks.count, 1)
+        let lines = try String(contentsOf: chunks[0], encoding: .utf8)
+            .split(separator: "\n")
+        XCTAssertEqual(lines.count, 1)
+        let record = try JSONDecoder().decode(RawPacketRecord.self, from: Data(lines[0].utf8))
+        XCTAssertEqual(record.payload, payload)
+        XCTAssertEqual(record.deviceTimestampNs, 42)
+        try reopened.acknowledge(chunks[0])
+        let remaining = try reopened.pendingChunks()
+        XCTAssertTrue(remaining.isEmpty)
+    }
+
+    func testRawJournalTruncatesInterruptedFinalPacket() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let orphan = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("open")
+        try Data("{\"ok\":true}\n{\"partial\"".utf8).write(to: orphan)
+        let recovered = try RawPacketJournal(directory: directory)
+        let chunks = try recovered.pendingChunks()
+        XCTAssertEqual(chunks.count, 1)
+        XCTAssertEqual(try String(contentsOf: chunks[0], encoding: .utf8), "{\"ok\":true}\n")
+    }
+
+    func testRawUploadRequestIdentifiesImmutableChunkAndDigest() throws {
+        let id = UUID()
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent(id.uuidString).appendingPathExtension("ready")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data("abc\n".utf8).write(to: file)
+        let request = try APIClient(baseURL: URL(string: "https://example.test")!)
+            .rawChunkRequest(file, userID: "device-1")
+        XCTAssertEqual(request.url?.path, "/v1/raw/chunks/\(id.uuidString)")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-User-ID"), "device-1")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Chunk-SHA256"),
+                       "edeaaff3f1774ad2888673770c6d64097e391bc362d7d6fb34982ddf0efd18cb")
+        XCTAssertNil(request.httpBody)
+    }
+
     // MARK: - ECG packet parsing
 
     func testECGFrameParsing() {

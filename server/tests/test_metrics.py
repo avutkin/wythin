@@ -44,13 +44,17 @@ async def test_valueless_samples_are_not_stored():
     pretending to be a reading, and 7.6% of production rows were exactly that.
     Drop them at ingest and report how many were skipped."""
     import uuid
+    from datetime import datetime, timedelta, timezone
     device = f"ms-empty-{uuid.uuid4().hex[:8]}"
+    base = datetime.now(timezone.utc).replace(microsecond=0)
+    def ts(seconds: int) -> str:
+        return (base + timedelta(seconds=seconds)).isoformat()
     async with _client() as c:
         r = await c.post("/v1/metrics", headers={"X-User-ID": device}, json={"samples": [
-            _sample("2026-07-27T11:00:00Z", 30),                      # real
-            {"ts": "2026-07-27T11:00:02Z"},                           # every metric null
-            {"ts": "2026-07-27T11:00:04Z", "mean_bpm": None, "rmssd": None},
-            _sample("2026-07-27T11:00:06Z", 31),                      # real
+            _sample(ts(0), 30),                                      # real
+            {"ts": ts(2)},                                           # every metric null
+            {"ts": ts(4), "mean_bpm": None, "rmssd": None},
+            _sample(ts(6), 31),                                      # real
         ]})
         assert r.status_code == 200, r.text
         body = r.json()
@@ -70,7 +74,7 @@ async def test_valueless_samples_are_not_stored():
     # A sample carrying a single real value is still a reading and is kept.
     async with _client() as c:
         r = await c.post("/v1/metrics", headers={"X-User-ID": device}, json={"samples": [
-            {"ts": "2026-07-27T11:00:08Z", "coherence": 0.5},
+            {"ts": ts(8), "coherence": 0.5},
         ]})
     assert r.json()["stored"] == 1
 

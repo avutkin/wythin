@@ -57,6 +57,22 @@ final class NudgeRouter {
 final class WythinAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
 
     func application(_ application: UIApplication,
+                     handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        guard identifier == RawChunkSyncService.sessionIdentifier else {
+            completionHandler()
+            return
+        }
+        Task { @MainActor in
+            if let active = RawChunkSyncService.active {
+                active.handleBackgroundEvents(completionHandler: completionHandler)
+            } else {
+                RawChunkSyncService.pendingBackgroundCompletionHandler = completionHandler
+            }
+        }
+    }
+
+    func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         return true

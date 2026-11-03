@@ -79,6 +79,24 @@ most; say the word if you want it.
 5. **Verify:** `curl https://api.yourdomain.com/health` → `{"status":"ok"}`.
 6. Point the iOS app's server URL at `https://api.yourdomain.com`.
 
+## Raw Polar archive
+
+Full ECG/ACC/RR capture needs a dedicated, expandable volume or an object-store
+mount; the API server's system disk is too small for indefinite retention.
+Mount it at `/mnt/wythin-raw`, make the existing `wythin` service user its owner,
+and set `RAW_ARCHIVE_ROOT=/mnt/wythin-raw` in `server/deploy/.env`. The API
+returns 503 when the setting or mount is absent, leaving the phone's local
+segments queued. Back up both this volume and PostgreSQL's `raw_chunks` index
+together; one without the other cannot restore the archive. Monitor free space,
+backup success, and queued chunks. The archive uses lossless gzip and preserves
+the original notification bytes and Polar device timestamps. Raw cloud upload
+has a separate opt-in switch in iOS Settings.
+
+Do not enable the switch for participants until the mount and backup are
+verified. The current shared app key plus device ID identifies upload traffic;
+production use for a larger cohort should replace this with per-device
+authenticated upload credentials.
+
 ## Continuous deploys (GitHub Actions)
 
 The `Server Deploy` workflow SSHes to the box on every push to `main` that

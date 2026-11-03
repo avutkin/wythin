@@ -372,7 +372,7 @@ private struct MetricChartCard: View {
             return (cal.startOfDay(for: date), Date())
         }
         let s = cal.startOfDay(for: date)
-        return (s, s.addingTimeInterval(86_400))
+        return (s, cal.date(byAdding: .day, value: 1, to: s)!)
     }
 
     /// Newest edge the window can reach (right edge at pan 0): now for today,
@@ -381,7 +381,7 @@ private struct MetricChartCard: View {
         let cal = Calendar.current
         return cal.isDateInToday(date)
             ? Date()
-            : cal.startOfDay(for: date).addingTimeInterval(86_400)
+            : cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: date))!
     }
 
     /// Allowed pan range in seconds (≤ 0). Panning back is bounded by the
@@ -408,7 +408,7 @@ private struct MetricChartCard: View {
             return "\(fmt.string(from: windowDates.start))  ·  \(win.bucketLabel)"
         }
         if Calendar.current.isDateInToday(date) {
-            return "last \(win.rawValue)  ·  \(win.bucketLabel)"
+            return "\(win == .h24 ? "today" : "last \(win.rawValue)")  ·  \(win.bucketLabel)"
         }
         return "00:00 + \(win.rawValue)  ·  \(win.bucketLabel)"
     }
@@ -473,18 +473,10 @@ private struct MetricChartCard: View {
     /// closer than this stay joined even if a bucket or two is missing.
     private var gapBreakSeconds: TimeInterval { 300 }   // 5 minutes
 
-    /// The x-domain actually drawn. For the 24h view, clamp to the data envelope
-    /// (first→last sample, small padding) so off-body stretches with no data
-    /// aren't shown as dead space; the shorter live windows keep their sliding
-    /// window unchanged.
+    /// Keep the full day visible at 24h. Cropping to the first and last sample
+    /// hides precisely the missing hours that a recording chart must disclose.
     private var visibleDates: (start: Date, end: Date) {
-        guard win == .h24 else { return windowDates }
-        let pts = points
-        guard let first = pts.first?.date, let last = pts.last?.date, last > first else {
-            return windowDates
-        }
-        let pad = last.timeIntervalSince(first) * 0.02
-        return (first.addingTimeInterval(-pad), last.addingTimeInterval(pad))
+        win == .h24 ? bucketDates : windowDates
     }
 
     var body: some View {

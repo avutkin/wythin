@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var accessError: String?
 
     @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
+    @AppStorage("rawCloudSyncEnabled") private var rawCloudSyncEnabled = false
     @AppStorage(OnboardingConsent.shareWithTeamKey)
     private var shareWithTeam = OnboardingConsent.shareWithTeamDefault
     @AppStorage(OnboardingConsent.aiInsightsKey)
@@ -107,6 +108,17 @@ struct SettingsView: View {
                                     .font(Theme.monoLabel)
                                     .foregroundStyle(Theme.dim)
                             }
+                        }
+
+                        HStack {
+                            Text("Last ECG / motion / RR")
+                                .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+                            Spacer()
+                            Text([env.ble.lastECGSampleAt, env.ble.lastACCSampleAt,
+                                  env.ble.lastRRIntervalAt].map {
+                                $0?.formatted(date: .omitted, time: .shortened) ?? "—"
+                            }.joined(separator: " / "))
+                                .font(Theme.monoLabel).foregroundStyle(Theme.dim)
                         }
 
                         Text("Use the  ⌁  icon on the Live tab to connect or switch devices.")
@@ -223,6 +235,34 @@ struct SettingsView: View {
                             }
                         }
                         .tint(Theme.accent)
+                        .onChange(of: cloudSyncEnabled) { _, _ in
+                            Task { await env.rawSync?.syncIfEnabled() }
+                        }
+
+                        Toggle(isOn: $rawCloudSyncEnabled) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Archive full Polar signal").font(Theme.monoBody).foregroundStyle(Theme.text)
+                                Text("Upload every ECG, motion and heart-rate packet to your private cloud archive. Requires cloud sync; recordings stay on this device until uploaded.")
+                                    .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+                            }
+                        }
+                        .tint(Theme.accent)
+                        .disabled(!cloudSyncEnabled)
+                        .onChange(of: rawCloudSyncEnabled) { _, _ in
+                            Task { await env.rawSync?.syncIfEnabled() }
+                        }
+
+                        if let error = env.recordingError ?? env.ble.lastError {
+                            Text(error).font(Theme.monoLabel).foregroundStyle(Theme.warn)
+                        }
+                        if let rawSync = env.rawSync {
+                            Text("Raw packets waiting for upload: \(rawSync.pendingCount) chunks")
+                                .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+                            if let error = rawSync.lastError {
+                                Text("Raw upload: \(error)")
+                                    .font(Theme.monoLabel).foregroundStyle(Theme.warn)
+                            }
+                        }
 
                         if cloudSyncEnabled {
                             Button(role: .destructive) {

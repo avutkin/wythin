@@ -1,6 +1,125 @@
 import Foundation
 import simd
 
+/// Exact Core Bluetooth notification bytes, before parsing or downsampling.
+struct RawPacketRecord: Codable {
+    enum Stream: String, Codable { case ecg, acc, hr }
+    let id: UUID
+    let stream: Stream
+    let receivedAt: Date
+    let deviceTimestampNs: UInt64?
+    let payload: Data
+}
+
+/// Append-only packet segments. A complete JSON line is one notification;
+/// an interrupted final line is discarded on restart. Completed segments are
+/// left on disk until the server has acknowledged their contents.
+final class RawPacketJournal: @unchecked Sendable {
+    private let lock = NSLock()
+    private let directory: URL
+    private let maxBytes = 1_000_000
+    private var currentURL: URL
+    private var handle: FileHandle
+    private var bytesWritten = 0
+    private var openedAt = Date()
+
+    init(directory: URL) throws {
+        self.directory = directory
+        try FileManager.default.createDirectory(at: directory,
+                                                withIntermediateDirectories: true)
+        // Background BLE delivery can continue after the screen locks. Keep
+        // these files protected while allowing access after the first unlock.
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: directory.path)
+        for url in try FileManager.default.contentsOfDirectory(at: directory,
+                                                                includingPropertiesForKeys: nil)
+            where url.pathExtension == "open" {
+            let data = try Data(contentsOf: url)
+            if let lastNewline = data.lastIndex(of: 0x0A) {
+                let writer = try FileHandle(forWritingTo: url)
+                try writer.truncate(atOffset: UInt64(lastNewline + 1))
+                try writer.close()
+                try FileManager.default.moveItem(at: url,
+                    to: url.deletingPathExtension().appendingPathExtension("ready"))
+            } else {
+                try FileManager.default.removeItem(at: url)
+            }
+        }
+        let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("open")
+        guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: url.path)
+        currentURL = url
+        handle = try FileHandle(forWritingTo: url)
+    }
+
+    @discardableResult
+    func append(stream: RawPacketRecord.Stream, payload: Data,
+                receivedAt: Date, deviceTimestampNs: UInt64?) throws -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let record = RawPacketRecord(id: UUID(), stream: stream,
+                                     receivedAt: receivedAt,
+                                     deviceTimestampNs: deviceTimestampNs,
+                                     payload: payload)
+        var line = try JSONEncoder().encode(record)
+        line.append(0x0A)
+        try handle.write(contentsOf: line)
+        try handle.synchronize()
+        bytesWritten += line.count
+        if bytesWritten >= maxBytes || receivedAt.timeIntervalSince(openedAt) >= 60 {
+            try sealLocked()
+            return true
+        }
+        return false
+    }
+
+    func seal() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        try sealLocked()
+    }
+
+    private func sealLocked() throws {
+        guard bytesWritten > 0 else { return }
+        try handle.close()
+        try FileManager.default.moveItem(at: currentURL,
+            to: currentURL.deletingPathExtension().appendingPathExtension("ready"))
+        let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("open")
+        guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: url.path)
+        currentURL = url
+        handle = try FileHandle(forWritingTo: url)
+        bytesWritten = 0
+        openedAt = Date()
+    }
+
+    func pendingChunks() throws -> [URL] {
+        lock.lock()
+        defer { lock.unlock() }
+        return try FileManager.default.contentsOfDirectory(at: directory,
+                                                     includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "ready" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    func acknowledge(_ url: URL) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard url.deletingLastPathComponent() == directory,
+              url.pathExtension == "ready" else { throw CocoaError(.fileReadNoPermission) }
+        try FileManager.default.removeItem(at: url)
+    }
+}
+
 // MARK: - Circular Buffer
 
 /// Fixed-capacity FIFO that overwrites the oldest element when full.

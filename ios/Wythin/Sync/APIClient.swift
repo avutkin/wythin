@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import SwiftUI
+import CryptoKit
 
 // MARK: - Wire types (Codable)
 
@@ -368,6 +369,18 @@ struct APIClient {
 
     // MARK: Continuous metric sync
 
+    func rawChunkRequest(_ file: URL, userID: String) throws -> URLRequest {
+        let bytes = try Data(contentsOf: file)
+        let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        let id = file.deletingPathExtension().lastPathComponent
+        var req = request(path: "/v1/raw/chunks/\(id)", method: "POST")
+        req.setValue("application/x-ndjson", forHTTPHeaderField: "Content-Type")
+        req.setValue(userID, forHTTPHeaderField: "X-User-ID")
+        req.setValue(digest, forHTTPHeaderField: "X-Chunk-SHA256")
+        req.timeoutInterval = 120
+        return req
+    }
+
     func uploadMetrics(_ payload: MetricsUploadPayload, userID: String) async throws -> MetricsUploadResponse {
         var req = request(path: "/v1/metrics", method: "POST")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
@@ -489,6 +502,138 @@ struct APIClient {
         r.addValue(APIConfig.apiKey, forHTTPHeaderField: "X-API-Key")
         r.timeoutInterval = 15
         return r
+    }
+}
+
+/// Uses a background URLSession so an already queued upload continues when
+/// iOS suspends or relaunches the app. The journal remains the durable queue;
+/// a file is removed only after a digest-verified server response.
+@MainActor
+@Observable
+final class RawChunkSyncService: NSObject, URLSessionTaskDelegate {
+    static let sessionIdentifier = "com.wythin.polar.raw-upload"
+    static var active: RawChunkSyncService?
+    static var pendingBackgroundCompletionHandler: (() -> Void)?
+    private let client: APIClient
+    private let userID: String
+    private let journal: RawPacketJournal
+    nonisolated private let completionGroup = DispatchGroup()
+    private var session: URLSession!
+    private var isSyncing = false
+    private(set) var pendingCount = 0
+    private(set) var lastUploadedAt: Date?
+    private(set) var lastError: String?
+    private var backgroundCompletionHandler: (() -> Void)?
+
+    init(client: APIClient, userID: String, journal: RawPacketJournal) {
+        self.client = client
+        self.userID = userID
+        self.journal = journal
+        super.init()
+        let configuration = URLSessionConfiguration.background(withIdentifier: Self.sessionIdentifier)
+        configuration.sessionSendsLaunchEvents = true
+        session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        Self.active = self
+        if let pending = Self.pendingBackgroundCompletionHandler {
+            backgroundCompletionHandler = pending
+            Self.pendingBackgroundCompletionHandler = nil
+        }
+    }
+
+    func syncIfEnabled() async {
+        pendingCount = (try? journal.pendingChunks().count) ?? 0
+        guard !isSyncing else { return }
+        guard (UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true),
+              UserDefaults.standard.bool(forKey: "rawCloudSyncEnabled") else {
+            for task in await currentTasks() { task.cancel() }
+            lastError = nil
+            return
+        }
+        isSyncing = true
+        defer { isSyncing = false }
+        do {
+            try journal.seal()
+            let tasks = await currentTasks()
+            let inFlight = Set(tasks.compactMap { $0.originalRequest?.url?.lastPathComponent.lowercased() })
+            let available = max(0, 4 - tasks.count)
+            var scheduled = 0
+            let chunks = try journal.pendingChunks()
+            pendingCount = chunks.count
+            for file in chunks where scheduled < available {
+                let id = file.deletingPathExtension().lastPathComponent.lowercased()
+                guard !inFlight.contains(id) else { continue }
+                let request = try client.rawChunkRequest(file, userID: userID)
+                let task = session.uploadTask(with: request, fromFile: file)
+                task.resume()
+                scheduled += 1
+            }
+        } catch {
+            lastError = error.localizedDescription
+            pendingCount = (try? journal.pendingChunks().count) ?? pendingCount
+        }
+    }
+
+    private func currentTasks() async -> [URLSessionTask] {
+        await withCheckedContinuation { continuation in
+            session.getAllTasks { continuation.resume(returning: $0) }
+        }
+    }
+
+    func handleBackgroundEvents(completionHandler: @escaping () -> Void) {
+        backgroundCompletionHandler = completionHandler
+    }
+
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask,
+                                didCompleteWithError error: Error?) {
+        completionGroup.enter()
+        Task { @MainActor in
+            await self.finish(task, error: error)
+            self.completionGroup.leave()
+        }
+    }
+
+    private func finish(_ task: URLSessionTask, error: Error?) async {
+        if let error {
+            let enabled = (UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true)
+                && UserDefaults.standard.bool(forKey: "rawCloudSyncEnabled")
+            if !enabled { return }
+            lastError = error.localizedDescription
+            return
+        }
+        guard let response = task.response as? HTTPURLResponse,
+              response.statusCode == 200,
+              let id = task.originalRequest?.url?.lastPathComponent.lowercased(),
+              let file = try? journal.pendingChunks().first(where: {
+                  $0.deletingPathExtension().lastPathComponent.lowercased() == id
+              }),
+              let bytes = try? Data(contentsOf: file) else {
+            lastError = "Raw archive did not acknowledge the upload"
+            return
+        }
+        let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        guard response.value(forHTTPHeaderField: "X-Chunk-SHA256") == digest,
+              response.value(forHTTPHeaderField: "X-Chunk-Bytes") == String(bytes.count) else {
+            lastError = "Raw archive integrity check failed"
+            return
+        }
+        do {
+            try journal.acknowledge(file)
+            pendingCount = max(0, pendingCount - 1)
+            lastUploadedAt = Date()
+            lastError = nil
+            Task { await syncIfEnabled() }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    nonisolated func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        completionGroup.notify(queue: .main) {
+            Task { @MainActor in
+                self.backgroundCompletionHandler?()
+                self.backgroundCompletionHandler = nil
+            }
+        }
     }
 }
 

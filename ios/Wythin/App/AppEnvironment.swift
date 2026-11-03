@@ -2,6 +2,24 @@ import Foundation
 import SwiftData
 import Combine
 
+/// Gates expensive computation by actual sensor arrivals, not a background
+/// timer that iOS may suspend while the strap is still transmitting.
+struct MetricTriggerPolicy {
+    let minInterval: TimeInterval
+    private(set) var lastAcceptedAt: Date?
+
+    mutating func acceptSensorFrame(at now: Date, hasRR: Bool) -> Bool {
+        guard hasRR else { return false }
+        if let lastAcceptedAt, now.timeIntervalSince(lastAcceptedAt) < minInterval {
+            return false
+        }
+        lastAcceptedAt = now
+        return true
+    }
+
+    mutating func reset() { lastAcceptedAt = nil }
+}
+
 // MARK: - WaveformDisplay
 //
 // Separate @Observable so 30-fps waveform updates don't invalidate views
@@ -29,6 +47,8 @@ final class AppEnvironment {
     let dataBuffer = DataBuffer()
     let sync:        SyncService
     let metricSync:  MetricSyncService
+    private(set) var rawSync: RawChunkSyncService?
+    var recordingError: String?
 
     // MARK: Waveform display (updated at ~30 fps, isolated so chart views stay at 2 s)
 
@@ -64,12 +84,6 @@ final class AppEnvironment {
     var isInForeground: Bool = true {
         didSet {
             if !isInForeground {
-                // Flush pending writes immediately when leaving foreground
-                // so data isn't lost if the OS terminates the process.
-                if pendingSaveCount > 0 {
-                    try? modelContainer.mainContext.save()
-                    pendingSaveCount = 0
-                }
                 // Record the just-ended foreground interval as a usage event.
                 if let start = foregroundStart {
                     logUsageEvent(type: "foreground", start: start)
@@ -87,6 +101,7 @@ final class AppEnvironment {
                 // tickHistory is kept current in the background now, so refresh the
                 // charts from it immediately on open (no fetch/refill wait).
                 historyRevision += 1
+                Task { await rawSync?.syncIfEnabled() }
             }
         }
     }
@@ -366,13 +381,11 @@ final class AppEnvironment {
     private var cancellables = Set<AnyCancellable>()
     private var metricsTask:  Task<Void, Never>?
     private var displayTask:  Task<Void, Never>?
+    private let metricSignals = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+    private var metricSchedule = MetricTriggerPolicy(minInterval: 2)
 
     private let maxTickHistory  = 43_200   // 24 h at 2 s/tick
     private let trimBatch       = 600      // trim this many entries at once (amortises O(n) shift)
-    private let saveInterval    = 30       // persist to disk every 60 s (30 ticks × 2 s)
-    private var pendingSaveCount = 0       // ticks accumulated since last save
-    private var lastSaveAt: Date = .distantPast   // wall-clock cap so bg saves land ≤2 min
-    private var lastBackgroundTick: Date = .distantPast  // throttles bg computation to 30 s
     private var lastMetricSyncAt: Date = .distantPast     // throttles cloud sync attempts to ~120 s
     private var lastSleepCheckAt: Date = .distantPast
     /// Same cadence as the anchor. A night is written once and never changes,
@@ -397,6 +410,10 @@ final class AppEnvironment {
             .flatMap(URL.init) ?? URL(string: "https://api.77.42.73.250.sslip.io")!)
         self.metricSync = MetricSyncService(client: sync.client, userID: AppEnvironment.currentUserID(),
                                              container: modelContainer)
+        self.rawSync = ble.packetJournal.map {
+            RawChunkSyncService(client: sync.client, userID: AppEnvironment.currentUserID(),
+                                journal: $0)
+        }
 
         bindBLE()
         loadHistory()
@@ -409,6 +426,7 @@ final class AppEnvironment {
         notifications.refreshCategories(disabled: disabledInterventions,
                                         pacerHoldsAvailable: false)
         Task {
+            await rawSync?.syncIfEnabled()
             let context = modelContainer.mainContext
             let uploader = SessionUploader(client: sync.client, userID: userID)
             await uploader.flushPending(context: context)
@@ -750,6 +768,13 @@ final class AppEnvironment {
     }
 
     private func bindBLE() {
+        ble.rawChunkReadySubject
+            .sink { [weak self] in
+                guard let self else { return }
+                Task { await self.rawSync?.syncIfEnabled() }
+            }
+            .store(in: &cancellables)
+
         // Forward ECG frames to buffer
         ble.ecgSubject
             .sink { [weak self] samples in
@@ -779,6 +804,9 @@ final class AppEnvironment {
                 Task {
                     await self.dataBuffer.appendRR(frame.rrIntervalsMs)
                     await self.dataBuffer.appendBPM(Float(frame.bpm))
+                    if !frame.rrIntervalsMs.isEmpty {
+                        self.metricSignals.continuation.yield(())
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -792,19 +820,23 @@ final class AppEnvironment {
         ble.connectionGapSubject
             .sink { [weak self] in
                 guard let self else { return }
+                self.metricSchedule.reset()
+                self.breathTracker.reset()
                 Task { await self.dataBuffer.clear() }
             }
             .store(in: &cancellables)
 
         // ── Metrics tick ─────────────────────────────────────────────────────
-        // Foreground: every 2 s — full fidelity, updates live UI.
-        // Background: every 30 s — throttled to save battery, still records to disk.
-        // The app stays alive in background because the bluetooth-central background
-        // mode keeps it running while BLE data arrives.
+        // RR notifications wake the computation path in either app state.
+        // A suspended Task.sleep timer cannot create a point after iOS wakes us
+        // for a Bluetooth notification; this stream can.
         metricsTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(2))
-                guard let self else { break }
+            guard let self else { return }
+            for await _ in self.metricSignals.stream {
+                guard !Task.isCancelled else { break }
+                guard case .connected = self.ble.state else { continue }
+                guard self.metricSchedule.acceptSensorFrame(at: Date(),
+                                                            hasRR: self.ble.rrIntervalsLive) else { continue }
 
                 // Off-body standby: ECG/ACC streams are paused, so there's no live
                 // data to process. Skip so stale/empty buckets never reach the
@@ -826,14 +858,6 @@ final class AppEnvironment {
                 // FFT. Behind the 30 s throttle below it added up to a minute
                 // of latency to standby, blowing the ~20 s doffing budget.
                 self.evaluateOffBodyStandby()
-
-                // In background, only process every 30 s to avoid unnecessary
-                // FFT/PSD computation draining the battery.
-                if !inForeground {
-                    let elapsed = Date().timeIntervalSince(self.lastBackgroundTick)
-                    guard elapsed >= 30 else { continue }
-                    self.lastBackgroundTick = Date()
-                }
 
                 let snapshot = await self.dataBuffer.snapshot()
 
@@ -903,15 +927,13 @@ final class AppEnvironment {
                 }
                 let activeSession = self.currentSession ?? self.autoSession!
                 activeSession.samples.append(HRVSample(from: tick))
-                self.pendingSaveCount += 1
-                // Save every `saveInterval` ticks OR at least every 2 minutes of
-                // wall-clock — so background data (30 s ticks) reaches disk within
-                // ~2 min instead of ~15, and re-opening shows recent data.
-                if self.pendingSaveCount >= self.saveInterval
-                    || Date().timeIntervalSince(self.lastSaveAt) >= 120 {
-                    try? context.save()
-                    self.pendingSaveCount = 0
-                    self.lastSaveAt = Date()
+                // A suspended or terminated process must not lose up to a
+                // minute of metrics that were already computed from RR frames.
+                do {
+                    try context.save()
+                    self.recordingError = nil
+                } catch {
+                    self.recordingError = "Metric recording failed: \(error.localizedDescription)"
                 }
             }
         }

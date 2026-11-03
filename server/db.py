@@ -168,6 +168,18 @@ CREATE TABLE IF NOT EXISTS usage_events (
 );
 CREATE INDEX IF NOT EXISTS usage_events_user_ts ON usage_events(user_id, ts);
 
+-- Raw notification bytes live on a separately mounted archive volume. This
+-- table is only an index and integrity manifest, not the signal storage.
+CREATE TABLE IF NOT EXISTS raw_chunks (
+    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    chunk_id   UUID NOT NULL,
+    sha256     TEXT NOT NULL,
+    byte_count INTEGER NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, chunk_id)
+);
+CREATE INDEX IF NOT EXISTS raw_chunks_user_created ON raw_chunks(user_id, created_at, chunk_id);
+
 -- Additive migrations. SCHEMA_SQL runs on every boot, and each statement here
 -- is idempotent, so this block is safe to re-run and safe to grow. Columns
 -- added to a CREATE TABLE body above only reach a database that does not yet

@@ -15,7 +15,7 @@ from .db import init_pool, close_pool, create_schema
 from .auth import key_ok
 from .auth_user import resolve_bearer, AuthError
 from .mcp_server import mcp
-from .routers import sessions, stream, admin, insights, tokens, me, activities, metrics, profile, usage
+from .routers import sessions, stream, admin, insights, tokens, me, activities, metrics, profile, usage, raw
 
 
 @asynccontextmanager
@@ -96,6 +96,7 @@ app.include_router(activities.router)
 app.include_router(metrics.router)
 app.include_router(profile.router)
 app.include_router(usage.router)
+app.include_router(raw.router)
 
 app.mount("/mcp", mcp.streamable_http_app())
 
