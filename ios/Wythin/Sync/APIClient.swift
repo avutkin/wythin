@@ -640,25 +640,35 @@ final class RawChunkSyncService: NSObject, URLSessionTaskDelegate {
 // MARK: - MetricSyncService
 //
 // Opt-in, incremental uploader for continuous HRV metrics. Reads a batch of
-// `HRVSample` rows newer than the last-synced watermark, uploads them, and
-// only advances the watermark on success — so a failed upload is retried
-// (not skipped) on the next call. No-ops entirely while the user has the
-// cloud-sync toggle off.
+// `HRVSample` rows newer than the last-synced watermark, uploads all pending
+// batches, and only advances the watermark on success. A failed upload is
+// retried on the next call. No-ops while cloud sync is off.
 
 @MainActor
+@Observable
 final class MetricSyncService {
     private let client: APIClient
     private let userID: String
     private let container: ModelContainer
-    @AppStorage("cloudSyncEnabled") private var enabled = true
-    @AppStorage("metricsLastSyncedAt") private var lastSyncedISO = ""
+    @ObservationIgnored @AppStorage("cloudSyncEnabled") private var enabled = true
+    @ObservationIgnored @AppStorage("metricsLastSyncedAt") private var lastSyncedISO = ""
+    // Date's full precision is needed for the SwiftData cursor. The older ISO
+    // watermark remains for migration from already installed app versions.
+    @ObservationIgnored @AppStorage("metricsLastSyncedEpoch") private var lastSyncedEpoch = 0.0
     /// The profile the server last *accepted*, as canonical JSON. Persisted, so
     /// a rejected upload is retried on the next sync rather than waiting for a
     /// relaunch, and an edited profile re-uploads on its own.
-    @AppStorage("profileLastSynced") private var syncedProfile = ""
-    private let iso = ISO8601DateFormatter()
+    @ObservationIgnored @AppStorage("profileLastSynced") private var syncedProfile = ""
+    private let iso: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private let legacyISO = ISO8601DateFormatter()
     private let batch = 2000
     private var isSyncing = false
+    private(set) var lastUploadedAt: Date?
+    private(set) var lastError: String?
 
     /// Sorted keys so the same answers always encode to the same bytes — the
     /// comparison above is only meaningful if the encoding is stable.
@@ -670,6 +680,8 @@ final class MetricSyncService {
 
     init(client: APIClient, userID: String, container: ModelContainer) {
         self.client = client; self.userID = userID; self.container = container
+        let uploaded = UserDefaults.standard.double(forKey: "metricsLastUploadAtEpoch")
+        self.lastUploadedAt = uploaded > 0 ? Date(timeIntervalSince1970: uploaded) : nil
     }
 
     func syncIfEnabled() async {
@@ -703,22 +715,52 @@ final class MetricSyncService {
             }
         }
 
-        let after = iso.date(from: lastSyncedISO) ?? Date.distantPast
+        var after = lastSyncedEpoch > 0
+            ? Date(timeIntervalSince1970: lastSyncedEpoch)
+            : (iso.date(from: lastSyncedISO) ?? legacyISO.date(from: lastSyncedISO)
+               ?? Date.distantPast)
         let ctx = ModelContext(container)
-        var desc = FetchDescriptor<HRVSample>(
-            predicate: #Predicate { $0.timestamp > after },
-            sortBy: [SortDescriptor(\.timestamp)])
-        desc.fetchLimit = batch
-        guard let samples = try? ctx.fetch(desc), !samples.isEmpty else { return }
-        let payload = MetricsUploadPayload(samples: samples.map { s in
-            MetricSamplePayload(ts: iso.string(from: s.timestamp),
-                mean_bpm: s.meanBPM, rmssd: s.rmssd, sdnn: s.sdnn, pnn50: s.pnn50,
-                lf_hf: s.lfHF, rsa_ms: s.rsaMs, coherence: s.coherence, cbi: s.cbi,
-                breath_bpm: s.breathBPM, dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip,
-                dc: s.dc, vti: s.vti) })
-        if (try? await client.uploadMetrics(payload, userID: userID)) != nil,
-           let last = samples.last {
-            lastSyncedISO = iso.string(from: last.timestamp)
+        while enabled {
+            var desc = FetchDescriptor<HRVSample>(
+                predicate: #Predicate { $0.timestamp > after },
+                sortBy: [SortDescriptor(\.timestamp)])
+            desc.fetchLimit = batch
+            let samples: [HRVSample]
+            do {
+                samples = try ctx.fetch(desc)
+            } catch {
+                lastError = "Cannot read saved metrics: \(error.localizedDescription)"
+                return
+            }
+            guard !samples.isEmpty else {
+                lastError = nil
+                return
+            }
+            let payload = MetricsUploadPayload(samples: samples.map { s in
+                MetricSamplePayload(ts: iso.string(from: s.timestamp),
+                    mean_bpm: s.meanBPM, rmssd: s.rmssd, sdnn: s.sdnn, pnn50: s.pnn50,
+                    lf_hf: s.lfHF, rsa_ms: s.rsaMs, coherence: s.coherence, cbi: s.cbi,
+                    breath_bpm: s.breathBPM, dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip,
+                    dc: s.dc, vti: s.vti) })
+            do {
+                _ = try await client.uploadMetrics(payload, userID: userID)
+            } catch {
+                lastError = "Metric upload failed: \(error.localizedDescription)"
+                return
+            }
+            guard let last = samples.last else { return }
+            after = last.timestamp
+            lastSyncedEpoch = after.timeIntervalSince1970
+            lastSyncedISO = iso.string(from: after)
+            let uploadedAt = Date()
+            lastUploadedAt = uploadedAt
+            UserDefaults.standard.set(uploadedAt.timeIntervalSince1970,
+                                      forKey: "metricsLastUploadAtEpoch")
+            lastError = nil
+            if samples.count < batch { return }
+            // A large offline backlog should not monopolize the main actor
+            // while new Bluetooth notifications continue to arrive.
+            await Task.yield()
         }
     }
 }

@@ -237,31 +237,43 @@ struct SettingsView: View {
                         .tint(Theme.accent)
                         .onChange(of: cloudSyncEnabled) { _, _ in
                             Task { await env.rawSync?.syncIfEnabled() }
+                            Task { await env.metricSync.syncIfEnabled() }
                         }
 
-                        Toggle(isOn: $rawCloudSyncEnabled) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Archive full Polar signal").font(Theme.monoBody).foregroundStyle(Theme.text)
-                                Text("Upload every ECG, motion and heart-rate packet to your private cloud archive. Requires cloud sync; recordings stay on this device until uploaded.")
-                                    .font(Theme.monoLabel).foregroundStyle(Theme.dim)
-                            }
+                        if cloudSyncEnabled, let uploaded = env.metricSync.lastUploadedAt {
+                            Text("Metrics last uploaded: \(uploaded.formatted(date: .abbreviated, time: .shortened))")
+                                .font(Theme.monoLabel).foregroundStyle(Theme.dim)
                         }
-                        .tint(Theme.accent)
-                        .disabled(!cloudSyncEnabled)
-                        .onChange(of: rawCloudSyncEnabled) { _, _ in
-                            Task { await env.rawSync?.syncIfEnabled() }
+                        if let error = env.metricSync.lastError {
+                            Text(error).font(Theme.monoLabel).foregroundStyle(Theme.warn)
+                        }
+
+                        if RawArchiveFeature.isAvailable {
+                            Toggle(isOn: $rawCloudSyncEnabled) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Archive full Polar signal").font(Theme.monoBody).foregroundStyle(Theme.text)
+                                    Text("Upload every ECG, motion and heart-rate packet to your private cloud archive. Requires cloud sync; recordings stay on this device until uploaded.")
+                                        .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+                                }
+                            }
+                            .tint(Theme.accent)
+                            .disabled(!cloudSyncEnabled)
+                            .onChange(of: rawCloudSyncEnabled) { _, _ in
+                                Task { await env.rawSync?.syncIfEnabled() }
+                            }
+
+                            if let rawSync = env.rawSync {
+                                Text("Raw packets waiting for upload: \(rawSync.pendingCount) chunks")
+                                    .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+                                if let error = rawSync.lastError {
+                                    Text("Raw upload: \(error)")
+                                        .font(Theme.monoLabel).foregroundStyle(Theme.warn)
+                                }
+                            }
                         }
 
                         if let error = env.recordingError ?? env.ble.lastError {
                             Text(error).font(Theme.monoLabel).foregroundStyle(Theme.warn)
-                        }
-                        if let rawSync = env.rawSync {
-                            Text("Raw packets waiting for upload: \(rawSync.pendingCount) chunks")
-                                .font(Theme.monoLabel).foregroundStyle(Theme.dim)
-                            if let error = rawSync.lastError {
-                                Text("Raw upload: \(error)")
-                                    .font(Theme.monoLabel).foregroundStyle(Theme.warn)
-                            }
                         }
 
                         if cloudSyncEnabled {

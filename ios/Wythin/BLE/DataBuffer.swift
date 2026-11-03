@@ -1,6 +1,13 @@
 import Foundation
 import simd
 
+/// The server's dedicated archive is not provisioned yet. Keep the raw
+/// transport implementation dormant until the archive and its backup exist;
+/// scalar metrics continue recording and syncing independently.
+enum RawArchiveFeature {
+    static let isAvailable = false
+}
+
 /// Exact Core Bluetooth notification bytes, before parsing or downsampling.
 struct RawPacketRecord: Codable {
     enum Stream: String, Codable { case ecg, acc, hr }

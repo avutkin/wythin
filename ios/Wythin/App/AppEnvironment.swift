@@ -102,6 +102,7 @@ final class AppEnvironment {
                 // charts from it immediately on open (no fetch/refill wait).
                 historyRevision += 1
                 Task { await rawSync?.syncIfEnabled() }
+                Task { await metricSync.syncIfEnabled() }
             }
         }
     }
@@ -427,6 +428,7 @@ final class AppEnvironment {
                                         pacerHoldsAvailable: false)
         Task {
             await rawSync?.syncIfEnabled()
+            await metricSync.syncIfEnabled()
             let context = modelContainer.mainContext
             let uploader = SessionUploader(client: sync.client, userID: userID)
             await uploader.flushPending(context: context)

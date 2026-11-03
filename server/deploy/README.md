@@ -79,6 +79,22 @@ most; say the word if you want it.
 5. **Verify:** `curl https://api.yourdomain.com/health` → `{"status":"ok"}`.
 6. Point the iOS app's server URL at `https://api.yourdomain.com`.
 
+## Calculated metric storage without a new Volume
+
+The existing `metric_samples` table stores the app's scalar readings at about
+two-second spacing. `GET /v1/metrics/minutes?start=<ISO8601>&end=<ISO8601>`
+returns one-minute mean/min/max/count per metric, including empty minutes; it
+derives these on request and does not discard the two-second samples. A query
+is limited to 24 hours, so inspect longer periods day by day.
+
+On 2026-11-02, production held 873,871 samples in 199 MB, including table and
+index overhead, or about 239 bytes/sample. Continuous two-second recording is
+roughly 10 MB/day per person. The existing system disk had about 31 GB free;
+this is suitable for the current rollout but not indefinite retention at a
+growing cohort. Monitor database and disk growth before choosing a long-term
+retention or minute-rollup policy. No historical samples are deleted by this
+change.
+
 ## Raw Polar archive
 
 For the verified Helsinki production server, proposed 500 GB Volume, cost gate,
@@ -88,12 +104,14 @@ Full ECG/ACC/RR capture needs a dedicated, expandable volume or an object-store
 mount; the API server's system disk is too small for indefinite retention.
 Point `RAW_ARCHIVE_ROOT` at the actual mount point and give the API service
 user write access (`pulsar` on the current production server). The API
-returns 503 when the setting or mount is absent, leaving the phone's local
-segments queued. Back up both this volume and PostgreSQL's `raw_chunks` index
+returns 503 when the setting or mount is absent. The iOS raw feature is
+currently disabled, so no raw segments accumulate on phones while the Volume
+is deferred. Back up both this volume and PostgreSQL's `raw_chunks` index
 together; one without the other cannot restore the archive. Monitor free space,
 backup success, and queued chunks. The archive uses lossless gzip and preserves
-the original notification bytes and Polar device timestamps. Raw cloud upload
-has a separate opt-in switch in iOS Settings.
+the original notification bytes and Polar device timestamps. After the Volume
+and backup are verified, enabling `RawArchiveFeature.isAvailable` exposes a
+separate opt-in switch in iOS Settings.
 
 Do not enable the switch for participants until the mount and backup are
 verified. The current shared app key plus device ID identifies upload traffic;

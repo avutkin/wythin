@@ -180,17 +180,22 @@ struct ContentView: View {
         .onAppear {
             if !didShowCloudSyncNotice {
                 showCloudNotice = true
-            } else if !didShowRawArchiveNotice {
+            } else if RawArchiveFeature.isAvailable && !didShowRawArchiveNotice {
                 showRawNotice = true
             }
         }
         .sheet(isPresented: $showCloudNotice, onDismiss: {
-            if didShowCloudSyncNotice && !didShowRawArchiveNotice {
+            if didShowCloudSyncNotice && RawArchiveFeature.isAvailable && !didShowRawArchiveNotice {
                 showRawNotice = true
             }
         }) {
             CloudSyncNoticeView(
-                onKeepOn:  { cloudSyncEnabled = true;  didShowCloudSyncNotice = true; showCloudNotice = false },
+                onKeepOn:  {
+                    cloudSyncEnabled = true
+                    didShowCloudSyncNotice = true
+                    showCloudNotice = false
+                    Task { await env.metricSync.syncIfEnabled() }
+                },
                 onTurnOff: { cloudSyncEnabled = false; didShowCloudSyncNotice = true; showCloudNotice = false }
             )
             .interactiveDismissDisabled()

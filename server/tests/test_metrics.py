@@ -105,3 +105,47 @@ async def test_export_pages_in_order_and_is_scoped():
         p2 = r2.json()
         assert [s["pip"] for s in p2["samples"]] == [32.0]
         assert p2["next_cursor"] is None
+
+
+@pytest.mark.asyncio
+async def test_minute_summary_preserves_breath_extremes_and_missing_minutes():
+    """Averages must expose their coverage and must not hide a silent minute."""
+    import uuid
+    owner = f"ms-min-{uuid.uuid4().hex[:8]}"
+    other = f"ms-min-{uuid.uuid4().hex[:8]}"
+    async with _client() as c:
+        r = await c.post("/v1/metrics", headers={"X-User-ID": owner}, json={"samples": [
+            {"ts": "2026-07-27T10:00:01Z", "breath_bpm": 12, "mean_bpm": 60},
+            {"ts": "2026-07-27T10:00:03Z", "breath_bpm": 18, "mean_bpm": 70},
+            {"ts": "2026-07-27T10:00:05Z", "mean_bpm": 80},
+            {"ts": "2026-07-27T10:02:01Z", "breath_bpm": 14},
+        ]})
+        assert r.status_code == 200, r.text
+        await c.post("/v1/metrics", headers={"X-User-ID": other}, json={"samples": [
+            {"ts": "2026-07-27T10:00:07Z", "breath_bpm": 40},
+        ]})
+        summary = await c.get("/v1/metrics/minutes", headers={"X-User-ID": owner}, params={
+            "start": "2026-07-27T10:00:00Z", "end": "2026-07-27T10:03:00Z"})
+        assert summary.status_code == 200, summary.text
+        minutes = summary.json()["minutes"]
+        assert len(minutes) == 3
+        assert minutes[0]["sample_count"] == 3
+        assert minutes[0]["expected_samples"] == 30
+        assert minutes[0]["metrics"]["breath_bpm"] == {
+            "mean": 15.0, "min": 12.0, "max": 18.0, "count": 2}
+        assert minutes[0]["metrics"]["mean_bpm"] == {
+            "mean": 70.0, "min": 60.0, "max": 80.0, "count": 3}
+        assert minutes[1]["sample_count"] == 0
+        assert minutes[1]["metrics"]["breath_bpm"]["mean"] is None
+        assert minutes[2]["metrics"]["breath_bpm"]["mean"] == 14.0
+
+
+@pytest.mark.asyncio
+async def test_minute_summary_rejects_unbounded_ranges():
+    import uuid
+    async with _client() as c:
+        r = await c.get("/v1/metrics/minutes",
+                        headers={"X-User-ID": f"ms-min-{uuid.uuid4().hex[:8]}"},
+                        params={"start": "2026-07-27T00:00:00Z",
+                                "end": "2026-07-29T00:00:00Z"})
+        assert r.status_code == 422

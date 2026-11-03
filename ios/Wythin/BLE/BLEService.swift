@@ -390,9 +390,12 @@ final class BLEService: NSObject {
     private var reconnectTask:         Task<Void, Never>?  // cancellable, replaces asyncAfter
     private var watchdogTask:          Task<Void, Never>?  // detects silent drops
     private var accWatchdogTask:       Task<Void, Never>?  // detects a stalled ACC stream while ECG flows
-    nonisolated private let rawJournal = try? RawPacketJournal(directory:
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("PolarRaw", isDirectory: true))
+    nonisolated private let rawJournal: RawPacketJournal? = {
+        guard RawArchiveFeature.isAvailable else { return nil }
+        return try? RawPacketJournal(directory:
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("PolarRaw", isDirectory: true))
+    }()
     var packetJournal: RawPacketJournal? { rawJournal }
 
     /// Called on Core Bluetooth's serial delegate queue. The write is complete
@@ -400,6 +403,7 @@ final class BLEService: NSObject {
     /// unstarted Task with the only copy of a delivered notification.
     nonisolated private func recordRaw(_ stream: RawPacketRecord.Stream, data: Data,
                                        receivedAt: Date, deviceTimestampNs: UInt64?) -> Bool {
+        guard RawArchiveFeature.isAvailable else { return false }
         do {
             guard let rawJournal else { throw CocoaError(.fileWriteUnknown) }
             return try rawJournal.append(stream: stream, payload: data,

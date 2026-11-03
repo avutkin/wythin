@@ -2,6 +2,12 @@
 
 Prepared on 2026-11-02. This runbook does **not** create or attach a billable resource. It describes the reviewed change to make after the volume size, monthly cost, and backup destination are approved.
 
+The current iOS rollout keeps `RawArchiveFeature.isAvailable = false`: it does
+not create a raw packet journal, show the raw upload switch, or queue full ECG
+and ACC. It still saves calculated metrics locally about every two seconds and
+syncs them to the existing PostgreSQL server. Enable raw capture only after the
+Volume, independent backup, and an overnight device test are ready.
+
 ## Verified production target
 
 - Hetzner Cloud server: `pulsar-api`, instance ID `154618769`, location `hel1-dc2` (Helsinki).
@@ -51,6 +57,11 @@ RAW_ARCHIVE_REQUIRE_MOUNT=1
 ```
 
 Verify that `findmnt --mountpoint "$ARCHIVE_ROOT"` still succeeds after a reboot, then send a small authenticated test chunk and download it with its owner's bearer token. The server must preserve exact bytes and SHA-256, reject a different user's download, and return 503 when the Volume is unmounted. An upload rejected because the Volume is unavailable stays in the phone's local queue.
+
+After those checks and the backup restore test, set
+`RawArchiveFeature.isAvailable = true` in the iOS app, build a new release,
+and obtain each participant's separate raw archive consent. This change should
+be paired with a physical overnight Polar H10 test before a wider rollout.
 
 ## Backup and capacity gates
 
