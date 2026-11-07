@@ -1,6 +1,23 @@
 import Foundation
 import SwiftData
 
+/// Automatic capture is a continuous stream, not a session with an end time.
+/// Keep its samples independently queryable so a multi-day recording does not
+/// retain an ever-growing `HRVSession.samples` relationship in memory. An
+/// explicitly started session still owns its samples for session upload.
+@MainActor
+enum MetricSampleStore {
+    static func persist(_ sample: HRVSample, session: HRVSession?,
+                        context: ModelContext) throws {
+        if let session {
+            session.samples.append(sample)
+        } else {
+            context.insert(sample)
+        }
+        try context.save()
+    }
+}
+
 /// One metrics tick (~2 s snapshot) within a session.
 @Model
 final class HRVSample {

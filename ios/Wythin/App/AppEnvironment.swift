@@ -419,7 +419,6 @@ final class AppEnvironment {
     /// Main-actor context for stores that own their own persistence
     /// (e.g. `DayPotentialStore` reading and writing `DailyAnchor`).
     var modelContext: ModelContext { modelContainer.mainContext }
-    private var autoSession:    HRVSession?
     private var cancellables = Set<AnyCancellable>()
     private var metricsTask:  Task<Void, Never>?
     private var displayTask:  Task<Void, Never>?
@@ -509,13 +508,6 @@ final class AppEnvironment {
     // MARK: Session control
 
     func startSession(context: ModelContext) {
-        // End auto-session cleanly before switching to explicit
-        if let bg = autoSession {
-            bg.endedAt = Date()
-            try? context.save()
-        }
-        autoSession = nil
-
         let session = HRVSession()
         context.insert(session)
         currentSession = session
@@ -537,7 +529,6 @@ final class AppEnvironment {
             print("❌ Failed to save session: \(error)")
         }
         currentSession = nil
-        autoSession = nil
         Task {
             do {
                 try await sync.uploadSession(session)
@@ -1047,21 +1038,15 @@ final class AppEnvironment {
                 }
 
                 // ── Always: persist to SwiftData ──────────────────────────────
-                // Background samples are merged into tickHistory when app resumes
-                // (see reloadRecentHistory called from isInForeground.didSet).
+                // Continuous samples remain queryable without accumulating in
+                // one session relationship for the lifetime of the process.
                 let context = self.modelContainer.mainContext
-                if self.currentSession == nil && self.autoSession == nil {
-                    let bg = HRVSession()
-                    bg.notes = "auto"
-                    context.insert(bg)
-                    self.autoSession = bg
-                }
-                let activeSession = self.currentSession ?? self.autoSession!
-                activeSession.samples.append(HRVSample(from: tick))
                 // A suspended or terminated process must not lose up to a
                 // minute of metrics that were already computed from RR frames.
                 do {
-                    try context.save()
+                    try MetricSampleStore.persist(HRVSample(from: tick),
+                                                  session: self.currentSession,
+                                                  context: context)
                     self.ble.captureAudit?.recordMetricSave(success: true)
                     self.recordingError = nil
                 } catch {

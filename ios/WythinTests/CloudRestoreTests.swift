@@ -243,3 +243,37 @@ final class MetricSyncBacklogTests: XCTestCase {
                        start.addingTimeInterval(8).timeIntervalSince1970, accuracy: 0.001)
     }
 }
+
+@MainActor
+final class MetricCapturePersistenceTests: XCTestCase {
+    func testAutomaticCapturePersistsWithoutAnUnboundedSessionRelationship() throws {
+        let container = try ModelContainer(for: HRVSession.self, HRVSample.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = ModelContext(container)
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+
+        for i in 0..<300 {
+            try MetricSampleStore.persist(
+                HRVSample(anchorTestTimestamp: start.addingTimeInterval(Double(i * 2)),
+                          meanBPM: 65),
+                session: nil, context: context)
+        }
+
+        let samples = try context.fetch(FetchDescriptor<HRVSample>(
+            sortBy: [SortDescriptor(\.timestamp)]))
+        XCTAssertEqual(samples.count, 300)
+        XCTAssertEqual(samples.first?.timestamp, start)
+        XCTAssertEqual(samples.last?.timestamp, start.addingTimeInterval(598))
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<HRVSession>()), 0,
+                       "continuous capture must not retain every tick in one auto-session")
+
+        let explicit = HRVSession(startedAt: start.addingTimeInterval(600))
+        context.insert(explicit)
+        try MetricSampleStore.persist(
+            HRVSample(anchorTestTimestamp: start.addingTimeInterval(602), meanBPM: 66),
+            session: explicit, context: context)
+        XCTAssertEqual(explicit.samples.count, 1,
+                       "an explicitly started session still owns its sample")
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<HRVSample>()), 301)
+    }
+}
