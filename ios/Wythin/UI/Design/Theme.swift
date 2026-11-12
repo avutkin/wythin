@@ -119,10 +119,10 @@ enum MarkdownBullet {
 // MARK: - Metric Value Formatter
 
 enum MetricFormat {
-    static func bpm(_ v: Float?)      -> String { v.map { String(format: "%.0f", $0) } ?? "—" }
-    static func ms(_ v: Float?)       -> String { v.map { String(format: "%.1f", $0) } ?? "—" }
-    static func ratio(_ v: Float?)    -> String { v.map { String(format: "%.2f", $0) } ?? "—" }
-    static func percent(_ v: Float?)  -> String { v.map { String(format: "%.1f%%", $0) } ?? "—" }
-    static func score(_ v: Float?)    -> String { v.map { String(format: "%.2f", $0) } ?? "—" }
-    static func hz(_ v: Float?)       -> String { v.map { String(format: "%.3f", $0) } ?? "—" }
+    static func bpm(_ v: Float?)      -> String { v.map { String(format: "%.0f", locale: .current, $0) } ?? "—" }
+    static func ms(_ v: Float?)       -> String { v.map { String(format: "%.1f", locale: .current, $0) } ?? "—" }
+    static func ratio(_ v: Float?)    -> String { v.map { String(format: "%.2f", locale: .current, $0) } ?? "—" }
+    static func percent(_ v: Float?)  -> String { v.map { String(format: "%.1f%%", locale: .current, $0) } ?? "—" }
+    static func score(_ v: Float?)    -> String { v.map { String(format: "%.2f", locale: .current, $0) } ?? "—" }
+    static func hz(_ v: Float?)       -> String { v.map { String(format: "%.3f", locale: .current, $0) } ?? "—" }
 }

@@ -13,9 +13,9 @@ enum SleepStage: Int, Codable, CaseIterable {
 
     var label: String {
         switch self {
-        case .wake:   return "Awake"
-        case .active: return "Active sleep"
-        case .quiet:  return "Quiet sleep"
+        case .wake:   return LocalizedCopy.text("Awake")
+        case .active: return LocalizedCopy.text("Active sleep")
+        case .quiet:  return LocalizedCopy.text("Quiet sleep")
         }
     }
 }

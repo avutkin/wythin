@@ -13,7 +13,7 @@ struct ECGWaveformView: View {
                     Image(systemName: "waveform.path.ecg")
                         .font(.title)
                         .foregroundStyle(Theme.dim.opacity(0.5))
-                    Text("Waiting for ECG data...")
+                    Text(LocalizedCopy.text("Waiting for ECG data..."))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                 }
@@ -41,7 +41,7 @@ struct ECGWaveformView: View {
         ECGWaveformView(buffer: mockECG)
             .padding()
         
-        Text("Live ECG Stream")
+        Text(LocalizedCopy.text("Live ECG Stream"))
             .font(Theme.monoLabel)
             .foregroundStyle(Theme.dim)
     }
@@ -54,7 +54,7 @@ struct ECGWaveformView: View {
         ECGWaveformView(buffer: [])
             .padding()
         
-        Text("No data connected")
+        Text(LocalizedCopy.text("No data connected"))
             .font(Theme.monoLabel)
             .foregroundStyle(Theme.dim)
     }

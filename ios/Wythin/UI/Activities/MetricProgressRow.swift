@@ -29,7 +29,7 @@ struct MetricProgressRow: View {
         return Theme.dim
     }
 
-    private func signed(_ v: Double) -> String { String(format: "%+.0f%%", v) }
+    private func signed(_ v: Double) -> String { String(format: "%+.0f%%", locale: .current, v) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,7 +44,7 @@ struct MetricProgressRow: View {
                 VStack(alignment: .leading, spacing: 10) {
                     ActivityWindowChart(def: def, color: color, points: points,
                                         startedAt: startedAt, endedAt: endedAt, stats: stats)
-                    Text(def.why)
+                    Text(LocalizedCopy.text(def.why))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -65,7 +65,7 @@ struct MetricProgressRow: View {
         VStack(spacing: 10) {
             // Name + technical code, chevron.
             HStack(spacing: 6) {
-                Text(def.label).font(Theme.mono(15)).foregroundStyle(Theme.text)
+                Text(LocalizedCopy.text(def.label)).font(Theme.mono(15)).foregroundStyle(Theme.text)
                 Text(def.techLabel).font(Theme.monoLabel).foregroundStyle(Theme.dim)
                 Spacer()
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")

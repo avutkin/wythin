@@ -47,7 +47,7 @@ struct StartActivitySheet: View {
                     DurationPresetRow(minutes: $targetMinutes, title: "TARGET (OPTIONAL)",
                                       valueLabel: ActivityTimeMath.endLabel(start: openedAt,
                                                                             minutes: targetMinutes)
-                                          .map { "ends \($0)" } ?? "")
+                                          .map { LocalizedCopy.format("ends %@", $0) } ?? "")
                         .padding(.horizontal)
 
                     // Choosing an end sets the target; choosing a preset moves
@@ -189,7 +189,7 @@ struct LogPastSheet: View {
 
                         VStack(alignment: .leading, spacing: 8) {
                             DurationPresetRow(minutes: presetBinding,
-                                              valueLabel: "\(Int(durationMins)) min")
+                                              valueLabel: LocalizedCopy.format("%d min", Int(durationMins)))
                             Slider(value: $durationMins, in: 1...180, step: 1)
                                 .tint(Theme.accent)
                         }
@@ -264,12 +264,12 @@ struct DurationPresetRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(title)
+                Text(LocalizedCopy.text(title))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Spacer()
                 if !valueLabel.isEmpty {
-                    Text(valueLabel)
+                    Text(LocalizedCopy.text(valueLabel))
                         .font(Theme.monoBody)
                         .foregroundStyle(Theme.accent)
                 } else if minutes != nil {
@@ -429,14 +429,21 @@ struct SubtypePicker: View {
             }
 
             LazyVGrid(columns: cols, spacing: 8) {
-                ForEach(type.subtypes + remembered, id: \.self) { sub in
-                    chip(label: sub, isOn: selected == sub) {
+                ForEach(type.subtypes, id: \.self) { sub in
+                    chip(label: sub, isOn: selected == sub, localize: true) {
                         selected = selected == sub ? nil : sub
                         showCustomField = false
                         customSubtype = ""
                     }
                 }
-                chip(label: "+ Custom", isOn: showCustomField) {
+                ForEach(remembered, id: \.self) { sub in
+                    chip(label: sub, isOn: selected == sub, localize: false) {
+                        selected = selected == sub ? nil : sub
+                        showCustomField = false
+                        customSubtype = ""
+                    }
+                }
+                chip(label: "+ Custom", isOn: showCustomField, localize: true) {
                     showCustomField.toggle()
                     if showCustomField {
                         customSubtype = ""
@@ -466,9 +473,10 @@ struct SubtypePicker: View {
     }
 
     @ViewBuilder
-    private func chip(label: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+    private func chip(label: String, isOn: Bool, localize: Bool,
+                      action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label)
+            Text(localize ? LocalizedCopy.text(label) : label)
                 .font(Theme.monoLabel)
                 .foregroundStyle(isOn ? Theme.bg : type.color)
                 .lineLimit(1)
@@ -501,7 +509,7 @@ struct ActivityTypeCell: View {
                         .font(.system(size: 18))
                         .foregroundStyle(isSelected ? Theme.bg : type.color)
                 }
-                Text(type == .custom ? "Custom" : type.rawValue)
+                Text(LocalizedCopy.text(type == .custom ? "Custom" : type.rawValue))
                     .font(Theme.monoLabel)
                     .foregroundStyle(isSelected ? Theme.text : Theme.dim)
                     .lineLimit(1)
@@ -587,7 +595,7 @@ struct EditActivitySheet: View {
 
                         VStack(alignment: .leading, spacing: 8) {
                             DurationPresetRow(minutes: presetBinding,
-                                              valueLabel: "\(Int(durationMins)) min")
+                                              valueLabel: LocalizedCopy.format("%d min", Int(durationMins)))
                             Slider(value: $durationMins, in: 1...180, step: 1)
                                 .tint(Theme.accent)
                         }

@@ -66,7 +66,7 @@ struct PracticeImpactGauge: View {
                         .font(.system(size: 42, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.text)
                         .monospacedDigit()
-                    Text(caption)
+                    Text(LocalizedCopy.text(caption))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                 }

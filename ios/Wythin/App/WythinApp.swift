@@ -1,6 +1,41 @@
 import SwiftUI
 import SwiftData
 
+/// The bundle follows iOS's preferred app language. Keep language selection
+/// here for server requests; UIKit/SwiftUI resolve string resources themselves.
+enum AppLanguage: String, Equatable {
+    case english = "en"
+    case russian = "ru"
+
+    static func select(from preferences: [String]) -> AppLanguage {
+        for preference in preferences {
+            switch preference.split(whereSeparator: { $0 == "-" || $0 == "_" }).first?.lowercased() {
+            case "ru": return .russian
+            case "en": return .english
+            default: continue
+            }
+        }
+        return .english
+    }
+
+    static var current: AppLanguage {
+        select(from: Bundle.main.preferredLocalizations)
+    }
+}
+
+/// Localizes values that are carried as `String` rather than SwiftUI's
+/// `LocalizedStringKey` (catalog labels, notification copy, dynamic view text).
+enum LocalizedCopy {
+    static func text(_ english: String, bundle: Bundle = .main) -> String {
+        NSLocalizedString(english, tableName: "Localizable", bundle: bundle,
+                          value: english, comment: "")
+    }
+
+    static func format(_ english: String, _ arguments: CVarArg...) -> String {
+        String(format: text(english), locale: .current, arguments: arguments)
+    }
+}
+
 @main
 struct WythinApp: App {
 
@@ -476,7 +511,7 @@ private struct TabBarButton: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: iconBox.width, height: iconBox.height)
-                Text(label)
+                Text(LocalizedCopy.text(label))
                     .font(Theme.monoLabel)
             }
             .foregroundStyle(isSelected ? Theme.accent : Theme.dim)
@@ -572,7 +607,7 @@ private struct RunningActivityToast: View {
                             }
                         }
                         HStack(spacing: 4) {
-                            Text(reached ? "TARGET REACHED" : "RECORDING")
+                            Text(LocalizedCopy.text(reached ? "TARGET REACHED" : "RECORDING"))
                                 .font(.system(size: 8, weight: .semibold, design: .monospaced))
                                 .tracking(0.8)
                                 .foregroundStyle(tint)

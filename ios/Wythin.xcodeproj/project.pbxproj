@@ -202,7 +202,10 @@
 		A249 /* NudgeCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F249 /* NudgeCardView.swift */; };
 		ARES1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FRES1 /* Assets.xcassets */; };
 		ARES2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = FRES2 /* PrivacyInfo.xcprivacy */; };
+		ALOCL /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = FLOCL /* Localizable.xcstrings */; };
+		ALOCI /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = FLOCI /* InfoPlist.xcstrings */; };
 		AT01 /* MetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT01 /* MetricsTests.swift */; };
+		ATL10 /* LocalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FTL10 /* LocalizationTests.swift */; };
 		AT02 /* BLETests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT02 /* BLETests.swift */; };
 		AT03 /* ECGQualityComputeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT03 /* ECGQualityComputeTests.swift */; };
 		AT04 /* InsightGeneratorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT04 /* InsightGeneratorTests.swift */; };
@@ -522,7 +525,10 @@
 		FINFO /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		FRES1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FRES2 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		FLOCL /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		FLOCI /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		FT01 /* MetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricsTests.swift; sourceTree = "<group>"; };
+		FTL10 /* LocalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationTests.swift; sourceTree = "<group>"; };
 		FT02 /* BLETests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLETests.swift; sourceTree = "<group>"; };
 		FT03 /* ECGQualityComputeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ECGQualityComputeTests.swift; sourceTree = "<group>"; };
 		FT04 /* InsightGeneratorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightGeneratorTests.swift; sourceTree = "<group>"; };
@@ -658,6 +664,8 @@
 				GAPP_UI /* UI */,
 				FRES1 /* Assets.xcassets */,
 				FRES2 /* PrivacyInfo.xcprivacy */,
+				FLOCL /* Localizable.xcstrings */,
+				FLOCI /* InfoPlist.xcstrings */,
 				FINFO /* Info.plist */,
 			);
 			path = Wythin;
@@ -1047,6 +1055,7 @@
 				FT13 /* AnchorDetectorTests.swift */,
 				FT43 /* AnchorBackfillTests.swift */,
 				FT01 /* MetricsTests.swift */,
+				FTL10 /* LocalizationTests.swift */,
 				FT02 /* BLETests.swift */,
 				FT03 /* ECGQualityComputeTests.swift */,
 				FT04 /* InsightGeneratorTests.swift */,
@@ -1172,6 +1181,7 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				ru,
 				Base,
 			);
 			mainGroup = GROOT;
@@ -1192,6 +1202,8 @@
 			files = (
 				ARES1 /* Assets.xcassets in Resources */,
 				ARES2 /* PrivacyInfo.xcprivacy in Resources */,
+				ALOCL /* Localizable.xcstrings in Resources */,
+				ALOCI /* InfoPlist.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1459,6 +1471,7 @@
 				AT13 /* AnchorDetectorTests.swift in Sources */,
 				AT43 /* AnchorBackfillTests.swift in Sources */,
 				AT01 /* MetricsTests.swift in Sources */,
+				ATL10 /* LocalizationTests.swift in Sources */,
 				AT02 /* BLETests.swift in Sources */,
 				AT03 /* ECGQualityComputeTests.swift in Sources */,
 				AT04 /* InsightGeneratorTests.swift in Sources */,

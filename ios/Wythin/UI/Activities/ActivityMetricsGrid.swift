@@ -90,9 +90,9 @@ extension ActivityMetricDef {
     }
 }
 
-private func f0(_ v: Double?) -> String { v.map { String(format: "%.0f", $0) } ?? "—" }
-private func f2(_ v: Double?) -> String { v.map { String(format: "%.2f", $0) } ?? "—" }
-private func f1(_ v: Double?) -> String { v.map { String(format: "%.1f", $0) } ?? "—" }
+private func f0(_ v: Double?) -> String { v.map { String(format: "%.0f", locale: .current, $0) } ?? "—" }
+private func f2(_ v: Double?) -> String { v.map { String(format: "%.2f", locale: .current, $0) } ?? "—" }
+private func f1(_ v: Double?) -> String { v.map { String(format: "%.1f", locale: .current, $0) } ?? "—" }
 private func fFloat(_ v: Double?, _ fmt: (Float?) -> String) -> String { fmt(v.map { Float($0) }) }
 
 /// The app's single naming registry: every metric with a consumer name, in
@@ -177,10 +177,10 @@ struct ActivityMetricsGrid: View {
             ForEach(metrics, id: \.def.id) { m in
                 let base = history[m.def.id]
                 MetricTile(
-                    label:            m.def.label,
+                    label:            LocalizedCopy.text(m.def.label),
                     techLabel:        m.def.techLabel,
                     value:            m.def.format(m.stats.duringMean),
-                    unit:             m.def.unit,
+                    unit:             LocalizedCopy.text(m.def.unit),
                     avgUpliftPct:     m.stats.avgUpliftPct.map { Float($0) },
                     historyValue:     base.map { m.def.format($0) },
                     historyDeltaPct:  historyDelta(m.def, current: m.stats.duringMean, base: base),

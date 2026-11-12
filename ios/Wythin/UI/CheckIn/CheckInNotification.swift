@@ -17,8 +17,8 @@ enum CheckInNotification {
 
     static func request(fireAt: Date, now: Date = .now) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
-        content.title = CheckInKind.moment.title
-        content.body = "A few seconds, five sliders. Tap to answer."
+        content.title = LocalizedCopy.text(CheckInKind.moment.title)
+        content.body = LocalizedCopy.text("A few seconds, five sliders. Tap to answer.")
         content.userInfo = [kindKey: CheckInKind.moment.wireValue]
         content.sound = .default
         content.interruptionLevel = .active

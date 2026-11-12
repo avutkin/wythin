@@ -29,9 +29,9 @@ enum IndexBand {
     /// cannot drift apart.
     var legend: String {
         switch self {
-        case .act:     return "under \(IndexBand.actBelow) — act on it"
-        case .improve: return "\(IndexBand.actBelow)–\(IndexBand.keepAbove - 1) — room to improve"
-        case .keep:    return "\(IndexBand.keepAbove)+ — keep doing this"
+        case .act:     return LocalizedCopy.format("under %d — act on it", IndexBand.actBelow)
+        case .improve: return LocalizedCopy.format("%d–%d — room to improve", IndexBand.actBelow, IndexBand.keepAbove - 1)
+        case .keep:    return LocalizedCopy.format("%d+ — keep doing this", IndexBand.keepAbove)
         }
     }
 }
@@ -105,10 +105,10 @@ enum MobilisationIndex {
         return ScoredIndex(
             name: displayName,
             value: value,
-            verdict: value >= IndexBand.keepAbove ? "switched on fast"
-                   : value >= IndexBand.actBelow  ? "took its time"
-                                                  : "slow to switch on",
-            detail: "\(Int(seconds.rounded())) s")
+            verdict: value >= IndexBand.keepAbove ? LocalizedCopy.text("switched on fast")
+                   : value >= IndexBand.actBelow  ? LocalizedCopy.text("took its time")
+                                                  : LocalizedCopy.text("slow to switch on"),
+            detail: LocalizedCopy.format("%d s", Int(seconds.rounded())))
     }
 }
 
@@ -128,10 +128,10 @@ enum BrakeReleaseIndex {
         return ScoredIndex(
             name: displayName,
             value: score,
-            verdict: score >= IndexBand.keepAbove ? "held on well"
-                   : score >= IndexBand.actBelow  ? "came off deeper"
-                                                  : "came off very deep",
-            detail: troughDC.map { String(format: "floor %.1f ms", $0) } ?? "")
+            verdict: score >= IndexBand.keepAbove ? LocalizedCopy.text("held on well")
+                   : score >= IndexBand.actBelow  ? LocalizedCopy.text("came off deeper")
+                                                  : LocalizedCopy.text("came off very deep"),
+            detail: troughDC.map { LocalizedCopy.format("floor %.1f ms", $0) } ?? "")
     }
 }
 
@@ -163,10 +163,10 @@ enum SteadinessIndex {
         return ScoredIndex(
             name: displayName,
             value: value,
-            verdict: value >= IndexBand.keepAbove ? "held its pace"
-                   : value >= IndexBand.actBelow  ? "drifted late on"
-                                                  : "drifted a lot",
-            detail: String(format: "%.1f%%", drift))
+            verdict: value >= IndexBand.keepAbove ? LocalizedCopy.text("held its pace")
+                   : value >= IndexBand.actBelow  ? LocalizedCopy.text("drifted late on")
+                                                  : LocalizedCopy.text("drifted a lot"),
+            detail: String(format: "%.1f%%", locale: .current, drift))
     }
 }
 
@@ -218,10 +218,10 @@ enum BounceBackIndex {
         return ScoredIndex(
             name: displayName,
             value: value,
-            verdict: value >= IndexBand.keepAbove ? "came back fast"
-                   : value >= IndexBand.actBelow  ? "came back slowly"
-                                                  : "still not back",
-            detail: halfRecoveryMinutes.map { String(format: "halfway in %.1f min", $0) } ?? "")
+            verdict: value >= IndexBand.keepAbove ? LocalizedCopy.text("came back fast")
+                   : value >= IndexBand.actBelow  ? LocalizedCopy.text("came back slowly")
+                                                  : LocalizedCopy.text("still not back"),
+            detail: halfRecoveryMinutes.map { LocalizedCopy.format("halfway in %.1f min", $0) } ?? "")
     }
 }
 
@@ -242,10 +242,10 @@ enum MobilizedIndex {
     static func index(pulseRise: Double?) -> ScoredIndex? {
         guard let value = score(pulseRise: pulseRise), let rise = pulseRise else { return nil }
         return ScoredIndex(name: displayName, value: value,
-            verdict: value >= IndexBand.keepAbove ? "rose to meet it"
-                   : value >= IndexBand.actBelow  ? "partly mobilized"
-                                                  : "barely mobilized",
-            detail: "+\(Int(rise.rounded())) bpm over resting")
+            verdict: value >= IndexBand.keepAbove ? LocalizedCopy.text("rose to meet it")
+                   : value >= IndexBand.actBelow  ? LocalizedCopy.text("partly mobilized")
+                                                  : LocalizedCopy.text("barely mobilized"),
+            detail: LocalizedCopy.format("+%d bpm over resting", Int(rise.rounded())))
     }
 }
 
@@ -271,10 +271,10 @@ enum SustainedIndex {
     static func index(value: Int?) -> ScoredIndex? {
         guard let value else { return nil }
         return ScoredIndex(name: displayName, value: value,
-            verdict: value >= IndexBand.keepAbove ? "systems agree"
-                   : value >= IndexBand.actBelow  ? "partly aligned"
-                                                  : "systems disagree",
-            detail: "zones vs taxed system")
+            verdict: value >= IndexBand.keepAbove ? LocalizedCopy.text("systems agree")
+                   : value >= IndexBand.actBelow  ? LocalizedCopy.text("partly aligned")
+                                                  : LocalizedCopy.text("systems disagree"),
+            detail: LocalizedCopy.text("zones vs taxed system"))
     }
 }
 
@@ -294,8 +294,9 @@ extension ExerciseOverallScore {
         ]
         let present = parts.compactMap { v, w, n in v.map { (Double($0), w, n) } }
         guard present.count >= firmComponents else {
-            return present.first.map { .score(Int($0.0), word: "based on \($0.2) alone so far") }
-                ?? .unavailable(reason: "not enough signal")
+            return present.first.map {
+                .score(Int($0.0), word: LocalizedCopy.format("based on %@ alone so far", LocalizedCopy.text($0.2)))
+            } ?? .unavailable(reason: LocalizedCopy.text("not enough signal"))
         }
         let total = present.reduce(0) { $0 + $1.1 }
         let score = Int((present.reduce(0) { $0 + $1.0 * $1.1 } / total).rounded())
@@ -331,15 +332,17 @@ enum SessionRecommendation {
         // from a session with a weak read in it.
         if weakest.band == .keep {
             return Advice(
-                action: "Repeat this session as it was.",
-                because: "Nothing came in below \(weakest.value) — your weakest read today is "
-                       + "\(weakest.name.lowercased()), and it is still in the strong band.")
+                action: LocalizedCopy.text("Repeat this session as it was."),
+                because: LocalizedCopy.format(
+                    "Nothing came in below %d — your weakest read today is %@, and it is still in the strong band.",
+                    weakest.value, LocalizedCopy.text(weakest.name)))
         }
 
         return Advice(
             action: action(for: weakest.name),
-            because: "\(weakest.name) is your one weak read at \(weakest.value) — "
-                   + "\(weakest.verdict), while everything else came in at or above normal.")
+            because: LocalizedCopy.format(
+                "%@ is your one weak read at %d — %@, while everything else came in at or above normal.",
+                LocalizedCopy.text(weakest.name), weakest.value, LocalizedCopy.text(weakest.verdict)))
     }
 
     /// The action is tied to the index it would move. A general "train less"
@@ -347,19 +350,19 @@ enum SessionRecommendation {
     static func action(for indexName: String) -> String {
         switch indexName {
         case BrakeReleaseIndex.displayName:
-            return "Do this next time: walk easily for two minutes between sets."
+            return LocalizedCopy.text("Do this next time: walk easily for two minutes between sets.")
         case MobilisationIndex.displayName:
-            return "Do this next time: add five minutes of easy warm-up before the first hard effort."
+            return LocalizedCopy.text("Do this next time: add five minutes of easy warm-up before the first hard effort.")
         case BounceBackIndex.displayName:
-            return "Do this next time: keep the last ten minutes easy instead of finishing hard."
+            return LocalizedCopy.text("Do this next time: keep the last ten minutes easy instead of finishing hard.")
         case SteadinessIndex.displayName:
-            return "Do this next time: start the session slower and hold that pace to the end."
+            return LocalizedCopy.text("Do this next time: start the session slower and hold that pace to the end.")
         case "Efficiency":
-            return "Do this next time: keep the load the same and lengthen the rests."
+            return LocalizedCopy.text("Do this next time: keep the load the same and lengthen the rests.")
         case "Readiness":
-            return "Do this next time: train this session on a day you have slept well."
+            return LocalizedCopy.text("Do this next time: train this session on a day you have slept well.")
         default:
-            return "Do this next time: repeat the session and see whether the reading holds."
+            return LocalizedCopy.text("Do this next time: repeat the session and see whether the reading holds.")
         }
     }
 }

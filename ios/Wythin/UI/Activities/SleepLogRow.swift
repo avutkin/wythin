@@ -21,18 +21,18 @@ struct SleepLogRow: View {
 
     private var asleep: String {
         guard let m = entry.sleepAsleepMinutes else { return "—" }
-        return "\(m / 60)h \(String(format: "%02d", m % 60))m"
+        return LocalizedCopy.format("%d h %02d min", m / 60, m % 60)
     }
 
     private var inBed: String? {
         guard let end = entry.endedAt else { return nil }
         let m = Int(end.timeIntervalSince(entry.startedAt) / 60)
-        return "\(m / 60)h \(String(format: "%02d", m % 60))m in bed"
+        return LocalizedCopy.format("%d h %02d min in bed", m / 60, m % 60)
     }
 
     private var window: String {
         let f = DateFormatter()
-        f.dateFormat = "HH:mm"
+        f.timeStyle = .short
         guard let end = entry.endedAt else { return f.string(from: entry.startedAt) }
         return "\(f.string(from: entry.startedAt)) → \(f.string(from: end))"
     }
@@ -81,8 +81,8 @@ struct SleepLogRow: View {
                 }
             }
 
-            if let stages = entry.sleepStageSummary {
-                Text(stages)
+            if let stages = entry.localizedSleepStageSummary {
+                Text(LocalizedCopy.text(stages))
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(Theme.dim)
             }
@@ -90,8 +90,8 @@ struct SleepLogRow: View {
             // ── the five sections, absent ones shown as absent ────────
             SessionIndexSlotGrid(slots: entry.indexSlots, absentValue: "—", doses: [])
 
-            if let arithmetic = entry.sleepScoreArithmetic {
-                Text(arithmetic)
+            if let arithmetic = entry.localizedSleepScoreArithmetic {
+                Text(LocalizedCopy.text(arithmetic))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.dim)
                     .lineLimit(2)

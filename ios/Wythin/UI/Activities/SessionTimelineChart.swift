@@ -127,7 +127,7 @@ struct SessionTimelineChart: View {
             RoundedRectangle(cornerRadius: 2)
                 .fill(color)
                 .frame(width: 9, height: block ? 9 : 3)
-            Text(label)
+            Text(LocalizedCopy.text(label))
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(Theme.dim)
         }

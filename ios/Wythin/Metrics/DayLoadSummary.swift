@@ -21,16 +21,13 @@ enum DayLoadSummary {
         let hours = Int(hoursElapsed.rounded())
         let ratio = dayMean / anchorLnRMSSD
 
-        let tail: String
         switch ratio {
         case 0.95...:
-            tail = "you've barely dipped below where you started — **most of the reserve is still there**."
+            return LocalizedCopy.format("%d hours in, you've barely dipped below where you started — **most of the reserve is still there**.", hours)
         case 0.85..<0.95:
-            tail = "you've been spending it **steadily** rather than in spikes."
+            return LocalizedCopy.format("%d hours in, you've been spending it **steadily** rather than in spikes.", hours)
         default:
-            tail = "you've already used **a lot of it** — what's left is worth protecting."
+            return LocalizedCopy.format("%d hours in, you've already used **a lot of it** — what's left is worth protecting.", hours)
         }
-
-        return "\(hours) hours in, \(tail)"
     }
 }

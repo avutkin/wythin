@@ -15,7 +15,7 @@ struct ExerciseLogRow: View {
 
     private var timeStr: String {
         let fmt = DateFormatter()
-        fmt.dateFormat = "HH:mm"
+        fmt.timeStyle = .short
         let start = fmt.string(from: entry.startedAt)
         if let end = entry.endedAt {
             return "\(start)–\(fmt.string(from: end))"
@@ -37,7 +37,7 @@ struct ExerciseLogRow: View {
 
     /// "2 of 3" — how close this subtype is to having a comparable baseline.
     private var historyProgress: String {
-        "\((entry.scoreHistoryCount ?? 0) + 1) of \(ExerciseResponse.minimumHistory)"
+        LocalizedCopy.format("%d of %d", (entry.scoreHistoryCount ?? 0) + 1, ExerciseResponse.minimumHistory)
     }
 
     /// The headline score: the four performance sections, Ready excluded,
@@ -102,7 +102,7 @@ struct ExerciseLogRow: View {
                         .foregroundStyle(Theme.text)
                         .lineLimit(1)
                     if let rise = pulseRise {
-                        Text("PULSE ROSE \(rise) BPM")
+                        Text(LocalizedCopy.format("PULSE ROSE %d BPM", rise))
                             .font(.system(size: 7, weight: .semibold, design: .monospaced))
                             .tracking(0.7)
                             .foregroundStyle(Color(hex: "#FFC01F"))
@@ -176,7 +176,7 @@ struct ExerciseLogRow: View {
                     }
                     if crowned { laurel("laurel.trailing") }
                 }
-                Text(word)
+                Text(LocalizedCopy.text(word))
                     .font(.system(size: 11, design: .monospaced))
                     .tracking(0.8)
                     .foregroundStyle(crowned ? Theme.accent : Theme.dim)
@@ -222,10 +222,10 @@ struct RecommendationCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(advice.action)
+            Text(LocalizedCopy.text(advice.action))
                 .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Theme.accent)
-            Text(advice.because)
+            Text(LocalizedCopy.text(advice.because))
                 .font(.system(size: 9.5, design: .monospaced))
                 .foregroundStyle(Theme.text.opacity(0.9))
         }

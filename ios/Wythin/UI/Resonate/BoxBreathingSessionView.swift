@@ -119,8 +119,8 @@ struct BoxBreathingSessionView: View {
 
     /// "5.5s", "6s" — no trailing zero on a whole number.
     private func secondsLabel(_ seconds: Double) -> String {
-        seconds == seconds.rounded() ? "\(Int(seconds))s"
-                                     : String(format: "%.1fs", seconds)
+        seconds == seconds.rounded() ? LocalizedCopy.format("%d s", Int(seconds))
+                                     : LocalizedCopy.format("%.1f s", seconds)
     }
 
     private var target:    TimeInterval { TimeInterval(minutes) * 60 }
@@ -146,7 +146,7 @@ struct BoxBreathingSessionView: View {
                     .padding(.bottom, 18)
                 }
             }
-            .navigationTitle(practice.title.uppercased())
+            .navigationTitle(LocalizedCopy.text(practice.title).uppercased())
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bg, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -218,7 +218,7 @@ struct BoxBreathingSessionView: View {
             divider
             readout("LEFT",    mmss(remaining))
             divider
-            readout("RATE",    String(format: "%.1f", pattern.breathsPerMinute(bpm: tempo)),
+            readout("RATE",    String(format: "%.1f", locale: .current, pattern.breathsPerMinute(bpm: tempo)),
                     unit: "br/min")
         }
     }
@@ -231,7 +231,7 @@ struct BoxBreathingSessionView: View {
 
     private func readout(_ label: String, _ value: String, unit: String? = nil) -> some View {
         VStack(spacing: 3) {
-            Text(label)
+            Text(LocalizedCopy.text(label))
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(Theme.dim)
                 .tracking(1)
@@ -241,7 +241,7 @@ struct BoxBreathingSessionView: View {
                     .foregroundStyle(Theme.text)
                     .monospacedDigit()
                 if let unit {
-                    Text(unit)
+                    Text(LocalizedCopy.text(unit))
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(Theme.dim)
                 }
@@ -253,15 +253,15 @@ struct BoxBreathingSessionView: View {
     /// The one line you can read without opening the panel.
     private var summary: String {
         if setInCounts {
-            return "\(minutes) MIN · \(inhaleCounts)–\(exhaleCounts) · \(note.label) · \(bpm) BPM"
+            return LocalizedCopy.format("%d MIN · %d–%d · %@ · %d BPM", minutes, inhaleCounts, exhaleCounts, note.label, bpm)
         }
-        return setInBeats ? "\(minutes) MIN · \(pattern.label) · \(bpm) BPM"
-                          : "\(minutes) MIN · \(cadence.label) EACH WAY"
+        return setInBeats ? LocalizedCopy.format("%d MIN · %@ · %d BPM", minutes, pattern.label, bpm)
+                          : LocalizedCopy.format("%d MIN · %@ EACH WAY", minutes, cadence.label)
     }
 
     private func mmss(_ seconds: TimeInterval) -> String {
         let total = Int(max(0, seconds))
-        return String(format: "%d:%02d", total / 60, total % 60)
+        return String(format: "%d:%02d", locale: .current, total / 60, total % 60)
     }
 
     // MARK: Settings
@@ -293,13 +293,13 @@ struct BoxBreathingSessionView: View {
 
             if showSettings {
                 Divider().background(Theme.border)
-                stepperRow(label: "TIME", value: "\(minutes) min",
+                stepperRow(label: "TIME", value: LocalizedCopy.format("%d min", minutes),
                            canLower: minutes > minuteRange.lowerBound,
                            canRaise: minutes < minuteRange.upperBound,
                            lower: { minutes -= 1 }, raise: { minutes += 1 })
                 Divider().background(Theme.border)
                 if setInCounts {
-                    stepperRow(label: "TEMPO", value: "\(bpm) BPM",
+                    stepperRow(label: "TEMPO", value: LocalizedCopy.format("%d BPM", bpm),
                                canLower: bpm > bpmRange.lowerBound,
                                canRaise: bpm < bpmRange.upperBound,
                                lower: { bpm = max(bpmRange.lowerBound, bpm - bpmStep) },
@@ -330,7 +330,7 @@ struct BoxBreathingSessionView: View {
                                canRaise: beats < beatRange.upperBound,
                                lower: { beats -= 1 }, raise: { beats += 1 })
                     Divider().background(Theme.border)
-                    stepperRow(label: "TEMPO", value: "\(bpm) BPM",
+                    stepperRow(label: "TEMPO", value: LocalizedCopy.format("%d BPM", bpm),
                                canLower: bpm > bpmRange.lowerBound,
                                canRaise: bpm < bpmRange.upperBound,
                                lower: { bpm = max(bpmRange.lowerBound, bpm - bpmStep) },
@@ -339,7 +339,7 @@ struct BoxBreathingSessionView: View {
                     // Seconds a side, in halves. No tempo control: it is derived
                     // from the pace, because the tempo is an implementation
                     // detail of keeping the accent on the phase change.
-                    stepperRow(label: "PACE", value: "\(cadence.label) each way",
+                    stepperRow(label: "PACE", value: LocalizedCopy.format("%@ each way", cadence.label),
                                canLower: halfSeconds > EvenCadence.range.lowerBound,
                                canRaise: halfSeconds < EvenCadence.range.upperBound,
                                lower: { halfSeconds -= 1 }, raise: { halfSeconds += 1 })
@@ -357,7 +357,7 @@ struct BoxBreathingSessionView: View {
                             lower: @escaping () -> Void,
                             raise: @escaping () -> Void) -> some View {
         HStack(spacing: 12) {
-            Text(label)
+            Text(LocalizedCopy.text(label))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
                 .frame(width: 52, alignment: .leading)

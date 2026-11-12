@@ -93,7 +93,7 @@ struct CostScatterChart: View {
                 .frame(height: 116)
 
                 HStack {
-                    Text("← \(xLabel) →")
+                    Text(LocalizedCopy.format("← %@ →", LocalizedCopy.text(xLabel)))
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(Theme.dim)
                     Spacer()

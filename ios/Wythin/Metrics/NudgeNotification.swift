@@ -51,11 +51,11 @@ enum NudgeNotification {
                          options: [NudgeIntervention]) -> UNNotificationCategory {
         var actions = options.dropFirst().map { option in
             UNNotificationAction(identifier: actionIdentifier(option.id),
-                                 title: option.title,
+                                 title: LocalizedCopy.text(option.title),
                                  options: [.foreground])
         }
         actions.append(UNNotificationAction(identifier: dismissActionIdentifier,
-                                            title: "Not now",
+                                            title: LocalizedCopy.text("Not now"),
                                             options: []))
         return UNNotificationCategory(identifier: trigger.rawValue,
                                       actions: Array(actions),

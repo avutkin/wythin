@@ -16,10 +16,10 @@ struct AutonomicCard: View {
 
     private var stateLabel: String {
         switch state {
-        case .ventralVagal: return "VENTRAL VAGAL"
-        case .sympathetic:  return "SYMPATHETIC"
-        case .dorsalVagal:  return "DORSAL VAGAL"
-        case .mixed:        return "TRANSITIONING"
+        case .ventralVagal: return LocalizedCopy.text("VENTRAL VAGAL")
+        case .sympathetic:  return LocalizedCopy.text("SYMPATHETIC")
+        case .dorsalVagal:  return LocalizedCopy.text("DORSAL VAGAL")
+        case .mixed:        return LocalizedCopy.text("TRANSITIONING")
         }
     }
 
@@ -34,21 +34,21 @@ struct AutonomicCard: View {
 
     private var tipText: String {
         switch state {
-        case .ventralVagal: return "Parasympathetic brake ON — good time to push"
-        case .sympathetic:  return "Sympathetic dominant — complete your set"
-        case .dorsalVagal:  return "HRV very low — consider stopping"
-        case .mixed:        return "Autonomic transition — extend rest"
+        case .ventralVagal: return LocalizedCopy.text("Parasympathetic brake ON — good time to push")
+        case .sympathetic:  return LocalizedCopy.text("Sympathetic dominant — complete your set")
+        case .dorsalVagal:  return LocalizedCopy.text("HRV very low — consider stopping")
+        case .mixed:        return LocalizedCopy.text("Autonomic transition — extend rest")
         }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("AUTONOMIC BALANCE")
+            Text(LocalizedCopy.text("AUTONOMIC BALANCE"))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
 
             if indices == nil {
-                Text("Waiting for HRV data…")
+                Text(LocalizedCopy.text("Waiting for HRV data…"))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim.opacity(0.6))
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -63,8 +63,8 @@ struct AutonomicCard: View {
                         .foregroundStyle(stateColor)
                 }
 
-                IndexBar(label: "SNS", value: indices?.sns, color: Theme.warn)
-                IndexBar(label: "PNS", value: indices?.pns, color: Theme.accent)
+                IndexBar(label: LocalizedCopy.text("SNS"), value: indices?.sns, color: Theme.warn)
+                IndexBar(label: LocalizedCopy.text("PNS"), value: indices?.pns, color: Theme.accent)
 
                 Text(tipText)
                     .font(Theme.monoLabel)
@@ -104,7 +104,7 @@ struct IndexBar: View {
             }
             .frame(height: 8)
 
-            Text(value.map { String(format: "%.2f", $0) } ?? "—")
+            Text(value.map { String(format: "%.2f", locale: .current, $0) } ?? "—")
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.text)
                 .frame(width: 36, alignment: .trailing)
@@ -119,10 +119,10 @@ struct StateBanner: View {
 
     var label: String {
         switch state {
-        case .calibrating: return "CALIBRATING"
-        case .ready:       return "READY TO PUSH"
-        case .active:      return "ACTIVE"
-        case .recover:     return "RECOVERING"
+        case .calibrating: return LocalizedCopy.text("CALIBRATING")
+        case .ready:       return LocalizedCopy.text("READY TO PUSH")
+        case .active:      return LocalizedCopy.text("ACTIVE")
+        case .recover:     return LocalizedCopy.text("RECOVERING")
         }
     }
 
@@ -190,7 +190,7 @@ struct HRPanel: View {
                     .font(Theme.mono(52))
                     .foregroundStyle(Theme.text)
 
-                Text("bpm")
+                Text(LocalizedCopy.text("bpm"))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                     .padding(.bottom, 6)
@@ -237,7 +237,7 @@ struct HRRecoveryChart: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("HR RECOVERY  (5 MIN)")
+            Text(LocalizedCopy.text("HR RECOVERY  (5 MIN)"))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
 
@@ -275,7 +275,7 @@ struct HRRecoveryChart: View {
                         .foregroundStyle(Theme.accent.opacity(0.5))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                         .annotation(position: .trailing, alignment: .leading) {
-                            Text("rest")
+                            Text(LocalizedCopy.text("rest"))
                                 .font(Theme.monoLabel)
                                 .foregroundStyle(Theme.accent.opacity(0.7))
                         }
@@ -285,7 +285,7 @@ struct HRRecoveryChart: View {
                         .foregroundStyle(Theme.rsa.opacity(0.5))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                         .annotation(position: .trailing, alignment: .leading) {
-                            Text("ready")
+                            Text(LocalizedCopy.text("ready"))
                                 .font(Theme.monoLabel)
                                 .foregroundStyle(Theme.rsa.opacity(0.7))
                         }
@@ -296,7 +296,7 @@ struct HRRecoveryChart: View {
                     .foregroundStyle(Theme.warn.opacity(0.5))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                     .annotation(position: .trailing, alignment: .leading) {
-                        Text("max")
+                        Text(LocalizedCopy.text("max"))
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.warn.opacity(0.7))
                     }
@@ -342,7 +342,7 @@ struct RSACard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("RSA BIOFEEDBACK")
+            Text(LocalizedCopy.text("RSA BIOFEEDBACK"))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
 
@@ -359,7 +359,7 @@ struct RSACard: View {
                         Text(tick?.rsaMs.map { "\(Int($0.rounded()))" } ?? "—")
                             .font(Theme.monoBody)
                             .foregroundStyle(Theme.text)
-                        Text("ms")
+                        Text(LocalizedCopy.text("ms"))
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.dim)
                     }
@@ -370,10 +370,10 @@ struct RSACard: View {
 
                 // Coherence
                 VStack(spacing: 4) {
-                    Text("COHER")
+                    Text(LocalizedCopy.text("COHER"))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
-                    Text(tick?.coherenceScore.map { String(format: "%.2f", $0) } ?? "—")
+                    Text(tick?.coherenceScore.map { String(format: "%.2f", locale: .current, $0) } ?? "—")
                         .font(Theme.monoBody)
                         .foregroundStyle(Theme.text)
                 }
@@ -383,14 +383,14 @@ struct RSACard: View {
 
                 // Breathing
                 VStack(spacing: 4) {
-                    Text("BREATH")
+                    Text(LocalizedCopy.text("BREATH"))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                     HStack(alignment: .firstTextBaseline, spacing: 3) {
-                        Text(tick?.breathBPM.map { String(format: "%.1f", $0) } ?? "—")
+                        Text(tick?.breathBPM.map { String(format: "%.1f", locale: .current, $0) } ?? "—")
                             .font(Theme.monoBody)
                             .foregroundStyle(Theme.text)
-                        Text("/min")
+                        Text(LocalizedCopy.text("/min"))
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.dim)
                     }
@@ -399,7 +399,7 @@ struct RSACard: View {
             }
             .frame(height: 52)
 
-            Text("Breathe at 5–6 /min to maximize RSA recovery")
+            Text(LocalizedCopy.text("Breathe at 5–6 /min to maximize RSA recovery"))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.breathe.opacity(0.8))
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -428,7 +428,7 @@ struct RMSSDChart: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("RMSSD  (5 MIN)")
+            Text(LocalizedCopy.text("RMSSD  (5 MIN)"))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
 
@@ -463,7 +463,7 @@ struct RMSSDChart: View {
                         .foregroundStyle(Theme.accent.opacity(0.5))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                         .annotation(position: .trailing, alignment: .leading) {
-                            Text("rest")
+                            Text(LocalizedCopy.text("rest"))
                                 .font(Theme.monoLabel)
                                 .foregroundStyle(Theme.accent.opacity(0.7))
                         }
@@ -505,7 +505,7 @@ struct CalibrationBar: View {
             VStack(alignment: .leading, spacing: 4) {
                 if isCollecting {
                     HStack(spacing: 4) {
-                        Text("CALIBRATING")
+                        Text(LocalizedCopy.text("CALIBRATING"))
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.dim)
                         Text(String(repeating: "●", count: dotCount) +
@@ -514,21 +514,21 @@ struct CalibrationBar: View {
                             .foregroundStyle(Theme.dim)
                             .animation(.easeInOut(duration: 0.4), value: dotCount)
                     }
-                    Text("Collecting 30 s resting baseline…")
+                    Text(LocalizedCopy.text("Collecting 30 s resting baseline…"))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim.opacity(0.6))
                 } else if let b = baseline {
-                    Text("BASELINE")
+                    Text(LocalizedCopy.text("BASELINE"))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                     HStack(spacing: 8) {
-                        Text("\(Int(b.hr.rounded())) bpm")
+                        Text(LocalizedCopy.format("%d bpm", Int(b.hr.rounded())))
                             .font(Theme.monoBody)
                             .foregroundStyle(Theme.text)
                         if let rmssd = b.rmssd {
                             Text("·")
                                 .foregroundStyle(Theme.dim)
-                            Text("\(Int(rmssd.rounded())) ms RMSSD")
+                            Text(LocalizedCopy.format("%d ms RMSSD", Int(rmssd.rounded())))
                                 .font(Theme.monoBody)
                                 .foregroundStyle(Theme.text)
                         }
@@ -539,7 +539,7 @@ struct CalibrationBar: View {
             Spacer()
 
             if !isCollecting {
-                Button("RECALIBRATE", action: onRecalibrate)
+                Button(LocalizedCopy.text("RECALIBRATE"), action: onRecalibrate)
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.accent)
                     .padding(.horizontal, 10)
@@ -552,7 +552,7 @@ struct CalibrationBar: View {
                     )
 
                 if isSessionActive {
-                    Button("END TRAINING", action: onEndSession)
+                    Button(LocalizedCopy.text("END TRAINING"), action: onEndSession)
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.warn)
                         .padding(.horizontal, 10)
@@ -562,7 +562,7 @@ struct CalibrationBar: View {
                         .overlay(RoundedRectangle(cornerRadius: 6)
                             .strokeBorder(Theme.warn.opacity(0.3), lineWidth: 0.5))
                 } else {
-                    Button("START TRAINING", action: onStartSession)
+                    Button(LocalizedCopy.text("START TRAINING"), action: onStartSession)
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.accent)
                         .padding(.horizontal, 10)

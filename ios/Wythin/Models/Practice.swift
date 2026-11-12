@@ -11,10 +11,10 @@ enum PracticeCategory: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .breathwork: return "Breathwork"
-        case .meditation: return "Meditation"
-        case .movement:   return "Movement"
-        case .recovery:   return "Recovery"
+        case .breathwork: return LocalizedCopy.text("Breathwork")
+        case .meditation: return LocalizedCopy.text("Meditation")
+        case .movement:   return LocalizedCopy.text("Movement")
+        case .recovery:   return LocalizedCopy.text("Recovery")
         }
     }
 }
@@ -29,20 +29,20 @@ enum PracticeState: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .focus:   return "Sharpen Focus"
-        case .stress:  return "Manage Stress"
-        case .anxiety: return "Reduce Anxiety"
-        case .sleep:   return "Improve Sleep"
+        case .focus:   return LocalizedCopy.text("Sharpen Focus")
+        case .stress:  return LocalizedCopy.text("Manage Stress")
+        case .anxiety: return LocalizedCopy.text("Reduce Anxiety")
+        case .sleep:   return LocalizedCopy.text("Improve Sleep")
         }
     }
 
     /// Short form for the hub's capsule bar, where the full label won't fit.
     var chip: String {
         switch self {
-        case .focus:   return "Focus"
-        case .stress:  return "Stress"
-        case .anxiety: return "Anxiety"
-        case .sleep:   return "Sleep"
+        case .focus:   return LocalizedCopy.text("Focus")
+        case .stress:  return LocalizedCopy.text("Stress")
+        case .anxiety: return LocalizedCopy.text("Anxiety")
+        case .sleep:   return LocalizedCopy.text("Sleep")
         }
     }
 

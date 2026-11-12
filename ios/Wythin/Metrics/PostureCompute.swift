@@ -12,11 +12,11 @@ public enum BodyPosition: Int, CaseIterable, Sendable {
 
     var label: String {
         switch self {
-        case .supine:    return "Supine"
-        case .prone:     return "Prone"
-        case .leftSide:  return "Left side"
-        case .rightSide: return "Right side"
-        case .upright:   return "Upright"
+        case .supine:    return LocalizedCopy.text("Supine")
+        case .prone:     return LocalizedCopy.text("Prone")
+        case .leftSide:  return LocalizedCopy.text("Left side")
+        case .rightSide: return LocalizedCopy.text("Right side")
+        case .upright:   return LocalizedCopy.text("Upright")
         }
     }
 }

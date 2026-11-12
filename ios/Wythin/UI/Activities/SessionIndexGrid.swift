@@ -33,7 +33,7 @@ struct SessionIndexGrid: View {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(band.tint)
                         .frame(width: 6, height: 6)
-                    Text(band.legend)
+                    Text(LocalizedCopy.text(band.legend))
                         .font(.system(size: 8, design: .monospaced))
                         .foregroundStyle(Theme.dim)
                 }
@@ -53,14 +53,14 @@ struct SessionIndexGrid: View {
                 ForEach(doses, id: \.name) { dose in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text(dose.name)
+                            Text(LocalizedCopy.text(dose.name))
                                 .font(.system(size: 9, design: .monospaced))
                                 .foregroundStyle(Theme.dim)
                             Text(dose.value)
                                 .font(.system(size: 13, weight: .bold, design: .monospaced))
                                 .foregroundStyle(Theme.text)
                         }
-                        Text(dose.caption)
+                        Text(LocalizedCopy.text(dose.caption))
                             .font(.system(size: 8, design: .monospaced))
                             .foregroundStyle(Theme.dim)
                     }
@@ -83,7 +83,7 @@ private struct IndexCell: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            Text(index.name)
+            Text(LocalizedCopy.text(index.name))
                 .font(.system(size: 8.5, weight: .medium, design: .monospaced))
                 .foregroundStyle(Theme.text.opacity(0.9))
                 .lineLimit(1)
@@ -104,14 +104,14 @@ private struct IndexCell: View {
             }
             .frame(height: 3)
 
-            Text(index.verdict)
+            Text(LocalizedCopy.text(index.verdict))
                 .font(.system(size: 7.5, weight: .semibold, design: .monospaced))
                 .foregroundStyle(index.band.tint)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
 
             if !index.detail.isEmpty {
-                Text(index.detail)
+                Text(LocalizedCopy.text(index.detail))
                     .font(.system(size: 7, design: .monospaced))
                     .foregroundStyle(Theme.dim)
                     .lineLimit(1)
@@ -189,7 +189,7 @@ private struct SlotCell: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            Text(name)
+            Text(LocalizedCopy.text(name))
                 .font(.system(size: 8.5, weight: .medium, design: .monospaced))
                 .foregroundStyle(Theme.text.opacity(0.9))
                 .lineLimit(1).minimumScaleFactor(0.8)
@@ -204,12 +204,12 @@ private struct SlotCell: View {
                 }
             }
             .frame(height: 3)
-            Text(verdict)
+            Text(LocalizedCopy.text(verdict))
                 .font(.system(size: 7.5, weight: .semibold, design: .monospaced))
                 .foregroundStyle(tint)
                 .multilineTextAlignment(.center).lineLimit(2)
             if !detail.isEmpty {
-                Text(detail)
+                Text(LocalizedCopy.text(detail))
                     .font(.system(size: 7, design: .monospaced))
                     .foregroundStyle(Theme.dim)
                     .lineLimit(1).minimumScaleFactor(0.75)

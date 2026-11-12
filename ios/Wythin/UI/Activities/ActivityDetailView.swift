@@ -150,11 +150,11 @@ struct ActivityDetailView: View {
                                 VStack(spacing: 3) {
                                     if let mean = RestorativeScore.meanImprovement(during: uplifts,
                                                                                    after: afterUplifts) {
-                                        Text(String(format: "Average improvement %+.0f%% across both phases — full marks is +%.0f%% on a metric.",
+                                        Text(LocalizedCopy.format("Average improvement %+.0f%% across both phases — full marks is +%.0f%% on a metric.",
                                                     mean, RestorativeScore.fullMarks))
                                             .foregroundStyle(Theme.text.opacity(0.75))
                                     }
-                                    Text("\(counts.improved) of \(counts.measured) readings moved the right way, counting during and after separately.")
+                                    Text(LocalizedCopy.format("%d of %d readings moved the right way, counting during and after separately.", counts.improved, counts.measured))
                                         .foregroundStyle(Theme.dim)
                                 }
                                 .font(.system(size: 10, design: .monospaced))
@@ -169,7 +169,7 @@ struct ActivityDetailView: View {
                         RestorativeSummaryCard(
                             entry: entry,
                             uplifts: uplifts,
-                            labels: metrics.map { $0.def.label },
+                            labels: metrics.map { LocalizedCopy.text($0.def.label) },
                             vsAverage: metrics.map { m in
                                 // Raw, like the tiles: this is one metric's own
                                 // number, printed as prose, not an input to a
@@ -214,7 +214,7 @@ struct ActivityDetailView: View {
                                             .font(.system(size: 12))
                                             .foregroundStyle(Theme.dim)
                                             .frame(width: 16)
-                                        Text(trend)
+                                        Text(LocalizedCopy.text(trend))
                                             .font(Theme.monoBody)
                                             .foregroundStyle(Theme.text)
                                             .fixedSize(horizontal: false, vertical: true)

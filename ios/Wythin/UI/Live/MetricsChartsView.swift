@@ -24,8 +24,8 @@ enum TimeWindow: String, CaseIterable, Identifiable {
 
     var bucketLabel: String {
         let secs = Int(bucketSeconds)
-        if secs < 60 { return "\(secs)s avg" }
-        return "\(secs / 60) min avg"
+        if secs < 60 { return LocalizedCopy.format("%d s avg", secs) }
+        return LocalizedCopy.format("%d min avg", secs / 60)
     }
 }
 
@@ -154,16 +154,16 @@ struct MetricInfoSheet: View {
                 Theme.bg.ignoresSafeArea()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
-                        row("DESCRIPTION",             info.description)
+                        row(LocalizedCopy.text("DESCRIPTION"),             info.description)
                         if let c = info.calculation {
-                            row("HOW IT'S CALCULATED", c)
+                            row(LocalizedCopy.text("HOW IT'S CALCULATED"), c)
                         }
-                        row("PHYSICAL MEANING",        info.physical)
-                        row("PHYSIOLOGICAL MEANING",   info.physiology)
-                        row("TRAINING ASPECTS",        info.training)
-                        row("SENSITIVITY",             info.sensitivity)
-                        row("REFERENCE LEVELS",        info.levels)
-                        if let n = info.notes { row("NOTES", n) }
+                        row(LocalizedCopy.text("PHYSICAL MEANING"),        info.physical)
+                        row(LocalizedCopy.text("PHYSIOLOGICAL MEANING"),   info.physiology)
+                        row(LocalizedCopy.text("TRAINING ASPECTS"),        info.training)
+                        row(LocalizedCopy.text("SENSITIVITY"),             info.sensitivity)
+                        row(LocalizedCopy.text("REFERENCE LEVELS"),        info.levels)
+                        if let n = info.notes { row(LocalizedCopy.text("NOTES"), n) }
                     }
                     .padding()
                 }
@@ -174,7 +174,7 @@ struct MetricInfoSheet: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button(LocalizedCopy.text("Done")) { dismiss() }
                         .font(Theme.monoBody)
                         .foregroundStyle(color)
                 }
@@ -461,21 +461,26 @@ struct MetricChartCard: View {
     private var windowLabel: String {
         if night != nil {
             let fmt = DateFormatter()
-            fmt.dateFormat = "HH:mm"
+            fmt.setLocalizedDateFormatFromTemplate("jm")
             let mins = Int(bucketSeconds / 60)
-            let grain = mins < 1 ? "\(Int(bucketSeconds))s avg" : "\(mins) min avg"
-            return "\(fmt.string(from: windowDates.start))–\(fmt.string(from: windowDates.end))  ·  \(grain)"
+            let grain = mins < 1 ? LocalizedCopy.format("%d s avg", Int(bucketSeconds))
+                                 : LocalizedCopy.format("%d min avg", mins)
+            return LocalizedCopy.format("%@–%@ · %@",
+                                        fmt.string(from: windowDates.start),
+                                        fmt.string(from: windowDates.end), grain)
         }
         // Panned back from the newest edge → show the window's start time.
         if panOffset < -1 {
             let fmt = DateFormatter()
-            fmt.dateFormat = "HH:mm"
-            return "\(fmt.string(from: windowDates.start))  ·  \(win.bucketLabel)"
+            fmt.setLocalizedDateFormatFromTemplate("jm")
+            return LocalizedCopy.format("%@ · %@", fmt.string(from: windowDates.start), win.bucketLabel)
         }
         if Calendar.current.isDateInToday(date) {
-            return "\(win == .h24 ? "today" : "last \(win.rawValue)")  ·  \(win.bucketLabel)"
+            let period = win == .h24 ? LocalizedCopy.text("today")
+                                     : LocalizedCopy.format("last %@", LocalizedCopy.text(win.rawValue))
+            return LocalizedCopy.format("%@ · %@", period, win.bucketLabel)
         }
-        return "00:00 + \(win.rawValue)  ·  \(win.bucketLabel)"
+        return LocalizedCopy.format("00:00 + %@ · %@", LocalizedCopy.text(win.rawValue), win.bucketLabel)
     }
 
     private var points: [ChartPoint] {
@@ -652,7 +657,7 @@ struct MetricChartCard: View {
                 Image(systemName: "chart.line.uptrend.xyaxis")
                     .font(.title3)
                     .foregroundStyle(Theme.dim.opacity(0.4))
-                Text("No data for this window")
+                Text(LocalizedCopy.text("No data for this window"))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
             }
@@ -854,10 +859,10 @@ struct MetricChartCard: View {
 
     private func selectionBubble(_ pt: ChartPoint) -> some View {
         let fmt = DateFormatter()
-        fmt.dateFormat = "HH:mm"
+        fmt.setLocalizedDateFormatFromTemplate("jm")
         return HStack(spacing: 5) {
             Text(fmt.string(from: pt.date)).foregroundStyle(Theme.dim)
-            Text(String(format: "%.1f", pt.val)).foregroundStyle(Theme.text)
+            Text(String(format: "%.1f", locale: .current, pt.val)).foregroundStyle(Theme.text)
         }
         .font(.system(size: 9, design: .monospaced))
         .padding(.horizontal, 6).padding(.vertical, 4)
@@ -944,10 +949,10 @@ struct MetricsChartsView: View, Equatable {
                 withAnimation(.easeInOut(duration: 0.2)) { showSignalQuality.toggle() }
             } label: {
                 HStack {
-                    Text("SIGNAL QUALITY")
+                    Text(LocalizedCopy.text("SIGNAL QUALITY"))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
-                    Text("· artifacts · corrected · ECG")
+                    Text(LocalizedCopy.text("· artifacts · corrected · ECG"))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim.opacity(0.6))
                     Spacer()
@@ -976,28 +981,28 @@ struct MetricsChartsView: View, Equatable {
     /// (interpolated), from the persisted signalQuality (= 1 − artifactRate).
     private var signalArtifactsCard: some View {
         MetricChartCard(
-            title:    "Signal Artifacts",
-            technicalName: "dropped + repaired beats (%)",
-            subtitle: "% of beats invalid or corrected",
+            title:    LocalizedCopy.text("Signal Artifacts"),
+            technicalName: LocalizedCopy.text("dropped + repaired beats (%)"),
+            subtitle: LocalizedCopy.text("% of beats invalid or corrected"),
             yLabel:   "%",
             color:    Theme.warn,
             windows:  TimeWindow.allCases,
             refs: [
-                RefLine(value:  5, label:  "5%  acceptable", color: Theme.coh),
-                RefLine(value: 20, label: "20%  poor",       color: Theme.warn),
+                RefLine(value:  5, label:  LocalizedCopy.text("5%  acceptable"), color: Theme.coh),
+                RefLine(value: 20, label: LocalizedCopy.text("20%  poor"),       color: Theme.warn),
             ],
             yDomain: 0...25,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             dynamicY: true,
             flagUnreliable: false,
             info: MetricInfo(
-                "How much of the heartbeat signal was messy and had to be cleaned up. Think of it as a static meter for your recording — lower means a cleaner, more trustworthy reading.",
-                calculation: "Every RR interval is screened for plausibility — impossibly short or long beats, or jumps too far from their neighbours. This is the share of beats in the window that failed: dropped plus repaired.",
-                physical:    "Your chest strap catches each heartbeat. If it slips, dries out, or you move a lot, it can miss a beat or catch a false one — and those bad beats show up here.",
-                physiology:  "This one isn't about your body — it's about signal quality. When it's high, the other numbers on this screen can't be trusted, because they're built on a shaky signal.",
-                training:    "If it creeps up, it's almost always the strap. Dampen the electrode pads, snug the strap just under your chest muscles, and stay still. That drives it back toward 0%.",
-                sensitivity: "Reacts instantly to movement or a loose strap — so keep an eye on it live while you're getting set up.",
-                levels:      "Great: under 2%\nFine: 2–5%\nShaky: 5–20%\nUnreliable: over 20% (fix the strap)"
+                LocalizedCopy.text("How much of the heartbeat signal was messy and had to be cleaned up. Think of it as a static meter for your recording — lower means a cleaner, more trustworthy reading."),
+                calculation: LocalizedCopy.text("Every RR interval is screened for plausibility — impossibly short or long beats, or jumps too far from their neighbours. This is the share of beats in the window that failed: dropped plus repaired."),
+                physical:    LocalizedCopy.text("Your chest strap catches each heartbeat. If it slips, dries out, or you move a lot, it can miss a beat or catch a false one — and those bad beats show up here."),
+                physiology:  LocalizedCopy.text("This one isn't about your body — it's about signal quality. When it's high, the other numbers on this screen can't be trusted, because they're built on a shaky signal."),
+                training:    LocalizedCopy.text("If it creeps up, it's almost always the strap. Dampen the electrode pads, snug the strap just under your chest muscles, and stay still. That drives it back toward 0%."),
+                sensitivity: LocalizedCopy.text("Reacts instantly to movement or a loose strap — so keep an eye on it live while you're getting set up."),
+                levels:      LocalizedCopy.text("Great: under 2%\nFine: 2–5%\nShaky: 5–20%\nUnreliable: over 20% (fix the strap)")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { pt in
@@ -1010,9 +1015,9 @@ struct MetricsChartsView: View, Equatable {
     /// dropped. Invalid % = Signal Artifacts − RR Corrected.
     private var rrCorrectedCard: some View {
         MetricChartCard(
-            title:    "RR Corrected",
-            technicalName: "interpolated beats (%)",
-            subtitle: "% of beats replaced (missed / extra beat)",
+            title:    LocalizedCopy.text("RR Corrected"),
+            technicalName: LocalizedCopy.text("interpolated beats (%)"),
+            subtitle: LocalizedCopy.text("% of beats replaced (missed / extra beat)"),
             yLabel:   "%",
             color:    Theme.rsa,
             windows:  TimeWindow.allCases,
@@ -1022,13 +1027,13 @@ struct MetricsChartsView: View, Equatable {
             dynamicY: true,
             flagUnreliable: false,
             info: MetricInfo(
-                "The share of heartbeats that were repaired rather than dropped — a missed or double-counted beat rebuilt from its neighbours.",
-                calculation: "The repairable slice of Signal Artifacts: a missed or doubled beat is rebuilt by interpolating its neighbours instead of being thrown away. Signal Artifacts minus this line is what was dropped outright.",
-                physical:    "The strap occasionally misses a beat or counts one twice — usually from a moment of poor contact. Those beats are reconstructed so one glitch doesn't poison the metrics built on the series.",
-                physiology:  "About the recording, not your body. A small repaired share is routine; a large one means the metrics are leaning on reconstructed beats.",
-                training:    "Nothing to train — if it climbs, treat it like Signal Artifacts: dampen the pads and snug the strap.",
-                sensitivity: "Tracks strap contact moment to moment, like the other signal-quality charts.",
-                levels:      "Routine: under 2%\nWatch: 2–5%\nShaky: over 5% (fix the strap)"
+                LocalizedCopy.text("The share of heartbeats that were repaired rather than dropped — a missed or double-counted beat rebuilt from its neighbours."),
+                calculation: LocalizedCopy.text("The repairable slice of Signal Artifacts: a missed or doubled beat is rebuilt by interpolating its neighbours instead of being thrown away. Signal Artifacts minus this line is what was dropped outright."),
+                physical:    LocalizedCopy.text("The strap occasionally misses a beat or counts one twice — usually from a moment of poor contact. Those beats are reconstructed so one glitch doesn't poison the metrics built on the series."),
+                physiology:  LocalizedCopy.text("About the recording, not your body. A small repaired share is routine; a large one means the metrics are leaning on reconstructed beats."),
+                training:    LocalizedCopy.text("Nothing to train — if it climbs, treat it like Signal Artifacts: dampen the pads and snug the strap."),
+                sensitivity: LocalizedCopy.text("Tracks strap contact moment to moment, like the other signal-quality charts."),
+                levels:      LocalizedCopy.text("Routine: under 2%\nWatch: 2–5%\nShaky: over 5% (fix the strap)")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.rrCorrectedRate.map { Double($0) * 100 } }
@@ -1038,27 +1043,27 @@ struct MetricsChartsView: View, Equatable {
     /// (movement), 100% lead-off (flatline → bad electrode contact/positioning).
     private var ecgSignalCard: some View {
         MetricChartCard(
-            title:    "ECG Signal",
-            technicalName: "waveform fault (%)",
-            subtitle: "contact & motion  ·  higher = worse",
+            title:    LocalizedCopy.text("ECG Signal"),
+            technicalName: LocalizedCopy.text("waveform fault (%)"),
+            subtitle: LocalizedCopy.text("contact & motion  ·  higher = worse"),
             yLabel:   "%",
             color:    Theme.breathe,
             windows:  TimeWindow.allCases,
             refs: [
-                RefLine(value:  50, label: "clipping / noise", color: Theme.rsa),
-                RefLine(value: 100, label: "lead-off",         color: Theme.warn),
+                RefLine(value:  50, label: LocalizedCopy.text("clipping / noise"), color: Theme.rsa),
+                RefLine(value: 100, label: LocalizedCopy.text("lead-off"),         color: Theme.warn),
             ],
             yDomain: 0...100,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             flagUnreliable: false,
             info: MetricInfo(
-                "A second signal-quality check that looks at the raw heartbeat waveform itself. 0% is clean; 100% means the strap has lost contact with your skin.",
-                calculation: "Electrode contact and movement are graded each tick from the raw ECG waveform's noise floor and the accelerometer: good, fair or poor. It grades the recording, not your body.",
-                physical:    "A flat line means an electrode isn't touching your skin. A spiky, maxed-out line means you were moving. Either way, the strap needs attention.",
-                physiology:  "This is about the sensor, not you. A strap that's lost contact can look 'quiet' while actually being unusable — that's what this catches.",
-                training:    "If it's high, fix the hardware: dampen the electrode pads, tighten and reposition the strap just under your chest muscles, and move less. It falls to 0% once contact is solid.",
-                sensitivity: "Reacts fast to contact and movement. Nothing to do with your stress or fitness — purely signal quality.",
-                levels:      "Clean: 0%\nMoving / noisy: around 50%\nStrap not connected: 100% (reseat it)"
+                LocalizedCopy.text("A second signal-quality check that looks at the raw heartbeat waveform itself. 0% is clean; 100% means the strap has lost contact with your skin."),
+                calculation: LocalizedCopy.text("Electrode contact and movement are graded each tick from the raw ECG waveform's noise floor and the accelerometer: good, fair or poor. It grades the recording, not your body."),
+                physical:    LocalizedCopy.text("A flat line means an electrode isn't touching your skin. A spiky, maxed-out line means you were moving. Either way, the strap needs attention."),
+                physiology:  LocalizedCopy.text("This is about the sensor, not you. A strap that's lost contact can look 'quiet' while actually being unusable — that's what this catches."),
+                training:    LocalizedCopy.text("If it's high, fix the hardware: dampen the electrode pads, tighten and reposition the strap just under your chest muscles, and move less. It falls to 0% once contact is solid."),
+                sensitivity: LocalizedCopy.text("Reacts fast to contact and movement. Nothing to do with your stress or fitness — purely signal quality."),
+                levels:      LocalizedCopy.text("Clean: 0%\nMoving / noisy: around 50%\nStrap not connected: 100% (reseat it)")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.ecgQualityTier.map { Double(2 - $0) / 2 * 100 } }
@@ -1070,26 +1075,26 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:    metricDef(.hr).label,
             technicalName: metricDef(.hr).techFull,
-            subtitle: "Your heart rate",
-            yLabel:   "bpm",
+            subtitle: LocalizedCopy.text("Your heart rate"),
+            yLabel:   LocalizedCopy.text("bpm"),
             color:    Theme.warn,
             windows:  TimeWindow.allCases,
             refs: [
-                RefLine(value: 60,  label: "60 bpm  resting",  color: Theme.coh),
-                RefLine(value: 80,  label: "80 bpm  moderate", color: Theme.dim),
-                RefLine(value: 100, label: "100 bpm  elevated", color: Theme.warn),
+                RefLine(value: 60,  label: LocalizedCopy.text("60 bpm  resting"),  color: Theme.coh),
+                RefLine(value: 80,  label: LocalizedCopy.text("80 bpm  moderate"), color: Theme.dim),
+                RefLine(value: 100, label: LocalizedCopy.text("100 bpm  elevated"), color: Theme.warn),
             ],
             yDomain: 40...160,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             dynamicY: true,
             info: MetricInfo(
-                "Your heart rate — how many times your heart beats per minute, averaged over the time window you're viewing.",
-                calculation: "60,000 divided by the average RR interval (in ms) across the current window, recomputed every ~2 seconds.",
-                physical:    "Each beat pushes blood around your body. At rest, a lower number usually means your heart is working efficiently.",
-                physiology:  "Your heart speeds up under stress, caffeine, or effort, and slows when you're calm and rested. Over time, a lower resting pulse is a good sign of fitness and recovery.",
-                training:    "Check it first thing after waking as a recovery gauge. If it's 5+ beats above your usual, your body may still be recovering, run-down, or fighting something off. Regular cardio lowers it over weeks.",
-                sensitivity: "Changes within seconds — posture, stress, caffeine, a warm room, or a big breath all move it. For a clean baseline, measure at rest.",
-                levels:      "Very fit: under 50 bpm\nExcellent: 50–60 bpm\nGood: 60–70 bpm\nAverage: 70–80 bpm\nHigh for rest: over 80 bpm (measured fully at rest)"
+                LocalizedCopy.text("Your heart rate — how many times your heart beats per minute, averaged over the time window you're viewing."),
+                calculation: LocalizedCopy.text("60,000 divided by the average RR interval (in ms) across the current window, recomputed every ~2 seconds."),
+                physical:    LocalizedCopy.text("Each beat pushes blood around your body. At rest, a lower number usually means your heart is working efficiently."),
+                physiology:  LocalizedCopy.text("Your heart speeds up under stress, caffeine, or effort, and slows when you're calm and rested. Over time, a lower resting pulse is a good sign of fitness and recovery."),
+                training:    LocalizedCopy.text("Check it first thing after waking as a recovery gauge. If it's 5+ beats above your usual, your body may still be recovering, run-down, or fighting something off. Regular cardio lowers it over weeks."),
+                sensitivity: LocalizedCopy.text("Changes within seconds — posture, stress, caffeine, a warm room, or a big breath all move it. For a clean baseline, measure at rest."),
+                levels:      LocalizedCopy.text("Very fit: under 50 bpm\nExcellent: 50–60 bpm\nGood: 60–70 bpm\nAverage: 70–80 bpm\nHigh for rest: over 80 bpm (measured fully at rest)")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.meanBPM.map(Double.init) }
@@ -1099,27 +1104,27 @@ struct MetricsChartsView: View, Equatable {
 
     private var rrHistoryCard: some View {
         MetricChartCard(
-            title:    "RR Interval",
-            technicalName: "mean beat-to-beat interval (RR)",
-            subtitle: "mean beat-to-beat  ·  60000 / BPM",
-            yLabel:   "ms",
+            title:    LocalizedCopy.text("RR Interval"),
+            technicalName: LocalizedCopy.text("mean beat-to-beat interval (RR)"),
+            subtitle: LocalizedCopy.text("mean beat-to-beat  ·  60000 / BPM"),
+            yLabel:   LocalizedCopy.text("ms"),
             color:    Theme.hrv,
             windows:  TimeWindow.allCases,
             refs: [
-                RefLine(value:  600, label: "100 bpm", color: Theme.warn),
-                RefLine(value:  750, label:  "80 bpm", color: Theme.dim),
-                RefLine(value: 1000, label:  "60 bpm", color: Theme.coh),
+                RefLine(value:  600, label: LocalizedCopy.text("100 bpm"), color: Theme.warn),
+                RefLine(value:  750, label:  LocalizedCopy.text("80 bpm"), color: Theme.dim),
+                RefLine(value: 1000, label:  LocalizedCopy.text("60 bpm"), color: Theme.coh),
             ],
             yDomain: 350...1500,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
-                "The exact gap between two heartbeats, in milliseconds. It's just your pulse viewed up close — one beat at a time instead of an average.",
-                calculation: "The mean time between consecutive heartbeats in the window, in milliseconds — the same number Pulse shows, seen from the other side (60,000 ÷ BPM).",
-                physical:    "Your heart never beats like a metronome; the tiny gaps between beats constantly shift. Those shifts are the raw material behind every other number here.",
-                physiology:  "Longer, freely-changing gaps at rest are a sign of a calm, adaptable nervous system. Short, rigid, unchanging gaps point to stress or strain.",
-                training:    "A great live signal while breathing: watch the gap stretch on each exhale and shrink on each inhale. Big, smooth waves mean you've found your rhythm.",
-                sensitivity: "Changes with every breath and every shift in posture or stress. Very live.",
-                levels:      "60 bpm: about 1000 ms\n70 bpm: about 860 ms\n80 bpm: about 750 ms\nVery fit (50 bpm): about 1200 ms"
+                LocalizedCopy.text("The exact gap between two heartbeats, in milliseconds. It's just your pulse viewed up close — one beat at a time instead of an average."),
+                calculation: LocalizedCopy.text("The mean time between consecutive heartbeats in the window, in milliseconds — the same number Pulse shows, seen from the other side (60,000 ÷ BPM)."),
+                physical:    LocalizedCopy.text("Your heart never beats like a metronome; the tiny gaps between beats constantly shift. Those shifts are the raw material behind every other number here."),
+                physiology:  LocalizedCopy.text("Longer, freely-changing gaps at rest are a sign of a calm, adaptable nervous system. Short, rigid, unchanging gaps point to stress or strain."),
+                training:    LocalizedCopy.text("A great live signal while breathing: watch the gap stretch on each exhale and shrink on each inhale. Big, smooth waves mean you've found your rhythm."),
+                sensitivity: LocalizedCopy.text("Changes with every breath and every shift in posture or stress. Very live."),
+                levels:      LocalizedCopy.text("60 bpm: about 1000 ms\n70 bpm: about 860 ms\n80 bpm: about 750 ms\nVery fit (50 bpm): about 1200 ms")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) {
@@ -1132,27 +1137,27 @@ struct MetricsChartsView: View, Equatable {
 
     private var ieRatioCard: some View {
         MetricChartCard(
-            title:   "Breathing I:E Ratio",
-            technicalName: "exhale ÷ inhale (I:E)",
-            subtitle: "exhale / inhale",
-            yLabel:  "I:E ratio",
+            title:   LocalizedCopy.text("Breathing I:E Ratio"),
+            technicalName: LocalizedCopy.text("exhale ÷ inhale (I:E)"),
+            subtitle: LocalizedCopy.text("exhale / inhale"),
+            yLabel:  LocalizedCopy.text("I:E ratio"),
             color:   Theme.accent,
             windows: TimeWindow.allCases,
             refs: [
-                RefLine(value: 1.0, label: "balanced  1.0",       color: Theme.warn),
-                RefLine(value: 1.5, label: "mild vagal  ≥ 1.5",   color: Theme.coh),
-                RefLine(value: 2.0, label: "strong vagal  ≥ 2.0", color: Theme.coh),
+                RefLine(value: 1.0, label: LocalizedCopy.text("balanced  1.0"),       color: Theme.warn),
+                RefLine(value: 1.5, label: LocalizedCopy.text("mild vagal  ≥ 1.5"),   color: Theme.coh),
+                RefLine(value: 2.0, label: LocalizedCopy.text("strong vagal  ≥ 2.0"), color: Theme.coh),
             ],
             yDomain: 0...2.8,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
-                "How long your exhale is compared with your inhale. A longer out-breath is the simplest lever you have for calming your body down.",
-                calculation: "The chest accelerometer traces each breath; every cycle is split into inhale and exhale, and this is mean exhale time divided by mean inhale time.",
-                physical:    "Breathing in gently speeds the heart; breathing out slows it. So the longer your exhale, the more you engage your body's natural brake.",
-                physiology:  "When your exhale is longer than your inhale, your nervous system shifts toward 'rest and recover' — heart rate drops and stress eases.",
-                training:    "Aim for an exhale about 1.5–2× your inhale. Try 4 seconds in and 6 out (that's 1.5), or 4 in and 8 out (that's 2.0). Ease into it — don't strain for a long exhale.",
-                sensitivity: "Fully in your control — even a half-second longer exhale shows up here right away.",
-                levels:      "Even:            1.0 (in = out)\nCalming:         1.5 or more\nDeeply calming:  2.0 or more\nSweet spot:      2.0–2.5"
+                LocalizedCopy.text("How long your exhale is compared with your inhale. A longer out-breath is the simplest lever you have for calming your body down."),
+                calculation: LocalizedCopy.text("The chest accelerometer traces each breath; every cycle is split into inhale and exhale, and this is mean exhale time divided by mean inhale time."),
+                physical:    LocalizedCopy.text("Breathing in gently speeds the heart; breathing out slows it. So the longer your exhale, the more you engage your body's natural brake."),
+                physiology:  LocalizedCopy.text("When your exhale is longer than your inhale, your nervous system shifts toward 'rest and recover' — heart rate drops and stress eases."),
+                training:    LocalizedCopy.text("Aim for an exhale about 1.5–2× your inhale. Try 4 seconds in and 6 out (that's 1.5), or 4 in and 8 out (that's 2.0). Ease into it — don't strain for a long exhale."),
+                sensitivity: LocalizedCopy.text("Fully in your control — even a half-second longer exhale shows up here right away."),
+                levels:      LocalizedCopy.text("Even:            1.0 (in = out)\nCalming:         1.5 or more\nDeeply calming:  2.0 or more\nSweet spot:      2.0–2.5")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.ieRatio.map(Double.init) }
@@ -1164,25 +1169,25 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:   metricDef(.rmssd).label,
             technicalName: metricDef(.rmssd).techFull,
-            subtitle: "Total strength of your recovery drive",
-            yLabel:  "ms",
+            subtitle: LocalizedCopy.text("Total strength of your recovery drive"),
+            yLabel:  LocalizedCopy.text("ms"),
             color:   Theme.breathe,
             windows: TimeWindow.allCases,
             refs: [
-                RefLine(value: 20, label: "low",      color: Theme.warn),
-                RefLine(value: 40, label: "moderate", color: Theme.rsa),
-                RefLine(value: 65, label: "healthy",  color: Theme.coh),
+                RefLine(value: 20, label: LocalizedCopy.text("low"),      color: Theme.warn),
+                RefLine(value: 40, label: LocalizedCopy.text("moderate"), color: Theme.rsa),
+                RefLine(value: 65, label: LocalizedCopy.text("healthy"),  color: Theme.coh),
             ],
             yDomain: 0...120,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
-                "The strength of your body's calm-and-recover system, in raw milliseconds of beat-to-beat variability. Higher means a stronger ability to relax and bounce back.",
-                calculation: "Root Mean Square of Successive Differences (RMSSD): each beat-to-beat change is squared, the squares averaged over the window, and the root taken. Only vagal activity produces large beat-to-beat differences.",
-                physical:    "It's built from how much your heartbeat naturally varies from beat to beat — a hallmark of a relaxed, well-regulated body.",
-                physiology:  "A higher number means your 'brakes' are strong: you handle stress better, recover faster, and tend to sleep and feel better. A low number is a nudge to rest and downshift.",
-                training:    "Check it each morning after a few minutes of rest as a recovery score. A sharp drop means you're not fully recovered. It climbs over months with regular cardio and slow-breathing practice.",
-                sensitivity: "Live and personal — big swings within a day are normal; compare against your own usual range, not other people's.",
-                levels:      "Low:      under 20 ms\nModerate: 20–40 ms\nHealthy:  40–65 ms\nHigh:     65+ ms\nHigher is better — against your own baseline."
+                LocalizedCopy.text("The strength of your body's calm-and-recover system, in raw milliseconds of beat-to-beat variability. Higher means a stronger ability to relax and bounce back."),
+                calculation: LocalizedCopy.text("Root Mean Square of Successive Differences (RMSSD): each beat-to-beat change is squared, the squares averaged over the window, and the root taken. Only vagal activity produces large beat-to-beat differences."),
+                physical:    LocalizedCopy.text("It's built from how much your heartbeat naturally varies from beat to beat — a hallmark of a relaxed, well-regulated body."),
+                physiology:  LocalizedCopy.text("A higher number means your 'brakes' are strong: you handle stress better, recover faster, and tend to sleep and feel better. A low number is a nudge to rest and downshift."),
+                training:    LocalizedCopy.text("Check it each morning after a few minutes of rest as a recovery score. A sharp drop means you're not fully recovered. It climbs over months with regular cardio and slow-breathing practice."),
+                sensitivity: LocalizedCopy.text("Live and personal — big swings within a day are normal; compare against your own usual range, not other people's."),
+                levels:      LocalizedCopy.text("Low:      under 20 ms\nModerate: 20–40 ms\nHealthy:  40–65 ms\nHigh:     65+ ms\nHigher is better — against your own baseline.")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.rmssd.map(Double.init) }
@@ -1199,27 +1204,27 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:   sdnnMetricDef.label,
             technicalName: sdnnMetricDef.techFull,
-            subtitle: "The full spread of your beat-to-beat intervals",
-            yLabel:  "ms",
+            subtitle: LocalizedCopy.text("The full spread of your beat-to-beat intervals"),
+            yLabel:  LocalizedCopy.text("ms"),
             color:   Theme.ulf,
             windows: TimeWindow.allCases,
             refs: [
-                RefLine(value:  20, label: "20  narrow",  color: Theme.warn),
-                RefLine(value:  50, label: "50  typical", color: Theme.rsa),
-                RefLine(value: 100, label: "100  broad",  color: Theme.coh),
+                RefLine(value:  20, label: LocalizedCopy.text("20  narrow"),  color: Theme.warn),
+                RefLine(value:  50, label: LocalizedCopy.text("50  typical"), color: Theme.rsa),
+                RefLine(value: 100, label: LocalizedCopy.text("100  broad"),  color: Theme.coh),
             ],
             yDomain: 0...150,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             dynamicY: true,
             info: MetricInfo(
-                "The total spread of your beat-to-beat intervals — every rhythm your heart is running at once, fast and slow, folded into one number. Calm Power (RMSSD) hears only the fast, breath-linked rhythms; this hears all of them.",
-                calculation: "Standard deviation of the NN (artifact-free RR) intervals across the current window. Because it is a standard deviation, it grows with the length of the window: slow rhythms only show up once the window is long enough to contain them.",
-                physical:    "How much the gap between one heartbeat and the next drifts over the whole stretch you're looking at — not just from beat to beat, but across minutes.",
-                physiology:  "A wide spread means your nervous system has room to move: it speeds up, slows down, and responds to what the day asks of it. A narrow one means something is holding the heart to a fixed rhythm — stress, illness, alcohol, or hard training you haven't recovered from.",
-                training:    "Read it as range rather than recovery. Calm Power answers “am I recovered right now”; this answers “how much range does my system have”. It is most meaningful over a long window, so prefer 24h — and Track’s daily version, averaged across a whole day of wear, is the one that lines up with the published research.",
-                sensitivity: "Window-dependent above all — the same body reads far higher over 24h than over 30 minutes, so only compare like with like. Within a window it moves with posture, breathing, and any burst of effort.",
-                levels:      "Over a 30m or 2h window\nNarrow:  under 20 ms\nTypical: 20–80 ms\nBroad:   80+ ms\n\nThe familiar clinical cut-offs (50 ms, 100 ms) are 24-hour numbers and do not apply to a short window.",
-                notes:       "A single big artifact inflates it more than any other metric here, since one wrong interval enters the sum squared. Trust it most where the Signal Artifacts chart below is low."
+                LocalizedCopy.text("The total spread of your beat-to-beat intervals — every rhythm your heart is running at once, fast and slow, folded into one number. Calm Power (RMSSD) hears only the fast, breath-linked rhythms; this hears all of them."),
+                calculation: LocalizedCopy.text("Standard deviation of the NN (artifact-free RR) intervals across the current window. Because it is a standard deviation, it grows with the length of the window: slow rhythms only show up once the window is long enough to contain them."),
+                physical:    LocalizedCopy.text("How much the gap between one heartbeat and the next drifts over the whole stretch you're looking at — not just from beat to beat, but across minutes."),
+                physiology:  LocalizedCopy.text("A wide spread means your nervous system has room to move: it speeds up, slows down, and responds to what the day asks of it. A narrow one means something is holding the heart to a fixed rhythm — stress, illness, alcohol, or hard training you haven't recovered from."),
+                training:    LocalizedCopy.text("Read it as range rather than recovery. Calm Power answers “am I recovered right now”; this answers “how much range does my system have”. It is most meaningful over a long window, so prefer 24h — and Track’s daily version, averaged across a whole day of wear, is the one that lines up with the published research."),
+                sensitivity: LocalizedCopy.text("Window-dependent above all — the same body reads far higher over 24h than over 30 minutes, so only compare like with like. Within a window it moves with posture, breathing, and any burst of effort."),
+                levels:      LocalizedCopy.text("Over a 30m or 2h window\nNarrow:  under 20 ms\nTypical: 20–80 ms\nBroad:   80+ ms\n\nThe familiar clinical cut-offs (50 ms, 100 ms) are 24-hour numbers and do not apply to a short window."),
+                notes:       LocalizedCopy.text("A single big artifact inflates it more than any other metric here, since one wrong interval enters the sum squared. Trust it most where the Signal Artifacts chart below is low.")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.sdnn.map(Double.init) }
@@ -1238,30 +1243,30 @@ struct MetricsChartsView: View, Equatable {
     /// same reason the two metrics share a scale: they come off one curve.
     private var acCard: some View {
         MetricChartCard(
-            title:    "Throttle",
-            technicalName: "Acceleration Capacity (AC)",
-            subtitle: "How sharply your heart can speed up",
-            yLabel:   "ms",
+            title:    LocalizedCopy.text("Throttle"),
+            technicalName: LocalizedCopy.text("Acceleration Capacity (AC)"),
+            subtitle: LocalizedCopy.text("How sharply your heart can speed up"),
+            yLabel:   LocalizedCopy.text("ms"),
             color:    Color(red: 0.95, green: 0.45, blue: 0.75),
             windows:  TimeWindow.allCases,
             refs: [
-                RefLine(value: 4.5,  label: "Reduced",    color: Theme.warn),
-                RefLine(value: 6.1,  label: "Developing", color: Color(hex: "#FCD34D")),
-                RefLine(value: 10.0, label: "Strong",     color: Theme.coh),
+                RefLine(value: 4.5,  label: LocalizedCopy.text("Reduced"),    color: Theme.warn),
+                RefLine(value: 6.1,  label: LocalizedCopy.text("Developing"), color: Color(hex: "#FCD34D")),
+                RefLine(value: 10.0, label: LocalizedCopy.text("Strong"),     color: Theme.coh),
             ],
             yDomain: 0...20,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             smooth: true,
             dynamicY: true,
             info: MetricInfo(
-                "How readily your heart speeds up \u{2014} the accelerating half of the same machinery Vagal Tone measures. Vagal Tone is the brake; this is the throttle.",
-                calculation: "Phase-Rectified Signal Averaging (Bauer et al., 2006) \u{2014} the same pass that produces Vagal Tone, anchored on the opposite beats: every beat where the heart sped up becomes an anchor, the beats around all anchors are averaged into one curve, and a Haar wavelet reads the characteristic acceleration from it. The published value is negative (about \u{2212}6 ms); this chart plots its size, so a bigger number means a stronger acceleration.",
-                physical:    "Every time your heart nudges itself faster between beats \u{2014} reacting to a breath in, a movement, a thought \u{2014} that is the throttle. This tracks how big and how consistent those pushes are.",
-                physiology:  "Acceleration is the vagal brake easing off, plus sympathetic drive on top. A system with range has both a strong brake and a strong throttle. A throttle that is strong while the brake is weak is the signature of a body stuck in go-mode; both weak means range has gone altogether.",
-                training:    "Read it beside Vagal Tone rather than on its own \u{2014} the pair is the point. Both climbing over weeks means widening range; the two drifting apart says more than either number does alone.",
-                sensitivity: "Moves slowly, like Vagal Tone \u{2014} read it as a trend over days and weeks. It needs a couple of minutes of clean signal, and at least 20 accelerating beats inside the window, before it reports anything at all.",
-                levels:      "Building: under 4.5\nTypical:  around 6\nStrong:   10+\nShown as size, so higher = a stronger throttle.\n(Short readings aren\u{2019}t directly comparable to overnight ones.)",
-                notes:       "Blank before 2026-08-31: AC was computed and discarded until then, so no earlier history holds a value. It shares Vagal Tone\u{2019}s gate of ~192 clean intervals, so the two appear and disappear together."
+                LocalizedCopy.text("How readily your heart speeds up \u{2014} the accelerating half of the same machinery Vagal Tone measures. Vagal Tone is the brake; this is the throttle."),
+                calculation: LocalizedCopy.text("Phase-Rectified Signal Averaging (Bauer et al., 2006) \u{2014} the same pass that produces Vagal Tone, anchored on the opposite beats: every beat where the heart sped up becomes an anchor, the beats around all anchors are averaged into one curve, and a Haar wavelet reads the characteristic acceleration from it. The published value is negative (about \u{2212}6 ms); this chart plots its size, so a bigger number means a stronger acceleration."),
+                physical:    LocalizedCopy.text("Every time your heart nudges itself faster between beats \u{2014} reacting to a breath in, a movement, a thought \u{2014} that is the throttle. This tracks how big and how consistent those pushes are."),
+                physiology:  LocalizedCopy.text("Acceleration is the vagal brake easing off, plus sympathetic drive on top. A system with range has both a strong brake and a strong throttle. A throttle that is strong while the brake is weak is the signature of a body stuck in go-mode; both weak means range has gone altogether."),
+                training:    LocalizedCopy.text("Read it beside Vagal Tone rather than on its own \u{2014} the pair is the point. Both climbing over weeks means widening range; the two drifting apart says more than either number does alone."),
+                sensitivity: LocalizedCopy.text("Moves slowly, like Vagal Tone \u{2014} read it as a trend over days and weeks. It needs a couple of minutes of clean signal, and at least 20 accelerating beats inside the window, before it reports anything at all."),
+                levels:      LocalizedCopy.text("Building: under 4.5\nTypical:  around 6\nStrong:   10+\nShown as size, so higher = a stronger throttle.\n(Short readings aren\u{2019}t directly comparable to overnight ones.)"),
+                notes:       LocalizedCopy.text("Blank before 2026-08-31: AC was computed and discarded until then, so no earlier history holds a value. It shares Vagal Tone\u{2019}s gate of ~192 clean intervals, so the two appear and disappear together.")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.activationCapacity }
@@ -1281,29 +1286,29 @@ struct MetricsChartsView: View, Equatable {
     /// reference lines mark the even point rather than a good/bad boundary.
     private var hraCard: some View {
         MetricChartCard(
-            title:    "Brake Bias",
-            technicalName: "Heart Rate Asymmetry (Guzik's Index)",
-            subtitle: "Which side of the rhythm does the work",
+            title:    LocalizedCopy.text("Brake Bias"),
+            technicalName: LocalizedCopy.text("Heart Rate Asymmetry (Guzik's Index)"),
+            subtitle: LocalizedCopy.text("Which side of the rhythm does the work"),
             yLabel:   "%",
             color:    Color(red: 0.45, green: 0.85, blue: 0.75),
             windows:  TimeWindow.allCases,
             refs: [
-                RefLine(value: 46, label: "46  throttle-led", color: Theme.rsa),
-                RefLine(value: 50, label: "50  even",         color: Theme.dim),
-                RefLine(value: 54, label: "54  brake-led",    color: Theme.coh),
+                RefLine(value: 46, label: LocalizedCopy.text("46  throttle-led"), color: Theme.rsa),
+                RefLine(value: 50, label: LocalizedCopy.text("50  even"),         color: Theme.dim),
+                RefLine(value: 54, label: LocalizedCopy.text("54  brake-led"),    color: Theme.coh),
             ],
             yDomain: 35...65,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             smooth: true,
             dynamicY: true,
             info: MetricInfo(
-                "Your heart does not slow and speed up in equal steps. This is the share of your beat-to-beat variation that comes from slowing down rather than speeding up \u{2014} the balance between the brake and the throttle, rather than the strength of either.",
-                calculation: "Guzik\u{2019}s Index: each beat-to-beat change is squared, and the ones where the heart slowed are taken as a percentage of all of them. Squaring is what makes it a share of variance rather than a count \u{2014} one large deceleration counts for more than several small ones.",
-                physical:    "Watch your pulse over a minute and it does not wobble evenly: the slowdowns and the speed-ups come in different sizes. This measures which of the two carries more of that wobble.",
-                physiology:  "A healthy heart is lopsided on purpose \u{2014} decelerations tend to carry slightly more than half the variance. The asymmetry appears to come from the vagus acting faster than sympathetic drive can. Losing it, and drifting toward a flat 50, is the pattern seen with age and with illness.",
-                training:    "Read it beside Vagal Tone and Throttle rather than alone. Those two say how much brake and throttle you have; this says which one is shaping your rhythm. It is a slow measure \u{2014} weeks, not sessions.",
-                sensitivity: "Needs at least 100 clean beats before it reports at all, and moves slowly after that. Distance from 50 is the signal; small wanders around it are noise.",
-                levels:      "Low \u{2014} throttle-led:  under 46\nMiddle \u{2014} even:        46\u{2013}54  (50 is dead even)\nHigh \u{2014} brake-led:    54+\n\nUnlike most charts here, high is not simply better. Resting adults usually sit a little above 50, so brake-led is the familiar resting pattern and a drift toward a flat 50 is the one worth noticing. Read the distance from 50, in either direction, rather than chasing a number."
+                LocalizedCopy.text("Your heart does not slow and speed up in equal steps. This is the share of your beat-to-beat variation that comes from slowing down rather than speeding up \u{2014} the balance between the brake and the throttle, rather than the strength of either."),
+                calculation: LocalizedCopy.text("Guzik\u{2019}s Index: each beat-to-beat change is squared, and the ones where the heart slowed are taken as a percentage of all of them. Squaring is what makes it a share of variance rather than a count \u{2014} one large deceleration counts for more than several small ones."),
+                physical:    LocalizedCopy.text("Watch your pulse over a minute and it does not wobble evenly: the slowdowns and the speed-ups come in different sizes. This measures which of the two carries more of that wobble."),
+                physiology:  LocalizedCopy.text("A healthy heart is lopsided on purpose \u{2014} decelerations tend to carry slightly more than half the variance. The asymmetry appears to come from the vagus acting faster than sympathetic drive can. Losing it, and drifting toward a flat 50, is the pattern seen with age and with illness."),
+                training:    LocalizedCopy.text("Read it beside Vagal Tone and Throttle rather than alone. Those two say how much brake and throttle you have; this says which one is shaping your rhythm. It is a slow measure \u{2014} weeks, not sessions."),
+                sensitivity: LocalizedCopy.text("Needs at least 100 clean beats before it reports at all, and moves slowly after that. Distance from 50 is the signal; small wanders around it are noise."),
+                levels:      LocalizedCopy.text("Low \u{2014} throttle-led:  under 46\nMiddle \u{2014} even:        46\u{2013}54  (50 is dead even)\nHigh \u{2014} brake-led:    54+\n\nUnlike most charts here, high is not simply better. Resting adults usually sit a little above 50, so brake-led is the familiar resting pattern and a drift toward a flat 50 is the one worth noticing. Read the distance from 50, in either direction, rather than chasing a number.")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.hra.map(Double.init) }
@@ -1323,30 +1328,30 @@ struct MetricsChartsView: View, Equatable {
     /// added once there is enough stored history to know the real spread.
     private var rhythmStabilityCard: some View {
         MetricChartCard(
-            title:    "Rhythm Stability",
-            technicalName: "Percentage of Short Segments (PSS), inverted",
-            subtitle: "How much of the rhythm holds together",
+            title:    LocalizedCopy.text("Rhythm Stability"),
+            technicalName: LocalizedCopy.text("Percentage of Short Segments (PSS), inverted"),
+            subtitle: LocalizedCopy.text("How much of the rhythm holds together"),
             yLabel:   "%",
             color:    Color(red: 0.6, green: 0.75, blue: 1.0),
             windows:  TimeWindow.allCases,
             refs: [
-                RefLine(value: 30, label: "30  choppy",  color: Theme.warn),
-                RefLine(value: 38, label: "38  typical", color: Color(hex: "#FCD34D")),
-                RefLine(value: 50, label: "50  steady",  color: Theme.coh),
+                RefLine(value: 30, label: LocalizedCopy.text("30  choppy"),  color: Theme.warn),
+                RefLine(value: 38, label: LocalizedCopy.text("38  typical"), color: Color(hex: "#FCD34D")),
+                RefLine(value: 50, label: LocalizedCopy.text("50  steady"),  color: Theme.coh),
             ],
             yDomain: 0...100,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             smooth: true,
             dynamicY: true,
             info: MetricInfo(
-                "How much of your heart rhythm runs in sustained stretches rather than being chopped into very short pieces. Higher means the rhythm holds a line; lower means it keeps breaking up.",
-                calculation: "The percentage of beats sitting in runs of two or fewer before the rhythm changes direction \u{2014} then flipped, so the number rises as the rhythm steadies. The published measure (PSS) counts the fragmentation itself and runs the other way.",
-                physical:    "Between changes of direction, your heart rate travels in short runs. This asks how long those runs are: a steady rhythm moves in long sweeps, a fragmented one in constant tiny reversals.",
-                physiology:  "Fragmentation is not the same thing as low variability, which is why it earns its own chart \u{2014} a rhythm can be wide and still be chopped up. It rises with age and with disease of the sinus node, and it is thought to reflect the pacemaker itself misbehaving rather than the nerves that steer it.",
-                training:    "Not something to chase in a session. Watch it across weeks, and read it beside Inner Noise \u{2014} the two describe the same dimension from different angles, and they should broadly agree.",
-                sensitivity: "Needs a couple of minutes of clean signal. Artifacts inflate fragmentation directly, so trust it least where the Signal Artifacts chart below is high.",
-                levels:      "Low \u{2014} choppy:    under 30 %\nMiddle \u{2014} typical:  30\u{2013}50 %\nHigh \u{2014} steady:    50 %+\n\nHigher is better: more of your rhythm is running in sustained stretches rather than breaking up into very short runs.",
-                notes:       "Treat these bands as orientation, not diagnosis. They are anchored on the fragmentation literature\u{2019}s healthy midpoint, but those figures come from 24-hour recordings and this is a short window \u{2014} so the shape of your own trend is the trustworthy part, and the band you land in is the rough part. Blank before this shipped: the value was computed and discarded until now."
+                LocalizedCopy.text("How much of your heart rhythm runs in sustained stretches rather than being chopped into very short pieces. Higher means the rhythm holds a line; lower means it keeps breaking up."),
+                calculation: LocalizedCopy.text("The percentage of beats sitting in runs of two or fewer before the rhythm changes direction \u{2014} then flipped, so the number rises as the rhythm steadies. The published measure (PSS) counts the fragmentation itself and runs the other way."),
+                physical:    LocalizedCopy.text("Between changes of direction, your heart rate travels in short runs. This asks how long those runs are: a steady rhythm moves in long sweeps, a fragmented one in constant tiny reversals."),
+                physiology:  LocalizedCopy.text("Fragmentation is not the same thing as low variability, which is why it earns its own chart \u{2014} a rhythm can be wide and still be chopped up. It rises with age and with disease of the sinus node, and it is thought to reflect the pacemaker itself misbehaving rather than the nerves that steer it."),
+                training:    LocalizedCopy.text("Not something to chase in a session. Watch it across weeks, and read it beside Inner Noise \u{2014} the two describe the same dimension from different angles, and they should broadly agree."),
+                sensitivity: LocalizedCopy.text("Needs a couple of minutes of clean signal. Artifacts inflate fragmentation directly, so trust it least where the Signal Artifacts chart below is high."),
+                levels:      LocalizedCopy.text("Low \u{2014} choppy:    under 30 %\nMiddle \u{2014} typical:  30\u{2013}50 %\nHigh \u{2014} steady:    50 %+\n\nHigher is better: more of your rhythm is running in sustained stretches rather than breaking up into very short runs."),
+                notes:       LocalizedCopy.text("Treat these bands as orientation, not diagnosis. They are anchored on the fragmentation literature\u{2019}s healthy midpoint, but those figures come from 24-hour recordings and this is a short window \u{2014} so the shape of your own trend is the trustworthy part, and the band you land in is the rough part. Blank before this shipped: the value was computed and discarded until now.")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.rhythmStability }
@@ -1377,30 +1382,30 @@ struct MetricsChartsView: View, Equatable {
     /// from this codebase.
     private var qtviCard: some View {
         MetricChartCard(
-            title:    "Repolarisation Stability",
-            technicalName: "QT Variability Index (QTVI), inverted",
-            subtitle: "How steadily the heart muscle resets",
-            yLabel:   "index",
+            title:    LocalizedCopy.text("Repolarisation Stability"),
+            technicalName: LocalizedCopy.text("QT Variability Index (QTVI), inverted"),
+            subtitle: LocalizedCopy.text("How steadily the heart muscle resets"),
+            yLabel:   LocalizedCopy.text("index"),
             color:    Color(red: 0.85, green: 0.6, blue: 0.95),
             windows:  TimeWindow.allCases,
             refs: [
-                RefLine(value: 1.0, label: "1.0  unsteady", color: Theme.warn),
-                RefLine(value: 1.5, label: "1.5  typical",  color: Color(hex: "#FCD34D")),
-                RefLine(value: 1.9, label: "1.9  steady",   color: Theme.coh),
+                RefLine(value: 1.0, label: LocalizedCopy.text("1.0  unsteady"), color: Theme.warn),
+                RefLine(value: 1.5, label: LocalizedCopy.text("1.5  typical"),  color: Color(hex: "#FCD34D")),
+                RefLine(value: 1.9, label: LocalizedCopy.text("1.9  steady"),   color: Theme.coh),
             ],
             yDomain: -1...3,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             smooth: true,
             dynamicY: true,
             info: MetricInfo(
-                "Every heartbeat has two halves: the squeeze, and the electrical reset that readies the muscle for the next one. Every other chart here watches the squeeze being scheduled. This one watches the reset — and how much it wobbles from beat to beat.",
-                calculation: "Berger\u{2019}s QT Variability Index: the QT interval is measured on each beat from the raw ECG, and its variability is compared against heart-rate variability, each divided by the square of its own average. Because both sides are scaled that way, what is left is the wobble in the reset that changes in heart rate do not account for. Shown inverted, so higher is steadier.",
-                physical:    "After each beat your heart muscle has to recharge before it can beat again. That recharge takes a few tenths of a second, and it should take about the same time every beat. This measures how much that time drifts.",
-                physiology:  "This is the one measure here that is not about your nerves steering the pacemaker \u{2014} it is about the ventricular muscle itself. An unsteady reset is the pattern linked with arrhythmic risk, and it also rises with sustained sympathetic load, depression and anxiety, which is why it earns a place next to the autonomic charts rather than inside them.",
-                training:    "Not a dial to move in a session. It is a slow, whole-system marker: read it across weeks, and read a change as a question rather than an answer.",
-                sensitivity: "Needs a clean ECG and at least 32 delineated beats before it reports anything, and it rebuilds from scratch after the strap comes off. Movement is its enemy \u{2014} the T wave is small and easily buried.",
-                levels:      "Low \u{2014} unsteady:  under 1.0\nMiddle \u{2014} typical:  1.0\u{2013}1.9\nHigh \u{2014} steady:    1.9+\n\nHigher is steadier. These come from the published QTVI range, which is negative \u{2014} about \u{2212}1.9 (steady) to \u{2212}1.0 (unsteady), with anything above \u{2212}1.0 treated as abnormal. This chart plots the sign-flipped value, so the numbers read the right way up.",
-                notes:       "Read the bands with real caution. The strap samples at 130 Hz where this literature uses 500\u{2013}1000 Hz, and early readings here sit well below the published range \u{2014} which says our scale is offset, not that your heart is unwell. Until it is calibrated against a clinical recording, the direction your own line moves is the only part worth trusting. Blank before this shipped, and blank on any window the ECG stream was not running."
+                LocalizedCopy.text("Every heartbeat has two halves: the squeeze, and the electrical reset that readies the muscle for the next one. Every other chart here watches the squeeze being scheduled. This one watches the reset — and how much it wobbles from beat to beat."),
+                calculation: LocalizedCopy.text("Berger\u{2019}s QT Variability Index: the QT interval is measured on each beat from the raw ECG, and its variability is compared against heart-rate variability, each divided by the square of its own average. Because both sides are scaled that way, what is left is the wobble in the reset that changes in heart rate do not account for. Shown inverted, so higher is steadier."),
+                physical:    LocalizedCopy.text("After each beat your heart muscle has to recharge before it can beat again. That recharge takes a few tenths of a second, and it should take about the same time every beat. This measures how much that time drifts."),
+                physiology:  LocalizedCopy.text("This is the one measure here that is not about your nerves steering the pacemaker \u{2014} it is about the ventricular muscle itself. An unsteady reset is the pattern linked with arrhythmic risk, and it also rises with sustained sympathetic load, depression and anxiety, which is why it earns a place next to the autonomic charts rather than inside them."),
+                training:    LocalizedCopy.text("Not a dial to move in a session. It is a slow, whole-system marker: read it across weeks, and read a change as a question rather than an answer."),
+                sensitivity: LocalizedCopy.text("Needs a clean ECG and at least 32 delineated beats before it reports anything, and it rebuilds from scratch after the strap comes off. Movement is its enemy \u{2014} the T wave is small and easily buried."),
+                levels:      LocalizedCopy.text("Low \u{2014} unsteady:  under 1.0\nMiddle \u{2014} typical:  1.0\u{2013}1.9\nHigh \u{2014} steady:    1.9+\n\nHigher is steadier. These come from the published QTVI range, which is negative \u{2014} about \u{2212}1.9 (steady) to \u{2212}1.0 (unsteady), with anything above \u{2212}1.0 treated as abnormal. This chart plots the sign-flipped value, so the numbers read the right way up."),
+                notes:       LocalizedCopy.text("Read the bands with real caution. The strap samples at 130 Hz where this literature uses 500\u{2013}1000 Hz, and early readings here sit well below the published range \u{2014} which says our scale is offset, not that your heart is unwell. Until it is calibrated against a clinical recording, the direction your own line moves is the only part worth trusting. Blank before this shipped, and blank on any window the ECG stream was not running.")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.qtvi.map { -Double($0) } }
@@ -1415,16 +1420,16 @@ struct MetricsChartsView: View, Equatable {
     /// the reference lines.
     private var breathRateCard: some View {
         MetricChartCard(
-            title:   "Breath Rate",
-            technicalName: "breaths per minute (br/min)",
-            subtitle: "How fast you're breathing",
-            yLabel:  "br/min",
+            title:   LocalizedCopy.text("Breath Rate"),
+            technicalName: LocalizedCopy.text("breaths per minute (br/min)"),
+            subtitle: LocalizedCopy.text("How fast you're breathing"),
+            yLabel:  LocalizedCopy.text("br/min"),
             color:   Theme.breathe,
             windows: TimeWindow.allCases,
             refs: [
-                RefLine(value:  6, label:  "6  resonance", color: Theme.coh),
-                RefLine(value: 12, label: "12  rest",      color: Theme.rsa),
-                RefLine(value: 20, label: "20  fast",      color: Theme.warn),
+                RefLine(value:  6, label:  LocalizedCopy.text("6  resonance"), color: Theme.coh),
+                RefLine(value: 12, label: LocalizedCopy.text("12  rest"),      color: Theme.rsa),
+                RefLine(value: 20, label: LocalizedCopy.text("20  fast"),      color: Theme.warn),
             ],
             yDomain: 4...30,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
@@ -1432,14 +1437,14 @@ struct MetricsChartsView: View, Equatable {
             // interpolation, so smooth it like RSA.
             smooth:  true,
             info: MetricInfo(
-                "How many breaths you take per minute. It's the one signal on this screen you can change on purpose, right now, just by breathing differently.",
-                calculation: "A Welch power spectrum of the chest accelerometer's Z axis. The dominant peak in the breathing band is your rate, refined between bins by parabolic interpolation; a peak must clearly rise above the band's average power — otherwise no value is shown rather than a guess.",
-                physical:    "Your chest rises and falls with each breath, and the strap's motion sensor picks that up. Counting those rises gives your breathing rate.",
-                physiology:  "Slower breathing gives your body's brake more time to act on each out-breath. Fast, shallow breathing does the opposite — it keeps you revved up, and it's often the first thing to change when you're stressed.",
-                training:    "This is your steering wheel. Most people find their sweet spot near 6 breaths per minute — try settling there and watch Conscious Breathing rise underneath it.",
-                sensitivity: "Immediate — it follows your very next breath. It's also the easiest metric here to change deliberately.",
-                levels:      "Resonance: around 6 br/min\nRestful:   6–12 br/min\nTypical:   12–16 br/min\nFast:      20+ br/min",
-                notes:       "Measured from body movement, so walking, driving, or fidgeting can be mistaken for breathing. Trust it most when you're still."
+                LocalizedCopy.text("How many breaths you take per minute. It's the one signal on this screen you can change on purpose, right now, just by breathing differently."),
+                calculation: LocalizedCopy.text("A Welch power spectrum of the chest accelerometer's Z axis. The dominant peak in the breathing band is your rate, refined between bins by parabolic interpolation; a peak must clearly rise above the band's average power — otherwise no value is shown rather than a guess."),
+                physical:    LocalizedCopy.text("Your chest rises and falls with each breath, and the strap's motion sensor picks that up. Counting those rises gives your breathing rate."),
+                physiology:  LocalizedCopy.text("Slower breathing gives your body's brake more time to act on each out-breath. Fast, shallow breathing does the opposite — it keeps you revved up, and it's often the first thing to change when you're stressed."),
+                training:    LocalizedCopy.text("This is your steering wheel. Most people find their sweet spot near 6 breaths per minute — try settling there and watch Conscious Breathing rise underneath it."),
+                sensitivity: LocalizedCopy.text("Immediate — it follows your very next breath. It's also the easiest metric here to change deliberately."),
+                levels:      LocalizedCopy.text("Resonance: around 6 br/min\nRestful:   6–12 br/min\nTypical:   12–16 br/min\nFast:      20+ br/min"),
+                notes:       LocalizedCopy.text("Measured from body movement, so walking, driving, or fidgeting can be mistaken for breathing. Trust it most when you're still.")
             ),
             isEstimated: { $0.breathSource == .heart },
             history: history, rawHistory: rawHistory, date: date
@@ -1452,28 +1457,28 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:   metricDef(.rsa).label,
             technicalName: metricDef(.rsa).techFull,
-            subtitle: "How your breath moves your heart rate",
-            yLabel:  "ms",
+            subtitle: LocalizedCopy.text("How your breath moves your heart rate"),
+            yLabel:  LocalizedCopy.text("ms"),
             color:   Theme.rsa,
             windows: TimeWindow.allCases,
             refs: [
-                RefLine(value: 10, label: "low",    color: Theme.warn),
-                RefLine(value: 30, label: "mod",    color: Theme.rsa),
-                RefLine(value: 60, label: "good",   color: Theme.coh),
-                RefLine(value: 90, label: "strong", color: Theme.coh),
+                RefLine(value: 10, label: LocalizedCopy.text("low"),    color: Theme.warn),
+                RefLine(value: 30, label: LocalizedCopy.text("mod"),    color: Theme.rsa),
+                RefLine(value: 60, label: LocalizedCopy.text("good"),   color: Theme.coh),
+                RefLine(value: 90, label: LocalizedCopy.text("strong"), color: Theme.coh),
             ],
             yDomain: 0...120,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             smooth:  true,
             info: MetricInfo(
-                "How much your heart rate rises and falls with each breath. It's the live signature of your breathing actually reaching your nervous system.",
-                calculation: "The heart-rate swing at your detected breathing frequency: the RR series' power in a narrow band around the breath peak, expressed as a peak-to-trough amplitude in ms. With no clean breath peak, the standard HF band (0.15–0.40 Hz) stands in.",
-                physical:    "Breathe in and your heart speeds up a little; breathe out and it slows. This measures the size of that wave — bigger waves mean your breath is having a bigger calming effect.",
-                physiology:  "It's the most direct real-time sign that your calming system is engaged. Big, steady waves are linked to better emotional control and faster recovery.",
-                training:    "This is your main feedback signal during slow breathing. Around 6 breaths per minute most people see it peak. Watch it grow as you settle into a rhythm — and it strengthens over weeks of practice.",
-                sensitivity: "Very live — it drops quickly if your breathing gets fast, shallow, or irregular.",
-                levels:      "Low:       under 10 ms\nModerate:  10–30 ms\nGood:      30–60 ms\nStrong:    60–90 ms\nExcellent: 90+ ms",
-                notes:       "Brief dips to near zero are normal — for example right after a breath-hold or a sudden change in posture."
+                LocalizedCopy.text("How much your heart rate rises and falls with each breath. It's the live signature of your breathing actually reaching your nervous system."),
+                calculation: LocalizedCopy.text("The heart-rate swing at your detected breathing frequency: the RR series' power in a narrow band around the breath peak, expressed as a peak-to-trough amplitude in ms. With no clean breath peak, the standard HF band (0.15–0.40 Hz) stands in."),
+                physical:    LocalizedCopy.text("Breathe in and your heart speeds up a little; breathe out and it slows. This measures the size of that wave — bigger waves mean your breath is having a bigger calming effect."),
+                physiology:  LocalizedCopy.text("It's the most direct real-time sign that your calming system is engaged. Big, steady waves are linked to better emotional control and faster recovery."),
+                training:    LocalizedCopy.text("This is your main feedback signal during slow breathing. Around 6 breaths per minute most people see it peak. Watch it grow as you settle into a rhythm — and it strengthens over weeks of practice."),
+                sensitivity: LocalizedCopy.text("Very live — it drops quickly if your breathing gets fast, shallow, or irregular."),
+                levels:      LocalizedCopy.text("Low:       under 10 ms\nModerate:  10–30 ms\nGood:      30–60 ms\nStrong:    60–90 ms\nExcellent: 90+ ms"),
+                notes:       LocalizedCopy.text("Brief dips to near zero are normal — for example right after a breath-hold or a sudden change in posture.")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.rsaMs.map(Double.init) }
@@ -1485,26 +1490,26 @@ struct MetricsChartsView: View, Equatable {
     private var pnn50Card: some View {
         MetricChartCard(
             title:   "pNN50",
-            technicalName: "beat pairs differing >50 ms (%)",
-            subtitle: "% successive RR diff > 50 ms",
+            technicalName: LocalizedCopy.text("beat pairs differing >50 ms (%)"),
+            subtitle: LocalizedCopy.text("% successive RR diff > 50 ms"),
             yLabel:  "%",
             color:   Theme.accent,
             windows: TimeWindow.allCases,
             refs: [
-                RefLine(value: 3,  label: "low",    color: Theme.warn),
-                RefLine(value: 8,  label: "normal", color: Theme.rsa),
-                RefLine(value: 20, label: "good",   color: Theme.coh),
+                RefLine(value: 3,  label: LocalizedCopy.text("low"),    color: Theme.warn),
+                RefLine(value: 8,  label: LocalizedCopy.text("normal"), color: Theme.rsa),
+                RefLine(value: 20, label: LocalizedCopy.text("good"),   color: Theme.coh),
             ],
             yDomain: 0...80,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
-                "How often your heartbeat makes a noticeable jump from one beat to the next — a simple, robust sign of an active calming system.",
-                calculation: "The share of consecutive beat pairs whose RR intervals differ by more than 50 ms.",
-                physical:    "It counts the share of back-to-back beats where the timing changed by more than a blink (50 ms). More of these little jumps means a livelier, more relaxed rhythm.",
-                physiology:  "Mostly reflects your calming (vagal) system. It rises during slow breathing, relaxation, and sleep, and falls under stress or exertion.",
-                training:    "A nice, noise-resistant companion to your other calm metrics. It should rise during slow-breathing sessions and improve over weeks of practice.",
-                sensitivity: "Responsive — moves quickly with your breathing and with sudden stress.",
-                levels:      "Very low:  under 3%\nLow:       3–8%\nNormal:    8–20%\nGood:      20–35%\nExcellent: 35%+"
+                LocalizedCopy.text("How often your heartbeat makes a noticeable jump from one beat to the next — a simple, robust sign of an active calming system."),
+                calculation: LocalizedCopy.text("The share of consecutive beat pairs whose RR intervals differ by more than 50 ms."),
+                physical:    LocalizedCopy.text("It counts the share of back-to-back beats where the timing changed by more than a blink (50 ms). More of these little jumps means a livelier, more relaxed rhythm."),
+                physiology:  LocalizedCopy.text("Mostly reflects your calming (vagal) system. It rises during slow breathing, relaxation, and sleep, and falls under stress or exertion."),
+                training:    LocalizedCopy.text("A nice, noise-resistant companion to your other calm metrics. It should rise during slow-breathing sessions and improve over weeks of practice."),
+                sensitivity: LocalizedCopy.text("Responsive — moves quickly with your breathing and with sudden stress."),
+                levels:      LocalizedCopy.text("Very low:  under 3%\nLow:       3–8%\nNormal:    8–20%\nGood:      20–35%\nExcellent: 35%+")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.pnn50.map(Double.init) }
@@ -1516,27 +1521,27 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:    metricDef(.dc).label,
             technicalName: metricDef(.dc).techFull,
-            subtitle: "Your relaxation and recovery capacity",
-            yLabel:   "ms",
+            subtitle: LocalizedCopy.text("Your relaxation and recovery capacity"),
+            yLabel:   LocalizedCopy.text("ms"),
             color:    Color(red: 0.4, green: 0.7, blue: 1.0),
             windows:  TimeWindow.allCases,
             refs: [
-                RefLine(value: 4.5,  label: "Reduced",    color: Theme.warn),
-                RefLine(value: 6.1,  label: "Developing", color: Color(hex: "#FCD34D")),
-                RefLine(value: 10.0, label: "Strong",     color: Theme.coh),
+                RefLine(value: 4.5,  label: LocalizedCopy.text("Reduced"),    color: Theme.warn),
+                RefLine(value: 6.1,  label: LocalizedCopy.text("Developing"), color: Color(hex: "#FCD34D")),
+                RefLine(value: 10.0, label: LocalizedCopy.text("Strong"),     color: Theme.coh),
             ],
             yDomain: 0...20,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             smooth: true,
             dynamicY: true,
             info: MetricInfo(
-                "How strongly your body can hit the brakes and relax — your heart's ability to slow itself down, which is the engine behind calming, recovering, and winding down.",
-                calculation: "Phase-Rectified Signal Averaging (Bauer et al., 2006): every beat where the heart slowed becomes an anchor, the beats around all anchors are averaged into one curve, and a Haar wavelet reads the characteristic deceleration from it, in ms.",
-                physical:    "Every time your heart eases off slightly between beats, that's your rest-and-recover system tapping the brake. This tracks how big and consistent those braking moments are.",
-                physiology:  "A strong brake means you bounce back faster after stress, fall asleep more easily, and stay calmer under pressure. A weak one is a sign you're stuck in 'go mode' too often.",
-                training:    "Slow breathing, good sleep, and regular cardio build it over weeks. Try a few minutes of paced breathing daily and watch it climb.",
-                sensitivity: "Changes slowly — read it as a trend over days and weeks. It needs a couple of minutes of clean signal to show a value.",
-                levels:      "Building: under 4.5\nTypical:  around 6\nStrong:   10+\nHigher = more calm-and-recover capacity.\n(Short readings aren't directly comparable to overnight ones.)"
+                LocalizedCopy.text("How strongly your body can hit the brakes and relax — your heart's ability to slow itself down, which is the engine behind calming, recovering, and winding down."),
+                calculation: LocalizedCopy.text("Phase-Rectified Signal Averaging (Bauer et al., 2006): every beat where the heart slowed becomes an anchor, the beats around all anchors are averaged into one curve, and a Haar wavelet reads the characteristic deceleration from it, in ms."),
+                physical:    LocalizedCopy.text("Every time your heart eases off slightly between beats, that's your rest-and-recover system tapping the brake. This tracks how big and consistent those braking moments are."),
+                physiology:  LocalizedCopy.text("A strong brake means you bounce back faster after stress, fall asleep more easily, and stay calmer under pressure. A weak one is a sign you're stuck in 'go mode' too often."),
+                training:    LocalizedCopy.text("Slow breathing, good sleep, and regular cardio build it over weeks. Try a few minutes of paced breathing daily and watch it climb."),
+                sensitivity: LocalizedCopy.text("Changes slowly — read it as a trend over days and weeks. It needs a couple of minutes of clean signal to show a value."),
+                levels:      LocalizedCopy.text("Building: under 4.5\nTypical:  around 6\nStrong:   10+\nHigher = more calm-and-recover capacity.\n(Short readings aren't directly comparable to overnight ones.)")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.dc.map(Double.init) }
@@ -1548,27 +1553,27 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:    metricDef(.rcmse).label,
             technicalName: metricDef(.rcmse).techFull,
-            subtitle: "How flexibly your system adapts across timescales",
-            yLabel:   "entropy",
+            subtitle: LocalizedCopy.text("How flexibly your system adapts across timescales"),
+            yLabel:   LocalizedCopy.text("entropy"),
             color:    Color(red: 0.8, green: 0.5, blue: 1.0),
             windows:  TimeWindow.allCases,
             refs: [
-                RefLine(value: 1.0, label: "Depleted",   color: Theme.warn),
-                RefLine(value: 1.5, label: "Recharging", color: Theme.dim),
-                RefLine(value: 2.0, label: "Thriving",   color: Theme.coh),
+                RefLine(value: 1.0, label: LocalizedCopy.text("Depleted"),   color: Theme.warn),
+                RefLine(value: 1.5, label: LocalizedCopy.text("Recharging"), color: Theme.dim),
+                RefLine(value: 2.0, label: LocalizedCopy.text("Thriving"),   color: Theme.coh),
             ],
             yDomain: 0.5...3.0,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             smooth: true,
             dynamicY: false,
             info: MetricInfo(
-                "How rich and flexible your heart rhythm is across many timescales at once. A more intricate, less repetitive pattern is a sign of a healthy, adaptable system.",
-                calculation: "Refined Composite Multiscale Sample Entropy (Wu et al., 2014): the beat series is averaged into coarser and coarser timescales and the pattern-richness of each is combined. Needs at least 100 clean beats — hence the gaps.",
-                physical:    "A healthy heartbeat isn't perfectly regular — it has layered, ever-shifting patterns. This measures how much of that healthy complexity is present.",
-                physiology:  "Higher complexity goes with resilience and good health. When the body is stressed, exhausted, or aging poorly, the rhythm gets simpler and more repetitive — and this drops.",
-                training:    "Builds slowly with steady aerobic training and breathing practice — think weeks to months. Best read as a trend, not a single reading.",
-                sensitivity: "Fairly steady — needs a few minutes of continuous wear and is far more useful as a trend than a one-off number.",
-                levels:      "Stressed / depleted: under 1.2\nTypical healthy:     about 1.4–2.2\nHighly trained:      2.0+\nHigher is better."
+                LocalizedCopy.text("How rich and flexible your heart rhythm is across many timescales at once. A more intricate, less repetitive pattern is a sign of a healthy, adaptable system."),
+                calculation: LocalizedCopy.text("Refined Composite Multiscale Sample Entropy (Wu et al., 2014): the beat series is averaged into coarser and coarser timescales and the pattern-richness of each is combined. Needs at least 100 clean beats — hence the gaps."),
+                physical:    LocalizedCopy.text("A healthy heartbeat isn't perfectly regular — it has layered, ever-shifting patterns. This measures how much of that healthy complexity is present."),
+                physiology:  LocalizedCopy.text("Higher complexity goes with resilience and good health. When the body is stressed, exhausted, or aging poorly, the rhythm gets simpler and more repetitive — and this drops."),
+                training:    LocalizedCopy.text("Builds slowly with steady aerobic training and breathing practice — think weeks to months. Best read as a trend, not a single reading."),
+                sensitivity: LocalizedCopy.text("Fairly steady — needs a few minutes of continuous wear and is far more useful as a trend than a one-off number."),
+                levels:      LocalizedCopy.text("Stressed / depleted: under 1.2\nTypical healthy:     about 1.4–2.2\nHighly trained:      2.0+\nHigher is better.")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.rcmse.map(Double.init) }
@@ -1580,27 +1585,27 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:    metricDef(.pip).label,
             technicalName: metricDef(.pip).techFull,
-            subtitle: "Beat-to-beat fragmentation — rises with stress and fatigue",
+            subtitle: LocalizedCopy.text("Beat-to-beat fragmentation — rises with stress and fatigue"),
             yLabel:   "%",
             color:    Color(red: 1.0, green: 0.7, blue: 0.3),
             windows:  TimeWindow.allCases,
             refs: [
-                RefLine(value: 40.0, label: "low fragmentation", color: Theme.coh),
-                RefLine(value: 55.0, label: "healthy median",    color: Theme.dim),
-                RefLine(value: 70.0, label: "high fragmentation",color: Theme.warn),
+                RefLine(value: 40.0, label: LocalizedCopy.text("low fragmentation"), color: Theme.coh),
+                RefLine(value: 55.0, label: LocalizedCopy.text("healthy median"),    color: Theme.dim),
+                RefLine(value: 70.0, label: LocalizedCopy.text("high fragmentation"),color: Theme.warn),
             ],
             yDomain: 20...90,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             smooth: true,
             dynamicY: false,
             info: MetricInfo(
-                "How choppy and jittery your heartbeat pattern is. Some choppiness is normal; a lot of it tends to show up with stress, fatigue, or poor recovery. Lower is calmer.",
-                calculation: "Heart-rate fragmentation (Costa et al., 2017): the percentage of beats where the RR series flips direction. A flowing rhythm has few inflection points; an erratic one flips constantly. Needs at least 30 clean beats.",
-                physical:    "It measures how often your heart keeps flip-flopping between speeding up and slowing down beat to beat. More constant flip-flopping means a more fragmented, less settled rhythm.",
-                physiology:  "A moderate amount is completely normal. High choppiness points to a nervous system that isn't coordinating smoothly — often from stress, poor sleep, or being run-down.",
-                training:    "You don't train this directly, but it eases as your overall health improves. Chronic stress and short sleep push it up; fitness and recovery bring it down over weeks.",
-                sensitivity: "Moderately responsive to your state, and steadier than the complexity metrics on short recordings.",
-                levels:      "Calm:     under 45%\nTypical:  around 55%\nElevated: over 70%\nLower is calmer."
+                LocalizedCopy.text("How choppy and jittery your heartbeat pattern is. Some choppiness is normal; a lot of it tends to show up with stress, fatigue, or poor recovery. Lower is calmer."),
+                calculation: LocalizedCopy.text("Heart-rate fragmentation (Costa et al., 2017): the percentage of beats where the RR series flips direction. A flowing rhythm has few inflection points; an erratic one flips constantly. Needs at least 30 clean beats."),
+                physical:    LocalizedCopy.text("It measures how often your heart keeps flip-flopping between speeding up and slowing down beat to beat. More constant flip-flopping means a more fragmented, less settled rhythm."),
+                physiology:  LocalizedCopy.text("A moderate amount is completely normal. High choppiness points to a nervous system that isn't coordinating smoothly — often from stress, poor sleep, or being run-down."),
+                training:    LocalizedCopy.text("You don't train this directly, but it eases as your overall health improves. Chronic stress and short sleep push it up; fitness and recovery bring it down over weeks."),
+                sensitivity: LocalizedCopy.text("Moderately responsive to your state, and steadier than the complexity metrics on short recordings."),
+                levels:      LocalizedCopy.text("Calm:     under 45%\nTypical:  around 55%\nElevated: over 70%\nLower is calmer.")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.pip.map(Double.init) }
@@ -1612,28 +1617,28 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:   metricDef(.dfa1).label,
             technicalName: metricDef(.dfa1).techFull,
-            subtitle: "How ordered vs random your heart rhythm is",
+            subtitle: LocalizedCopy.text("How ordered vs random your heart rhythm is"),
             yLabel:  "α1",
             color:   Theme.ulf,
             windows: TimeWindow.allCases,
             refs: [
-                RefLine(value: 0.75, label: "Drifting",    color: Theme.warn),
-                RefLine(value: 1.0,  label: "In Harmony",  color: Theme.coh),
-                RefLine(value: 1.5,  label: "Strained",    color: Theme.warn),
+                RefLine(value: 0.75, label: LocalizedCopy.text("Drifting"),    color: Theme.warn),
+                RefLine(value: 1.0,  label: LocalizedCopy.text("In Harmony"),  color: Theme.coh),
+                RefLine(value: 1.5,  label: LocalizedCopy.text("Strained"),    color: Theme.warn),
             ],
             yDomain: 0.5...1.8,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             smooth: true,
             dynamicY: false,
             info: MetricInfo(
-                "How balanced your heart rhythm is between too-random and too-rigid. Right in the middle — around 1.0 — is the sweet spot of a healthy, adaptable heart.",
-                calculation: "Detrended Fluctuation Analysis (Peng et al., 1995): the RR series is integrated, cut into boxes of 4–16 beats, each box detrended, and α1 is the slope of fluctuation size versus box size on log–log axes.",
-                physical:    "Your heartbeat has a natural 'texture.' Too random (low) or too locked-in (high) both signal strain; a balanced middle is ideal.",
-                physiology:  "The middle zone reflects a flexible, well-regulated system. Drifting low is linked to fatigue and poor recovery; running high can show over-strain.",
-                training:    "Improves with regular cardio and breathing practice — track it over weeks. Heavy exertion or high stress can pull it out of the ideal band for a while.",
-                sensitivity: "Slow and steady — it needs about 2 minutes of wear to appear and settles over 3–5 minutes.",
-                levels:      "Drifting (too random): under 0.75\nIn balance:            0.75–1.5  (aim here)\nIdeal:                 around 1.0\nStrained (too rigid):  over 1.5",
-                notes:       "Shows '—' until about 2 minutes of data have been collected. That's just how long the math needs — not a sensor problem."
+                LocalizedCopy.text("How balanced your heart rhythm is between too-random and too-rigid. Right in the middle — around 1.0 — is the sweet spot of a healthy, adaptable heart."),
+                calculation: LocalizedCopy.text("Detrended Fluctuation Analysis (Peng et al., 1995): the RR series is integrated, cut into boxes of 4–16 beats, each box detrended, and α1 is the slope of fluctuation size versus box size on log–log axes."),
+                physical:    LocalizedCopy.text("Your heartbeat has a natural 'texture.' Too random (low) or too locked-in (high) both signal strain; a balanced middle is ideal."),
+                physiology:  LocalizedCopy.text("The middle zone reflects a flexible, well-regulated system. Drifting low is linked to fatigue and poor recovery; running high can show over-strain."),
+                training:    LocalizedCopy.text("Improves with regular cardio and breathing practice — track it over weeks. Heavy exertion or high stress can pull it out of the ideal band for a while."),
+                sensitivity: LocalizedCopy.text("Slow and steady — it needs about 2 minutes of wear to appear and settles over 3–5 minutes."),
+                levels:      LocalizedCopy.text("Drifting (too random): under 0.75\nIn balance:            0.75–1.5  (aim here)\nIdeal:                 around 1.0\nStrained (too rigid):  over 1.5"),
+                notes:       LocalizedCopy.text("Shows '—' until about 2 minutes of data have been collected. That's just how long the math needs — not a sensor problem.")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.dfa1.map(Double.init) }
@@ -1645,26 +1650,26 @@ struct MetricsChartsView: View, Equatable {
         MetricChartCard(
             title:   metricDef(.stressBalance).label,
             technicalName: metricDef(.stressBalance).techFull,
-            subtitle: "Balance of activation vs rest",
+            subtitle: LocalizedCopy.text("Balance of activation vs rest"),
             yLabel:  "%",
             color:   Theme.rsa,
             windows: TimeWindow.allCases,
             refs: [
-                RefLine(value: 45, label: "parasympathetic",  color: Theme.coh),
-                RefLine(value: 50, label: "flow · balanced",  color: Theme.accent),
-                RefLine(value: 65, label: "sympathetic",      color: Theme.warn),
+                RefLine(value: 45, label: LocalizedCopy.text("parasympathetic"),  color: Theme.coh),
+                RefLine(value: 50, label: LocalizedCopy.text("flow · balanced"),  color: Theme.accent),
+                RefLine(value: 65, label: LocalizedCopy.text("sympathetic"),      color: Theme.warn),
             ],
             yDomain: 0...100,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
-                "A simple 0–100 stress dial: higher means more revved-up and alert, lower means calmer. It's built so that slow, calming breathing actually reads as calmer.",
-                calculation: "Vagal index = RMSSD ÷ (RMSSD + 40), or 0.5 · RMSSD ÷ baseline once your baseline is known. The dial is SNS% = 100 · (1 − vagal index). When RMSSD is unavailable and breathing is at a normal rate, HF ÷ (LF + HF) stands in for the vagal index.",
-                physical:    "It's based on how relaxed your heartbeat is moment to moment — a calm, variable heartbeat reads low, a tense, flat one reads high.",
-                physiology:  "Most stress scores get fooled by slow breathing and spike as if you were stressed. This one is designed to avoid that trap, so paced breathing correctly shows up as calm.",
-                training:    "Watch it fall during slow breathing and recovery, and rise with stress or exercise. A good breathing session should trend it downward.",
-                sensitivity: "Moderately responsive — and, unlike older stress ratios, it isn't thrown off by how slowly you breathe.",
-                levels:      "Calm:      under 45%\nBalanced:  45–65%\nRevved-up: over 65%\nLower is calmer.",
-                notes:       "An old-school 'stress ratio' isn't shown here because it misleads during breathwork — this dial is the app's stress signal."
+                LocalizedCopy.text("A simple 0–100 stress dial: higher means more revved-up and alert, lower means calmer. It's built so that slow, calming breathing actually reads as calmer."),
+                calculation: LocalizedCopy.text("Vagal index = RMSSD ÷ (RMSSD + 40), or 0.5 · RMSSD ÷ baseline once your baseline is known. The dial is SNS% = 100 · (1 − vagal index). When RMSSD is unavailable and breathing is at a normal rate, HF ÷ (LF + HF) stands in for the vagal index."),
+                physical:    LocalizedCopy.text("It's based on how relaxed your heartbeat is moment to moment — a calm, variable heartbeat reads low, a tense, flat one reads high."),
+                physiology:  LocalizedCopy.text("Most stress scores get fooled by slow breathing and spike as if you were stressed. This one is designed to avoid that trap, so paced breathing correctly shows up as calm."),
+                training:    LocalizedCopy.text("Watch it fall during slow breathing and recovery, and rise with stress or exercise. A good breathing session should trend it downward."),
+                sensitivity: LocalizedCopy.text("Moderately responsive — and, unlike older stress ratios, it isn't thrown off by how slowly you breathe."),
+                levels:      LocalizedCopy.text("Calm:      under 45%\nBalanced:  45–65%\nRevved-up: over 65%\nLower is calmer."),
+                notes:       LocalizedCopy.text("An old-school 'stress ratio' isn't shown here because it misleads during breathwork — this dial is the app's stress signal.")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { pt in
@@ -1678,10 +1683,10 @@ struct MetricsChartsView: View, Equatable {
 
     private var vlfCard: some View {
         MetricChartCard(
-            title:   "VLF Power",
-            technicalName: "very-low-frequency power (VLF)",
-            subtitle: "very low frequency  ·  0.003–0.04 Hz",
-            yLabel:  "ms²",
+            title:   LocalizedCopy.text("VLF Power"),
+            technicalName: LocalizedCopy.text("very-low-frequency power (VLF)"),
+            subtitle: LocalizedCopy.text("very low frequency  ·  0.003–0.04 Hz"),
+            yLabel:  LocalizedCopy.text("ms²"),
             color:   Theme.breathe,
             windows: TimeWindow.allCases,
             refs: [],
@@ -1689,14 +1694,14 @@ struct MetricsChartsView: View, Equatable {
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             dynamicY: true,
             info: MetricInfo(
-                "A slow, background rhythm in your heartbeat that plays out over minutes. It reflects deep, long-running regulation rather than anything you feel moment to moment.",
-                calculation: "Welch power spectral density of the evenly resampled RR series, integrated over 0.003–0.04 Hz.",
-                physical:    "These are very slow waves — cycles lasting from about half a minute to five minutes — tied to things like your body's internal chemistry and temperature control, not your breathing.",
-                physiology:  "Healthy long-term regulation shows up as solid activity here. Persistently low levels can reflect a run-down, poorly-regulated system. Think of it as a background health marker, not a moment-to-moment one.",
-                training:    "Not something you change in the moment. It improves over months with consistent exercise, good sleep, and lower chronic stress. Needs 5+ minute recordings to mean anything.",
-                sensitivity: "Slow-moving — needs steady, clean recordings of at least 5 minutes.",
-                levels:      "These values depend on recording length, so compare only your own trends under similar conditions — not against fixed targets.",
-                notes:       "Needs about 5 minutes of data to compute. It reads near zero in short sessions — that's normal, not an error."
+                LocalizedCopy.text("A slow, background rhythm in your heartbeat that plays out over minutes. It reflects deep, long-running regulation rather than anything you feel moment to moment."),
+                calculation: LocalizedCopy.text("Welch power spectral density of the evenly resampled RR series, integrated over 0.003–0.04 Hz."),
+                physical:    LocalizedCopy.text("These are very slow waves — cycles lasting from about half a minute to five minutes — tied to things like your body's internal chemistry and temperature control, not your breathing."),
+                physiology:  LocalizedCopy.text("Healthy long-term regulation shows up as solid activity here. Persistently low levels can reflect a run-down, poorly-regulated system. Think of it as a background health marker, not a moment-to-moment one."),
+                training:    LocalizedCopy.text("Not something you change in the moment. It improves over months with consistent exercise, good sleep, and lower chronic stress. Needs 5+ minute recordings to mean anything."),
+                sensitivity: LocalizedCopy.text("Slow-moving — needs steady, clean recordings of at least 5 minutes."),
+                levels:      LocalizedCopy.text("These values depend on recording length, so compare only your own trends under similar conditions — not against fixed targets."),
+                notes:       LocalizedCopy.text("Needs about 5 minutes of data to compute. It reads near zero in short sessions — that's normal, not an error.")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.vlfPower.map(Double.init) }
@@ -1706,10 +1711,10 @@ struct MetricsChartsView: View, Equatable {
 
     private var ulfCard: some View {
         MetricChartCard(
-            title:   "ULF Power",
-            technicalName: "ultra-low-frequency power (ULF)",
-            subtitle: "ultra low frequency  ·  < 0.003 Hz  ·  10 min+ sessions",
-            yLabel:  "ms²",
+            title:   LocalizedCopy.text("ULF Power"),
+            technicalName: LocalizedCopy.text("ultra-low-frequency power (ULF)"),
+            subtitle: LocalizedCopy.text("ultra low frequency  ·  < 0.003 Hz  ·  10 min+ sessions"),
+            yLabel:  LocalizedCopy.text("ms²"),
             color:   Theme.dim,
             windows: TimeWindow.allCases,
             refs: [],
@@ -1717,14 +1722,14 @@ struct MetricsChartsView: View, Equatable {
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             dynamicY: true,
             info: MetricInfo(
-                "The very slowest rhythm in your heartbeat, unfolding over many minutes to hours. It only appears in long recordings and reflects deep daily cycles like your body clock and hormones.",
-                calculation: "The same Welch spectrum integrated below 0.003 Hz — cycles minutes long, which is why it needs 10+ minutes of data.",
-                physical:    "These are ultra-slow waves — one cycle can take from five minutes to a whole day — linked to your sleep-wake cycle, body temperature, and hormone rhythms.",
-                physiology:  "Over full-day recordings this is a powerful long-term health signal, capturing daily rhythms no short measurement can. It isn't meaningful for a quick session.",
-                training:    "Only shows up in long or overnight recordings. If you wear the sensor for hours, its trend over weeks reflects improving sleep and daily-rhythm health.",
-                sensitivity: "Very slow — needs at least ~10 minutes of continuous wear to appear, and hours for a stable read.",
-                levels:      "Meaningful values come from long (24-hour) recordings; short-session numbers here aren't comparable to those.",
-                notes:       "This chart fills in only after about 10 minutes of continuous recording — a limitation of the math, not the sensor."
+                LocalizedCopy.text("The very slowest rhythm in your heartbeat, unfolding over many minutes to hours. It only appears in long recordings and reflects deep daily cycles like your body clock and hormones."),
+                calculation: LocalizedCopy.text("The same Welch spectrum integrated below 0.003 Hz — cycles minutes long, which is why it needs 10+ minutes of data."),
+                physical:    LocalizedCopy.text("These are ultra-slow waves — one cycle can take from five minutes to a whole day — linked to your sleep-wake cycle, body temperature, and hormone rhythms."),
+                physiology:  LocalizedCopy.text("Over full-day recordings this is a powerful long-term health signal, capturing daily rhythms no short measurement can. It isn't meaningful for a quick session."),
+                training:    LocalizedCopy.text("Only shows up in long or overnight recordings. If you wear the sensor for hours, its trend over weeks reflects improving sleep and daily-rhythm health."),
+                sensitivity: LocalizedCopy.text("Very slow — needs at least ~10 minutes of continuous wear to appear, and hours for a stable read."),
+                levels:      LocalizedCopy.text("Meaningful values come from long (24-hour) recordings; short-session numbers here aren't comparable to those."),
+                notes:       LocalizedCopy.text("This chart fills in only after about 10 minutes of continuous recording — a limitation of the math, not the sensor.")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.ulfPower.map(Double.init) }
@@ -1734,27 +1739,27 @@ struct MetricsChartsView: View, Equatable {
 
     private var coherenceCard: some View {
         MetricChartCard(
-            title:   "Coherence Score",
-            technicalName: "RR–breathing coherence (0–1)",
-            subtitle: "RR–breathing coupling",
-            yLabel:  "score",
+            title:   LocalizedCopy.text("Coherence Score"),
+            technicalName: LocalizedCopy.text("RR–breathing coherence (0–1)"),
+            subtitle: LocalizedCopy.text("RR–breathing coupling"),
+            yLabel:  LocalizedCopy.text("score"),
             color:   Theme.coh,
             windows: TimeWindow.allCases,
             refs: [
-                RefLine(value: 0.30, label: "low",       color: Theme.warn),
-                RefLine(value: 0.60, label: "good",      color: Theme.coh),
-                RefLine(value: 0.80, label: "excellent", color: Theme.coh),
+                RefLine(value: 0.30, label: LocalizedCopy.text("low"),       color: Theme.warn),
+                RefLine(value: 0.60, label: LocalizedCopy.text("good"),      color: Theme.coh),
+                RefLine(value: 0.80, label: LocalizedCopy.text("excellent"), color: Theme.coh),
             ],
             yDomain: 0...1,
             win: window, selectedX: $sharedSelectedX, panOffset: $sharedPanOffset,
             info: MetricInfo(
-                "How well your heartbeat and your breathing are moving in sync, from 0 to 1. High sync is the 'in the zone' state of a good breathing session.",
-                calculation: "Spectral coherence between the RR series and the accelerometer's breathing trace at the breathing frequency: 1.0 means heart rhythm and breath rise and fall in perfect lockstep.",
-                physical:    "When your heart rate rises and falls in lockstep with each breath, they're in sync. A score near 1 means they're perfectly in step; near 0 means they're unrelated.",
-                physiology:  "High sync is the sweet spot where slow breathing pays off most — the largest, smoothest heart-rate waves and the strongest relaxation response.",
-                training:    "This is your main target during slow breathing. It jumps up when you find your natural pace (around 6 breaths/min for most people). Try to hold it above 0.6 for most of a session, and notice how fast you can get there — that improves with practice.",
-                sensitivity: "Very live — it responds within a couple of breaths to changes in your pace, depth, or steadiness.",
-                levels:      "Low:       under 0.30\nModerate:  0.30–0.60\nGood:      0.60–0.80\nExcellent: 0.80+\nPeak:      0.90+  (rare — perfect sync)"
+                LocalizedCopy.text("How well your heartbeat and your breathing are moving in sync, from 0 to 1. High sync is the 'in the zone' state of a good breathing session."),
+                calculation: LocalizedCopy.text("Spectral coherence between the RR series and the accelerometer's breathing trace at the breathing frequency: 1.0 means heart rhythm and breath rise and fall in perfect lockstep."),
+                physical:    LocalizedCopy.text("When your heart rate rises and falls in lockstep with each breath, they're in sync. A score near 1 means they're perfectly in step; near 0 means they're unrelated."),
+                physiology:  LocalizedCopy.text("High sync is the sweet spot where slow breathing pays off most — the largest, smoothest heart-rate waves and the strongest relaxation response."),
+                training:    LocalizedCopy.text("This is your main target during slow breathing. It jumps up when you find your natural pace (around 6 breaths/min for most people). Try to hold it above 0.6 for most of a session, and notice how fast you can get there — that improves with practice."),
+                sensitivity: LocalizedCopy.text("Very live — it responds within a couple of breaths to changes in your pace, depth, or steadiness."),
+                levels:      LocalizedCopy.text("Low:       under 0.30\nModerate:  0.30–0.60\nGood:      0.60–0.80\nExcellent: 0.80+\nPeak:      0.90+  (rare — perfect sync)")
             ),
             history: history, rawHistory: rawHistory, date: date
         ) { $0.coherence.map(Double.init) }

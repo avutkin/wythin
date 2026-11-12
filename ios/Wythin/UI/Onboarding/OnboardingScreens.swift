@@ -45,12 +45,12 @@ struct OnboardingScaffold<Content: View>: View {
                 .padding(.horizontal, 24)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text(question)
+                Text(LocalizedCopy.text(question))
                     .font(.system(size: 30, weight: .bold))
                     .foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
                 if let subtitle {
-                    Text(subtitle)
+                    Text(LocalizedCopy.text(subtitle))
                         .font(Theme.monoBody)
                         .foregroundStyle(Theme.dim)
                 }
@@ -81,7 +81,7 @@ struct OnboardingScaffold<Content: View>: View {
                     }
                 }
                 Button(action: onContinue) {
-                    Text(continueTitle)
+                    Text(LocalizedCopy.text(continueTitle))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(canContinue ? Theme.text : Theme.dim)
                         .frame(maxWidth: .infinity)
@@ -121,7 +121,7 @@ struct OnboardingProgressBar: View {
 struct OnboardingOption: Identifiable, Equatable {
     let id:    String    // stored value + identity
     let icon:  String    // SF Symbol
-    var label: String { id }
+    var label: String { LocalizedCopy.text(id) }
     init(_ id: String, icon: String) { self.id = id; self.icon = icon }
 }
 
@@ -229,7 +229,7 @@ struct OnboardingFieldScreen: View {
             onBack: onBack,
             onContinue: onContinue
         ) {
-            TextField("", text: $text, prompt: Text(placeholder).foregroundColor(Theme.dim))
+            TextField("", text: $text, prompt: Text(LocalizedCopy.text(placeholder)).foregroundColor(Theme.dim))
                 .font(.system(size: 20, weight: .medium))
                 .foregroundStyle(Theme.text)
                 .keyboardType(keyboard)
@@ -389,7 +389,7 @@ struct OnboardingAboutYouScreen: View {
 
     private func pickerGroup(title: String, options: [String], selection: Binding<String?>) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
+            Text(LocalizedCopy.text(title))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
             FlowChips(options: options, selection: selection)
@@ -413,7 +413,7 @@ struct OnboardingNumberField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
+            Text(LocalizedCopy.text(title))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
 
@@ -423,7 +423,7 @@ struct OnboardingNumberField: View {
                     .foregroundStyle(Theme.text)
                     .keyboardType(.numberPad)
                     .onChange(of: text) { _, new in commit(new) }
-                Text(unit)
+                Text(LocalizedCopy.text(unit))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
             }
@@ -456,7 +456,7 @@ struct FlowChips: View {
             Button {
                 selection = opt
             } label: {
-                Text(opt)
+                Text(LocalizedCopy.text(opt))
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Theme.text)
                     .padding(.horizontal, 14)
@@ -635,7 +635,7 @@ struct OnboardingConnectScreen: View {
                             } else {
                                 Image(systemName: "plus.circle.fill")
                             }
-                            Text(isBusy ? "Searching…" : "Connect device")
+                            Text(LocalizedCopy.text(isBusy ? "Searching…" : "Connect device"))
                         }
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Theme.text)
@@ -669,7 +669,9 @@ struct OnboardingConnectScreen: View {
                     Text(name)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Theme.text)
-                    Text(batteryLevel.map { "CONNECTED · \($0)% BATTERY" } ?? "CONNECTED")
+                    Text(batteryLevel.map {
+                        LocalizedCopy.format("CONNECTED · %lld%% BATTERY", $0)
+                    } ?? LocalizedCopy.text("CONNECTED"))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                 }
@@ -705,11 +707,11 @@ struct OnboardingConnectScreen: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Text(title)
+            Text(LocalizedCopy.text(title))
                     .font(Theme.monoLabel)
                     .foregroundStyle(tint)
                 Spacer()
-                Text(detail)
+                Text(LocalizedCopy.text(detail))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
             }

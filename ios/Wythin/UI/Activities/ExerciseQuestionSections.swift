@@ -37,12 +37,7 @@ struct ExerciseQuestionSections: View {
         if let index = entry.readinessIndex {
             QuestionCard(number: "0", title: "READY", subtitle: "how you arrived") {
                 IndexHeadline(value: index.value, label: "readiness", tint: Theme.hrv)
-                Logic("""
-                Scored from the five minutes before you started — your beat-to-beat \
-                variability, resting pulse and vagal brake — each against where it sits \
-                in your own recent range, then averaged. \(index.detail). It is the only \
-                reading on this screen you could still have acted on.
-                """)
+                Logic(LocalizedCopy.format("Scored from the five minutes before you started — your beat-to-beat variability, resting pulse and vagal brake — each against where it sits in your own recent range, then averaged. %@. It is the only reading on this screen you could still have acted on.", LocalizedCopy.text(index.detail)))
                 Callout(readyWords(index.value))
             }
         }
@@ -95,12 +90,7 @@ struct ExerciseQuestionSections: View {
                     HeartRateZoneBar(split: entry.zoneSplit)
                 }
                 if let dfa = entry.duringDFA1 {
-                    Logic("""
-                    DFA alpha-1 held at **\(String(format: "%.2f", dfa))** through the work. \
-                    Under 0.50 is the severe domain, 0.50 to 0.75 heavy, above 0.75 moderate — \
-                    a read on which system was taxed, which is a different question from how \
-                    hard your heart was beating.
-                    """)
+                    Logic(LocalizedCopy.format("DFA alpha-1 held at **%@** through the work. Under 0.50 is the severe domain, 0.50 to 0.75 heavy, above 0.75 moderate — a read on which system was taxed, which is a different question from how hard your heart was beating.", String(format: "%.2f", locale: .current, dfa)))
                 }
             }
         }
@@ -123,7 +113,7 @@ struct ExerciseQuestionSections: View {
                 // "recovered" above the score, and the reader had to find it.
                 if let index = entry.bounceBackIndex, let composite = entry.recoveryComposite {
                     IndexHeadline(value: index.value,
-                                  label: "recovery · \(composite.firmness.label)",
+                                  label: LocalizedCopy.format("recovery · %@", LocalizedCopy.text(composite.firmness.label)),
                                   tint: Theme.accent)
                 } else {
                     Text("NOT ENOUGH CHECKPOINTS YET TO SCORE")
@@ -153,7 +143,7 @@ struct ExerciseQuestionSections: View {
 
                 if let finding = gapSentence {
                     // The finding neither curve shows alone.
-                    Text(finding)
+                    Text(LocalizedCopy.text(finding))
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(Theme.text.opacity(0.85))
                         .fixedSize(horizontal: false, vertical: true)
@@ -184,19 +174,19 @@ struct ExerciseQuestionSections: View {
     /// Deceleration Capacity, named — the card used to say "vagal rebound" and
     /// leave the reader to guess whether that meant RMSSD or DC.
     private var dcNote: String {
-        let base = "Deceleration Capacity (DC), in milliseconds — not RMSSD. DC is the vagal brake "
-        + "measured by phase-rectified signal averaging (Bauer, Lancet 2006); after exercise it "
-        + "reactivates over minutes to hours, which is why this is reported as a TIME rather than "
-        + "a level (Stanley, Peake & Buchheit, Sports Medicine 2013)."
+        let base = LocalizedCopy.text("Deceleration Capacity (DC), in milliseconds — not RMSSD. DC is the vagal brake ")
+        + LocalizedCopy.text("measured by phase-rectified signal averaging (Bauer, Lancet 2006); after exercise it ")
+        + LocalizedCopy.text("reactivates over minutes to hours, which is why this is reported as a TIME rather than ")
+        + LocalizedCopy.text("a level (Stanley, Peake & Buchheit, Sports Medicine 2013).")
         guard !vagalMoved else { return base }
-        return base + " The return is timed against how far the brake FELL, so a session that "
-        + "barely dipped it is left unscored rather than credited with an instant recovery."
+        return base + LocalizedCopy.text(" The return is timed against how far the brake FELL, so a session that ")
+        + LocalizedCopy.text("barely dipped it is left unscored rather than credited with an instant recovery.")
     }
 
     private var hrNote: String {
-        "The same arc, in heart rate. It needs only heart rate, so it works on sessions where "
-        + "vagal tone cannot be measured at all — and it is the better validated of the two, "
-        + "with test-retest ICC up to 0.99."
+        LocalizedCopy.text("The same arc, in heart rate. It needs only heart rate, so it works on sessions where ")
+        + LocalizedCopy.text("vagal tone cannot be measured at all — and it is the better validated of the two, ")
+        + LocalizedCopy.text("with test-retest ICC up to 0.99.")
     }
 
     /// One labelled recovery curve. Absent rather than empty when the level it
@@ -211,7 +201,7 @@ struct ExerciseQuestionSections: View {
         let curvePoints = recoveryPoints.isEmpty ? points : recoveryPoints
         if pre != nil, extreme != nil, !curvePoints.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Text(title)
+                Text(LocalizedCopy.text(title))
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
                     .tracking(0.8)
                     .foregroundStyle(Theme.dim)
@@ -222,7 +212,7 @@ struct ExerciseQuestionSections: View {
                                    returned: returned,
                                    dcPre: pre,
                                    extreme: extreme)
-                Text(note)
+                Text(LocalizedCopy.text(note))
                     .font(.system(size: 10))
                     .foregroundStyle(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -285,22 +275,23 @@ struct ExerciseQuestionSections: View {
                            from: Float?, to: Float?, unit: String, decimals: Int) -> some View {
         let excursion: String? = {
             guard let from, let to else { return nil }
-            return String(format: "%.\(decimals)f \u{2192} %.\(decimals)f \(unit)",
+            return String(format: "%.\(decimals)f \u{2192} %.\(decimals)f \(LocalizedCopy.text(unit))", locale: .current,
                           Double(from), Double(to))
         }()
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(name)
+            Text(LocalizedCopy.text(name))
                 .font(.system(size: 8, design: .monospaced))
                 .foregroundStyle(Theme.dim)
                 .frame(width: 84, alignment: .leading)
             switch outcome {
             case let .reached(minutes):
-                returnValue(String(format: "%.1f", minutes), unit: "min", tint: Theme.accent)
-                returnCaption("\(verb) to resting" + (excursion.map { " · \($0)" } ?? ""))
+                returnValue(String(format: "%.1f", locale: .current, minutes), unit: "min", tint: Theme.accent)
+                returnCaption(LocalizedCopy.format("%@ to resting%@", LocalizedCopy.text(verb),
+                                                   excursion.map { LocalizedCopy.format(" · %@", $0) } ?? ""))
             case let .notReached(observed):
                 returnValue(">\(Int(observed.rounded()))", unit: "min", tint: Theme.domainHeavy)
-                returnCaption("not back to resting when the recording ended"
-                              + (excursion.map { " · \($0)" } ?? ""))
+                returnCaption(LocalizedCopy.format("not back to resting when the recording ended%@",
+                                                   excursion.map { LocalizedCopy.format(" · %@", $0) } ?? ""))
             case .notObserved:
                 returnValue("—", unit: "", tint: Theme.dim)
                 returnCaption(moved ? "not enough recording after this session"
@@ -316,7 +307,7 @@ struct ExerciseQuestionSections: View {
                 .foregroundStyle(tint)
                 .monospacedDigit()
             if !unit.isEmpty {
-                Text(unit)
+                Text(LocalizedCopy.text(unit))
                     .font(.system(size: 8, design: .monospaced))
                     .foregroundStyle(Theme.dim)
             }
@@ -325,7 +316,7 @@ struct ExerciseQuestionSections: View {
     }
 
     private func returnCaption(_ text: String) -> some View {
-        Text(text)
+        Text(LocalizedCopy.text(text))
             .font(.system(size: 8.5, design: .monospaced))
             .foregroundStyle(Theme.dim)
             .fixedSize(horizontal: false, vertical: true)
@@ -337,10 +328,10 @@ struct ExerciseQuestionSections: View {
         guard case let .reached(hr) = heartRateHome else { return nil }
         switch vagalHome {
         case let .reached(dc) where dc > hr:
-            return String(format: "Your heart rate was back at resting %d minutes after you stopped; your vagal brake took %d. Heart rate settles first; the brake is the slower half of recovery.",
+            return LocalizedCopy.format("Your heart rate was back at resting %d minutes after you stopped; your vagal brake took %d. Heart rate settles first; the brake is the slower half of recovery.",
                           Int(hr.rounded()), Int(dc.rounded()))
         case let .notReached(observed):
-            return String(format: "Your heart rate was back at resting %d minutes after you stopped; your vagal brake was still short of it %d minutes in. Heart rate settles first; the brake is the slower half of recovery.",
+            return LocalizedCopy.format("Your heart rate was back at resting %d minutes after you stopped; your vagal brake was still short of it %d minutes in. Heart rate settles first; the brake is the slower half of recovery.",
                           Int(hr.rounded()), Int(observed.rounded()))
         default:
             return nil
@@ -362,17 +353,17 @@ struct ExerciseQuestionSections: View {
                 .padding(.bottom, 2)
             ForEach(composite.components, id: \.checkpoint) { c in
                 HStack(spacing: 6) {
-                    Text(c.checkpoint.displayName)
+                    Text(LocalizedCopy.text(c.checkpoint.displayName))
                         .foregroundStyle(Theme.dim)
                     if let detail = checkpointDetail(c.checkpoint) {
-                        Text(detail)
+                        Text(LocalizedCopy.text(detail))
                             .foregroundStyle(Theme.dim.opacity(0.7))
                     }
                     Spacer(minLength: 6)
                     Text("\(c.score)")
                         .foregroundStyle(Theme.text.opacity(0.9))
                         .monospacedDigit()
-                    Text("× \(String(format: "%.2f", c.weight))")
+                    Text("× \(String(format: "%.2f", locale: .current, c.weight))")
                         .foregroundStyle(Theme.dim.opacity(0.7))
                 }
                 .font(.system(size: 8.5, design: .monospaced))
@@ -386,20 +377,20 @@ struct ExerciseQuestionSections: View {
     private func checkpointDetail(_ checkpoint: RecoveryIndex.Checkpoint) -> String? {
         func halfway(_ o: RecoveryTiming.Outcome) -> String? {
             switch o {
-            case let .reached(m):      return String(format: "%.1f min to halfway", m)
-            case let .notReached(obs): return ">\(Int(obs.rounded())) min, not halfway"
+            case let .reached(m):      return LocalizedCopy.format("%.1f min to halfway", m)
+            case let .notReached(obs): return LocalizedCopy.format(">%d min, not halfway", Int(obs.rounded()))
             case .notObserved:         return nil
             }
         }
         switch checkpoint {
         case .hrr60:
-            return entry.hrr60Bpm.map { "\(Int($0.rounded())) bpm in the first minute" }
+            return entry.hrr60Bpm.map { LocalizedCopy.format("%d bpm in the first minute", Int($0.rounded())) }
         case .t30:
-            return entry.t30Seconds.map { "\(Int($0.rounded())) s" }
+            return entry.t30Seconds.map { LocalizedCopy.format("%d s", Int($0.rounded())) }
         case .rmssdReactivation:
             guard let before = entry.beforeRMSSD, before > 0, let after = entry.afterRMSSD
             else { return nil }
-            return "\(Int((Double(after) / Double(before) * 100).rounded()))% of before"
+            return LocalizedCopy.format("%d%% of before", Int((Double(after) / Double(before) * 100).rounded()))
         case .vagalRebound:
             return halfway(entry.recoveryOutcome)
         case .heartRateReturn:
@@ -449,10 +440,10 @@ struct ExerciseQuestionSections: View {
                                                         dcDuring: entry.duringDC.map(Double.init),
                                                         hrPre: entry.beforeHR.map(Double.init),
                                                         hrDuring: entry.duringHR.map(Double.init)) {
-            out.append(("Autonomic cost", String(format: "%.2f", brake), "ms/beat", "per extra bpm"))
+            out.append(("Autonomic cost", String(format: "%.2f", locale: .current, brake), "ms/beat", "per extra bpm"))
         }
         if let trough = entry.duringDCTrough {
-            out.append(("Brake floor", String(format: "%.1f", Double(trough)), "ms", "deepest point"))
+            out.append(("Brake floor", String(format: "%.1f", locale: .current, Double(trough)), "ms", "deepest point"))
         }
         return out
     }
@@ -475,11 +466,11 @@ private struct QuestionCard<Content: View>: View {
                     .foregroundStyle(Theme.dim)
                     .frame(width: 14, height: 14)
                     .overlay(Circle().stroke(Theme.dim.opacity(0.35), lineWidth: 0.5))
-                Text(title)
+                Text(LocalizedCopy.text(title))
                     .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
                     .tracking(1.6)
                     .foregroundStyle(Theme.accent)
-                Text("— \(subtitle)")
+                Text(LocalizedCopy.format("— %@", LocalizedCopy.text(subtitle)))
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundStyle(Theme.dim)
             }
@@ -503,7 +494,7 @@ private struct IndexHeadline: View {
                 .font(.system(size: 32, weight: .semibold, design: .monospaced))
                 .foregroundStyle(tint)
                 .monospacedDigit()
-            Text("/ 100 · \(label)")
+            Text(LocalizedCopy.format("/ 100 · %@", LocalizedCopy.text(label)))
                 .font(.system(size: 9.5, design: .monospaced))
                 .foregroundStyle(Theme.dim)
         }
@@ -516,7 +507,7 @@ private struct IndexHeadline: View {
 /// carries the arithmetic that produced it.
 private struct Logic: View {
     let text: String
-    init(_ text: String) { self.text = text }
+    init(_ text: String) { self.text = LocalizedCopy.text(text) }
 
     var body: some View {
         Text(.init(text))
@@ -533,7 +524,7 @@ private struct Logic: View {
 
 private struct Callout: View {
     let text: String
-    init(_ text: String) { self.text = text }
+    init(_ text: String) { self.text = LocalizedCopy.text(text) }
 
     var body: some View {
         Text(.init(text))
@@ -559,7 +550,7 @@ private struct Tiles: View {
         HStack(spacing: 6) {
             ForEach(items, id: \.0) { name, value, unit, caption in
                 VStack(spacing: 3) {
-                    Text(name)
+                    Text(LocalizedCopy.text(name))
                         .font(.system(size: 8.5, design: .monospaced))
                         .foregroundStyle(Theme.text.opacity(0.85))
                         .lineLimit(2)
@@ -571,12 +562,12 @@ private struct Tiles: View {
                             .foregroundStyle(Theme.accent)
                             .monospacedDigit()
                         if !unit.isEmpty {
-                            Text(unit)
+                            Text(LocalizedCopy.text(unit))
                                 .font(.system(size: 7.5, design: .monospaced))
                                 .foregroundStyle(Theme.dim)
                         }
                     }
-                    Text(caption)
+                    Text(LocalizedCopy.text(caption))
                         .font(.system(size: 7, design: .monospaced))
                         .foregroundStyle(Theme.dim)
                         .lineLimit(2)

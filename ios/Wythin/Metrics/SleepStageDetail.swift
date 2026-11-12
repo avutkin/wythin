@@ -32,11 +32,11 @@ enum SleepStageDetail: Int, CaseIterable {
 
     var label: String {
         switch self {
-        case .wake: return "Awake"
+        case .wake: return LocalizedCopy.text("Awake")
         case .rem:  return "REM"
         case .n1:   return "N1"
-        case .n2:   return "N2 (light)"
-        case .n3:   return "N3 (deep)"
+        case .n2:   return LocalizedCopy.text("N2 (light)")
+        case .n3:   return LocalizedCopy.text("N3 (deep)")
         }
     }
 

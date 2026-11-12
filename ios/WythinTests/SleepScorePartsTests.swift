@@ -8,6 +8,17 @@ import XCTest
 /// than no explanation at all, so that identity is the first thing tested.
 final class SleepScorePartsTests: XCTestCase {
 
+    func testStoredPartsKeepCanonicalCopyForLanguageSwitches() {
+        let score = SleepScore.compute(fullNight())
+        let timing = score.parts[.timing] ?? []
+        XCTAssertEqual(timing.first?.label, "Bedtime spread")
+        XCTAssertEqual(timing.first?.display, "±35m")
+        XCTAssertEqual(timing.first?.worstLabel, "±110m")
+        XCTAssertEqual(score.parts[.autonomic]?.first?.label, "How far your pulse fell")
+        XCTAssertEqual(timing.first?.localizedDisplay,
+                       AppLanguage.current == .russian ? "±35 мин" : "±35m")
+    }
+
     private func fullNight() -> SleepScoreInput {
         var input = SleepScoreInput(bedtimeSDMin: 35, asleepSec: 6.5 * 3600,
                                     needSec: 8 * 3600)

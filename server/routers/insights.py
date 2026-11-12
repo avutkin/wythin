@@ -260,6 +260,52 @@ _ACTIVITY_METRICS = [
 ]
 
 
+_RUSSIAN_METRIC_NAMES = {
+    "dc": "Вагусный тонус",
+    "rcmse": "Адаптивность",
+    "pip": "Внутренний шум",
+    "dfa1": "Гармония",
+    "stress": "Баланс стресса",
+    "stress_balance": "Баланс стресса",
+    "breath": "Частота дыхания",
+    "breath_bpm": "Частота дыхания",
+    "rsa": "Осознанное дыхание",
+    "rmssd": "Ресурс спокойствия",
+    "hr": "Пульс",
+    "sdnn": "Общая вариабельность",
+}
+
+
+def _metric_label(key: str, english: str, language: str) -> str:
+    """Give the model the screen's Russian name while retaining the English gloss."""
+    if language != "ru" or key not in _RUSSIAN_METRIC_NAMES:
+        return english
+    russian = _RUSSIAN_METRIC_NAMES[key]
+    _, separator, gloss = english.partition(" — ")
+    return f"{russian} — {gloss if separator else english}"
+
+
+_RUSSIAN_LANGUAGE_INSTRUCTION = (
+    "\n\nLANGUAGE OVERRIDE FOR THIS REQUEST: Write every user-visible word in "
+    "natural, polished, concise Russian, including the title, insights, "
+    "recommendations, and the activity label 'Next session:' (write "
+    "'В следующий раз:' instead). English examples above illustrate the format "
+    "only; do not copy their wording. Where the mode permits metric names, "
+    "use the exact Russian display names in the input and this glossary: "
+    "Вагусный тонус, Адаптивность, Внутренний шум, "
+    "Гармония, Баланс стресса, Осознанное дыхание, Ресурс спокойствия, Пульс, "
+    "Частота дыхания, Общая вариабельность. Do not use English metric names "
+    "in the reply. In live_state and day_potential, retain the original rule "
+    "to favor everyday wording over metric names. Keep the required output "
+    "structure exactly: the same lines, "
+    "bullet and arrow characters, bold markers, separators, and word limits. "
+    "For live_state, keep the first-line state_key as one of the nine exact "
+    "English snake_case machine keys; do not translate or alter it. Translate "
+    "only the title after ' | ' and the explanatory text. Do not translate "
+    "machine-readable keys or numeric values."
+)
+
+
 def _format_metrics(req: InsightRequest) -> str:
     lines = [f"Activity: {req.activity_type}"]
     if req.activity_subtype:
@@ -284,8 +330,9 @@ def _format_metrics(req: InsightRequest) -> str:
         after  = getattr(req, f"after_{key}", None)
         if before is None and during is None and after is None:
             continue
+        display_name = _RUSSIAN_METRIC_NAMES.get(key, name) if req.language == "ru" else name
         line = (
-            f"{name} ({meaning}): "
+            f"{display_name} ({meaning}): "
             f"before={before}{unit} during={during}{unit} after={after}{unit}"
         )
         usual = getattr(req, f"usual_{key}", None)
@@ -341,7 +388,7 @@ def _format_live_state(req: InsightRequest) -> str:
         f"averages or norms are provided \u2014 describe only this window."
     ]
     for name, trend in (req.metrics or {}).items():
-        label = _METRIC_NAMES.get(name, name)
+        label = _metric_label(name, _METRIC_NAMES.get(name, name), req.language)
         lines.append(f"{label}:")
         if trend.buckets:
             arc = " \u2192 ".join(f"{v:.1f}" for v in trend.buckets)
@@ -706,7 +753,7 @@ def _format_sleep(req: InsightRequest) -> str:
         lines.append("Through the night — each measure's first half against its "
                      "second half, which is where the recovery story is:")
         for key, arc in n.arcs.items():
-            label = _SLEEP_METRIC_NAMES.get(key, key)
+            label = _metric_label(key, _SLEEP_METRIC_NAMES.get(key, key), req.language)
             bits = []
             if arc.first_half is not None:
                 bits.append(f"first half {arc.first_half:.1f}")
@@ -738,6 +785,7 @@ def _format_macro_trend(req: InsightRequest) -> str:
         # Track's own names first; `_METRIC_NAMES` only as a fallback for a
         # key this mode does not (yet) have a screen-matched name for.
         label = _MACRO_TREND_METRIC_NAMES.get(key) or _METRIC_NAMES.get(key, key)
+        label = _metric_label(key, label, req.language)
         # A missing flag (older client) is treated as generic, not personal —
         # the safe default is to under-claim personalization, never over-claim it.
         personal = bool(t.baseline_is_personal)
@@ -837,6 +885,14 @@ async def generate_insight(
         system_prompt = _SYSTEM_PROMPT
         user_content = _format_metrics(req)
         max_tokens = 150
+
+    if req.language == "ru":
+        if req.mode not in {"day_potential", "live_state", "sleep", "macro_trend"}:
+            system_prompt = system_prompt.replace("Next session: <", "В следующий раз: <")
+        system_prompt += _RUSSIAN_LANGUAGE_INSTRUCTION
+        # Cyrillic usually consumes more tokens than the same word count in
+        # English. Keep the mode's word cap while leaving room for its format.
+        max_tokens = int(max_tokens * 1.5)
 
     try:
         response = await client.chat.completions.create(

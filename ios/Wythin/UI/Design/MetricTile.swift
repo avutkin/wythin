@@ -41,15 +41,15 @@ struct MetricTile: View {
         guard let d = delta else { return Theme.dim }
         return (d >= 0) == higherBetter ? Theme.accent : Theme.warn
     }
-    private var deltaText: String { delta.map { String(format: "%+.1f", $0) } ?? "" }
-    private var percentText: String { percent.map { String(format: "%+.0f%%", $0) } ?? "" }
+    private var deltaText: String { delta.map { String(format: "%+.1f", locale: .current, $0) } ?? "" }
+    private var percentText: String { percent.map { String(format: "%+.0f%%", locale: .current, $0) } ?? "" }
 
     // Peak mode: benefit-signed, so positive is always good.
     private var avgColor: Color {
         guard let a = avgUpliftPct else { return Theme.dim }
         return a >= 0 ? Theme.accent : Theme.warn
     }
-    private var avgHeadline: String { avgUpliftPct.map { String(format: "%+.0f%%", $0) } ?? "—" }
+    private var avgHeadline: String { avgUpliftPct.map { String(format: "%+.0f%%", locale: .current, $0) } ?? "—" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -59,7 +59,7 @@ struct MetricTile: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             if !techLabel.isEmpty {
-                Text(techLabel)
+                Text(LocalizedCopy.text(techLabel))
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundStyle(Theme.dim)
                     .lineLimit(1)
@@ -94,11 +94,11 @@ struct MetricTile: View {
                         Text("val")
                             .font(.system(size: 7, design: .monospaced))
                             .foregroundStyle(Theme.dim.opacity(0.6))
-                        Text("2mo \(hv)")
+                        Text(LocalizedCopy.format("2mo %@", hv))
                             .font(.system(size: 9, design: .monospaced))
                             .foregroundStyle(Theme.dim)
                         if let d = historyDeltaPct {
-                            Text(String(format: "%+.0f%%", d))
+                            Text(String(format: "%+.0f%%", locale: .current, d))
                                 .font(.system(size: 9, weight: .bold, design: .monospaced))
                                 .foregroundStyle((d >= 0 ? Theme.accent : Theme.warn).opacity(0.9))
                         }
@@ -114,7 +114,7 @@ struct MetricTile: View {
                         Text("lift")
                             .font(.system(size: 7, design: .monospaced))
                             .foregroundStyle(Theme.dim.opacity(0.6))
-                        Text(String(format: "2mo %+.0f%%", u))
+                        Text(LocalizedCopy.format("2mo %+.0f%%", u))
                             .font(.system(size: 9, weight: .medium, design: .monospaced))
                             .foregroundStyle((u >= 0 ? Theme.accent : Theme.warn).opacity(0.85))
                     }

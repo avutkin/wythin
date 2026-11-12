@@ -256,10 +256,10 @@ struct SleepMontageChart: View {
         SleepStageDetail.allCases.filter(\.isAsleep).reduce(0) { $0 + minutes($1) }
     }
 
-    private func hm(_ m: Int) -> String { "\(m / 60)h \(String(format: "%02d", m % 60))m" }
+    private func hm(_ m: Int) -> String { LocalizedCopy.format("%d h %02d min", m / 60, m % 60) }
 
     private func clock(_ d: Date) -> String {
-        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: d)
+        let f = DateFormatter(); f.timeStyle = .short; return f.string(from: d)
     }
 
     // MARK: - Body
@@ -345,10 +345,10 @@ struct SleepMontageChart: View {
 
     private func channelHeader(_ name: String, tech: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(name)
+            Text(LocalizedCopy.text(name))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Theme.text)
-            Text(tech)
+            Text(LocalizedCopy.text(tech))
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(Theme.dim)
                 .lineLimit(1)
@@ -363,7 +363,7 @@ struct SleepMontageChart: View {
 
     private var sleepChannel: some View {
         VStack(alignment: .leading, spacing: 5) {
-            channelHeader("Sleep", tech: "hypnogram", value: "\(hm(asleepMinutes)) asleep")
+            channelHeader("Sleep", tech: "hypnogram", value: LocalizedCopy.format("%@ asleep", hm(asleepMinutes)))
             Canvas { ctx, size in
                 drawGrid(&ctx, size)
                 drawRibbon(&ctx, size)
@@ -445,12 +445,12 @@ struct SleepMontageChart: View {
                         .font(.system(size: 13, weight: .medium, design: .monospaced))
                         .foregroundStyle(Theme.text)
                     if let s = stage(at: moment) {
-                        Text("· \(s.label)")
+                        Text(LocalizedCopy.format("· %@", LocalizedCopy.text(s.label)))
                             .font(.system(size: 11))
                             .foregroundStyle(Theme.dim)
                     }
                     if let p = position(at: moment) {
-                        Text("· \(p.label)")
+                        Text(LocalizedCopy.format("· %@", LocalizedCopy.text(p.label)))
                             .font(.system(size: 11))
                             .foregroundStyle(Theme.dim)
                     }
@@ -469,10 +469,10 @@ struct SleepMontageChart: View {
             VStack(spacing: 10) {
                 ForEach(activityMetricDefs) { def in
                     MetricChartCard(
-                        title: def.label,
-                        technicalName: def.techFull.isEmpty ? def.techLabel : def.techFull,
-                        subtitle: def.why,
-                        yLabel: def.unit,
+                        title: LocalizedCopy.text(def.label),
+                        technicalName: LocalizedCopy.text(def.techFull.isEmpty ? def.techLabel : def.techFull),
+                        subtitle: LocalizedCopy.text(def.why),
+                        yLabel: LocalizedCopy.text(def.unit),
                         color: colour(def),
                         windows: [],
                         refs: [],
@@ -575,7 +575,7 @@ struct SleepMontageChart: View {
                         // "SUPI" is worse than no label — the list below names
                         // every band anyway.
                         guard w > 74 else { continue }
-                        ctx.draw(Text(band.position.label.uppercased())
+                        ctx.draw(Text(LocalizedCopy.text(band.position.label).uppercased())
                                     .font(.system(size: 10, weight: .semibold))
                                     .foregroundStyle(labelColour(band.position)),
                                  at: CGPoint(x: x0 + w / 2, y: size.height / 2),
@@ -710,7 +710,7 @@ struct SleepMontageChart: View {
 
     private func chip(_ caption: String, _ time: String) -> some View {
         VStack(spacing: 2) {
-            Text(caption)
+            Text(LocalizedCopy.text(caption))
                 .font(.system(size: 8, weight: .semibold, design: .monospaced))
                 .tracking(0.7)
                 .foregroundStyle(Theme.dim)
@@ -734,7 +734,7 @@ struct SleepMontageChart: View {
                         Capsule()
                             .fill(colour(s))
                             .frame(width: 78, height: 9)
-                        Text(s.label)
+                        Text(LocalizedCopy.text(s.label))
                             .font(.system(size: 15))
                             .foregroundStyle(Theme.text)
                         Text(hm(mins))
@@ -779,7 +779,7 @@ struct SleepMontageChart: View {
     }
 
     private func stageNote(_ name: String, _ meaning: String) -> some View {
-        (Text(name).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
+        (Text(LocalizedCopy.text(name)).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.text)
          + Text("  " + meaning).font(.system(size: 11)).foregroundStyle(Theme.dim))
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -805,7 +805,7 @@ struct SleepMontageChart: View {
                             Capsule()
                                 .fill(positionColour(pos))
                                 .frame(width: 78, height: 9)
-                            Text(pos.label)
+                            Text(LocalizedCopy.text(pos.label))
                                 .font(.system(size: 15))
                                 .foregroundStyle(Theme.text)
                             Text(hm(mins))

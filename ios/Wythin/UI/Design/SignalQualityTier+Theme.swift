@@ -16,9 +16,9 @@ extension SignalQualityTier {
 
     var label: String {
         switch self {
-        case .good: return "GOOD"
-        case .okay: return "OKAY"
-        case .poor: return "POOR"
+        case .good: return LocalizedCopy.text("GOOD")
+        case .okay: return LocalizedCopy.text("OKAY")
+        case .poor: return LocalizedCopy.text("POOR")
         }
     }
 }

@@ -41,6 +41,7 @@ struct TickPayload: Codable {
 }
 
 struct InsightPayload: Codable {
+    let language = AppLanguage.current.rawValue
     let activityType:    String
     let activitySubtype: String?
     let durationMin:     Int?
@@ -78,6 +79,7 @@ struct InsightPayload: Codable {
     let usualBreath: Float?
 
     enum CodingKeys: String, CodingKey {
+        case language
         case peerGroup = "peer_group"; case peerSessions = "peer_sessions"
         case usualHR = "usual_hr"; case usualRSA = "usual_rsa"; case usualSDNN = "usual_sdnn"
         case usualRMSSD = "usual_rmssd"; case usualDC = "usual_dc"; case usualRCMSE = "usual_rcmse"
@@ -127,6 +129,7 @@ struct MetricComponentPayload: Codable {
 /// one.
 struct DayPotentialPayload: Codable {
     let mode = "day_potential"
+    let language = AppLanguage.current.rawValue
     let score: Int?
     let band: String?
     let anchorHour: Double
@@ -148,7 +151,7 @@ struct DayPotentialPayload: Codable {
     let graceUsed: Bool
 
     enum CodingKeys: String, CodingKey {
-        case mode, score, band, components, modifiers, recent, late, confidence, provisional
+        case mode, language, score, band, components, modifiers, recent, late, confidence, provisional
         case anchorHour = "anchor_hour"
         case anchorDurationMin = "anchor_duration_min"
         case baselineAnchors = "baseline_anchors"
@@ -162,11 +165,12 @@ struct DayPotentialPayload: Codable {
 
 struct LiveStateInsightPayload: Codable {
     let mode: String            // always "live_state"
+    let language = AppLanguage.current.rawValue
     let windowMinutes: Int
     let metrics: [String: MetricTrendPayload]
 
     enum CodingKeys: String, CodingKey {
-        case mode
+        case mode, language
         case windowMinutes = "window_minutes"
         case metrics
     }
@@ -198,12 +202,13 @@ struct MacroTrendEntry: Codable, Equatable {
 
 struct MacroTrendPayload: Codable {
     let mode:       String
+    let language = AppLanguage.current.rawValue
     let period:     String
     let rangeLabel: String
     let trends:     [String: MacroTrendEntry]
 
     enum CodingKeys: String, CodingKey {
-        case mode, period, trends
+        case mode, language, period, trends
         case rangeLabel = "range_label"
     }
 
@@ -690,13 +695,13 @@ final class RawChunkSyncService: NSObject, URLSessionTaskDelegate {
                   $0.deletingPathExtension().lastPathComponent.lowercased() == id
               }),
               let bytes = try? Data(contentsOf: file) else {
-            lastError = "Raw archive did not acknowledge the upload"
+            lastError = LocalizedCopy.text("Raw archive did not acknowledge the upload")
             return
         }
         let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
         guard response.value(forHTTPHeaderField: "X-Chunk-SHA256") == digest,
               response.value(forHTTPHeaderField: "X-Chunk-Bytes") == String(bytes.count) else {
-            lastError = "Raw archive integrity check failed"
+            lastError = LocalizedCopy.text("Raw archive integrity check failed")
             return
         }
         do {
@@ -821,7 +826,8 @@ final class MetricSyncService {
             do {
                 samples = try ctx.fetch(desc)
             } catch {
-                lastError = "Cannot read saved metrics: \(error.localizedDescription)"
+                lastError = LocalizedCopy.format("Cannot read saved metrics: %@",
+                    error.localizedDescription)
                 return
             }
             guard !samples.isEmpty else {
@@ -839,7 +845,8 @@ final class MetricSyncService {
             do {
                 _ = try await client.uploadMetrics(payload, userID: userID)
             } catch {
-                lastError = "Metric upload failed: \(error.localizedDescription)"
+                lastError = LocalizedCopy.format("Metric upload failed: %@",
+                    error.localizedDescription)
                 return
             }
             guard let last = samples.last else { return }

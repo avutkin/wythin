@@ -29,13 +29,13 @@ enum BreathMove: String, Equatable, Hashable, CaseIterable {
     /// glance, often with the eyes half closed.
     var label: String {
         switch self {
-        case .inhale:     return "INHALE"
-        case .pump:       return "PUMP"
-        case .topUp:      return "TOP UP"
-        case .exhale:     return "EXHALE"
-        case .holdIn:     return "HOLD"
-        case .holdOut:    return "HOLD"
-        case .squeezeOut: return "SQUEEZE"
+        case .inhale:     return LocalizedCopy.text("INHALE")
+        case .pump:       return LocalizedCopy.text("PUMP")
+        case .topUp:      return LocalizedCopy.text("TOP UP")
+        case .exhale:     return LocalizedCopy.text("EXHALE")
+        case .holdIn:     return LocalizedCopy.text("HOLD")
+        case .holdOut:    return LocalizedCopy.text("HOLD")
+        case .squeezeOut: return LocalizedCopy.text("SQUEEZE")
         }
     }
 
@@ -43,13 +43,13 @@ enum BreathMove: String, Equatable, Hashable, CaseIterable {
     /// during the second or two before the move starts.
     var instruction: String {
         switch self {
-        case .inhale:     return "Breathe in, no further than comfortable"
-        case .pump:       return "Flare the ribs — one quick push out"
-        case .topUp:      return "One strong sip, right to the top"
-        case .exhale:     return "Let it go, slowly"
-        case .holdIn:     return "Sit full. Jaw and shoulders loose"
-        case .holdOut:    return "Sit empty. Let the urge come and pass"
-        case .squeezeOut: return "One strong push — all of it out"
+        case .inhale:     return LocalizedCopy.text("Breathe in, no further than comfortable")
+        case .pump:       return LocalizedCopy.text("Flare the ribs — one quick push out")
+        case .topUp:      return LocalizedCopy.text("One strong sip, right to the top")
+        case .exhale:     return LocalizedCopy.text("Let it go, slowly")
+        case .holdIn:     return LocalizedCopy.text("Sit full. Jaw and shoulders loose")
+        case .holdOut:    return LocalizedCopy.text("Sit empty. Let the urge come and pass")
+        case .squeezeOut: return LocalizedCopy.text("One strong push — all of it out")
         }
     }
 

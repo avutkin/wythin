@@ -40,11 +40,11 @@ enum RecoveryIndex {
 
         var displayName: String {
             switch self {
-            case .hrr60:             return "Heart rate drop"
+            case .hrr60:             return LocalizedCopy.text("Heart rate drop")
             case .t30:               return "T30"
-            case .rmssdReactivation: return "Calm Power at 10 min"
-            case .vagalRebound:      return "Vagal rebound"
-            case .heartRateReturn:   return "Heart rate return"
+            case .rmssdReactivation: return LocalizedCopy.text("Calm Power at 10 min")
+            case .vagalRebound:      return LocalizedCopy.text("Vagal rebound")
+            case .heartRateReturn:   return LocalizedCopy.text("Heart rate return")
             }
         }
     }
@@ -87,9 +87,9 @@ enum RecoveryIndex {
 
         var label: String {
             switch self {
-            case let .provisional(present, total): return "provisional · \(present) of \(total)"
-            case .firming:                         return "firming"
-            case .settled:                         return "complete"
+            case let .provisional(present, total): return LocalizedCopy.format("provisional · %d of %d", present, total)
+            case .firming:                         return LocalizedCopy.text("firming")
+            case .settled:                         return LocalizedCopy.text("complete")
             }
         }
     }

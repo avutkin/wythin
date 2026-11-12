@@ -48,10 +48,10 @@ struct ExerciseResponse {
 
     /// Suppression: autonomic cost per unit of internal (heart-rate) work.
     static func suppression(slope: Double?, history: [Double]) -> AxisValue {
-        guard let slope else { return .unavailable(reason: "no fit") }
+        guard let slope else { return .unavailable(reason: LocalizedCopy.text("no fit")) }
         guard let score = percentileScore(value: slope, history: history,
                                           lowerIsBetter: false) else {
-            return .unavailable(reason: "\(history.count + 1) of \(minimumHistory)")
+            return .unavailable(reason: LocalizedCopy.format("%d of %d sessions", history.count + 1, minimumHistory))
         }
         return .score(score, word: word(for: score))
     }
@@ -69,11 +69,11 @@ struct ExerciseResponse {
                            history: [Double],
                            hasExternalSignal: Bool) -> AxisValue {
         guard hasExternalSignal, let slope else {
-            return .unavailable(reason: "no ext. signal")
+            return .unavailable(reason: LocalizedCopy.text("no ext. signal"))
         }
         guard let score = percentileScore(value: slope, history: history,
                                           lowerIsBetter: false) else {
-            return .unavailable(reason: "\(history.count + 1) of \(minimumHistory)")
+            return .unavailable(reason: LocalizedCopy.format("%d of %d sessions", history.count + 1, minimumHistory))
         }
         return .score(score, word: word(for: score))
     }
@@ -86,10 +86,10 @@ struct ExerciseResponse {
     /// resistance ≈ 28 %, aerobic ≈ 21 %.
     static func reactivationScore(dcAfter: Double?, dcPre: Double?) -> AxisValue {
         guard let after = dcAfter, let pre = dcPre, pre > 0 else {
-            return .unavailable(reason: "no baseline")
+            return .unavailable(reason: LocalizedCopy.text("no baseline"))
         }
         let pct = min(max(after / pre * 100, 0), 100)
-        return .score(Int(pct.rounded()), word: "provisional · 1 of 7")
+        return .score(Int(pct.rounded()), word: LocalizedCopy.text("provisional · 1 of 7"))
     }
 
     /// Plain-language read of a cost score.
@@ -99,11 +99,11 @@ struct ExerciseResponse {
     /// about the day, not a verdict on the effort.
     static func word(for score: Int) -> String {
         switch score {
-        case 80...:   return "cheap"
-        case 60..<80: return "better than usual"
-        case 40..<60: return "typical"
-        case 20..<40: return "costlier than usual"
-        default:      return "costly"
+        case 80...:   return LocalizedCopy.text("cheap")
+        case 60..<80: return LocalizedCopy.text("better than usual")
+        case 40..<60: return LocalizedCopy.text("typical")
+        case 20..<40: return LocalizedCopy.text("costlier than usual")
+        default:      return LocalizedCopy.text("costly")
         }
     }
 }

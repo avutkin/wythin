@@ -86,7 +86,7 @@ struct BiofeedbackSessionView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Stop") { stop() }
+                    Button(LocalizedCopy.text("Stop")) { stop() }
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.warn)
                 }
@@ -119,7 +119,7 @@ struct BiofeedbackSessionView: View {
                     .font(.system(size: 18, weight: .light))
                     .foregroundStyle(Theme.dim)
             }
-            Text("MAX  \(Int(maxHR)) bpm")
+            Text(LocalizedCopy.format("MAX  %d bpm", Int(maxHR)))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
             Button {

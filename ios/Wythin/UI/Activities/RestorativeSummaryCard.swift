@@ -25,18 +25,18 @@ struct RestorativeSummaryCard: View {
     private var observations: [String] {
         var out: [String] = []
         if let best = extremes.best, best.1 > 0 {
-            out.append("\(best.0) moved most — \(signed(best.1)) versus where you started.")
+            out.append(LocalizedCopy.format("%@ moved most — %@ versus where you started.", LocalizedCopy.text(best.0), signed(best.1)))
         }
         let beat = zip(labels, vsAverage).compactMap { l, v in v.map { (l, $0) } }
         if !beat.isEmpty {
             let above = beat.filter { $0.1 > 0 }
-            out.append("You were above your own 2-month average on \(above.count) of \(beat.count) metrics.")
+            out.append(LocalizedCopy.format("You were above your own 2-month average on %d of %d metrics.", above.count, beat.count))
             if let standout = above.max(by: { $0.1 < $1.1 }), standout.1 > 5 {
-                out.append("\(standout.0) was \(signed(standout.1)) against that average — the clearest departure from your usual.")
+                out.append(LocalizedCopy.format("%@ was %@ against that average — the clearest departure from your usual.", LocalizedCopy.text(standout.0), signed(standout.1)))
             }
         }
         if let weakest = extremes.weakest, weakest.1 < 0 {
-            out.append("\(weakest.0) went the other way, \(signed(weakest.1)). One metric drifting is normal; a pattern across sessions is the thing to watch.")
+            out.append(LocalizedCopy.format("%@ went the other way, %@. One metric drifting is normal; a pattern across sessions is the thing to watch.", LocalizedCopy.text(weakest.0), signed(weakest.1)))
         }
         return out
     }
@@ -74,7 +74,7 @@ struct RestorativeSummaryCard: View {
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
 
-            Text(reflection)
+            Text(LocalizedCopy.text(reflection))
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(Theme.text.opacity(0.9))
                 .fixedSize(horizontal: false, vertical: true)
@@ -89,19 +89,19 @@ struct RestorativeSummaryCard: View {
     }
 
     private func signed(_ v: Double) -> String {
-        String(format: "%+.0f%%", v)
+        String(format: "%+.0f%%", locale: .current, v)
     }
 
     private func group(_ title: String, _ lines: [String], _ tint: Color) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title)
+            Text(LocalizedCopy.text(title))
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(tint)
                 .tracking(1.1)
             ForEach(lines, id: \.self) { line in
                 HStack(alignment: .top, spacing: 8) {
                     Circle().fill(tint).frame(width: 4, height: 4).padding(.top, 6)
-                    Text(line)
+                    Text(LocalizedCopy.text(line))
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(Theme.text.opacity(0.9))
                         .fixedSize(horizontal: false, vertical: true)

@@ -41,7 +41,7 @@ enum ActivityTimeMath {
     static func endLabel(start: Date, minutes: Double?) -> String? {
         guard let minutes else { return nil }
         let fmt = DateFormatter()
-        fmt.dateFormat = "HH:mm"
+        fmt.timeStyle = .short
         return fmt.string(from: end(start: start, minutes: minutes))
     }
 }

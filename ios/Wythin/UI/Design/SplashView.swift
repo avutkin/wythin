@@ -80,7 +80,7 @@ struct SplashView: View {
                     .foregroundStyle(Theme.text)
                     .tracking(6)
 
-                Text("Discover the Universe Inside You")
+                Text(LocalizedCopy.text("Discover the Universe Inside You"))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.text.opacity(0.42))
                     .tracking(1.4)
@@ -145,136 +145,136 @@ struct SplashView: View {
 
         // Ancient wisdom
         Quote(
-            text:   "When the breath wanders, the mind also is unsteady. But when the breath is calmed, the mind too will be still.",
-            author: "Hatha Yoga Pradipika"
+            text:   LocalizedCopy.text("When the breath wanders, the mind also is unsteady. But when the breath is calmed, the mind too will be still."),
+            author: LocalizedCopy.text("Hatha Yoga Pradipika")
         ),
         Quote(
-            text:   "Breath is the king of mind.",
-            author: "B.K.S. Iyengar"
+            text:   LocalizedCopy.text("Breath is the king of mind."),
+            author: LocalizedCopy.text("B.K.S. Iyengar")
         ),
         Quote(
-            text:   "For breath is life, and if you breathe well you will live long on earth.",
-            author: "Sanskrit proverb"
+            text:   LocalizedCopy.text("For breath is life, and if you breathe well you will live long on earth."),
+            author: LocalizedCopy.text("Sanskrit proverb")
         ),
         Quote(
-            text:   "Control of the breath is the supreme form of self-discipline.",
-            author: "Patanjali, Yoga Sutras"
+            text:   LocalizedCopy.text("Control of the breath is the supreme form of self-discipline."),
+            author: LocalizedCopy.text("Patanjali, Yoga Sutras")
         ),
         Quote(
-            text:   "There is one way of breathing that is shameful and constricted. Then there is another way — a breath of love that takes you all the way to infinity.",
-            author: "Rumi"
+            text:   LocalizedCopy.text("There is one way of breathing that is shameful and constricted. Then there is another way — a breath of love that takes you all the way to infinity."),
+            author: LocalizedCopy.text("Rumi")
         ),
         Quote(
-            text:   "Breathing correctly is the foundation of any practice of self-cultivation.",
-            author: "Zhuangzi"
+            text:   LocalizedCopy.text("Breathing correctly is the foundation of any practice of self-cultivation."),
+            author: LocalizedCopy.text("Zhuangzi")
         ),
 
         // Gorakh Bodh
         Quote(
-            text:   "Inhalation brings the sound 'Sah', exhalation carries the sound 'Ham'. So-Ham is the breath's own mantra.",
-            author: "Gorakh Bodh"
+            text:   LocalizedCopy.text("Inhalation brings the sound 'Sah', exhalation carries the sound 'Ham'. So-Ham is the breath's own mantra."),
+            author: LocalizedCopy.text("Gorakh Bodh")
         ),
         Quote(
-            text:   "They who reverse the breath, tame the vital air, and still the mind — they alone know the Self.",
-            author: "Gorakh Bodh"
+            text:   LocalizedCopy.text("They who reverse the breath, tame the vital air, and still the mind — they alone know the Self."),
+            author: LocalizedCopy.text("Gorakh Bodh")
         ),
         Quote(
-            text:   "Prana flows through the median channel when the breath is refined and the mind made quiet.",
-            author: "Gorakh Bodh"
+            text:   LocalizedCopy.text("Prana flows through the median channel when the breath is refined and the mind made quiet."),
+            author: LocalizedCopy.text("Gorakh Bodh")
         ),
         Quote(
-            text:   "Listen to the inner sound that arises beyond all breath — the unstruck note that echoes in silence.",
-            author: "Gorakh Bodh"
+            text:   LocalizedCopy.text("Listen to the inner sound that arises beyond all breath — the unstruck note that echoes in silence."),
+            author: LocalizedCopy.text("Gorakh Bodh")
         ),
 
         // Modern teachers
         Quote(
-            text:   "Breath is the bridge which connects life to consciousness, which unites your body to your thoughts.",
-            author: "Thích Nhất Hạnh"
+            text:   LocalizedCopy.text("Breath is the bridge which connects life to consciousness, which unites your body to your thoughts."),
+            author: LocalizedCopy.text("Thích Nhất Hạnh")
         ),
         Quote(
-            text:   "Feelings come and go like clouds in a windy sky. Conscious breathing is my anchor.",
-            author: "Thích Nhất Hạnh"
+            text:   LocalizedCopy.text("Feelings come and go like clouds in a windy sky. Conscious breathing is my anchor."),
+            author: LocalizedCopy.text("Thích Nhất Hạnh")
         ),
         Quote(
-            text:   "The quality of our breath expresses our inner feelings.",
-            author: "T.K.V. Desikachar"
+            text:   LocalizedCopy.text("The quality of our breath expresses our inner feelings."),
+            author: LocalizedCopy.text("T.K.V. Desikachar")
         ),
         Quote(
-            text:   "Breathe in deeply to bring your mind home to your body.",
-            author: "Thích Nhất Hạnh"
+            text:   LocalizedCopy.text("Breathe in deeply to bring your mind home to your body."),
+            author: LocalizedCopy.text("Thích Nhất Hạnh")
         ),
         Quote(
-            text:   "In the practice of meditation, the breath is your anchor, your home, the place you can always return to.",
-            author: "Jon Kabat-Zinn"
+            text:   LocalizedCopy.text("In the practice of meditation, the breath is your anchor, your home, the place you can always return to."),
+            author: LocalizedCopy.text("Jon Kabat-Zinn")
         ),
         Quote(
-            text:   "The present moment always will have been. Come back to the breath and it is always here.",
-            author: "Jon Kabat-Zinn"
+            text:   LocalizedCopy.text("The present moment always will have been. Come back to the breath and it is always here."),
+            author: LocalizedCopy.text("Jon Kabat-Zinn")
         ),
 
         // Science & medicine
         Quote(
-            text:   "No matter what you eat, how much you exercise, or how resilient your genes are, none of it matters unless you're breathing correctly.",
-            author: "James Nestor, Breath"
+            text:   LocalizedCopy.text("No matter what you eat, how much you exercise, or how resilient your genes are, none of it matters unless you're breathing correctly."),
+            author: LocalizedCopy.text("James Nestor, Breath")
         ),
         Quote(
-            text:   "Breath is the most powerful drug we have. Learning to use it is one of the greatest gifts you can give yourself.",
-            author: "Andrew Weil"
+            text:   LocalizedCopy.text("Breath is the most powerful drug we have. Learning to use it is one of the greatest gifts you can give yourself."),
+            author: LocalizedCopy.text("Andrew Weil")
         ),
         Quote(
-            text:   "If I had to limit my advice on healthier living to just one tip, it would be simply to breathe properly.",
-            author: "Andrew Weil"
+            text:   LocalizedCopy.text("If I had to limit my advice on healthier living to just one tip, it would be simply to breathe properly."),
+            author: LocalizedCopy.text("Andrew Weil")
         ),
         Quote(
-            text:   "The breath is always here. It never leaves you. And you can always come back to it.",
-            author: "Wim Hof"
+            text:   LocalizedCopy.text("The breath is always here. It never leaves you. And you can always come back to it."),
+            author: LocalizedCopy.text("Wim Hof")
         ),
         Quote(
-            text:   "Breathing is the first act of life and the last. Our very life depends on it.",
-            author: "Joseph Pilates"
+            text:   LocalizedCopy.text("Breathing is the first act of life and the last. Our very life depends on it."),
+            author: LocalizedCopy.text("Joseph Pilates")
         ),
 
         // Philosophy & poetry
         Quote(
-            text:   "When you own your breath, nobody can steal your peace.",
-            author: "Unknown"
+            text:   LocalizedCopy.text("When you own your breath, nobody can steal your peace."),
+            author: LocalizedCopy.text("Unknown")
         ),
         Quote(
-            text:   "Inhale the future, exhale the past.",
-            author: "Unknown"
+            text:   LocalizedCopy.text("Inhale the future, exhale the past."),
+            author: LocalizedCopy.text("Unknown")
         ),
         Quote(
-            text:   "Breathe deeply, until sweet air extinguishes the burn of fear in your lungs and every breath is a beautiful refusal to become anything less than infinite.",
-            author: "D. Antoinette Foy"
+            text:   LocalizedCopy.text("Breathe deeply, until sweet air extinguishes the burn of fear in your lungs and every breath is a beautiful refusal to become anything less than infinite."),
+            author: LocalizedCopy.text("D. Antoinette Foy")
         ),
         Quote(
-            text:   "With every breath, I plant the seeds of devotion. I am a farmer of the heart.",
-            author: "Rumi"
+            text:   LocalizedCopy.text("With every breath, I plant the seeds of devotion. I am a farmer of the heart."),
+            author: LocalizedCopy.text("Rumi")
         ),
         Quote(
-            text:   "Breathing in, I calm my body and mind. Breathing out, I smile. Dwelling in the present moment, I know this is the only moment.",
-            author: "Thích Nhất Hạnh"
+            text:   LocalizedCopy.text("Breathing in, I calm my body and mind. Breathing out, I smile. Dwelling in the present moment, I know this is the only moment."),
+            author: LocalizedCopy.text("Thích Nhất Hạnh")
         ),
         Quote(
-            text:   "The rhythm of the body, the melody of the mind, and the harmony of the soul create the symphony of life.",
-            author: "B.K.S. Iyengar"
+            text:   LocalizedCopy.text("The rhythm of the body, the melody of the mind, and the harmony of the soul create the symphony of life."),
+            author: LocalizedCopy.text("B.K.S. Iyengar")
         ),
         Quote(
-            text:   "Perhaps the most important thing we bring to another person is the silence in us. Not the sort of silence that is empty, but the kind that is a willingness to witness.",
-            author: "Rachel Naomi Remen"
+            text:   LocalizedCopy.text("Perhaps the most important thing we bring to another person is the silence in us. Not the sort of silence that is empty, but the kind that is a willingness to witness."),
+            author: LocalizedCopy.text("Rachel Naomi Remen")
         ),
         Quote(
-            text:   "Life is not measured by the number of breaths we take, but by the moments that take our breath away.",
-            author: "Maya Angelou"
+            text:   LocalizedCopy.text("Life is not measured by the number of breaths we take, but by the moments that take our breath away."),
+            author: LocalizedCopy.text("Maya Angelou")
         ),
         Quote(
-            text:   "In the middle of difficulty lies opportunity — find it in the breath.",
-            author: "Albert Einstein"
+            text:   LocalizedCopy.text("In the middle of difficulty lies opportunity — find it in the breath."),
+            author: LocalizedCopy.text("Albert Einstein")
         ),
         Quote(
-            text:   "Smile, breathe, and go slowly.",
-            author: "Thích Nhất Hạnh"
+            text:   LocalizedCopy.text("Smile, breathe, and go slowly."),
+            author: LocalizedCopy.text("Thích Nhất Hạnh")
         ),
     ]
 }

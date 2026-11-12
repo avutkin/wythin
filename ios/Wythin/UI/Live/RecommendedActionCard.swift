@@ -8,7 +8,7 @@ struct RecommendedActionCard: View {
         VStack(alignment: .leading, spacing: 0) {
             // Section header
             HStack {
-                Text("Recommended Action")
+                Text(LocalizedCopy.text("Recommended Action"))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Spacer()
@@ -64,7 +64,7 @@ struct RecommendedActionCard: View {
 
     private var scienceSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Why it works?")
+            Text(LocalizedCopy.text("Why it works?"))
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.text)
 
@@ -96,7 +96,7 @@ struct RecommendedActionCard: View {
                 HStack(spacing: 6) {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .medium))
-                    Text("Not now")
+                    Text(LocalizedCopy.text("Not now"))
                         .font(.system(size: 15, weight: .medium))
                 }
                 .foregroundStyle(Theme.dim)
@@ -125,7 +125,7 @@ private struct ScienceCard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .lineSpacing(3)
             if let source = fact.source {
-                Text("Source: \(source)")
+                Text(LocalizedCopy.format("Source: %@", source))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.dim.opacity(0.6))
                     .padding(.top, 2)

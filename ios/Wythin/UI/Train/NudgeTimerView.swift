@@ -60,7 +60,7 @@ struct NudgeTimerView: View {
                         .foregroundStyle(Theme.text)
                         .contentTransition(.numericText())
 
-                    Text(kind.guidance)
+                    Text(LocalizedCopy.text(kind.guidance))
                         .font(Theme.monoBody)
                         .foregroundStyle(Theme.dim)
                         .multilineTextAlignment(.center)
@@ -68,7 +68,7 @@ struct NudgeTimerView: View {
 
                     Spacer()
 
-                    Text(kind.intervention.why)
+                    Text(LocalizedCopy.text(kind.intervention.why))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                         .multilineTextAlignment(.center)
@@ -76,7 +76,7 @@ struct NudgeTimerView: View {
                         .padding(.bottom, 24)
                 }
             }
-            .navigationTitle(kind.heading)
+            .navigationTitle(LocalizedCopy.text(kind.heading))
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bg, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -100,7 +100,7 @@ struct NudgeTimerView: View {
     }
 
     private var timeString: String {
-        String(format: "%d:%02d", remaining / 60, remaining % 60)
+        String(format: "%d:%02d", locale: .current, remaining / 60, remaining % 60)
     }
 
     private func stop() {

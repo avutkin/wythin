@@ -110,7 +110,7 @@ struct ScriptedBreathSessionView: View {
                     .padding(.bottom, 18)
                 }
             }
-            .navigationTitle(practice.title.uppercased())
+            .navigationTitle(LocalizedCopy.text(practice.title).uppercased())
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bg, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -174,7 +174,7 @@ struct ScriptedBreathSessionView: View {
                         .tracking(2)
                         .foregroundStyle(Theme.breathe.opacity(0.55))
                 } else {
-                    Text("NEXT · \(nextStep.move.label)")
+                    Text(LocalizedCopy.format("NEXT · %@", nextStep.move.label))
                         .font(Theme.monoLabel)
                         .tracking(2)
                         .foregroundStyle(Theme.dim.opacity(0.7))
@@ -275,7 +275,7 @@ struct ScriptedBreathSessionView: View {
             } else if step.move.isSingleEffort {
                 // Nor here, for the opposite reason. One movement is not a
                 // duration; a countdown on it turns a push into a wait.
-                Text(effortCall)
+                Text(LocalizedCopy.text(effortCall))
                     .font(Theme.monoLabel)
                     .tracking(3)
                     .foregroundStyle(Theme.breathe.opacity(0.8))
@@ -345,7 +345,7 @@ struct ScriptedBreathSessionView: View {
 
     private func readout(_ label: String, _ value: String) -> some View {
         VStack(spacing: 3) {
-            Text(label)
+            Text(LocalizedCopy.text(label))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
             Text(value)
@@ -357,15 +357,15 @@ struct ScriptedBreathSessionView: View {
 
     private func mmss(_ seconds: TimeInterval) -> String {
         let total = Int(max(0, seconds))
-        return String(format: "%d:%02d", total / 60, total % 60)
+        return String(format: "%d:%02d", locale: .current, total / 60, total % 60)
     }
 
     // MARK: Settings
 
     private var summary: String {
-        var parts = ["\(minutes) MIN"]
-        if baseScript.hasLongHolds { parts.append("HOLD \(holdSeconds)s") }
-        parts.append("BREATH \(breathSeconds)s")
+        var parts = [LocalizedCopy.format("%d MIN", minutes)]
+        if baseScript.hasLongHolds { parts.append(LocalizedCopy.format("HOLD %d s", holdSeconds)) }
+        parts.append(LocalizedCopy.format("BREATH %d s", breathSeconds))
         return parts.joined(separator: " · ")
     }
 
@@ -394,13 +394,13 @@ struct ScriptedBreathSessionView: View {
 
             if showSettings {
                 Divider().background(Theme.border)
-                stepperRow(label: "TIME", value: "\(minutes) min",
+                stepperRow(label: "TIME", value: LocalizedCopy.format("%d min", minutes),
                            canLower: minutes > minuteRange.lowerBound,
                            canRaise: minutes < minuteRange.upperBound,
                            lower: { minutes -= 1 }, raise: { minutes += 1 })
                 if baseScript.hasLongHolds {
                     Divider().background(Theme.border)
-                    stepperRow(label: "HOLD", value: "\(holdSeconds)s",
+                    stepperRow(label: "HOLD", value: LocalizedCopy.format("%d s", holdSeconds),
                                canLower: holdSeconds > holdRange.lowerBound,
                                canRaise: holdSeconds < holdRange.upperBound,
                                lower: { holdSeconds = max(holdRange.lowerBound, holdSeconds - holdStep) },
@@ -409,7 +409,7 @@ struct ScriptedBreathSessionView: View {
                 Divider().background(Theme.border)
                 // How long the guide waits on a natural breath before moving on
                 // by itself. A tap still ends one sooner.
-                stepperRow(label: "BREATH", value: "\(breathSeconds)s",
+                stepperRow(label: "BREATH", value: LocalizedCopy.format("%d s", breathSeconds),
                            canLower: breathSeconds > breathRange.lowerBound,
                            canRaise: breathSeconds < breathRange.upperBound,
                            lower: { breathSeconds -= 1 }, raise: { breathSeconds += 1 })
@@ -426,7 +426,7 @@ struct ScriptedBreathSessionView: View {
                             lower: @escaping () -> Void,
                             raise: @escaping () -> Void) -> some View {
         HStack(spacing: 12) {
-            Text(label)
+            Text(LocalizedCopy.text(label))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
                 .frame(width: 58, alignment: .leading)

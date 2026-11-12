@@ -34,7 +34,7 @@ struct SleepDetailView: View {
     }
 
     private func hm(_ minutes: Int) -> String {
-        "\(minutes / 60)h \(String(format: "%02d", minutes % 60))m"
+        LocalizedCopy.format("%d h %02d min", minutes / 60, minutes % 60)
     }
 
     private var asleepMinutes: Int? { entry.sleepAsleepMinutes }
@@ -45,7 +45,7 @@ struct SleepDetailView: View {
 
     private var window: String {
         let f = DateFormatter()
-        f.dateFormat = "HH:mm"
+        f.timeStyle = .short
         guard let end = entry.endedAt else { return f.string(from: entry.startedAt) }
         return "\(f.string(from: entry.startedAt)) → \(f.string(from: end))"
     }
@@ -226,7 +226,7 @@ struct SleepDetailView: View {
                 Text("\((asleepMinutes ?? 0) / 60)")
                     .font(.system(size: 46, weight: .regular))
                 Text("h").font(.system(size: 24, weight: .regular)).foregroundStyle(Theme.dim)
-                Text(" \(String(format: "%02d", (asleepMinutes ?? 0) % 60))")
+                Text(" \(String(format: "%02d", locale: .current, (asleepMinutes ?? 0) % 60))")
                     .font(.system(size: 46, weight: .regular))
                 Text("m").font(.system(size: 24, weight: .regular)).foregroundStyle(Theme.dim)
             }
@@ -235,11 +235,11 @@ struct SleepDetailView: View {
             // of the night spent awake, which is the disclosure most sleep UIs
             // quietly drop.
             if let inBed = inBedMinutes {
-                Text("Total duration \(hm(inBed))")
+                Text(LocalizedCopy.format("Total duration %@", hm(inBed)))
                     .font(.system(size: 17))
                     .foregroundStyle(Theme.dim)
             }
-            if let stages = entry.sleepStageSummary {
+            if let stages = entry.localizedSleepStageSummary {
                 Text(stages)
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(Theme.dim)
@@ -276,7 +276,7 @@ struct SleepDetailView: View {
 
                 VStack(spacing: 9) { contributionRows }
 
-                if let line = entry.sleepScoreArithmetic {
+                if let line = entry.localizedSleepScoreArithmetic {
                     SleepNote("THE ARITHMETIC", line)
                 }
             }
@@ -289,7 +289,7 @@ struct SleepDetailView: View {
         let rows = sectionRows
         ForEach(rows, id: \.section) { row in
             HStack(spacing: 8) {
-                Text(row.section.name)
+                Text(LocalizedCopy.text(row.section.name))
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.dim)
                     .frame(width: 76, alignment: .leading)
@@ -316,7 +316,7 @@ struct SleepDetailView: View {
                     .frame(maxHeight: .infinity, alignment: .center)
                 }
                 .frame(height: 10)
-                Text(row.score.map { String(format: "%.1f", row.section.weight * Double($0)) } ?? "—")
+                Text(row.score.map { String(format: "%.1f", locale: .current, row.section.weight * Double($0)) } ?? "—")
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(Theme.text)
                     .frame(width: 34, alignment: .trailing)
@@ -356,7 +356,7 @@ struct SleepDetailView: View {
                 HStack(alignment: .top, spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 5) {
-                            Text(slot.name)
+                            Text(LocalizedCopy.text(slot.name))
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(Theme.text)
                             Image(systemName: "chevron.down")
@@ -364,7 +364,7 @@ struct SleepDetailView: View {
                                 .foregroundStyle(Theme.dim)
                                 .rotationEffect(.degrees(open ? 180 : 0))
                         }
-                        Text(slot.index?.detail ?? slot.whenEmpty)
+                        Text(LocalizedCopy.text(slot.index?.detail ?? slot.whenEmpty))
                             .font(.system(size: 11))
                             .foregroundStyle(Theme.dim)
                             .multilineTextAlignment(.leading)
@@ -375,7 +375,7 @@ struct SleepDetailView: View {
                             Text("\(index.value)")
                                 .font(.system(size: 20, weight: .semibold, design: .rounded))
                                 .foregroundStyle(Theme.text)
-                            Text(index.verdict)
+                            Text(LocalizedCopy.text(index.verdict))
                                 .font(.system(size: 9))
                                 .foregroundStyle(Theme.dim)
                         }
@@ -416,11 +416,11 @@ struct SleepDetailView: View {
 
     private func explainRow(_ label: String, _ body: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label)
+            Text(LocalizedCopy.text(label))
                 .font(.system(size: 8, weight: .semibold, design: .monospaced))
                 .tracking(0.6)
                 .foregroundStyle(Theme.dim.opacity(0.8))
-            Text(body)
+            Text(LocalizedCopy.text(body))
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.dim)
                 .fixedSize(horizontal: false, vertical: true)
@@ -441,7 +441,7 @@ struct SleepDetailView: View {
     private func card<Content: View>(_ title: String,
                                      @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title)
+            Text(LocalizedCopy.text(title))
                 .font(.system(size: 9, weight: .semibold, design: .monospaced))
                 .tracking(0.8)
                 .foregroundStyle(Theme.dim)

@@ -25,11 +25,11 @@ struct SleepPartBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(part.label)
+                Text(LocalizedCopy.text(part.label))
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Theme.text)
                 Spacer(minLength: 6)
-                Text(part.display)
+                Text(part.localizedDisplay)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(tint)
                 Text("\(Int(part.score.rounded()))")
@@ -60,15 +60,15 @@ struct SleepPartBar: View {
             .frame(height: 9)
 
             HStack {
-                Text(part.worstLabel)
+                Text(LocalizedCopy.text(part.worstLabel))
                 Spacer()
                 // Only worth saying when the section has more than one input.
                 if part.weight < 1 {
-                    Text("\(Int((part.weight * 100).rounded()))% of this section")
+                    Text(LocalizedCopy.format("%d%% of this section", Int((part.weight * 100).rounded())))
                         .foregroundStyle(Theme.dim.opacity(0.7))
                     Spacer()
                 }
-                Text(part.bestLabel)
+                Text(LocalizedCopy.text(part.bestLabel))
             }
             .font(.system(size: 8, design: .monospaced))
             .foregroundStyle(Theme.dim.opacity(0.8))

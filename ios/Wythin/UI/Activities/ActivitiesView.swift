@@ -54,7 +54,7 @@ struct ActivitiesView: View {
                 label = "YESTERDAY"
             } else {
                 let fmt = DateFormatter()
-                fmt.dateFormat = "MMM d"
+                fmt.setLocalizedDateFormatFromTemplate("MMMd")
                 label = fmt.string(from: day).uppercased()
             }
             let entries = (grouped[day] ?? []).sorted { $0.startedAt > $1.startedAt }
@@ -187,7 +187,7 @@ struct ActivitiesView: View {
                             .listRowInsets(.init(top: 4, leading: 16, bottom: 4, trailing: 16))
                     }
                 } header: {
-                    Text(group.label)
+                    Text(LocalizedCopy.text(group.label))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                         .textCase(nil)
@@ -329,11 +329,11 @@ struct LiveActivityFrame<Content: View>: View {
                           suffix: String? = nil) -> some View {
         HStack(spacing: 8) {
             PulsingDot(color: tint)
-            Text(title)
+            Text(LocalizedCopy.text(title))
                 .font(Theme.monoLabel)
                 .foregroundStyle(tint)
             if let suffix {
-                Text(suffix)
+                Text(LocalizedCopy.text(suffix))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
             }
@@ -393,7 +393,7 @@ struct LiveActivityFrame<Content: View>: View {
 
     private func mmss(_ seconds: TimeInterval) -> String {
         let t = Int(max(0, seconds))
-        return String(format: "%02d:%02d", t / 60, t % 60)
+        return String(format: "%02d:%02d", locale: .current, t / 60, t % 60)
     }
 }
 
@@ -433,17 +433,17 @@ private struct PhaseCell: View {
                 case .active:  PulsingDot(color: tint)
                 case .pending: Circle().strokeBorder(tint, lineWidth: 1).frame(width: 6, height: 6)
                 }
-                Text(name)
+                Text(LocalizedCopy.text(name))
                     .font(.system(size: 8, weight: .semibold, design: .monospaced))
                     .tracking(0.8)
             }
             .foregroundStyle(tint)
-            Text(caption)
+            Text(LocalizedCopy.text(caption))
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(state == .pending ? Theme.dim.opacity(0.6) : Theme.text.opacity(0.85))
                 .monospacedDigit()
                 .lineLimit(1)
-            Text(detail)
+            Text(LocalizedCopy.text(detail))
                 .font(.system(size: 7, design: .monospaced))
                 .foregroundStyle(Theme.dim.opacity(0.7))
         }
@@ -525,6 +525,6 @@ struct StillRecordingCard: View {
 
     private func mmss(_ seconds: TimeInterval) -> String {
         let t = Int(max(0, seconds))
-        return String(format: "%02d:%02d", t / 60, t % 60)
+        return String(format: "%02d:%02d", locale: .current, t / 60, t % 60)
     }
 }

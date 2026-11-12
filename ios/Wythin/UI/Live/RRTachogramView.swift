@@ -10,7 +10,7 @@ struct RRTachogramView: View {
             if rr.count < 3 {
                 HStack {
                     Spacer()
-                    Text("Waiting for RR intervals…")
+                    Text(LocalizedCopy.text("Waiting for RR intervals…"))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                     Spacer()
@@ -21,7 +21,7 @@ struct RRTachogramView: View {
                 }
             }
 
-            Text("RR TACHOGRAM")
+            Text(LocalizedCopy.text("RR TACHOGRAM"))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim.opacity(0.7))
                 .padding(.horizontal, 8)
@@ -76,7 +76,7 @@ struct RRTachogramView: View {
         }
 
         // Horizontal guide lines at 600 ms (100 bpm) and 1000 ms (60 bpm)
-        let guides: [(ms: Float, label: String)] = [(600, "100 bpm"), (1000, "60 bpm")]
+        let guides: [(ms: Float, label: String)] = [(600, LocalizedCopy.text("100 bpm")), (1000, LocalizedCopy.text("60 bpm"))]
         for (msRef, label) in guides {
             let norm = CGFloat((msRef - rrLo) / (rrHi - rrLo))
             let y = (1 - norm) * size.height * 0.82 + size.height * 0.09

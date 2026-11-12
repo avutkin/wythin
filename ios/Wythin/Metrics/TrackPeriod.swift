@@ -171,27 +171,18 @@ enum TrackRangeBuilder {
         return out
     }
 
-    /// Month-day, slash-joined, never zero-padded: "8/30", "1/5". A slash
-    /// rather than a hyphen because the only other date range on this screen
-    /// — the month page's week labels, "13–19" — uses a dash to mean "from
-    /// here to there", and a day label reading "8-30" invites being read the
-    /// same way. Built from calendar components rather than a `DateFormatter`
-    /// pattern like "M/d" — whether a single-count numeric pattern letter
-    /// zero-pads is a locale/format-provider detail, not a Swift guarantee,
-    /// and this axis label is exactly the kind of small, easy-to-miss
-    /// regression a pinned test should catch outright rather than one relying
-    /// on that behaviour holding across OS versions.
+    /// Compact month and day in the calendar's locale, so the bar label follows
+    /// the same date order and separators as the rest of the screen.
     static func shortDateLabel(_ d: Date, calendar cal: Calendar) -> String {
-        let c = cal.dateComponents([.month, .day], from: d)
-        return "\(c.month!)/\(c.day!)"
+        fmt("Md", cal).string(from: d)
     }
 
     private static func fmt(_ format: String, _ cal: Calendar) -> DateFormatter {
         let f = DateFormatter()
         f.calendar   = cal
         f.timeZone   = cal.timeZone
-        f.locale     = cal.locale ?? Locale(identifier: "en_US_POSIX")
-        f.dateFormat = format
+        f.locale     = cal.locale ?? .current
+        f.setLocalizedDateFormatFromTemplate(format)
         return f
     }
 }

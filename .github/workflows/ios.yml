@@ -21,6 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate Russian string catalog
+        run: python3 tools/check-localization.py
+
       # Select the newest Xcode present rather than pinning a version or taking
       # the image default. Pinning Xcode 16 left the SDK with no usable
       # simulator runtime; the image default (16.4) builds against an SDK that

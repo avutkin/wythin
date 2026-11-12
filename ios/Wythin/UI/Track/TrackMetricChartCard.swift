@@ -31,10 +31,10 @@ struct TrackMetricChartCard: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(spec.def.label.uppercased())
+                    Text(LocalizedCopy.text(spec.def.label).uppercased())
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.text)
-                    Text(spec.def.techFull.isEmpty ? spec.def.techLabel : spec.def.techFull)
+                    Text(LocalizedCopy.text(spec.def.techFull.isEmpty ? spec.def.techLabel : spec.def.techFull))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                         .lineLimit(2)
@@ -49,7 +49,7 @@ struct TrackMetricChartCard: View {
                         .font(Theme.mono(20))
                         .foregroundStyle(spec.color)
                     if !spec.def.unit.isEmpty {
-                        Text(spec.def.unit)
+                        Text(LocalizedCopy.text(spec.def.unit))
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.dim)
                     }
@@ -75,12 +75,12 @@ struct TrackMetricChartCard: View {
            let bar = series.bars.first(where: { $0.bucket.start == sel }) {
             return captionFormatter.string(from: bar.bucket.start).uppercased()
         }
-        return "AVERAGE"
+        return LocalizedCopy.text("AVERAGE")
     }
 
     private var captionFormatter: DateFormatter {
         let f = DateFormatter()
-        f.dateFormat = period == .sixMonth ? "MMM yyyy" : "EEE d MMM"
+        f.setLocalizedDateFormatFromTemplate(period == .sixMonth ? "MMMyyyy" : "EEEdMMM")
         return f
     }
 
@@ -94,7 +94,12 @@ struct TrackMetricChartCard: View {
     private var deltaChip: some View {
         if let d = series.deltaPct, abs(d) >= Self.minDeltaPct {
             let better = d >= 0
-            Text("\(better ? "▲" : "▼") \(abs(d), specifier: "%.0f")% vs prior \(period.priorNoun)")
+            let comparison: String = switch period {
+            case .week: LocalizedCopy.text("vs prior week")
+            case .month: LocalizedCopy.text("vs prior month")
+            case .sixMonth: LocalizedCopy.text("vs prior 6 months")
+            }
+            Text(LocalizedCopy.format("%@ %.0f%% %@", better ? "▲" : "▼", abs(d), comparison))
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(better ? Theme.accent : Theme.warn)
         }
@@ -133,7 +138,7 @@ struct TrackMetricChartCard: View {
             // rather than one hardcoded RuleMark so a second line can be added
             // to `series.referenceLines` later without touching this view.
             ForEach(series.referenceLines) { line in
-                RuleMark(y: .value(line.label, line.value))
+                RuleMark(y: .value(LocalizedCopy.text(line.label), line.value))
                     .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
                     .foregroundStyle(Theme.dim.opacity(0.6))
             }
@@ -149,9 +154,9 @@ struct TrackMetricChartCard: View {
                     // plotted band instead of stretching down through it and
                     // out the bottom of the chart.
                     BarMark(
-                        x:      .value("Bucket", bar.bucket.start, unit: xUnit),
-                        yStart: .value(spec.def.label, barAnchor),
-                        yEnd:   .value(spec.def.label, v),
+                        x:      .value(LocalizedCopy.text("Bucket"), bar.bucket.start, unit: xUnit),
+                        yStart: .value(LocalizedCopy.text(spec.def.label), barAnchor),
+                        yEnd:   .value(LocalizedCopy.text(spec.def.label), v),
                         width:  barWidth
                     )
                     .cornerRadius(cornerRadius)
@@ -176,9 +181,9 @@ struct TrackMetricChartCard: View {
                     // Uses the same domain-floor anchor as the visible bars
                     // above rather than a bare zero, so it stays inside the
                     // domain for index metrics too.
-                    BarMark(x:      .value("Bucket", bar.bucket.start, unit: xUnit),
-                            yStart: .value(spec.def.label, barAnchor),
-                            yEnd:   .value(spec.def.label, barAnchor))
+                    BarMark(x:      .value(LocalizedCopy.text("Bucket"), bar.bucket.start, unit: xUnit),
+                            yStart: .value(LocalizedCopy.text(spec.def.label), barAnchor),
+                            yEnd:   .value(LocalizedCopy.text(spec.def.label), barAnchor))
                         .opacity(0)
                 }
             }
@@ -192,9 +197,9 @@ struct TrackMetricChartCard: View {
             ForEach(series.weekAverages) { week in
                 if let v = week.value {
                     RuleMark(
-                        xStart: .value("Week start", week.start),
-                        xEnd:   .value("Week end", week.end),
-                        y:      .value(spec.def.label, v)
+                        xStart: .value(LocalizedCopy.text("Week start"), week.start),
+                        xEnd:   .value(LocalizedCopy.text("Week end"), week.end),
+                        y:      .value(LocalizedCopy.text(spec.def.label), v)
                     )
                     .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .butt))
                     .foregroundStyle(spec.color)

@@ -14,10 +14,10 @@ enum BreathPhase: Int, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .inhale:  return "INHALE"
-        case .exhale:  return "EXHALE"
+        case .inhale:  return LocalizedCopy.text("INHALE")
+        case .exhale:  return LocalizedCopy.text("EXHALE")
         case .holdIn,
-             .holdOut: return "HOLD"
+             .holdOut: return LocalizedCopy.text("HOLD")
         }
     }
 
@@ -169,6 +169,7 @@ struct EvenCadence: Equatable, Hashable {
 
     /// "5.5s" or "5s" — no trailing zero on a whole number.
     var label: String {
-        isWholeSecond ? "\(halfSeconds / 2)s" : String(format: "%.1fs", seconds)
+        isWholeSecond ? LocalizedCopy.format("%ds", halfSeconds / 2)
+                      : LocalizedCopy.format("%.1fs", seconds)
     }
 }

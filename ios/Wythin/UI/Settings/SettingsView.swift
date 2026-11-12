@@ -36,13 +36,13 @@ struct SettingsView: View {
     private var restoreLabel: String {
         switch restore.phase {
         case .idle:
-            return "Restore history from cloud"
+            return LocalizedCopy.text("Restore history from cloud")
         case .failed:
-            return "Resume restore from cloud"
+            return LocalizedCopy.text("Resume restore from cloud")
         case .restoring(let n):
-            return "Restoring… \(n) samples — keep the app open"
+            return LocalizedCopy.format("Restoring… %lld samples — keep the app open", n)
         case .done(let s, let a):
-            return "Restored \(s) samples, \(a) activities"
+            return LocalizedCopy.format("Restored %lld samples, %lld activities", s, a)
         }
     }
 
@@ -101,7 +101,7 @@ struct SettingsView: View {
                                 .font(Theme.monoBody)
                                 .foregroundStyle(Theme.text)
                             Spacer()
-                            Text(bleStatusLabel)
+                            Text(LocalizedCopy.text(bleStatusLabel))
                                 .font(Theme.monoLabel)
                                 .foregroundStyle(bleStatusColor)
                         }
@@ -112,7 +112,9 @@ struct SettingsView: View {
                                     .font(Theme.monoBody)
                                     .foregroundStyle(Theme.text)
                                 Spacer()
-                                Text(env.ble.batteryLevel.map { "\($0)%" } ?? "—")
+                                Text(env.ble.batteryLevel.map {
+                                    (Double($0) / 100).formatted(.percent.precision(.fractionLength(0)))
+                                } ?? "—")
                                     .font(Theme.monoLabel)
                                     .foregroundStyle(Theme.dim)
                             }
@@ -203,7 +205,7 @@ struct SettingsView: View {
                             Button("Cancel", role: .cancel) {}
                         }
                         if case .failed(let message) = restore.phase {
-                            Text(message)
+                            Text(LocalizedCopy.text(message))
                                 .font(Theme.monoLabel)
                                 .foregroundStyle(Theme.warn)
                         }
@@ -221,7 +223,7 @@ struct SettingsView: View {
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "key.horizontal")
-                                Text(isWorking ? "Working…" : "Create Access Token")
+                                Text(LocalizedCopy.text(isWorking ? "Working…" : "Create Access Token"))
                             }
                             .font(Theme.monoBody)
                             .foregroundStyle(Theme.accent)
@@ -229,17 +231,20 @@ struct SettingsView: View {
                         .disabled(isWorking)
 
                         if let accessError {
-                            Text(accessError)
+                            Text(LocalizedCopy.text(accessError))
                                 .font(Theme.monoLabel)
                                 .foregroundStyle(Theme.warn)
                         }
 
                         ForEach(tokens) { token in
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(token.name ?? "Access token")
+                                Text(token.name ?? LocalizedCopy.text("Access token"))
                                     .font(Theme.monoBody)
                                     .foregroundStyle(Theme.text)
-                                Text("created \(shortDate(token.createdAt)) · last used \(token.lastUsedAt.map(shortDate) ?? "never")")
+                                Text(LocalizedCopy.format(
+                                    "created %@ · last used %@",
+                                    shortDate(token.createdAt),
+                                    token.lastUsedAt.map(shortDate) ?? LocalizedCopy.text("never")))
                                     .font(Theme.monoLabel)
                                     .foregroundStyle(Theme.dim)
                             }
@@ -266,11 +271,12 @@ struct SettingsView: View {
                         }
 
                         if cloudSyncEnabled, let uploaded = env.metricSync.lastUploadedAt {
-                            Text("Metrics last uploaded: \(uploaded.formatted(date: .abbreviated, time: .shortened))")
+                            Text(LocalizedCopy.format("Metrics last uploaded: %@",
+                                uploaded.formatted(date: .abbreviated, time: .shortened)))
                                 .font(Theme.monoLabel).foregroundStyle(Theme.dim)
                         }
                         if let error = env.metricSync.lastError {
-                            Text(error).font(Theme.monoLabel).foregroundStyle(Theme.warn)
+                            Text(LocalizedCopy.text(error)).font(Theme.monoLabel).foregroundStyle(Theme.warn)
                         }
 
                         if RawArchiveFeature.isAvailable {
@@ -288,24 +294,25 @@ struct SettingsView: View {
                             }
 
                             if let rawSync = env.rawSync {
-                                Text("Raw packets waiting for upload: \(rawSync.pendingCount) chunks")
+                                Text(LocalizedCopy.format("Raw packets waiting for upload: %lld chunks",
+                                    rawSync.pendingCount))
                                     .font(Theme.monoLabel).foregroundStyle(Theme.dim)
                                 if let error = rawSync.lastError {
-                                    Text("Raw upload: \(error)")
+                                    Text(LocalizedCopy.format("Raw upload: %@", error))
                                         .font(Theme.monoLabel).foregroundStyle(Theme.warn)
                                 }
                             }
                         }
 
                         if let error = env.recordingError ?? env.ble.lastError {
-                            Text(error).font(Theme.monoLabel).foregroundStyle(Theme.warn)
+                            Text(LocalizedCopy.text(error)).font(Theme.monoLabel).foregroundStyle(Theme.warn)
                         }
 
                         if cloudSyncEnabled {
                             Button(role: .destructive) {
                                 Task { await deleteCloudData() }
                             } label: {
-                                Text(isDeletingCloudData ? "Deleting…" : "Delete my cloud data")
+                                Text(LocalizedCopy.text(isDeletingCloudData ? "Deleting…" : "Delete my cloud data"))
                                     .font(Theme.monoBody)
                                     .foregroundStyle(Theme.warn)
                             }
@@ -334,7 +341,7 @@ struct SettingsView: View {
                         Toggle(isOn: $aiInsightsEnabled) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Personalised guidance").font(Theme.monoBody).foregroundStyle(Theme.text)
-                                Text("Sends your metrics to \(AIProvider.name) to write your insights. Off = no AI guidance.")
+                                Text(LocalizedCopy.format("Sends your metrics to %@ to write your insights. Off = no AI guidance.", AIProvider.name))
                                     .font(Theme.monoLabel).foregroundStyle(Theme.dim)
                             }
                         }
@@ -367,7 +374,7 @@ struct SettingsView: View {
                             Text("Right now")
                                 .font(Theme.monoBody).foregroundStyle(Theme.text)
                             Spacer()
-                            Text(nudgeStateLabel)
+                            Text(LocalizedCopy.text(nudgeStateLabel))
                                 .font(Theme.monoLabel).foregroundStyle(Theme.dim)
                         }
 
@@ -411,9 +418,10 @@ struct SettingsView: View {
                             ForEach(NudgeInterventionLibrary.all, id: \.id) { option in
                                 Toggle(isOn: binding(for: option.id)) {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text("\(option.title) · \(option.minutes) min")
+                                        Text(LocalizedCopy.format("%@ · %lld min",
+                                            LocalizedCopy.text(option.title), option.minutes))
                                             .font(Theme.monoBody).foregroundStyle(Theme.text)
-                                        Text(option.why)
+                                        Text(LocalizedCopy.text(option.why))
                                             .font(Theme.monoLabel).foregroundStyle(Theme.dim)
                                     }
                                 }
@@ -470,14 +478,14 @@ struct SettingsView: View {
 
     private var bleStatusLabel: String {
         switch env.ble.state {
-        case .idle:              return "IDLE"
-        case .scanning:          return "SCANNING…"
-        case .connecting(let n): return "CONNECTING \(n)"
+        case .idle:              return LocalizedCopy.text("IDLE")
+        case .scanning:          return LocalizedCopy.text("SCANNING…")
+        case .connecting(let n): return LocalizedCopy.format("CONNECTING %@", n)
         case .connected(let n):  return n.uppercased()
-        case .disconnected(let r): return "OFF — \(r)"
-        case .standby:           return "IDLE — STRAP OFF"
-        case .unauthorized:      return "NO PERMISSION"
-        case .unsupported:       return "UNSUPPORTED"
+        case .disconnected(let r): return LocalizedCopy.format("OFF — %@", LocalizedCopy.text(r))
+        case .standby:           return LocalizedCopy.text("IDLE — STRAP OFF")
+        case .unauthorized:      return LocalizedCopy.text("NO PERMISSION")
+        case .unsupported:       return LocalizedCopy.text("UNSUPPORTED")
         }
     }
 
@@ -546,7 +554,7 @@ struct SettingsView: View {
     private func shortDate(_ iso: String) -> String {
         let f = ISO8601DateFormatter()
         guard let d = f.date(from: iso) else { return iso }
-        let out = DateFormatter(); out.dateFormat = "MMM d"
+        let out = DateFormatter(); out.setLocalizedDateFormatFromTemplate("MMMd")
         return out.string(from: d)
     }
 
@@ -612,7 +620,7 @@ private struct NewTokenSheet: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "doc.on.doc")
-                Text(label)
+                Text(LocalizedCopy.text(label))
             }
             .font(Theme.monoBody)
             .foregroundStyle(Theme.accent)

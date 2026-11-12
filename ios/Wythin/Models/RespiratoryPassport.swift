@@ -47,14 +47,14 @@ enum BreathMechanism: String, CaseIterable, Identifiable, Hashable {
 
     var label: String {
         switch self {
-        case .observation:      return "Observation"
-        case .resonance:        return "Resonance"
-        case .extendedExhale:   return "Longer Exhale"
-        case .sigh:             return "Physiological Sigh"
-        case .co2Accumulation:  return "CO₂ Build-up"
-        case .hyperventilation: return "Over-breathing"
-        case .resistance:       return "Airway Resistance"
-        case .recovery:         return "Recovery Move"
+        case .observation:      return LocalizedCopy.text("Observation")
+        case .resonance:        return LocalizedCopy.text("Resonance")
+        case .extendedExhale:   return LocalizedCopy.text("Longer Exhale")
+        case .sigh:             return LocalizedCopy.text("Physiological Sigh")
+        case .co2Accumulation:  return LocalizedCopy.text("CO₂ Build-up")
+        case .hyperventilation: return LocalizedCopy.text("Over-breathing")
+        case .resistance:       return LocalizedCopy.text("Airway Resistance")
+        case .recovery:         return LocalizedCopy.text("Recovery Move")
         }
     }
 
@@ -62,21 +62,21 @@ enum BreathMechanism: String, CaseIterable, Identifiable, Hashable {
     var summary: String {
         switch self {
         case .observation:
-            return "The breath is watched, not changed — the only practices whose rate is not manipulated."
+            return LocalizedCopy.text("The breath is watched, not changed — the only practices whose rate is not manipulated.")
         case .resonance:
-            return "About six cycles a minute, no holds: the breath meets the slow wave already running in your blood pressure."
+            return LocalizedCopy.text("About six cycles a minute, no holds: the breath meets the slow wave already running in your blood pressure.")
         case .extendedExhale:
-            return "Slow, with the weight on the out-breath. Whether that beats an even breath is the open question."
+            return LocalizedCopy.text("Slow, with the weight on the out-breath. Whether that beats an even breath is the open question.")
         case .sigh:
-            return "A double in-breath and one long out-breath, repeated. The fastest route down that has been trialled."
+            return LocalizedCopy.text("A double in-breath and one long out-breath, repeated. The fastest route down that has been trialled.")
         case .co2Accumulation:
-            return "Holds, or a rate low enough that carbon dioxide rises between breaths. A different mechanism from resonance, whatever it is called."
+            return LocalizedCopy.text("Holds, or a rate low enough that carbon dioxide rises between breaths. A different mechanism from resonance, whatever it is called.")
         case .hyperventilation:
-            return "Forced and fast — carbon dioxide falls. The opposite of everything above, and not to be mixed with it."
+            return LocalizedCopy.text("Forced and fast — carbon dioxide falls. The opposite of everything above, and not to be mixed with it.")
         case .resistance:
-            return "A narrowed airway or a closed nostril. The resistance is the intervention; the rate follows from it."
+            return LocalizedCopy.text("A narrowed airway or a closed nostril. The resistance is the intervention; the rate follows from it.")
         case .recovery:
-            return "Seconds, not minutes — a move to end a stress response rather than a session to sit through."
+            return LocalizedCopy.text("Seconds, not minutes — a move to end a stress response rather than a session to sit through.")
         }
     }
 
@@ -102,9 +102,9 @@ enum PracticeDifficulty: String, CaseIterable, Hashable {
     case easy, moderate, advanced
     var label: String {
         switch self {
-        case .easy:     return "Easy"
-        case .moderate: return "Moderate"
-        case .advanced: return "Advanced"
+        case .easy:     return LocalizedCopy.text("Easy")
+        case .moderate: return LocalizedCopy.text("Moderate")
+        case .advanced: return LocalizedCopy.text("Advanced")
         }
     }
 }
@@ -147,13 +147,13 @@ enum BreathRate: Hashable {
     var label: String {
         switch self {
         case .fixed(let cpm, _):
-            return String(format: "%.2g/min", cpm)
+            return LocalizedCopy.format("%.2g/min", cpm)
         case .range(let band):
-            return String(format: "~%.2g–%.2g/min", band.lowerBound, band.upperBound)
+            return LocalizedCopy.format("~%.2g–%.2g/min", band.lowerBound, band.upperBound)
         case .spontaneous:
-            return "not changed"
+            return LocalizedCopy.text("not changed")
         case .unrated(let text):
-            return text
+            return LocalizedCopy.text(text)
         }
     }
 
@@ -161,8 +161,8 @@ enum BreathRate: Hashable {
     var cycleLabel: String? {
         switch self {
         case .fixed(_, let secs):
-            return secs == secs.rounded() ? "\(Int(secs))s cycle"
-                                          : String(format: "%.1fs cycle", secs)
+            return secs == secs.rounded() ? LocalizedCopy.format("%d s cycle", Int(secs))
+                                          : LocalizedCopy.format("%.1f s cycle", secs)
         case .range, .spontaneous, .unrated:
             return nil
         }

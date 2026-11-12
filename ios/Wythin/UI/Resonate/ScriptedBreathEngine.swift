@@ -23,7 +23,7 @@ struct ScriptedBreathState: Equatable {
     /// What the middle of the circle shows on a counted step.
     var countdown: String {
         let t = max(0, secondsLeftInStep)
-        return t >= 60 ? String(format: "%d:%02d", t / 60, t % 60) : "\(t)"
+        return t >= 60 ? String(format: "%d:%02d", locale: .current, t / 60, t % 60) : "\(t)"
     }
 }
 
