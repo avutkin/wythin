@@ -19,11 +19,11 @@ struct NudgeCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
 
-            Text(nudge.content.title.uppercased())
+            Text(LocalizedCopy.text(nudge.content.title).uppercased())
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.accent)
 
-            Text(nudge.content.body)
+            Text(LocalizedCopy.text(nudge.content.body))
                 .font(Theme.monoBody)
                 .foregroundStyle(Theme.text)
                 .fixedSize(horizontal: false, vertical: true)
@@ -32,9 +32,9 @@ struct NudgeCardView: View {
                 Button { onPick(primary.id) } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.right.circle")
-                        Text(primary.actionLabel)
+                        Text(LocalizedCopy.text(primary.actionLabel))
                         Spacer()
-                        Text("\(primary.minutes) min")
+                        Text(LocalizedCopy.format("%d min", primary.minutes))
                             .foregroundStyle(Theme.dim)
                     }
                     .font(Theme.monoBody)
@@ -46,9 +46,9 @@ struct NudgeCardView: View {
                 ForEach(alternates, id: \.id) { option in
                     Button { onPick(option.id) } label: {
                         HStack(spacing: 6) {
-                            Text(option.title)
+                            Text(LocalizedCopy.text(option.title))
                             Spacer()
-                            Text("\(option.minutes) min")
+                            Text(LocalizedCopy.format("%d min", option.minutes))
                                 .foregroundStyle(Theme.dim)
                         }
                         .font(Theme.monoBody)
@@ -59,7 +59,7 @@ struct NudgeCardView: View {
 
             HStack(spacing: 20) {
                 if !alternates.isEmpty {
-                    Button(showingAlternates ? "Fewer" : "Something else") {
+                    Button(LocalizedCopy.text(showingAlternates ? "Fewer" : "Something else")) {
                         withAnimation { showingAlternates.toggle() }
                     }
                     .font(Theme.monoLabel)

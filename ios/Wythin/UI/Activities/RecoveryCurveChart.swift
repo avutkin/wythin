@@ -26,23 +26,23 @@ struct RecoveryCurveChart: View {
 
         var seriesName: String {
             switch self {
-            case .vagalBrake: return "Vagal brake (DC)"
-            case .heartRate:  return "Heart rate"
+            case .vagalBrake: return LocalizedCopy.text("Vagal brake (DC)")
+            case .heartRate:  return LocalizedCopy.text("Heart rate")
             }
         }
 
         var restingLabel: String {
             switch self {
-            case .vagalBrake: return "your resting level"
-            case .heartRate:  return "your resting heart rate"
+            case .vagalBrake: return LocalizedCopy.text("your resting level")
+            case .heartRate:  return LocalizedCopy.text("your resting heart rate")
             }
         }
 
         /// What the caption underneath calls the thing that came back.
         var subject: String {
             switch self {
-            case .vagalBrake: return "your vagal brake"
-            case .heartRate:  return "your heart rate"
+            case .vagalBrake: return LocalizedCopy.text("your vagal brake")
+            case .heartRate:  return LocalizedCopy.text("your heart rate")
             }
         }
 
@@ -55,15 +55,15 @@ struct RecoveryCurveChart: View {
         /// values themselves and this names them.
         var axisTitle: String {
             switch self {
-            case .vagalBrake: return "Deceleration Capacity (DC) \u{00B7} ms"
-            case .heartRate:  return "Heart rate \u{00B7} bpm"
+            case .vagalBrake: return LocalizedCopy.text("Deceleration Capacity (DC) \u{00B7} ms")
+            case .heartRate:  return LocalizedCopy.text("Heart rate \u{00B7} bpm")
             }
         }
 
         var unit: String {
             switch self {
-            case .vagalBrake: return "ms"
-            case .heartRate:  return "bpm"
+            case .vagalBrake: return LocalizedCopy.text("ms")
+            case .heartRate:  return LocalizedCopy.text("bpm")
             }
         }
 
@@ -71,8 +71,8 @@ struct RecoveryCurveChart: View {
         /// beats and a decimal on it is false precision.
         func format(_ v: Double) -> String {
             switch self {
-            case .vagalBrake: return String(format: "%.1f", v)
-            case .heartRate:  return String(format: "%.0f", v)
+            case .vagalBrake: return String(format: "%.1f", locale: .current, v)
+            case .heartRate:  return String(format: "%.0f", locale: .current, v)
             }
         }
 
@@ -222,7 +222,7 @@ struct RecoveryCurveChart: View {
             let domain = yDomain(dots: d, pre: pre, bar: bar)
 
             VStack(alignment: .leading, spacing: 7) {
-                Text(channel.axisTitle)
+                Text(LocalizedCopy.text(channel.axisTitle))
                     .font(.system(size: 8.5, design: .monospaced))
                     .foregroundStyle(Theme.dim)
 
@@ -238,7 +238,7 @@ struct RecoveryCurveChart: View {
                                 // The level, not just the name. Two dashed lines
                                 // a hair apart is precisely the picture that
                                 // needs the reader to see how far apart.
-                                Text("halfway \u{2014} what the score times \u{00B7} \(channel.formatted(bar))")
+                                Text(LocalizedCopy.format("halfway — what the score times · %@", channel.formatted(bar)))
                                     .font(.system(size: 8, design: .monospaced))
                                     .foregroundStyle(Theme.accent.opacity(0.8))
                             }
@@ -248,7 +248,7 @@ struct RecoveryCurveChart: View {
                         .foregroundStyle(Theme.dim)
                         .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                         .annotation(position: .top, alignment: .leading) {
-                            Text("\(channel.restingLabel) \u{00B7} \(channel.formatted(pre))")
+                            Text(LocalizedCopy.format("%@ · %@", channel.restingLabel, channel.formatted(pre)))
                                 .font(.system(size: 8, design: .monospaced))
                                 .foregroundStyle(Theme.dim)
                         }
@@ -269,7 +269,7 @@ struct RecoveryCurveChart: View {
                             .foregroundStyle(Theme.accent.opacity(0.7))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 2]))
                             .annotation(position: .top, alignment: .trailing) {
-                                Text("home \u{00B7} +\(Int(home.rounded()))m")
+                                Text(LocalizedCopy.format("home · +%d m", Int(home.rounded())))
                                     .font(.system(size: 8, design: .monospaced))
                                     .foregroundStyle(Theme.accent.opacity(0.8))
                             }
@@ -376,8 +376,8 @@ struct RecoveryCurveChart: View {
     private func xLabel(_ m: Double, sessionMinutes: Double) -> String {
         if abs(m) < 0.5 { return "start" }
         if abs(m - sessionMinutes) < 0.5 { return "end" }
-        if m < 0 { return "\u{2212}\(Int(-m.rounded()))m" }
-        return "+\(Int((m - sessionMinutes).rounded()))m"
+        if m < 0 { return LocalizedCopy.format("−%d m", Int(-m.rounded())) }
+        return LocalizedCopy.format("+%d m", Int((m - sessionMinutes).rounded()))
     }
 
     private func color(_ p: Phase) -> Color {
@@ -391,7 +391,7 @@ struct RecoveryCurveChart: View {
     private func legend(_ c: Color, _ label: String) -> some View {
         HStack(spacing: 5) {
             RoundedRectangle(cornerRadius: 2).fill(c).frame(width: 9, height: 3)
-            Text(label)
+            Text(LocalizedCopy.text(label))
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(Theme.dim)
         }

@@ -4,7 +4,7 @@ Pydantic request/response schemas.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Field, field_validator
 import uuid
@@ -305,6 +305,7 @@ class SleepNight(BaseModel):
 
 class InsightRequest(BaseModel):
     mode: str = "activity"            # "activity" | "live_state" | "day_potential" | "macro_trend" | "sleep"
+    language: Literal["en", "ru"] = "en"
 
     # "activity" mode fields
     activity_type:    Optional[str] = None

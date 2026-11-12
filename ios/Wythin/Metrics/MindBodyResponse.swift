@@ -72,10 +72,10 @@ enum MindBodyResponse {
         return ScoredIndex(
             name: "Regulation",
             value: value,
-            verdict: value >= IndexBand.keepAbove ? "settled you"
-                   : value >= IndexBand.actBelow  ? "left you level"
-                                                  : "left you activated",
-            detail: "\(deltaPct >= 0 ? "+" : "")\(deltaPct)% calm after")
+            verdict: value >= IndexBand.keepAbove ? LocalizedCopy.text("settled you")
+                   : value >= IndexBand.actBelow  ? LocalizedCopy.text("left you level")
+                                                  : LocalizedCopy.text("left you activated"),
+            detail: LocalizedCopy.format("%+d%% calm after", deltaPct))
     }
 }
 

@@ -56,7 +56,7 @@ struct SleepNote: View {
                 withAnimation(.easeInOut(duration: 0.16)) { open.toggle() }
             } label: {
                 HStack(spacing: 4) {
-                    Text(title)
+                    Text(LocalizedCopy.text(title))
                         .font(.system(size: 9, weight: .semibold, design: .monospaced))
                         .tracking(0.7)
                     Image(systemName: "chevron.down")
@@ -69,7 +69,7 @@ struct SleepNote: View {
             }
             .buttonStyle(.plain)
             if open {
-                Text(body_)
+                Text(LocalizedCopy.text(body_))
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -117,7 +117,7 @@ struct SleepMetricReadout: View {
     }
 
     private static let clock: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
+        let f = DateFormatter(); f.timeStyle = .short; return f
     }()
 
     var body: some View {
@@ -133,7 +133,7 @@ struct SleepMetricReadout: View {
             // clock at the same time, and no false comparison is invited.
             // The unit rides the first number rather than trailing the line,
             // so a wrap breaks between readings instead of orphaning "ms".
-            let unit = def.unit.isEmpty ? "" : " \(def.unit)"
+            let unit = def.unit.isEmpty ? "" : " \(LocalizedCopy.text(def.unit))"
             (Text("low ").foregroundStyle(Theme.dim)
              + Text(def.format(e.low) + unit).foregroundStyle(Theme.text)
              + Text(" \(Self.clock.string(from: e.lowAt))").foregroundStyle(Theme.dim.opacity(0.7))
@@ -142,7 +142,7 @@ struct SleepMetricReadout: View {
              + Text("  ·  high ").foregroundStyle(Theme.dim)
              + Text(def.format(e.high)).foregroundStyle(Theme.text)
              + Text(" \(Self.clock.string(from: e.highAt))").foregroundStyle(Theme.dim.opacity(0.7))
-             + Text(goodEnd.map { "\n\($0)" } ?? "").foregroundStyle(Theme.dim.opacity(0.75)))
+             + Text(goodEnd.map { "\n\(LocalizedCopy.text($0))" } ?? "").foregroundStyle(Theme.dim.opacity(0.75)))
                 .font(.system(size: 11, design: .monospaced))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -166,7 +166,7 @@ struct SleepStageKey: View {
                 ForEach(present, id: \.self) { stage in
                     HStack(spacing: 3) {
                         Capsule().fill(stage.colour).frame(width: 12, height: 5)
-                        Text(stage.label)
+                        Text(LocalizedCopy.text(stage.label))
                             .font(.system(size: 9))
                             .foregroundStyle(Theme.dim)
                     }
@@ -195,7 +195,7 @@ struct SleepHighlight: Identifiable {
 enum SleepHighlights {
 
     private static let clock: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
+        let f = DateFormatter(); f.timeStyle = .short; return f
     }()
 
     static func of(_ night: PreparedNight, entry: ActivityLog) -> [SleepHighlight] {
@@ -209,8 +209,8 @@ enum SleepHighlights {
             out.append(SleepHighlight(
                 id: "nadir",
                 icon: "arrow.down.to.line",
-                value: "\(Int(hr.low.rounded())) bpm at \(clock.string(from: hr.lowAt))",
-                caption: "your lowest pulse — \(Int((hr.typical - hr.low).rounded())) bpm under the night's typical"))
+                value: LocalizedCopy.format("%d bpm at %@", Int(hr.low.rounded()), clock.string(from: hr.lowAt)),
+                caption: LocalizedCopy.format("your lowest pulse — %d bpm under the night's typical", Int((hr.typical - hr.low).rounded()))))
         }
 
         // The recovery window: vagal tone is the channel the autonomic score is
@@ -219,8 +219,8 @@ enum SleepHighlights {
             out.append(SleepHighlight(
                 id: "dc",
                 icon: "leaf",
-                value: "\(String(format: "%.1f", dc.high)) ms at \(clock.string(from: dc.highAt))",
-                caption: "vagal tone at its strongest; it ran as low as \(String(format: "%.1f", dc.low)) ms"))
+                value: LocalizedCopy.format("%.1f ms at %@", dc.high, clock.string(from: dc.highAt)),
+                caption: LocalizedCopy.format("vagal tone at its strongest; it ran as low as %.1f ms", dc.low)))
         }
 
         // The one the sleeper can act on, and the contrast they will notice.
@@ -231,7 +231,7 @@ enum SleepHighlights {
             out.append(SleepHighlight(
                 id: "breath",
                 icon: "wind",
-                value: "\(breath.format(deep)) vs \(breath.format(wake)) br/min",
+                value: LocalizedCopy.format("%@ vs %@ br/min", breath.format(deep), breath.format(wake)),
                 caption: faster
                     ? "you breathed faster in deep sleep than during your awake stretches — sleep breathing is regular rather than slow, and the awake minutes here are lying still"
                     : "your breath ran slower in deep sleep than during your awake stretches"))
@@ -250,7 +250,7 @@ enum SleepHighlights {
             out.append(SleepHighlight(
                 id: "supine",
                 icon: "bed.double",
-                value: "\(supine)% on your back",
+                value: LocalizedCopy.format("%d%% on your back", supine),
                 caption: "of the time your position was known"))
         }
 
@@ -272,7 +272,7 @@ enum SleepHighlights {
     }
 
     private static func hm(_ minutes: Int) -> String {
-        "\(minutes / 60)h \(String(format: "%02d", minutes % 60))m"
+        LocalizedCopy.format("%d h %02d min", minutes / 60, minutes % 60)
     }
 }
 
@@ -292,7 +292,7 @@ struct SleepHighlightsCard: View {
                         Text(item.value)
                             .font(.system(size: 14, weight: .medium, design: .rounded))
                             .foregroundStyle(Theme.text)
-                        Text(item.caption)
+                        Text(LocalizedCopy.text(item.caption))
                             .font(.system(size: 11))
                             .foregroundStyle(Theme.dim)
                             .fixedSize(horizontal: false, vertical: true)

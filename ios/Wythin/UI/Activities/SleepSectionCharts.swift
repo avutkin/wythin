@@ -114,10 +114,10 @@ struct SleepMetricTraces: View {
             ForEach(defs) { def in
                 VStack(alignment: .leading, spacing: 9) {
                 MetricChartCard(
-                    title: def.label,
-                    technicalName: def.techFull.isEmpty ? def.techLabel : def.techFull,
+                    title: LocalizedCopy.text(def.label),
+                    technicalName: LocalizedCopy.text(def.techFull.isEmpty ? def.techLabel : def.techFull),
                     subtitle: "",
-                    yLabel: def.unit,
+                    yLabel: LocalizedCopy.text(def.unit),
                     // Shorter than the Live screen's default: these arrive in
                     // groups of up to four under one heading, and at full
                     // height the group scrolls past the score it explains.
@@ -141,7 +141,7 @@ struct SleepMetricTraces: View {
                 // What your night actually read on this channel — under the
                 // line it came off, in the metric's own units.
                 SleepMetricReadout(night: night, def: def)
-                SleepNote("WHAT \(def.label.uppercased()) IS", def.why)
+                SleepNote(LocalizedCopy.format("WHAT %@ IS", LocalizedCopy.text(def.label).uppercased()), LocalizedCopy.text(def.why))
                 }
             }
             // One key for the whole group: the colours mean the same thing

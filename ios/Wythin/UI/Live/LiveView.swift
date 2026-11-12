@@ -77,7 +77,7 @@ struct LiveView: View {
                     .tabViewStyle(.page(indexDisplayMode: .never))
                 }
             }
-            .navigationTitle("LIVE")
+            .navigationTitle(LocalizedCopy.text("LIVE"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bg, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -184,12 +184,12 @@ private struct DayScrollView: View {
                 // ── Metrics table ───────────────────────────────────
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text(isToday ? "LIVE" : "DAY AVERAGE")
+                        Text(isToday ? LocalizedCopy.text("LIVE") : LocalizedCopy.text("DAY AVERAGE"))
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.dim)
                         Spacer()
                         if reference != nil {
-                            Text(isToday ? "today vs 7-day" : "vs 7-day")
+                            Text(isToday ? LocalizedCopy.text("today vs 7-day") : LocalizedCopy.text("vs 7-day"))
                                 .font(Theme.monoLabel)
                                 .foregroundStyle(Theme.dim.opacity(0.6))
                         }
@@ -206,7 +206,7 @@ private struct DayScrollView: View {
                 // ── Historical metric charts ────────────────────────
                 if !chartFiltered.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("METRICS HISTORY")
+                        Text(LocalizedCopy.text("METRICS HISTORY"))
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.dim)
                             .padding(.horizontal)
@@ -214,7 +214,7 @@ private struct DayScrollView: View {
                             .equatable()
                     }
                 } else if !isToday {
-                    Text("No data for this day")
+                    Text(LocalizedCopy.text("No data for this day"))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                         .frame(maxWidth: .infinity)
@@ -403,7 +403,7 @@ private struct DateNavigator: View {
             // Shared window selector — applies to every chart on the page.
             HStack(spacing: 3) {
                 ForEach(TimeWindow.allCases) { w in
-                    Button(w.rawValue) {
+                    Button(LocalizedCopy.text(w.rawValue)) {
                         withAnimation(.easeInOut(duration: 0.15)) { window = w }
                     }
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
@@ -421,10 +421,10 @@ private struct DateNavigator: View {
 
     private var dateLabel: String {
         let cal = Calendar.current
-        if cal.isDateInToday(date)     { return "TODAY" }
-        if cal.isDateInYesterday(date) { return "YESTERDAY" }
+        if cal.isDateInToday(date)     { return LocalizedCopy.text("TODAY") }
+        if cal.isDateInYesterday(date) { return LocalizedCopy.text("YESTERDAY") }
         let fmt = DateFormatter()
-        fmt.dateFormat = "EEE  MMM d"
+        fmt.setLocalizedDateFormatFromTemplate("EEEMMMd")
         return fmt.string(from: date).uppercased()
     }
 }
@@ -549,7 +549,7 @@ private struct ScopeStrip: View {
 
             ZStack {
                 if isEmpty {
-                    Text("waiting for stream…")
+                    Text(LocalizedCopy.text("waiting for stream…"))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim.opacity(0.7))
                 } else {
@@ -625,7 +625,7 @@ struct BLEConnectionSheet: View {
 
     private static let eventTime: DateFormatter = {
         let f = DateFormatter()
-        f.dateFormat = "HH:mm:ss"
+        f.setLocalizedDateFormatFromTemplate("jmmss")
         return f
     }()
 
@@ -663,7 +663,7 @@ struct BLEConnectionSheet: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button(LocalizedCopy.text("Done")) { dismiss() }
                         .font(Theme.monoBody)
                         .foregroundStyle(Theme.accent)
                 }
@@ -702,7 +702,7 @@ struct BLEConnectionSheet: View {
     private func signalQualityCard(_ q: CombinedSignalQuality) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("SIGNAL QUALITY")
+                Text(LocalizedCopy.text("SIGNAL QUALITY"))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Spacer()
@@ -714,7 +714,7 @@ struct BLEConnectionSheet: View {
                 }
             }
             HStack {
-                Text("RR artifacts")
+                Text(LocalizedCopy.text("RR artifacts"))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Spacer()
@@ -723,18 +723,18 @@ struct BLEConnectionSheet: View {
                     .foregroundStyle(Theme.text)
             }
             HStack {
-                Text("ECG waveform")
+                Text(LocalizedCopy.text("ECG waveform"))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Spacer()
                 // A verdict is only as fresh as the stream behind it — a dead
                 // stream says so instead of leaving the last "clean" up.
-                Text(ble.ecgStreamLive ? (q.ecgReason ?? "—") : "no stream")
+                Text(ble.ecgStreamLive ? (q.ecgReason.map { LocalizedCopy.text($0) } ?? "—") : LocalizedCopy.text("no stream"))
                     .font(Theme.monoBody)
                     .foregroundStyle(ble.ecgStreamLive ? Theme.text : Theme.warn)
             }
             HStack {
-                Text("Skin contact")
+                Text(LocalizedCopy.text("Skin contact"))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Spacer()
@@ -744,19 +744,19 @@ struct BLEConnectionSheet: View {
                     .foregroundStyle(ble.sensorContact == false ? Theme.warn : Theme.text)
             }
             HStack {
-                Text("Motion")
+                Text(LocalizedCopy.text("Motion"))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Spacer()
                 Text(ble.accStreamLive
-                     ? (motion.map { String(format: "%.1f", $0) } ?? "—")
-                     : "no stream")
+                     ? (motion.map { String(format: "%.1f", locale: .current, $0) } ?? "—")
+                     : LocalizedCopy.text("no stream"))
                     .font(Theme.monoBody)
                     .foregroundStyle(ble.accStreamLive ? Theme.text : Theme.warn)
             }
             if q.tier != .good {
                 Divider().background(Theme.border)
-                Text("Improving signal quality")
+                Text(LocalizedCopy.text("Improving signal quality"))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 ForEach(Self.improvementTips, id: \.self) { tip in
@@ -770,11 +770,11 @@ struct BLEConnectionSheet: View {
     }
 
     private static let improvementTips = [
-        "Limit movement during measurement",
-        "Ensure the chest strap is moist",
-        "Ensure the strap is tightened appropriately",
-        "Check and replace worn-out chest straps",
-        "Check and replace HR monitor batteries that are low",
+        LocalizedCopy.text("Limit movement during measurement"),
+        LocalizedCopy.text("Ensure the chest strap is moist"),
+        LocalizedCopy.text("Ensure the strap is tightened appropriately"),
+        LocalizedCopy.text("Check and replace worn-out chest straps"),
+        LocalizedCopy.text("Check and replace HR monitor batteries that are low"),
     ]
 
     @ViewBuilder
@@ -806,7 +806,7 @@ struct BLEConnectionSheet: View {
                     }
                 }
                 Spacer()
-                Button("Disconnect") { ble.disconnect() }
+                Button(LocalizedCopy.text("Disconnect")) { ble.disconnect() }
                     .font(Theme.monoBody)
                     .foregroundStyle(Theme.warn)
                     .padding(.horizontal, 14)
@@ -833,10 +833,10 @@ struct BLEConnectionSheet: View {
             Image(systemName: "battery.25percent")
                 .foregroundStyle(Theme.warn)
             VStack(alignment: .leading, spacing: 2) {
-                Text("BATTERY BELOW 5%")
+                Text(LocalizedCopy.text("BATTERY BELOW 5%"))
                     .font(Theme.monoBody)
                     .foregroundStyle(Theme.warn)
-                Text("Replace the CR2025 coin cell soon — the strap can die mid-session.")
+                Text(LocalizedCopy.text("Replace the CR2025 coin cell soon — the strap can die mid-session."))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
             }
@@ -858,14 +858,14 @@ struct BLEConnectionSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             if let scope {
                 ScopeStrip(
-                    title: "ECG",
-                    detail: "130 Hz · last 4 s · µV",
+                    title: LocalizedCopy.text("ECG"),
+                    detail: LocalizedCopy.text("130 Hz · last 4 s · µV"),
                     capacity: StreamScope.ecgWindow,
                     series: [.init(label: nil, color: Theme.accent, points: scope.ecg)]
                 )
                 ScopeStrip(
-                    title: "MOVEMENT",
-                    detail: "all axes combined · scale fits peaks · last 4 s",
+                    title: LocalizedCopy.text("MOVEMENT"),
+                    detail: LocalizedCopy.text("all axes combined · scale fits peaks · last 4 s"),
                     capacity: StreamScope.accWindow,
                     series: [.init(label: nil, color: Theme.rsa, points: scope.accMag)],
                     fixedRange: 0...60,
@@ -876,7 +876,7 @@ struct BLEConnectionSheet: View {
                     HStack(spacing: 10) {
                         motionChip(scope.motionState)
                         Spacer()
-                        Text("movements: \(scope.movementCount)")
+                        Text(LocalizedCopy.format("movements: %d", scope.movementCount))
                             .font(Theme.monoLabel)
                             .foregroundStyle(scope.movementCount > 0 ? Theme.text : Theme.dim)
                             .contentTransition(.numericText())
@@ -889,7 +889,7 @@ struct BLEConnectionSheet: View {
                             Text(Self.eventTime.string(from: event.at))
                                 .font(Theme.monoLabel)
                                 .foregroundStyle(Theme.dim)
-                            Text("movement registered · peak \(Int(event.peak)) mg")
+                            Text(LocalizedCopy.format("movement registered · peak %d mg", Int(event.peak)))
                                 .font(Theme.monoLabel)
                                 .foregroundStyle(Theme.text.opacity(0.85))
                             Spacer(minLength: 0)
@@ -905,9 +905,9 @@ struct BLEConnectionSheet: View {
     /// so "did it feel that?" is answered without reading the trace.
     private func motionChip(_ state: MotionCompute.MotionState) -> some View {
         let (label, color): (String, Color) = switch state {
-        case .still:  ("STILL",         Theme.accent)
-        case .subtle: ("SUBTLE MOTION", Theme.breathe)
-        case .moving: ("MOVING",        Theme.rsa)
+        case .still:  (LocalizedCopy.text("STILL"),         Theme.accent)
+        case .subtle: (LocalizedCopy.text("SUBTLE MOTION"), Theme.breathe)
+        case .moving: (LocalizedCopy.text("MOVING"),        Theme.rsa)
         }
         return Text(label)
             .font(Theme.monoLabel)
@@ -931,10 +931,10 @@ struct BLEConnectionSheet: View {
                             .progressViewStyle(.circular)
                             .tint(Theme.accent)
                             .scaleEffect(0.75)
-                        Text("SCANNING…  TAP TO STOP")
+                        Text(LocalizedCopy.text("SCANNING…  TAP TO STOP"))
                     } else {
                         Image(systemName: "arrow.clockwise")
-                        Text("SCAN FOR DEVICES")
+                        Text(LocalizedCopy.text("SCAN FOR DEVICES"))
                     }
                 }
                 .font(Theme.monoBody)
@@ -977,7 +977,7 @@ struct BLEConnectionSheet: View {
                         .strokeBorder(Theme.border, lineWidth: 0.5)
                 )
             } else if case .scanning = ble.state {
-                Text("Looking for Polar H10…")
+                Text(LocalizedCopy.text("Looking for Polar H10…"))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                     .frame(maxWidth: .infinity)
@@ -989,7 +989,7 @@ struct BLEConnectionSheet: View {
                     UserDefaults.standard.removeObject(forKey: "wythin.polar.uuid")
                     ble.disconnect()
                 } label: {
-                    Text("Forget saved device")
+                    Text(LocalizedCopy.text("Forget saved device"))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                 }
@@ -1039,27 +1039,27 @@ struct BLEConnectionSheet: View {
 
     private var stateTitle: String {
         switch ble.state {
-        case .idle:              return "Not Connected"
-        case .scanning:          return "Scanning…"
-        case .connecting(let n): return "Connecting to \(n)"
+        case .idle:              return LocalizedCopy.text("Not Connected")
+        case .scanning:          return LocalizedCopy.text("Scanning…")
+        case .connecting(let n): return LocalizedCopy.format("Connecting to %@", n)
         case .connected(let n):  return n
-        case .disconnected:      return "Disconnected"
+        case .disconnected:      return LocalizedCopy.text("Disconnected")
         case .standby(let n):    return n
-        case .unauthorized:      return "No Bluetooth Permission"
-        case .unsupported:       return "Bluetooth Unavailable"
+        case .unauthorized:      return LocalizedCopy.text("No Bluetooth Permission")
+        case .unsupported:       return LocalizedCopy.text("Bluetooth Unavailable")
         }
     }
 
     private var stateSubtitle: String {
         switch ble.state {
-        case .idle:              return "Tap Scan to find your Polar H10"
-        case .scanning:          return "Searching (Heart Rate service filter)…"
-        case .connecting:        return "Establishing connection…"
-        case .connected:         return "ECG + ACC streaming"
+        case .idle:              return LocalizedCopy.text("Tap Scan to find your Polar H10")
+        case .scanning:          return LocalizedCopy.text("Searching (Heart Rate service filter)…")
+        case .connecting:        return LocalizedCopy.text("Establishing connection…")
+        case .connected:         return LocalizedCopy.text("ECG + ACC streaming")
         case .disconnected(let r): return r
-        case .standby:           return "Strap off — will reconnect when worn"
-        case .unauthorized:      return "Allow Bluetooth in iPhone Settings"
-        case .unsupported:       return "This device doesn't support BLE"
+        case .standby:           return LocalizedCopy.text("Strap off — will reconnect when worn")
+        case .unauthorized:      return LocalizedCopy.text("Allow Bluetooth in iPhone Settings")
+        case .unsupported:       return LocalizedCopy.text("This device doesn't support BLE")
         }
     }
 
@@ -1089,7 +1089,7 @@ private struct DeviceRow: View {
                         .font(Theme.monoBody)
                         .foregroundStyle(Theme.text)
                     if isNearest {
-                        Text("NEAREST")
+                        Text(LocalizedCopy.text("NEAREST"))
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundStyle(Theme.accent)
                             .padding(.horizontal, 5)
@@ -1114,7 +1114,7 @@ private struct DeviceRow: View {
                     .tint(Theme.accent)
                     .scaleEffect(0.8)
             } else {
-                Button("CONNECT", action: onConnect)
+                Button(LocalizedCopy.text("CONNECT"), action: onConnect)
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.accent)
                     .padding(.horizontal, 10)

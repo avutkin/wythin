@@ -23,15 +23,15 @@ enum LiveState: String, CaseIterable {
     /// Canonical name, used as a fallback when the LLM omits a personal title.
     var canonicalName: String {
         switch self {
-        case .overloadedExhausted: return "Overloaded & Exhausted"
-        case .stressedActivated:   return "Stressed & Activated"
-        case .engagedPerforming:   return "Engaged & Performing"
-        case .depletedNumb:        return "Depleted & Numb"
-        case .stableNeutral:       return "Stable & Neutral"
-        case .calmAlert:           return "Calm & Alert"
-        case .shutdownBurnout:     return "Shutdown & Burnout"
-        case .recoveringResetting: return "Recovering & Resetting"
-        case .renewedThriving:     return "Renewed & Thriving"
+        case .overloadedExhausted: return LocalizedCopy.text("Overloaded & Exhausted")
+        case .stressedActivated:   return LocalizedCopy.text("Stressed & Activated")
+        case .engagedPerforming:   return LocalizedCopy.text("Engaged & Performing")
+        case .depletedNumb:        return LocalizedCopy.text("Depleted & Numb")
+        case .stableNeutral:       return LocalizedCopy.text("Stable & Neutral")
+        case .calmAlert:           return LocalizedCopy.text("Calm & Alert")
+        case .shutdownBurnout:     return LocalizedCopy.text("Shutdown & Burnout")
+        case .recoveringResetting: return LocalizedCopy.text("Recovering & Resetting")
+        case .renewedThriving:     return LocalizedCopy.text("Renewed & Thriving")
         }
     }
 

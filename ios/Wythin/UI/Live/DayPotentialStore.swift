@@ -37,14 +37,15 @@ final class DayPotentialStore {
         func headline(band: PotentialBand?) -> String {
             switch self {
             case .waitingForStillness:
-                return "TODAY'S POTENTIAL · WAITING FOR A STILL MOMENT"
+                return LocalizedCopy.text("TODAY'S POTENTIAL · WAITING FOR A STILL MOMENT")
             case .firstMorning:
-                return "MORNING READ · FIRST ONE LOGGED"
+                return LocalizedCopy.text("MORNING READ · FIRST ONE LOGGED")
             case .notComparable:
-                return "LATER READ · NOT COMPARABLE TODAY"
+                return LocalizedCopy.text("LATER READ · NOT COMPARABLE TODAY")
             case .scored(let provisional):
-                let base = "TODAY'S POTENTIAL · \((band?.label ?? "").uppercased())"
-                return provisional ? base + " · EARLY DAYS" : base
+                let base = LocalizedCopy.format("TODAY'S POTENTIAL · %@",
+                                                (band?.label ?? "").uppercased(with: .current))
+                return provisional ? base + LocalizedCopy.text(" · EARLY DAYS") : base
             }
         }
     }

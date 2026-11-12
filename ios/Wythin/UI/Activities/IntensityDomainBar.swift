@@ -43,7 +43,7 @@ struct IntensityDomainBar: View {
 
                 HStack(spacing: 12) {
                     ForEach(segments, id: \.domain) { seg in
-                        Text("\(minutes(seg.seconds)) min \(seg.label)")
+                        Text(LocalizedCopy.format("%d min %@", minutes(seg.seconds), LocalizedCopy.text(seg.label)))
                             .font(.system(size: 9, design: .monospaced))
                             .foregroundStyle(seg.color)
                             .monospacedDigit()
@@ -60,7 +60,7 @@ struct IntensityDomainBar: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(
                 segments
-                    .map { "\(minutes($0.seconds)) minutes \($0.label)" }
+                    .map { LocalizedCopy.format("%d minutes %@", minutes($0.seconds), LocalizedCopy.text($0.label)) }
                     .joined(separator: ", ")
             )
         }

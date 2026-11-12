@@ -46,7 +46,7 @@ struct ExerciseScoreGauge: View {
             dial
             // Outside the dial: centred inside it, the caption collides with
             // both the score and the knob once the fill passes ~85 %.
-            Text(caption)
+            Text(LocalizedCopy.text(caption))
                 .font(Theme.monoLabel)
                 .foregroundStyle(crowned ? gold : Theme.dim)
                 .lineLimit(1)
@@ -54,8 +54,8 @@ struct ExerciseScoreGauge: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(crowned
-            ? "Session score \(score) out of 100. \(caption). Crowned."
-            : "Session score \(score) out of 100. \(caption).")
+            ? LocalizedCopy.format("Session score %d out of 100. %@. Crowned.", score, LocalizedCopy.text(caption))
+            : LocalizedCopy.format("Session score %d out of 100. %@.", score, LocalizedCopy.text(caption)))
         .onAppear(perform: animateIn)
     }
 

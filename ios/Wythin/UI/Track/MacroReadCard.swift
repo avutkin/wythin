@@ -93,7 +93,7 @@ struct MacroReadCard: View {
     }
 
     private var header: some View {
-        Text("MACRO READ")
+        Text(LocalizedCopy.text("MACRO READ"))
             .font(Theme.monoLabel)
             .foregroundStyle(Theme.dim)
     }
@@ -121,7 +121,7 @@ struct MacroReadCard: View {
                 .foregroundStyle(Theme.accent)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 4) {
-                Text("NEXT")
+                Text(LocalizedCopy.text("NEXT"))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.accent)
                 ForEach(Array(actions.enumerated()), id: \.offset) { _, action in
@@ -154,6 +154,8 @@ struct MacroReadCard: View {
 /// - **period** — a week and a month can share a start date, and their reads
 ///   are not interchangeable.
 /// - **range start** — which page this is.
+/// - **language** — an English read cached before a phone-language change
+///   must not be shown on the Russian screen or prevent a Russian request.
 /// - **reference kind** — one character per metric, `1` when that metric's
 ///   reference line is the person's own 90-day baseline and `0` when it is
 ///   still the fixed norm. The rollups behind a past week stop changing, but
@@ -172,6 +174,7 @@ func macroRead(for period: TrackPeriod,
                client: APIClient) async -> String? {
     let referenceKind = series.map { $0.series.referenceIsPersonal ? "1" : "0" }.joined()
     let key = "v\(TrackCache.macroReadRevision)"
+            + "|lang=\(AppLanguage.current.rawValue)"
             + "|\(period.apiValue)"
             + "|\(range.start.timeIntervalSince1970)"
             + "|\(referenceKind)"

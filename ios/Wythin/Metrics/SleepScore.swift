@@ -45,18 +45,29 @@ enum SleepSection: String, CaseIterable, Codable {
     /// breakfast is neither actionable nor kind.
     static func verdict(for value: Int) -> String {
         switch IndexBand.of(value) {
-        case .act:     return "below your usual"
-        case .improve: return "about usual"
-        case .keep:    return "a good night for you"
+        case .act:     return LocalizedCopy.text("below your usual")
+        case .improve: return LocalizedCopy.text("about usual")
+        case .keep:    return LocalizedCopy.text("a good night for you")
         }
     }
 
     var name: String {
         switch self {
-        case .timing:     return "Timing"
-        case .duration:   return "Duration"
+        case .timing:     return LocalizedCopy.text("Timing")
+        case .duration:   return LocalizedCopy.text("Duration")
+        case .continuity: return LocalizedCopy.text("Continuity")
+        case .autonomic:  return LocalizedCopy.text("Autonomic")
+        }
+    }
+
+    /// The canonical name used inside persisted arithmetic. Keep it stable
+    /// across app-language changes; `name` is for display.
+    var storageName: String {
+        switch self {
+        case .timing: return "Timing"
+        case .duration: return "Duration"
         case .continuity: return "Continuity"
-        case .autonomic:  return "Autonomic"
+        case .autonomic: return "Autonomic"
         }
     }
 
@@ -75,27 +86,27 @@ enum SleepSection: String, CaseIterable, Codable {
         switch self {
         case .timing:
             return (
-                "Two things: which hour you went to sleep, and how tightly your bedtimes cluster across every night recorded. Gaps between nights cost nothing — three nights months apart count the same as three in a row.",
-                "In 60,977 people the most regular quintile carried an all-cause mortality hazard of 0.70 against the least regular. Head to head it beat duration: adding hours slept to a model that already knew your regularity added nothing measurable. So consistency carries most of this, and the hour itself the rest.",
-                "The hour is scored against a 22:00–23:00 window, and both ends count — very early nights are associated with raised risk much as late ones are, so this is not \"earlier is always better\". That evidence is weaker than the regularity evidence. Consistency needs three nights; until then the hour is scored on its own."
+                LocalizedCopy.text("Two things: which hour you went to sleep, and how tightly your bedtimes cluster across every night recorded. Gaps between nights cost nothing — three nights months apart count the same as three in a row."),
+                LocalizedCopy.text("In 60,977 people the most regular quintile carried an all-cause mortality hazard of 0.70 against the least regular. Head to head it beat duration: adding hours slept to a model that already knew your regularity added nothing measurable. So consistency carries most of this, and the hour itself the rest."),
+                LocalizedCopy.text("The hour is scored against a 22:00–23:00 window, and both ends count — very early nights are associated with raised risk much as late ones are, so this is not \"earlier is always better\". That evidence is weaker than the regularity evidence. Consistency needs three nights; until then the hour is scored on its own.")
             )
         case .duration:
             return (
-                "Time actually asleep, against the sleep you need.",
-                "Fourteen nights at six hours leaves you performing like someone awake for a day and a night, and the deficit keeps growing rather than levelling off. People cannot feel it — at six hours they rate themselves about as sleepy as at four, while their measured performance keeps falling.",
-                "Sleep need varies by about ±0.7 h between people and is a fixed figure here rather than yours. Sleeping longer than your need is not scored as a fault."
+                LocalizedCopy.text("Time actually asleep, against the sleep you need."),
+                LocalizedCopy.text("Fourteen nights at six hours leaves you performing like someone awake for a day and a night, and the deficit keeps growing rather than levelling off. People cannot feel it — at six hours they rate themselves about as sleepy as at four, while their measured performance keeps falling."),
+                LocalizedCopy.text("Sleep need varies by about ±0.7 h between people and is a fixed figure here rather than yours. Sleeping longer than your need is not scored as a fault.")
             )
         case .continuity:
             return (
-                "The longest stretch you held, how many times it broke, and how steadily you breathed.",
-                "One four-hour block is not eight thirty-minute ones at the same total. Fragmenting sleep degrades next-day function even when the hours are unchanged.",
-                "Wake is the weakest thing any wearable measures — specificity runs 29–52% — and arousals shorter than a minute are smoothed away entirely. Read this as a description of the night, not a count."
+                LocalizedCopy.text("The longest stretch you held, how many times it broke, and how steadily you breathed."),
+                LocalizedCopy.text("One four-hour block is not eight thirty-minute ones at the same total. Fragmenting sleep degrades next-day function even when the hours are unchanged."),
+                LocalizedCopy.text("Wake is the weakest thing any wearable measures — specificity runs 29–52% — and arousals shorter than a minute are smoothed away entirely. Read this as a description of the night, not a count.")
             )
         case .autonomic:
             return (
-                "How far your pulse fell overnight and when it bottomed out, then your vagal tone against your own recent nights.",
-                "Of every heart-rate-variability measure tested against cardiovascular events in 1,784 people, only deceleration capacity and heart-rate fragmentation survived correction — every classical HRV number did not. So DC carries more of this than RMSSD does.",
-                "Vagal tone is read inside quiet sleep only: it drops through REM, so a whole-night average is partly a measure of how much REM you had. Needs a few nights before there is a baseline to compare against."
+                LocalizedCopy.text("How far your pulse fell overnight and when it bottomed out, then your vagal tone against your own recent nights."),
+                LocalizedCopy.text("Of every heart-rate-variability measure tested against cardiovascular events in 1,784 people, only deceleration capacity and heart-rate fragmentation survived correction — every classical HRV number did not. So DC carries more of this than RMSSD does."),
+                LocalizedCopy.text("Vagal tone is read inside quiet sleep only: it drops through REM, so a whole-night average is partly a measure of how much REM you had. Needs a few nights before there is a baseline to compare against.")
             )
         }
     }
@@ -155,11 +166,11 @@ struct SleepScore {
     /// `worst`/`best` are stated in the metric's own units and in reading
     /// order, so `worst` may be the larger number when less is better.
     struct Part: Equatable, Codable {
-        let label:   String     // "Bedtime spread"
+        let label:   String     // LocalizedCopy.text("Bedtime spread")
         let value:   Double     // 105
-        let display: String     // "105m"
-        let worstLabel: String  // "110m"
-        let bestLabel:  String  // "20m"
+        let display: String     // LocalizedCopy.text("105m")
+        let worstLabel: String  // LocalizedCopy.text("110m")
+        let bestLabel:  String  // LocalizedCopy.text("20m")
         let worst:   Double
         let best:    Double
         let score:   Double     // 0…100, this part alone
@@ -169,6 +180,48 @@ struct SleepScore {
         var position: Double {
             guard best != worst else { return 0 }
             return min(1, max(0, (value - worst) / (best - worst)))
+        }
+
+        /// Stored parts remain canonical across app-language changes. Build
+        /// the human-facing value from their measurements when the view reads
+        /// them, including parts restored from an older backup.
+        var localizedDisplay: String {
+            guard AppLanguage.current == .russian else { return display }
+            func leadingNumber() -> Double? {
+                let prefix = display.prefix { $0.isNumber || $0 == "." || $0 == "−" || $0 == "-" }
+                return Double(prefix.replacingOccurrences(of: "−", with: "-"))
+            }
+            switch label {
+            case "Bedtime spread":
+                return LocalizedCopy.format("±%d min", Int((-value).rounded()))
+            case "Hour you fell asleep":
+                return value == 0 ? LocalizedCopy.text("in the window")
+                    : LocalizedCopy.format("%d min outside", Int((-value).rounded()))
+            case "Against your need":
+                let minutes = Int((-value / 60).rounded())
+                return minutes == 0 ? LocalizedCopy.text("met in full")
+                    : LocalizedCopy.format("%d h %d min short", minutes / 60, minutes % 60)
+            case "Longest unbroken stretch":
+                let minutes = Int((value / 60).rounded())
+                return LocalizedCopy.format("%d h %d min", minutes / 60, minutes % 60)
+            case "Breathing held its rhythm":
+                return LocalizedCopy.format("%d%% of the night", Int((value * 100).rounded()))
+            case "How far your pulse fell":
+                return LocalizedCopy.format("%d bpm below onset", Int(value.rounded()))
+            case "When it bottomed out":
+                guard let percent = leadingNumber() else { return LocalizedCopy.text(display) }
+                return LocalizedCopy.format("%d%% through the night", Int(percent))
+            case "Vagal tone (DC)":
+                guard let dc = leadingNumber() else { return LocalizedCopy.text(display) }
+                return LocalizedCopy.format("%.1f ms · %d%% of usual", dc,
+                                            Int((value * 100).rounded()))
+            case "Calm power (RMSSD)":
+                guard let rmssd = leadingNumber() else { return LocalizedCopy.text(display) }
+                return LocalizedCopy.format("%d ms · %d%% of usual", Int(rmssd),
+                                            Int((value * 100).rounded()))
+            default:
+                return LocalizedCopy.text(display)
+            }
         }
     }
 
@@ -354,13 +407,13 @@ struct SleepScore {
         let line = present
             .map { section -> String in
                 let share = liveWeight > 0 ? section.weight / liveWeight : 0
-                return "\(Int((share * 100).rounded()))%·\(sections[section] ?? 0) \(section.name.lowercased())"
+                return "\(Int((share * 100).rounded()))%·\(sections[section] ?? 0) \(section.storageName.lowercased())"
             }
             .joined(separator: " + ")
         let missing = SleepSection.allCases.filter { sections[$0] == nil }
         let note = missing.isEmpty
             ? ""
-            : "  (\(missing.map { $0.name.lowercased() }.joined(separator: " and ")) not measured — "
+            : "  (\(missing.map { $0.storageName.lowercased() }.joined(separator: " and ")) not measured — "
               + "the rest are reweighted to fill it)"
 
         return SleepScore(sections: sections,

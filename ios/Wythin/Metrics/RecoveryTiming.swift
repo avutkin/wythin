@@ -292,25 +292,25 @@ enum RecoveryTiming {
     /// and printing "not enough recording after this session" for the second
     /// blames the strap for a quiet session.
     static func noExcursionNote(subject: String, direction: Direction) -> String {
-        let verb = direction == .upward ? "drop" : "rise"
-        let head = subject.prefix(1).uppercased() + subject.dropFirst()
-        return "\(head) did not \(verb) more than a tenth from where it started, "
-             + "so there is no rebound to time. That is a reading about the session, "
-             + "not a gap in the recording."
+        let change = direction == .upward ? LocalizedCopy.text("drop") : LocalizedCopy.text("rise")
+        return LocalizedCopy.format(
+            "%@ did not %@ more than a tenth from where it started, so there is no rebound to time. That is a reading about the session, not a gap in the recording.",
+            LocalizedCopy.text(subject), change)
     }
 
     /// The sentence shown under the chart, for the return the curve is drawn to.
     static func returnSummary(_ outcome: Outcome, subject: String) -> String {
-        let head = subject.prefix(1).uppercased() + subject.dropFirst()
+        let head = LocalizedCopy.text(subject).prefix(1).uppercased(with: .current)
+            + LocalizedCopy.text(subject).dropFirst()
         switch outcome {
         case let .reached(minutes) where minutes < 1:
-            return "\(head) was already back at your resting level when you stopped."
+            return LocalizedCopy.format("%@ was already back at your resting level when you stopped.", head)
         case let .reached(minutes):
-            return "\(head) was back at your resting level \(Int(minutes.rounded())) minutes after you stopped — the curve ends there."
+            return LocalizedCopy.format("%@ was back at your resting level %d min after you stopped — the curve ends there.", head, Int(minutes.rounded()))
         case let .notReached(observed):
-            return "\(head) was still short of your resting level \(Int(observed.rounded())) minutes after you stopped, so the curve runs to the end of the recording."
+            return LocalizedCopy.format("%@ was still short of your resting level %d min after you stopped, so the curve runs to the end of the recording.", head, Int(observed.rounded()))
         case .notObserved:
-            return "Not enough recording after this session to see the return."
+            return LocalizedCopy.text("Not enough recording after this session to see the return.")
         }
     }
 
@@ -320,16 +320,16 @@ enum RecoveryTiming {
     ///   rate". Both channels print this line, and one of them saying "vagal
     ///   brake" under a heart-rate curve is how a caption starts describing a
     ///   different measurement from the one drawn above it.
-    static func summary(_ outcome: Outcome, subject: String = "your vagal brake") -> String {
+    static func summary(_ outcome: Outcome, subject: String = LocalizedCopy.text("your vagal brake")) -> String {
         switch outcome {
         case let .reached(minutes) where minutes < 1:
-            return "\(subject.prefix(1).uppercased() + subject.dropFirst()) was already halfway back when you stopped."
+            return LocalizedCopy.format("%@ was already halfway back when you stopped.", LocalizedCopy.text(subject))
         case let .reached(minutes):
-            return "Halfway back to your resting level \(Int(minutes.rounded())) minutes after you stopped."
+            return LocalizedCopy.format("Halfway back to your resting level %d min after you stopped.", Int(minutes.rounded()))
         case let .notReached(observed):
-            return "Still less than halfway back \(Int(observed.rounded())) minutes after you stopped — this one is taking a while to clear."
+            return LocalizedCopy.format("Still less than halfway back %d min after you stopped — this one is taking a while to clear.", Int(observed.rounded()))
         case .notObserved:
-            return "Not enough recording after this session to see recovery."
+            return LocalizedCopy.text("Not enough recording after this session to see recovery.")
         }
     }
 }

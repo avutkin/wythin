@@ -138,7 +138,7 @@ private struct CategoryCapsule: View {
 
     var body: some View {
         Button(action: action) {
-            Text(label.uppercased())
+            Text(LocalizedCopy.text(label).uppercased())
                 .font(Theme.monoLabel)
                 .foregroundStyle(isSelected ? Theme.bg : Theme.accent)
                 .padding(.horizontal, 14)
@@ -169,7 +169,7 @@ private struct PracticeGridTile: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border, lineWidth: 0.5))
 
-            Text(practice.title)
+            Text(LocalizedCopy.text(practice.title))
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundStyle(Theme.text)
                 // Both lines always reserved, so the duration under a one-line
@@ -180,7 +180,7 @@ private struct PracticeGridTile: View {
 
             // Minutes, then the rate. The rate is the one that decides what
             // this practice can honestly be compared with.
-            Text("\(practice.defaultDurationMins) min")
+            Text(LocalizedCopy.format("%d min", practice.defaultDurationMins))
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(Theme.dim)
             Text(practice.passport.rate.label)
@@ -244,10 +244,10 @@ private struct FeaturedPracticeCard: View {
                     .clipped()
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(practice.title)
+                    Text(LocalizedCopy.text(practice.title))
                         .font(Theme.mono(18))
                         .foregroundStyle(Theme.text)
-                    Text(practice.subtitle)
+                    Text(LocalizedCopy.text(practice.subtitle))
                         .font(Theme.monoBody)
                         .foregroundStyle(Theme.dim)
                 }

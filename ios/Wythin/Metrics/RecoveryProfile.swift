@@ -198,18 +198,18 @@ enum RecoveryExpectation {
 
         var label: String {
             switch self {
-            case .moderate: return "a moderate session"
-            case .heavy:    return "a heavy session"
-            case .severe:   return "a severe session"
+            case .moderate: return LocalizedCopy.text("a moderate session")
+            case .heavy:    return LocalizedCopy.text("a heavy session")
+            case .severe:   return LocalizedCopy.text("a severe session")
             }
         }
 
         /// Typical minutes for the vagal brake to come halfway back.
         var vagalHalfway: String {
             switch self {
-            case .moderate: return "5–15 min"
-            case .heavy:    return "15–45 min"
-            case .severe:   return "often longer than one recording"
+            case .moderate: return LocalizedCopy.text("5–15 min")
+            case .heavy:    return LocalizedCopy.text("15–45 min")
+            case .severe:   return LocalizedCopy.text("often longer than one recording")
             }
         }
     }
@@ -226,6 +226,6 @@ enum RecoveryExpectation {
     }
 
     static func sentence(for band: Band) -> String {
-        "typical for \(band.label): \(band.vagalHalfway)"
+        LocalizedCopy.format("typical for %@: %@", band.label, band.vagalHalfway)
     }
 }

@@ -10,23 +10,23 @@ struct ConsistencyCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("CONSISTENCY")
+            Text(LocalizedCopy.text("CONSISTENCY"))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
 
-            row(title: "PRACTICE",
+            row(title: LocalizedCopy.text("PRACTICE"),
                 unit: unitCaption(perDay: "MIN"),
                 stats: practiceStats,
                 values: summary.buckets.map(\.practiceMinutes),
                 color: Theme.accent,
-                format: { $0 < 1 ? "" : String(format: "%.0f", $0) })
+                format: { $0 < 1 ? "" : String(format: "%.0f", locale: .current, $0) })
 
-            row(title: "WEAR",
+            row(title: LocalizedCopy.text("WEAR"),
                 unit: unitCaption(perDay: "H"),
-                stats: String(format: "avg %.1f h/day", summary.avgWearHours),
+                stats: LocalizedCopy.format("avg %.1f h/day", summary.avgWearHours),
                 values: summary.buckets.map { ConsistencyCard.wearDisplayValue($0, period: period) },
                 color: Theme.hrv,
-                format: { $0 < 0.5 ? "" : String(format: "%.0f", $0) })
+                format: { $0 < 0.5 ? "" : String(format: "%.0f", locale: .current, $0) })
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardStyle()
@@ -69,8 +69,8 @@ struct ConsistencyCard: View {
     /// it, so the caption has to follow the period rather than be a constant.
     private func unitCaption(perDay unit: String) -> String {
         switch period {
-        case .week, .month: return "\(unit)/DAY"
-        case .sixMonth:     return unit == "H" ? "H/DAY" : "\(unit)/MONTH"
+        case .week, .month: return LocalizedCopy.text(unit == "H" ? "H/DAY" : "MIN/DAY")
+        case .sixMonth:     return LocalizedCopy.text(unit == "H" ? "H/DAY" : "MIN/MONTH")
         }
     }
 
@@ -78,9 +78,10 @@ struct ConsistencyCard: View {
     /// per-bucket, and without it the two numbers read as alternative
     /// measures of the same thing rather than a count and its sum.
     private var practiceStats: String {
-        let sessions = "\(summary.sessionCount) session\(summary.sessionCount == 1 ? "" : "s")"
-        let minutes  = String(format: "%.0f min total", summary.totalPracticeMinutes)
-        let streak   = summary.streak.current > 0 ? "  🔥 \(summary.streak.current)d" : ""
+        let sessions = LocalizedCopy.format("sessions: %d", summary.sessionCount)
+        let minutes  = LocalizedCopy.format("%.0f min total", summary.totalPracticeMinutes)
+        let streak   = summary.streak.current > 0
+            ? LocalizedCopy.format("  🔥 %d days", summary.streak.current) : ""
         return "\(sessions) · \(minutes)\(streak)"
     }
 

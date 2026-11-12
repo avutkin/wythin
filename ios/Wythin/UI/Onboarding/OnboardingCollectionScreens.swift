@@ -27,7 +27,7 @@ struct OnboardingStateSlider: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text(title)
+            Text(LocalizedCopy.text(title))
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Theme.text)
 
@@ -51,16 +51,17 @@ struct OnboardingStateSlider: View {
                 }
 
             HStack {
-                Text(lowLabel)
+                Text(LocalizedCopy.text(lowLabel))
                 Spacer()
-                Text(highLabel)
+                Text(LocalizedCopy.text(highLabel))
             }
             .font(Theme.monoLabel)
             .foregroundStyle(Theme.dim)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(title)
-        .accessibilityValue(value.map { "\($0) out of 10" } ?? "not set")
+        .accessibilityLabel(LocalizedCopy.text(title))
+        .accessibilityValue(value.map { LocalizedCopy.format("%lld out of 10", $0) }
+            ?? LocalizedCopy.text("not set"))
     }
 }
 
@@ -135,7 +136,7 @@ struct OnboardingBodyMetrics: View {
                     .foregroundStyle(Theme.dim)
                 Spacer()
                 Picker("", selection: $units) {
-                    ForEach(UnitSystem.allCases) { Text($0.label).tag($0) }
+                    ForEach(UnitSystem.allCases) { Text(LocalizedCopy.text($0.label)).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 150)
@@ -171,7 +172,7 @@ struct OnboardingBodyMetrics: View {
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(Theme.text)
                 .keyboardType(.numberPad)
-            Text(suffix)
+            Text(LocalizedCopy.text(suffix))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
         }
@@ -294,7 +295,7 @@ struct OnboardingContactScreen: View {
                 OnboardingTextField(placeholder: "you@example.com", keyboard: .emailAddress,
                                     contentType: .emailAddress, capitalization: .never, text: $email,
                                     isWrong: wrong(email, OnboardingValidation.isValidEmail))
-                Text(hint)
+                Text(LocalizedCopy.text(hint))
                     .font(Theme.monoLabel)
                     .foregroundStyle(canContinue ? Theme.dim : Theme.warn.opacity(0.9))
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -318,7 +319,7 @@ struct OnboardingTextField: View {
     var isWrong: Bool = false
 
     var body: some View {
-        TextField("", text: $text, prompt: Text(placeholder).foregroundColor(Theme.dim))
+        TextField("", text: $text, prompt: Text(LocalizedCopy.text(placeholder)).foregroundColor(Theme.dim))
             .font(.system(size: 17, weight: .medium))
             .foregroundStyle(Theme.text)
             .keyboardType(keyboard)
@@ -356,11 +357,11 @@ struct DataSharingDetailSheet: View {
                         body: "Your sessions and the metrics computed from them, so a coach can review your progress and adjust your guidance. They see your name and email because they may contact you.")
 
                     section(
-                        title: "With \(AIProvider.name)",
-                        body: "\(AIProvider.name) runs the AI model that writes your guidance. Your metrics — heart-rate variability, breathing rate, session times — are sent to it so the wording can be specific to you.")
+                        title: LocalizedCopy.format("With %@", AIProvider.name),
+                        body: LocalizedCopy.format("%@ runs the AI model that writes your guidance. Your metrics — heart-rate variability, breathing rate, session times — are sent to it so the wording can be specific to you.", AIProvider.name))
 
                     section(
-                        title: "What is never sent to \(AIProvider.name)",
+                        title: LocalizedCopy.format("What is never sent to %@", AIProvider.name),
                         body: "Your name, phone number and email address. Your raw ECG. Anything from a session you deleted.")
 
                     section(
@@ -393,10 +394,10 @@ struct DataSharingDetailSheet: View {
 
     private func section(title: String, body: String) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title)
+            Text(LocalizedCopy.text(title))
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Theme.text)
-            Text(body)
+            Text(LocalizedCopy.text(body))
                 .font(Theme.monoBody)
                 .foregroundStyle(Theme.dim)
                 .fixedSize(horizontal: false, vertical: true)

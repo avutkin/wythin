@@ -52,7 +52,7 @@ struct ActivityWindowChart: View {
                 .font(.system(size: 8, design: .monospaced))
                 .foregroundStyle(Theme.text.opacity(0.75))
             if let p = pct {
-                Text(String(format: "%+.0f%%", p))
+                Text(String(format: "%+.0f%%", locale: .current, p))
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .foregroundStyle(p >= 0 ? Theme.accent : Theme.warn)
             }
@@ -66,18 +66,18 @@ struct ActivityWindowChart: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(def.label)
+                Text(LocalizedCopy.text(def.label))
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Theme.text)
                 if !def.techLabel.isEmpty {
-                    Text(def.techFull.isEmpty ? def.techLabel : def.techFull)
+                    Text(LocalizedCopy.text(def.techFull.isEmpty ? def.techLabel : def.techFull))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(Theme.dim)
                         .lineLimit(2)
                 }
                 Spacer()
                 if !def.unit.isEmpty {
-                    Text(def.unit)
+                    Text(LocalizedCopy.text(def.unit))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(Theme.dim)
                 }
@@ -169,7 +169,7 @@ struct ActivityWindowChart: View {
                             .foregroundStyle(Theme.dim)
                             .annotation(position: .bottom, spacing: 2) {
                                 let secs = stats.timeToBaselineSeconds ?? 0
-                                Text(secs < 60 ? "↩ <1m" : String(format: "↩ ~%.0fm", secs / 60))
+                                Text(secs < 60 ? "↩ <1m" : LocalizedCopy.format("↩ ~%.0fm", secs / 60))
                                     .font(.system(size: 8, design: .monospaced))
                                     .foregroundStyle(Theme.dim)
                             }

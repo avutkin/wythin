@@ -40,50 +40,50 @@ extension SessionCoachSummary {
         // ── What was great ────────────────────────────────────────────────
         var strengths: [String] = []
         if let r = score(recovery), r >= 60 {
-            strengths.append("Your vagal brake came back quickly after you stopped.")
+            strengths.append(LocalizedCopy.text("Your vagal brake came back quickly after you stopped."))
         }
         if let s = score(suppression), s >= 60 {
-            strengths.append("You held that heart rate cheaply: less vagal shutdown per beat than your recent sessions of this kind.")
+            strengths.append(LocalizedCopy.text("You held that heart rate cheaply: less vagal shutdown per beat than your recent sessions of this kind."))
         }
         if let e = score(efficiency), e >= 60 {
-            strengths.append("Good mechanical economy — more work done per unit of autonomic cost than usual.")
+            strengths.append(LocalizedCopy.text("Good mechanical economy — more work done per unit of autonomic cost than usual."))
         }
         if hard >= 600 {
-            strengths.append("\(mins(hard)) minutes at or above your aerobic threshold. That is real training, not just time on your feet.")
+            strengths.append(LocalizedCopy.format("%d minutes at or above your aerobic threshold. That is real training, not just time on your feet.", mins(hard)))
         }
         if strengths.isEmpty {
             strengths.append(mins(moderateSec) > 0
-                ? "You completed \(mins(moderateSec)) minutes of steady aerobic work."
-                : "You showed up and logged it, which is the habit that makes the rest possible.")
+                ? LocalizedCopy.format("You completed %d minutes of steady aerobic work.", mins(moderateSec))
+                : LocalizedCopy.text("You showed up and logged it, which is the habit that makes the rest possible."))
         }
 
         // ── What to improve ───────────────────────────────────────────────
         var improvements: [String] = []
         if let r = score(recovery), r < 40 {
-            improvements.append("Your vagal brake was slow to come back. Add five minutes of slow nasal breathing before you finish.")
+            improvements.append(LocalizedCopy.text("Your vagal brake was slow to come back. Add five minutes of slow nasal breathing before you finish."))
         }
         if let s = score(suppression), s < 40 {
-            improvements.append("This heart rate cost more vagal tone than usual, which usually means you arrived under-recovered rather than that the session was wrong.")
+            improvements.append(LocalizedCopy.text("This heart rate cost more vagal tone than usual, which usually means you arrived under-recovered rather than that the session was wrong."))
         }
         if severeSec >= 300 {
-            improvements.append("\(mins(severeSec)) minutes in the severe domain. That is a large withdrawal to repay; keep it deliberate rather than accidental.")
+            improvements.append(LocalizedCopy.format("%d minutes in the severe domain. That is a large withdrawal to repay; keep it deliberate rather than accidental.", mins(severeSec)))
         }
         if hard < 120 && (loadPercentile ?? 0) < 0.4 {
-            improvements.append("Almost all of this sat below threshold. If it was meant to be easy, that is exactly right — if not, there is room to push.")
+            improvements.append(LocalizedCopy.text("Almost all of this sat below threshold. If it was meant to be easy, that is exactly right — if not, there is room to push."))
         }
 
         // ── The next session ──────────────────────────────────────────────
         let next: String
         if let r = score(recovery), r < 40 {
-            next = "Something easy next: 30–40 minutes fully in the moderate domain, nothing above threshold, and see whether recovery comes back faster."
+            next = LocalizedCopy.text("Something easy next: 30–40 minutes fully in the moderate domain, nothing above threshold, and see whether recovery comes back faster.")
         } else if severeSec >= 300 || (loadPercentile ?? 0) > 0.8 {
-            next = "Repeat this in about 48 hours. Before then, keep it aerobic — the adaptation happens while you stay out of the severe domain."
+            next = LocalizedCopy.text("Repeat this in about 48 hours. Before then, keep it aerobic — the adaptation happens while you stay out of the severe domain.")
         } else if hard >= 600, let o = score(overall), o >= 70 {
-            next = "This shape is working. Run it again at the same intensity and watch whether the same heart rate starts costing less."
+            next = LocalizedCopy.text("This shape is working. Run it again at the same intensity and watch whether the same heart rate starts costing less.")
         } else if hard < 120 {
-            next = "Next time add two or three intervals above threshold, keeping everything between them genuinely easy."
+            next = LocalizedCopy.text("Next time add two or three intervals above threshold, keeping everything between them genuinely easy.")
         } else {
-            next = "Repeat this session in 2–3 days at the same intensity. The comparison is what makes the number mean something."
+            next = LocalizedCopy.text("Repeat this session in 2–3 days at the same intensity. The comparison is what makes the number mean something.")
         }
 
         return SessionCoachSummary(strengths: strengths,

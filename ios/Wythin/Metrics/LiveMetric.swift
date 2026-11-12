@@ -46,19 +46,19 @@ enum LiveMetric: String, CaseIterable {
     /// Plain language only — this reaches the user.
     var displayName: String {
         switch self {
-        case .hr:        return "heart rate"
-        case .rmssd:     return "calm power"
-        case .rsa:       return "breathing depth"
-        case .sdnn:      return "overall variability"
-        case .stressBalance: return "stress balance"
-        case .coherence: return "rhythm"
-        case .breathBPM: return "breathing"
-        case .cbi:       return "body load"
-        case .pip:       return "inner noise"
-        case .dfa1:      return "focus"
-        case .dc:        return "settling depth"
-        case .rcmse:     return "adaptability"
-        case .vti:       return "recovery drive"
+        case .hr:        return LocalizedCopy.text("heart rate")
+        case .rmssd:     return LocalizedCopy.text("calm power")
+        case .rsa:       return LocalizedCopy.text("breathing depth")
+        case .sdnn:      return LocalizedCopy.text("overall variability")
+        case .stressBalance: return LocalizedCopy.text("stress balance")
+        case .coherence: return LocalizedCopy.text("rhythm")
+        case .breathBPM: return LocalizedCopy.text("breathing")
+        case .cbi:       return LocalizedCopy.text("body load")
+        case .pip:       return LocalizedCopy.text("inner noise")
+        case .dfa1:      return LocalizedCopy.text("focus")
+        case .dc:        return LocalizedCopy.text("settling depth")
+        case .rcmse:     return LocalizedCopy.text("adaptability")
+        case .vti:       return LocalizedCopy.text("recovery drive")
         }
     }
 

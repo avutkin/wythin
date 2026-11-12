@@ -84,6 +84,9 @@ run_suite() {
     warn "TESTS SKIPPED by flag — you own the consequences"
     return
   fi
+  say "validating Russian string catalog"
+  python3 "$RELEASE_WT/tools/check-localization.py" \
+    || die "Russian string catalog invalid — nothing ships from an incomplete translation"
   say "running full test suite (simulator)"
   local out=/tmp/wythin-ship-tests.log
   xcodebuild test -project "$RELEASE_WT/ios/Wythin.xcodeproj" -scheme Wythin \

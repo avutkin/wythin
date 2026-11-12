@@ -18,11 +18,11 @@ enum PotentialBand: String, Equatable {
     /// User-visible label. Plain language only.
     var label: String {
         switch self {
-        case .full:     return "full reserves"
-        case .good:     return "good reserves"
-        case .steady:   return "steady"
-        case .light:    return "running light"
-        case .depleted: return "depleted"
+        case .full:     return LocalizedCopy.text("full reserves")
+        case .good:     return LocalizedCopy.text("good reserves")
+        case .steady:   return LocalizedCopy.text("steady")
+        case .light:    return LocalizedCopy.text("running light")
+        case .depleted: return LocalizedCopy.text("depleted")
         }
     }
 }

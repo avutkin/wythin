@@ -18,7 +18,7 @@ struct ACCWaveformView: View {
             if buffer.isEmpty {
                 HStack {
                     Spacer()
-                    Text("Waiting for ACC…")
+                    Text(LocalizedCopy.text("Waiting for ACC…"))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                     Spacer()
@@ -34,7 +34,7 @@ struct ACCWaveformView: View {
                 .drawingGroup()
             }
 
-            Text("ACC Z — BREATHING")
+            Text(LocalizedCopy.text("ACC Z — BREATHING"))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim.opacity(0.7))
                 .padding(.horizontal, 8)

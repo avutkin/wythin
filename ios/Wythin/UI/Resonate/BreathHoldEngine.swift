@@ -22,7 +22,7 @@ struct HoldState: Equatable {
     /// done.
     var countdown: String {
         let t = max(0, secondsLeftInPhase)
-        return String(format: "%d:%02d", t / 60, t % 60)
+        return String(format: "%d:%02d", locale: .current, t / 60, t % 60)
     }
 }
 

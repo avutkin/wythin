@@ -334,7 +334,7 @@ final class AppEnvironment {
                                                     pacerHoldsAvailable: false)
         let base = NudgeCopy.render(trigger, options: options)
         let content = NudgeContent(title: base.title,
-                                   body: "\(base.body) (test)",
+                                   body: LocalizedCopy.format("%@ (test)", base.body),
                                    options: options)
         await notifications.deliver(content, trigger: trigger, after: delay)
     }
@@ -355,14 +355,15 @@ final class AppEnvironment {
         let when = Self.focusTimeFormatter.string(from: at)
         pendingInAppNudge = InAppNudge(
             trigger: .focusWindow,
-            content: NudgeContent(title: "\(content.title) · \(when)",
+            content: NudgeContent(title: LocalizedCopy.format("%@ · %@", content.title, when),
                                   body: content.body,
                                   options: []))
     }
 
     private static let focusTimeFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.dateFormat = "HH:mm"
+        f.timeStyle = .short
+        f.dateStyle = .none
         return f
     }()
 
@@ -1051,7 +1052,8 @@ final class AppEnvironment {
                     self.recordingError = nil
                 } catch {
                     self.ble.captureAudit?.recordMetricSave(success: false)
-                    self.recordingError = "Metric recording failed: \(error.localizedDescription)"
+                    self.recordingError = LocalizedCopy.format("Metric recording failed: %@",
+                        error.localizedDescription)
                 }
             }
         }

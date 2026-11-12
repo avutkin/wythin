@@ -59,7 +59,7 @@ struct PacerCircleView: View {
                 .animation(.easeInOut(duration: inhaleDuration), value: scale)
 
             // Phase label
-            Text(phaseLabel)
+            Text(LocalizedCopy.text(phaseLabel))
                 .font(Theme.display(18))
                 .foregroundStyle(Theme.accent)
                 .tracking(4)

@@ -50,7 +50,7 @@ struct HeartRateZoneBar: View {
                 // line on a narrow phone, and a clipped zone reads as absent.
                 FlowRow(spacing: 10) {
                     ForEach(segments, id: \.zone) { seg in
-                        Text("\(seg.zone.shortLabel) \(minutes(seg.seconds))m")
+                        Text(LocalizedCopy.format("%@ %d m", seg.zone.shortLabel, minutes(seg.seconds)))
                             .font(.system(size: 9, design: .monospaced))
                             .foregroundStyle(colour(seg.zone))
                             .monospacedDigit()
@@ -58,7 +58,7 @@ struct HeartRateZoneBar: View {
                 }
 
                 if let p = HeartRateZones.polarisation(split) {
-                    Text(String(format: "%.0f%% easy · %.0f%% tempo · %.0f%% hard. Zones are how hard your heart worked; the bar above is which system was taxed.",
+                    Text(LocalizedCopy.format("%.0f%% easy · %.0f%% tempo · %.0f%% hard. Zones are how hard your heart worked; the bar above is which system was taxed.",
                                 p.easy * 100, p.middle * 100, p.hard * 100))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(Theme.dim)
@@ -67,7 +67,7 @@ struct HeartRateZoneBar: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(segments
-                .map { "\($0.zone.shortLabel), \($0.zone.label), \(minutes($0.seconds)) minutes" }
+                .map { LocalizedCopy.format("%@, %@, %d minutes", $0.zone.shortLabel, LocalizedCopy.text($0.zone.label), minutes($0.seconds)) }
                 .joined(separator: ", "))
         }
     }

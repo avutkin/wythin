@@ -32,7 +32,7 @@ struct LiveDeltaTile: View {
     private var heroText: String {
         guard let d = delta else { return valueText }
         let arrow = d.neutral ? "≈" : (d.percent >= 0 ? "▲" : "▼")
-        return String(format: "%@ %+.0f%%", arrow, d.percent)
+        return String(format: "%@ %+.0f%%", locale: .current, arrow, d.percent)
     }
 
     private var heroColor: Color {
@@ -63,14 +63,15 @@ struct LiveDeltaTile: View {
             // Two lines reserved so "Conscious Breathing" wraps instead of
             // shrinking toward invisibility; the fixed height keeps the nine
             // tiles' heroes on the same optical row.
-            Text(label)
+            Text(LocalizedCopy.text(label))
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Theme.text)
                 .lineLimit(2)
                 .minimumScaleFactor(0.85)
                 .frame(minHeight: 27, alignment: .topLeading)
             if !techLabel.isEmpty || !unit.isEmpty {
-                Text(techLabel + (unit.isEmpty ? "" : " · \(unit)"))
+                Text(LocalizedCopy.text(techLabel)
+                     + (unit.isEmpty ? "" : " · \(LocalizedCopy.text(unit))"))
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundStyle(Theme.dim)
                     .lineLimit(1)
@@ -93,7 +94,7 @@ struct LiveDeltaTile: View {
                 footLine {
                     Text("now ").foregroundStyle(Theme.dim.opacity(0.6))
                     + Text(valueText).foregroundStyle(Theme.dim)
-                    + Text(nowPercent.map { String(format: "  %+.0f%%", $0) } ?? "")
+                    + Text(nowPercent.map { String(format: "  %+.0f%%", locale: .current, $0) } ?? "")
                         .foregroundStyle(chipColor)
                 }
             }

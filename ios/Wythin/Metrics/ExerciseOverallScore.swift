@@ -47,7 +47,7 @@ enum ExerciseOverallScore {
             (value(efficiency),  efficiencyWeight,  "efficiency"),
         ]
         let present = parts.compactMap { v, w, n in v.map { (Double($0), w, n) } }
-        guard !present.isEmpty else { return .unavailable(reason: "not enough signal") }
+        guard !present.isEmpty else { return .unavailable(reason: LocalizedCopy.text("not enough signal")) }
 
         let totalWeight = present.reduce(0) { $0 + $1.1 }
         let weighted    = present.reduce(0) { $0 + $1.0 * $1.1 }
@@ -58,7 +58,7 @@ enum ExerciseOverallScore {
         // sat beside a 92 readiness captioned as a recovery problem.
         let word = present.count >= firmComponents
             ? caption(for: score, components: present.count)
-            : "based on \(present[0].2) alone so far"
+            : LocalizedCopy.format("based on %@ alone so far", LocalizedCopy.text(present[0].2))
         return .score(score, word: word)
     }
 
@@ -66,9 +66,8 @@ enum ExerciseOverallScore {
     /// awarded on one axis and then withdrawn tomorrow is worse than no crown.
     static func earnsCrown(_ axis: AxisValue) -> Bool {
         guard case let .score(score, word) = axis else { return false }
-        // Keyed off the caption vocabulary, which is why the provisional wording
-        // and this check must change together.
-        return score >= crownThreshold && !word.contains("alone so far")
+        return score >= crownThreshold
+            && word == caption(for: score, components: firmComponents)
     }
 
     /// Plain-language read.
@@ -78,14 +77,14 @@ enum ExerciseOverallScore {
     /// about the day rather than a verdict on the effort.
     static func caption(for score: Int, components: Int) -> String {
         // "1 of 3" is internal bookkeeping. Say which axis the number rests on.
-        guard components >= firmComponents else { return "based on recovery alone so far" }
+        guard components >= firmComponents else { return LocalizedCopy.text("based on recovery alone so far") }
         switch score {
-        case crownThreshold...: return "outstanding session"
-        case 70..<crownThreshold: return "well absorbed"
-        case 55..<70:  return "solid session"
-        case 40..<55:  return "steady session"
-        case 25..<40:  return "took some absorbing"
-        default:       return "a lot to absorb"
+        case crownThreshold...: return LocalizedCopy.text("outstanding session")
+        case 70..<crownThreshold: return LocalizedCopy.text("well absorbed")
+        case 55..<70:  return LocalizedCopy.text("solid session")
+        case 40..<55:  return LocalizedCopy.text("steady session")
+        case 25..<40:  return LocalizedCopy.text("took some absorbing")
+        default:       return LocalizedCopy.text("a lot to absorb")
         }
     }
 }

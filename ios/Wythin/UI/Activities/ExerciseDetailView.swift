@@ -102,10 +102,10 @@ struct ExerciseDetailView: View {
         let have = (entry.scoreHistoryCount ?? 0) + 1
         let need = ExerciseResponse.minimumHistory
         let remaining = max(need - have, 0)
-        guard remaining > 0 else { return "\(have) of \(need)" }
+        guard remaining > 0 else { return LocalizedCopy.format("%d of %d", have, need) }
         return remaining == 1
-            ? "1 more session to compare"
-            : "\(remaining) more sessions to compare"
+            ? LocalizedCopy.text("1 more session to compare")
+            : LocalizedCopy.format("%d more sessions to compare", remaining)
     }
 
     // MARK: - Body
@@ -241,7 +241,7 @@ struct ExerciseDetailView: View {
                 Text("SESSION SCORE")
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
-                Text(reason)
+                Text(LocalizedCopy.text(reason))
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(Theme.dim)
             }
@@ -276,7 +276,7 @@ struct ExerciseDetailView: View {
                              Theme.accent)
             } else if let brake = brakePerBeat, brake > 0 {
                 unitHeadline("AUTONOMIC COST",
-                             String(format: "%.2f", brake),
+                             String(format: "%.2f", locale: .current, brake),
                              "ms of brake released per extra beat per minute",
                              Theme.hrv)
             } else {
@@ -330,16 +330,16 @@ struct ExerciseDetailView: View {
     private var summaryLine: String {
         var parts: [String] = []
         if let load = entry.exerciseLoad {
-            parts.append("Load \(Int(load.rounded()))")
+            parts.append(LocalizedCopy.format("Load %d", Int(load.rounded())))
         }
         let heavy = (entry.domainHeavySec ?? 0) + (entry.domainSevereSec ?? 0)
         if heavy > 60 {
-            parts.append("\(Int((heavy / 60).rounded())) min at or above threshold")
+            parts.append(LocalizedCopy.format("%d min at or above threshold", Int((heavy / 60).rounded())))
         } else if (entry.domainModerateSec ?? 0) > 60 {
-            parts.append("held in the moderate domain throughout")
+            parts.append(LocalizedCopy.text("held in the moderate domain throughout"))
         }
         if case let .score(v, _) = recovery {
-            parts.append("\(v)% of vagal tone back at ten minutes")
+            parts.append(LocalizedCopy.format("%d%% of vagal tone back at ten minutes", v))
         }
         return parts.isEmpty ? entry.durationString : parts.joined(separator: " · ")
     }
@@ -381,7 +381,7 @@ struct ExerciseDetailView: View {
     /// so praise, correction and prescription are separable at a glance.
     private func bulletGroup(_ title: String, _ lines: [String], _ tint: Color) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title)
+            Text(LocalizedCopy.text(title))
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(tint)
                 .tracking(1.1)
@@ -391,7 +391,7 @@ struct ExerciseDetailView: View {
                         .fill(tint)
                         .frame(width: 4, height: 4)
                         .padding(.top, 6)
-                    Text(line)
+                    Text(LocalizedCopy.text(line))
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(Theme.text.opacity(0.9))
                         .fixedSize(horizontal: false, vertical: true)
@@ -450,7 +450,7 @@ struct ExerciseDetailView: View {
     private func unitHeadline(_ title: String, _ value: String,
                               _ unit: String, _ tint: Color) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title)
+            Text(LocalizedCopy.text(title))
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(Theme.dim)
                 .tracking(1.1)
@@ -460,7 +460,7 @@ struct ExerciseDetailView: View {
                     .foregroundStyle(tint)
                     .monospacedDigit()
             }
-            Text(unit)
+            Text(LocalizedCopy.text(unit))
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(Theme.dim)
                 .fixedSize(horizontal: false, vertical: true)
@@ -487,7 +487,7 @@ struct ExerciseDetailView: View {
                     .foregroundStyle(tint)
                     .monospacedDigit()
                 Spacer()
-                Text(word)
+                Text(LocalizedCopy.text(word))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Theme.dim)
             case let .unavailable(reason):
@@ -495,7 +495,7 @@ struct ExerciseDetailView: View {
                 // mid-cap-height beside a 10pt label and reads as a rendering
                 // fault rather than an absent value — the reason carries it.
                 Spacer()
-                Text(reason)
+                Text(LocalizedCopy.text(reason))
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(Theme.dim.opacity(0.9))
             }
@@ -506,7 +506,7 @@ struct ExerciseDetailView: View {
         HStack(spacing: 12) {
             ForEach(pairs, id: \.0) { label, value in
                 HStack(spacing: 4) {
-                    Text(label)
+                    Text(LocalizedCopy.text(label))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(Theme.dim)
                     Text(value)

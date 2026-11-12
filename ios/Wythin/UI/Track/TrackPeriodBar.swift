@@ -13,7 +13,7 @@ struct TrackPeriodBar: View {
             HStack(spacing: 4) {
                 Spacer()
                 ForEach(TrackPeriod.allCases) { p in
-                    Button(p.rawValue) {
+                    Button(LocalizedCopy.text(p.rawValue)) {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             period = p
                             offset = 0

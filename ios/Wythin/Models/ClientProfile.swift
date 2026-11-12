@@ -131,7 +131,7 @@ enum UnitSystem: String, CaseIterable, Identifiable {
     case us, metric
     var id: String { rawValue }
 
-    var label: String { self == .us ? "ft / lb" : "cm / kg" }
+    var label: String { LocalizedCopy.text(self == .us ? "ft / lb" : "cm / kg") }
 
     static let defaultsKey = "unitSystem"
 

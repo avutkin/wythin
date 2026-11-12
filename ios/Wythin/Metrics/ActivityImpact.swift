@@ -12,17 +12,17 @@ enum ActivityImpact {
     /// effort rather than as a poor session.
     static func caption(for delta: Double) -> String {
         switch delta {
-        case 12...:        return "deeply restorative"
-        case 6..<12:       return "restorative"
-        case 2..<6:        return "settling"
-        case -2...2:       return "steady"
+        case 12...:        return LocalizedCopy.text("deeply restorative")
+        case 6..<12:       return LocalizedCopy.text("restorative")
+        case 2..<6:        return LocalizedCopy.text("settling")
+        case -2...2:       return LocalizedCopy.text("steady")
         // Not "activating": that word already names a session CLASS on the same
         // screen — the model a session gets when its pulse rose 15 bpm or more.
         // A yoga session that lifted the pulse by 1% is correctly restorative
         // and was still captioned "activating", which reads as the app
         // contradicting itself.
-        case -10 ..< -2:   return "stirred"
-        default:           return "strongly stirred"
+        case -10 ..< -2:   return LocalizedCopy.text("stirred")
+        default:           return LocalizedCopy.text("strongly stirred")
         }
     }
 
@@ -33,13 +33,13 @@ enum ActivityImpact {
         let compared = moves.filter { $0.vs2mo != nil }.count
         guard compared > 0 else { return nil }
         let beat = moves.filter { ($0.vs2mo ?? 0) > 0 }.count
-        return "You beat your 2-month average on \(beat) of \(compared) metrics."
+        return LocalizedCopy.format("You beat your 2-month average on %d of %d metrics.", beat, compared)
     }
 }
 
 /// One metric's session movement.
 struct MetricMovement {
-    let name:   String   // consumer label, e.g. "Conscious Breathing"
+    let name:   String   // consumer label, e.g. LocalizedCopy.text("Conscious Breathing")
     let uplift: Double?  // benefit-signed % during vs before
     let vs2mo:  Double?  // benefit-signed % during vs 2-month baseline
 }

@@ -78,7 +78,12 @@ struct SleepNightPayload: Codable, Equatable {
 
 struct SleepInsightPayload: Codable, Equatable {
     let mode: String            // always "sleep"
+    let language = AppLanguage.current.rawValue
     let sleep: SleepNightPayload
+
+    enum CodingKeys: String, CodingKey {
+        case mode, language, sleep
+    }
 }
 
 // MARK: - Building one from a night

@@ -33,19 +33,19 @@ enum PolyvagalState {
 
     var displayName: String {
         switch self {
-        case .regulated: return "Balanced"
-        case .elevated:  return "Elevated"
-        case .low:       return "Quiet"
-        case .unknown:   return "Reading..."
+        case .regulated: return LocalizedCopy.text("Balanced")
+        case .elevated:  return LocalizedCopy.text("Elevated")
+        case .low:       return LocalizedCopy.text("Quiet")
+        case .unknown:   return LocalizedCopy.text("Reading...")
         }
     }
 
     var severity: String {
         switch self {
-        case .regulated: return "Optimal"
-        case .elevated:  return "Moderate"
-        case .low:       return "Low"
-        case .unknown:   return "—"
+        case .regulated: return LocalizedCopy.text("Optimal")
+        case .elevated:  return LocalizedCopy.text("Moderate")
+        case .low:       return LocalizedCopy.text("Low")
+        case .unknown:   return LocalizedCopy.text("—")
         }
     }
 
@@ -60,10 +60,10 @@ enum PolyvagalState {
 
     var stateDescription: String {
         switch self {
-        case .regulated: return "Your nervous system is calm and regulated. You're ready to focus or connect."
-        case .elevated:  return "Your body is responding to stress. Your nervous system is in an activated state right now."
-        case .low:       return "Your nervous system appears quiet or fatigued. Energy and engagement are low."
-        case .unknown:   return "Connect your Polar H10 to see your current nervous system state."
+        case .regulated: return LocalizedCopy.text("Your nervous system is calm and regulated. You're ready to focus or connect.")
+        case .elevated:  return LocalizedCopy.text("Your body is responding to stress. Your nervous system is in an activated state right now.")
+        case .low:       return LocalizedCopy.text("Your nervous system appears quiet or fatigued. Energy and engagement are low.")
+        case .unknown:   return LocalizedCopy.text("Connect your Polar H10 to see your current nervous system state.")
         }
     }
 
@@ -80,36 +80,36 @@ enum PolyvagalState {
 
     var actionTitle: String {
         switch self {
-        case .regulated: return "Maintain Coherence"
-        case .elevated:  return "90-Second Breathing Reset"
-        case .low:       return "Activation Breath"
-        case .unknown:   return "Connect Sensor"
+        case .regulated: return LocalizedCopy.text("Maintain Coherence")
+        case .elevated:  return LocalizedCopy.text("90-Second Breathing Reset")
+        case .low:       return LocalizedCopy.text("Activation Breath")
+        case .unknown:   return LocalizedCopy.text("Connect Sensor")
         }
     }
 
     var actionDescription: String {
         switch self {
-        case .regulated: return "You're in a great state. A short resonance session will deepen and sustain this."
-        case .elevated:  return "A short guided breathing cycle to activate your parasympathetic nervous system and lower arousal."
-        case .low:       return "Use energizing breath cycles to raise arousal and increase engagement."
-        case .unknown:   return "Pair your Polar H10 to get personalized real-time recommendations."
+        case .regulated: return LocalizedCopy.text("You're in a great state. A short resonance session will deepen and sustain this.")
+        case .elevated:  return LocalizedCopy.text("A short guided breathing cycle to activate your parasympathetic nervous system and lower arousal.")
+        case .low:       return LocalizedCopy.text("Use energizing breath cycles to raise arousal and increase engagement.")
+        case .unknown:   return LocalizedCopy.text("Pair your Polar H10 to get personalized real-time recommendations.")
         }
     }
 
     var actionOutcome: String {
         switch self {
-        case .regulated: return "Sustained HRV · Peak focus"
-        case .elevated:  return "Reduced arousal · Improved HRV"
-        case .low:       return "Increased energy · Better focus"
-        case .unknown:   return "Real-time guidance"
+        case .regulated: return LocalizedCopy.text("Sustained HRV · Peak focus")
+        case .elevated:  return LocalizedCopy.text("Reduced arousal · Improved HRV")
+        case .low:       return LocalizedCopy.text("Increased energy · Better focus")
+        case .unknown:   return LocalizedCopy.text("Real-time guidance")
         }
     }
 
     var actionDuration: String {
         switch self {
-        case .regulated: return "~5 min"
-        case .elevated:  return "90 sec"
-        case .low:       return "~2 min"
+        case .regulated: return LocalizedCopy.text("~5 min")
+        case .elevated:  return LocalizedCopy.text("90 sec")
+        case .low:       return LocalizedCopy.text("~2 min")
         case .unknown:   return ""
         }
     }
@@ -125,10 +125,10 @@ enum PolyvagalState {
 
     var actionButtonLabel: String {
         switch self {
-        case .regulated: return "Start Breathing Session"
-        case .elevated:  return "Start Breathing Reset"
-        case .low:       return "Start Activation"
-        case .unknown:   return "Connect Device"
+        case .regulated: return LocalizedCopy.text("Start Breathing Session")
+        case .elevated:  return LocalizedCopy.text("Start Breathing Reset")
+        case .low:       return LocalizedCopy.text("Start Activation")
+        case .unknown:   return LocalizedCopy.text("Connect Device")
         }
     }
 
@@ -138,38 +138,38 @@ enum PolyvagalState {
         switch self {
         case .elevated:
             return [
-                ScienceFact(title: "Vagus Nerve Activation",
-                            description: "Stimulates the parasympathetic system to signal your body to relax.",
+                ScienceFact(title: LocalizedCopy.text("Vagus Nerve Activation"),
+                            description: LocalizedCopy.text("Stimulates the parasympathetic system to signal your body to relax."),
                             source: "Journal of Inflammation Research"),
-                ScienceFact(title: "CO2 Regulation",
-                            description: "Balances blood chemistry to physically reduce the fight-or-flight response.",
+                ScienceFact(title: LocalizedCopy.text("CO2 Regulation"),
+                            description: LocalizedCopy.text("Balances blood chemistry to physically reduce the fight-or-flight response."),
                             source: "Journal of Applied Physiology"),
-                ScienceFact(title: "Heart-Breath Coupling",
-                            description: "Synchronizes heart and breath rhythms to improve stress resilience.",
+                ScienceFact(title: LocalizedCopy.text("Heart-Breath Coupling"),
+                            description: LocalizedCopy.text("Synchronizes heart and breath rhythms to improve stress resilience."),
                             source: nil),
             ]
         case .regulated:
             return [
-                ScienceFact(title: "RSA Amplification",
-                            description: "Slow breathing at resonance maximizes respiratory sinus arrhythmia amplitude.",
+                ScienceFact(title: LocalizedCopy.text("RSA Amplification"),
+                            description: LocalizedCopy.text("Slow breathing at resonance maximizes respiratory sinus arrhythmia amplitude."),
                             source: "Applied Psychophysiology and Biofeedback"),
-                ScienceFact(title: "Baroreflex Sensitivity",
-                            description: "Coherent HRV training increases baroreflex gain for better blood pressure regulation.",
+                ScienceFact(title: LocalizedCopy.text("Baroreflex Sensitivity"),
+                            description: LocalizedCopy.text("Coherent HRV training increases baroreflex gain for better blood pressure regulation."),
                             source: "Journal of Human Hypertension"),
-                ScienceFact(title: "Prefrontal Engagement",
-                            description: "High vagal tone supports executive function, focus, and emotional regulation.",
+                ScienceFact(title: LocalizedCopy.text("Prefrontal Engagement"),
+                            description: LocalizedCopy.text("High vagal tone supports executive function, focus, and emotional regulation."),
                             source: nil),
             ]
         case .low:
             return [
-                ScienceFact(title: "Sympathetic Activation",
-                            description: "Short bursts of fast breathing temporarily increase arousal and alertness.",
+                ScienceFact(title: LocalizedCopy.text("Sympathetic Activation"),
+                            description: LocalizedCopy.text("Short bursts of fast breathing temporarily increase arousal and alertness."),
                             source: "Frontiers in Human Neuroscience"),
-                ScienceFact(title: "Oxygen Delivery",
-                            description: "Rhythmic diaphragmatic movement improves venous return and cerebral oxygenation.",
+                ScienceFact(title: LocalizedCopy.text("Oxygen Delivery"),
+                            description: LocalizedCopy.text("Rhythmic diaphragmatic movement improves venous return and cerebral oxygenation."),
                             source: nil),
-                ScienceFact(title: "Arousal Regulation",
-                            description: "Controlled breathing cycles can shift the nervous system from dorsal to ventral vagal state.",
+                ScienceFact(title: LocalizedCopy.text("Arousal Regulation"),
+                            description: LocalizedCopy.text("Controlled breathing cycles can shift the nervous system from dorsal to ventral vagal state."),
                             source: nil),
             ]
         case .unknown:

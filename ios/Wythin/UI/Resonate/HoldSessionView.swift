@@ -58,7 +58,7 @@ struct HoldSessionView: View {
                 case .done:    summary
                 }
             }
-            .navigationTitle(practice.title.uppercased())
+            .navigationTitle(LocalizedCopy.text(practice.title).uppercased())
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bg, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
@@ -95,14 +95,14 @@ struct HoldSessionView: View {
                     Text(plan.label)
                         .font(.system(size: 40, weight: .light, design: .monospaced))
                         .foregroundStyle(Theme.text)
-                    Text("\(mmss(plan.totalHoldSeconds)) held · \(mmss(plan.totalSeconds)) in total")
+                    Text(LocalizedCopy.format("%@ held · %@ in total", mmss(plan.totalHoldSeconds), mmss(plan.totalSeconds)))
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim)
                 }
                 .padding(.top, 20)
 
                 VStack(spacing: 0) {
-                    stepperRow(label: "HOLD", value: "\(holdSeconds)s",
+                    stepperRow(label: "HOLD", value: LocalizedCopy.format("%d s", holdSeconds),
                                canLower: holdSeconds > holdRange.lowerBound,
                                canRaise: holdSeconds < holdRange.upperBound,
                                lower: { holdSeconds -= 1 }, raise: { holdSeconds += 1 })
@@ -112,7 +112,7 @@ struct HoldSessionView: View {
                                canRaise: sets < setRange.upperBound,
                                lower: { sets -= 1 }, raise: { sets += 1 })
                     Divider().background(Theme.border)
-                    stepperRow(label: "BREATH", value: "\(breatheSeconds)s each way",
+                    stepperRow(label: "BREATH", value: LocalizedCopy.format("%d s each way", breatheSeconds),
                                canLower: breatheSeconds > breatheRange.lowerBound,
                                canRaise: breatheSeconds < breatheRange.upperBound,
                                lower: { breatheSeconds -= 1 }, raise: { breatheSeconds += 1 })
@@ -175,7 +175,7 @@ struct HoldSessionView: View {
                 HStack(spacing: 0) {
                     readout("SET", "\(engine.state.set) / \(plan.sets)")
                     Rectangle().fill(Theme.border).frame(width: 0.5, height: 22)
-                    readout("HOLD", "\(plan.holdSeconds)s")
+                    readout("HOLD", LocalizedCopy.format("%d s", plan.holdSeconds))
                     Rectangle().fill(Theme.border).frame(width: 0.5, height: 22)
                     readout("LEFT", mmss(max(0, plan.totalSeconds - engine.elapsed)))
                 }
@@ -208,7 +208,7 @@ struct HoldSessionView: View {
             Image(systemName: "checkmark.circle")
                 .font(.system(size: 44, weight: .light))
                 .foregroundStyle(Theme.accent)
-            Text("\(plan.sets) sets · \(mmss(plan.totalHoldSeconds)) held")
+            Text(LocalizedCopy.format("%d sets · %@ held", plan.sets, mmss(plan.totalHoldSeconds)))
                 .font(Theme.mono(17))
                 .foregroundStyle(Theme.text)
             Text("Logged to your activities.")
@@ -234,7 +234,7 @@ struct HoldSessionView: View {
 
     private func readout(_ label: String, _ value: String) -> some View {
         VStack(spacing: 3) {
-            Text(label)
+            Text(LocalizedCopy.text(label))
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(Theme.dim)
                 .tracking(1)
@@ -251,7 +251,7 @@ struct HoldSessionView: View {
                             lower: @escaping () -> Void,
                             raise: @escaping () -> Void) -> some View {
         HStack(spacing: 12) {
-            Text(label)
+            Text(LocalizedCopy.text(label))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
                 .frame(width: 58, alignment: .leading)
@@ -280,7 +280,7 @@ struct HoldSessionView: View {
     }
 
     private func mmss(_ seconds: Int) -> String {
-        String(format: "%d:%02d", seconds / 60, seconds % 60)
+        String(format: "%d:%02d", locale: .current, seconds / 60, seconds % 60)
     }
 
     // MARK: Lifecycle

@@ -45,10 +45,10 @@ extension ActivityLog {
         return ScoredIndex(
             name: "Efficiency",
             value: value,
-            verdict: value >= IndexBand.keepAbove ? "cheap for the work"
-                   : value >= IndexBand.actBelow  ? "fair price"
-                                                  : "expensive per beat",
-            detail: brake.map { String(format: "%.2f ms/beat", $0) } ?? "")
+            verdict: value >= IndexBand.keepAbove ? LocalizedCopy.text("cheap for the work")
+                   : value >= IndexBand.actBelow  ? LocalizedCopy.text("fair price")
+                                                  : LocalizedCopy.text("expensive per beat"),
+            detail: brake.map { LocalizedCopy.format("%.2f ms/beat", $0) } ?? "")
     }
 
     /// How fast the system came back, from the readings that survived.
@@ -86,23 +86,23 @@ extension ActivityLog {
         // fact for bookkeeping.
         let detail: String
         switch recoveryOutcome {
-        case let .reached(minutes):    detail = String(format: "halfway in %.1f min", minutes)
+        case let .reached(minutes):    detail = LocalizedCopy.format("halfway in %.1f min", minutes)
         case let .notReached(observed):
             // Restored days can carry hours of samples after a session; quoting
             // "not halfway in 240 min" reads as an alarm rather than a bound.
-            detail = observed > 30 ? "not halfway while recorded"
-                                   : "not halfway in \(Int(observed.rounded())) min"
+            detail = observed > 30 ? LocalizedCopy.text("not halfway while recorded")
+                                   : LocalizedCopy.format("not halfway in %d min", Int(observed.rounded()))
         case .notObserved:
             detail = vagalExcursionScorable
-                ? (hrr60Bpm.map { "\(Int($0.rounded())) bpm shed" } ?? "")
-                : "brake barely dipped"
+                ? (hrr60Bpm.map { LocalizedCopy.format("%d bpm shed", Int($0.rounded())) } ?? "")
+                : LocalizedCopy.text("brake barely dipped")
         }
 
         return ScoredIndex(name: BounceBackIndex.displayName,
                            value: value,
-                           verdict: value >= IndexBand.keepAbove ? "came back fast"
-                                  : value >= IndexBand.actBelow  ? "came back slowly"
-                                                                 : "still coming back",
+                           verdict: value >= IndexBand.keepAbove ? LocalizedCopy.text("came back fast")
+                                  : value >= IndexBand.actBelow  ? LocalizedCopy.text("came back slowly")
+                                                                 : LocalizedCopy.text("still coming back"),
                            detail: detail)
     }
 
@@ -133,19 +133,19 @@ extension ActivityLog {
         if let mb = mindBodyClass, mb != .workout {
             return [
                 (ReadinessScore.displayName, readinessIndex,
-                 "needs \(ReadinessScore.minimumPeers) sessions"),
-                ("Regulation", regulationIndex, "no after-window"),
+                 LocalizedCopy.format("needs %d sessions", ReadinessScore.minimumPeers)),
+                ("Regulation", regulationIndex, LocalizedCopy.text("no after-window")),
             ]
         }
         return [
             (ReadinessScore.displayName, readinessIndex,
-             "needs \(ReadinessScore.minimumPeers) sessions"),
-            (MobilizedIndex.displayName, mobilizedIndex, "no pulse rise measured"),
-            (SustainedIndex.displayName, sustainedIndex, "no intensity data"),
+             LocalizedCopy.format("needs %d sessions", ReadinessScore.minimumPeers)),
+            (MobilizedIndex.displayName, mobilizedIndex, LocalizedCopy.text("no pulse rise measured")),
+            (SustainedIndex.displayName, sustainedIndex, LocalizedCopy.text("no intensity data")),
             ("Cost", costIndex,
              (brakePerBeat.map { $0 <= 0 } ?? false) || vagalRoseDuring
-                ? "vagal tone held" : "no reading"),
-            ("Recovery", recoveryIndex, "no after-window"),
+                ? LocalizedCopy.text("vagal tone held") : LocalizedCopy.text("no reading")),
+            ("Recovery", recoveryIndex, LocalizedCopy.text("no after-window")),
         ]
     }
 
@@ -195,7 +195,7 @@ extension ActivityLog {
         if let load = exerciseLoad {
             out.append(UngradedDose(name: "Load",
                                     value: "\(Int(load.rounded()))",
-                                    caption: "effort × time"))
+                                    caption: LocalizedCopy.text("effort × time")))
         }
         if let peak = duringHRPeak {
             // The mockup captions this "81% of reserve", which needs the
@@ -203,8 +203,8 @@ extension ActivityLog {
             // context, so it states what it knows rather than estimating a
             // ceiling — the fraction belongs on the detail screen, which does.
             out.append(UngradedDose(name: "Peak",
-                                    value: "\(Int(Double(peak).rounded())) bpm",
-                                    caption: "highest reached"))
+                                    value: LocalizedCopy.format("%d bpm", Int(Double(peak).rounded())),
+                                    caption: LocalizedCopy.text("highest reached")))
         }
         return out
     }
@@ -215,15 +215,29 @@ extension ActivityLog {
 
 extension ActivityLog {
 
+    /// Render persisted arithmetic in the current language without changing
+    /// the canonical value written with the sleep log.
+    var localizedSleepScoreArithmetic: String? {
+        guard var line = sleepScoreArithmetic else { return nil }
+        for section in SleepSection.allCases {
+            line = line.replacingOccurrences(of: " \(section.storageName.lowercased())",
+                                             with: " \(section.name.lowercased())")
+        }
+        line = line.replacingOccurrences(of: " and ", with: LocalizedCopy.text(" and "))
+        line = line.replacingOccurrences(of: " not measured — the rest are reweighted to fill it)",
+                                         with: LocalizedCopy.text(" not measured — the rest are reweighted to fill it)"))
+        return line
+    }
+
     /// The five sections a night is scored on, in evidence order. Each carries
     /// its own weight in the headline, and each is absent rather than zero when
     /// its input was not measured.
     var sleepIndexSlots: [(name: String, index: ScoredIndex?, whenEmpty: String)] {
         [
-            ("Timing", sleepSection(.timing, sleepTiming), "no bedtime recorded"),
-            ("Duration", sleepSection(.duration, sleepDuration), "no sleep time"),
-            ("Continuity", sleepSection(.continuity, sleepContinuity), "no stages"),
-            ("Autonomic", sleepSection(.autonomic, sleepAutonomic), "no heart rate"),
+            ("Timing", sleepSection(.timing, sleepTiming), LocalizedCopy.text("no bedtime recorded")),
+            ("Duration", sleepSection(.duration, sleepDuration), LocalizedCopy.text("no sleep time")),
+            ("Continuity", sleepSection(.continuity, sleepContinuity), LocalizedCopy.text("no stages")),
+            ("Autonomic", sleepSection(.autonomic, sleepAutonomic), LocalizedCopy.text("no heart rate")),
         ]
     }
 
@@ -242,22 +256,43 @@ extension ActivityLog {
             // fact about your week; "regularity index 44" was a number only
             // this app knew the meaning of.
             let clock = DateFormatter()
-            clock.dateFormat = "HH:mm"
-            let went = "asleep \(clock.string(from: startedAt))"
+            clock.setLocalizedDateFormatFromTemplate("jm")
+            let went = LocalizedCopy.format("asleep %@", clock.string(from: startedAt))
             guard let sd = sleepBedtimeSDMin else { return went }
-            return "\(went) · varies ±\(Int(sd.rounded()))m"
+            return LocalizedCopy.format("%@ · varies ±%d min", went, Int(sd.rounded()))
         case .duration:
             guard let m = sleepAsleepMinutes else { return "time asleep" }
             // The target beside the total. A duration score with no target is
             // a number out of a hundred with nothing behind it — the reader
             // cannot tell whether eight hours was plenty or short for them.
             let need = Int((SleepThresholds.defaultNeedSec / 60).rounded())
-            return "\(m / 60)h \(String(format: "%02d", m % 60))m of your "
-                + "\(need / 60)h \(String(format: "%02d", need % 60))m need"
+            return LocalizedCopy.format("%d h %02d min of your %d h %02d min need",
+                                        m / 60, m % 60, need / 60, need % 60)
         case .continuity:
-            return sleepStageSummary ?? "how unbroken the night was"
+            return localizedSleepStageSummary ?? LocalizedCopy.text("how unbroken the night was")
         case .autonomic:
-            return "how far your heart rate settled, when, and your vagal tone against your usual"
+            return LocalizedCopy.text("how far your heart rate settled, when, and your vagal tone against your usual")
         }
+    }
+
+    /// Localize the persisted canonical summary at display time. The stored
+    /// value stays language-neutral for old nights and language changes.
+    var localizedSleepStageSummary: String? {
+        guard let summary = sleepStageSummary else { return nil }
+        let segments = summary.components(separatedBy: " · ")
+        guard segments.count == 3 else { return summary }
+        func duration(_ segment: String, stage: String) -> (Int, Int)? {
+            let fields = segment.split(separator: " ")
+            guard fields.count == 3, fields[2] == stage,
+                  fields[0].hasSuffix("h"), fields[1].hasSuffix("m"),
+                  let hours = Int(fields[0].dropLast()),
+                  let minutes = Int(fields[1].dropLast()) else { return nil }
+            return (hours, minutes)
+        }
+        guard let quiet = duration(segments[0], stage: "quiet"),
+              let active = duration(segments[1], stage: "active"),
+              let awake = duration(segments[2], stage: "awake") else { return summary }
+        return LocalizedCopy.format("%dh %02dm quiet · %dh %02dm active · %dh %02dm awake",
+                                    quiet.0, quiet.1, active.0, active.1, awake.0, awake.1)
     }
 }

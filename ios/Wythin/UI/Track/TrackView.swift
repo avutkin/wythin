@@ -109,7 +109,7 @@ struct TrackView: View {
                         }
                     })
             }
-            .navigationTitle("TRACK")
+            .navigationTitle(LocalizedCopy.text("TRACK"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bg, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)

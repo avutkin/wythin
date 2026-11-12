@@ -37,10 +37,10 @@ struct BLEDevice: Identifiable, Equatable {
 
     var rssiLabel: String {
         switch rssi {
-        case (-50)...: return "Excellent"
-        case (-65)...: return "Good"
-        case (-75)...: return "Fair"
-        default:       return "Weak"
+        case (-50)...: return LocalizedCopy.text("Excellent")
+        case (-65)...: return LocalizedCopy.text("Good")
+        case (-75)...: return LocalizedCopy.text("Fair")
+        default:       return LocalizedCopy.text("Weak")
         }
     }
 }
@@ -334,9 +334,9 @@ enum DiscoveryRetryPolicy {
 enum SkinContactPolicy {
     static func label(contact: Bool?, ecgLive: Bool) -> String {
         switch contact {
-        case .some(true):  return "on skin"
-        case .some(false): return "off-body"
-        case .none:        return ecgLive ? "on skin (ECG)" : "not reported"
+        case .some(true):  return LocalizedCopy.text("on skin")
+        case .some(false): return LocalizedCopy.text("off-body")
+        case .none:        return LocalizedCopy.text(ecgLive ? "on skin (ECG)" : "not reported")
         }
     }
 }
@@ -480,15 +480,15 @@ final class BLEService: NSObject {
 
     /// Human-readable CoreBluetooth central manager state — shown in the BLE sheet for diagnostics.
     var cbStateDescription: String {
-        guard let cm = centralManager else { return "BT not initialised" }
+        guard let cm = centralManager else { return LocalizedCopy.text("BT not initialised") }
         switch cm.state {
-        case .poweredOn:      return "Bluetooth ON"
-        case .poweredOff:     return "Bluetooth OFF — check Control Centre"
-        case .unauthorized:   return "Permission denied — check Settings → Privacy"
-        case .unsupported:    return "BT not supported on this device"
-        case .resetting:      return "BT resetting…"
-        case .unknown:        return "BT state unknown"
-        @unknown default:     return "BT state unknown"
+        case .poweredOn:      return LocalizedCopy.text("Bluetooth ON")
+        case .poweredOff:     return LocalizedCopy.text("Bluetooth OFF — check Control Centre")
+        case .unauthorized:   return LocalizedCopy.text("Permission denied — check Settings → Privacy")
+        case .unsupported:    return LocalizedCopy.text("BT not supported on this device")
+        case .resetting:      return LocalizedCopy.text("BT resetting…")
+        case .unknown:        return LocalizedCopy.text("BT state unknown")
+        @unknown default:     return LocalizedCopy.text("BT state unknown")
         }
     }
 
@@ -543,7 +543,7 @@ final class BLEService: NSObject {
                                          receivedAt: receivedAt,
                                          deviceTimestampNs: deviceTimestampNs)
         } catch {
-            let message = "Raw Polar recording failed: \(error.localizedDescription)"
+            let message = LocalizedCopy.format("Raw Polar recording failed: %@", error.localizedDescription)
             Task { @MainActor in self.lastError = message }
             return false
         }
@@ -665,8 +665,9 @@ final class BLEService: NSObject {
         print("🪫 BLE: battery \(level)% — posting low-battery notification")
 
         let content = UNMutableNotificationContent()
-        content.title = "Strap battery below 5%"
-        content.body = "Your Polar H10 is at \(level)% — replace the CR2025 coin cell soon so sessions don't cut out."
+        content.title = LocalizedCopy.text("Strap battery below 5%")
+        content.body = LocalizedCopy.format(
+            "Your Polar H10 is at %lld%% — replace the CR2025 coin cell soon so sessions don't cut out.", level)
         content.sound = .default
         content.interruptionLevel = .active
         let request = UNNotificationRequest(identifier: "wythin.battery.low",
@@ -742,7 +743,7 @@ final class BLEService: NSObject {
             guard case .scanning = self.state else { return }
             self.centralManager.stopScan()
             self.state = .idle
-            self.lastError = "No Polar H10 found (30 s). Make sure it is powered on and nearby."
+            self.lastError = LocalizedCopy.text("No Polar H10 found (30 s). Make sure it is powered on and nearby.")
         }
     }
 
@@ -796,7 +797,7 @@ final class BLEService: NSObject {
         let p = peripheralMap[device.id]
                ?? centralManager.retrievePeripherals(withIdentifiers: [device.id]).first
         guard let p else {
-            lastError = "\(device.name) is no longer reachable. Tap Scan to try again."
+            lastError = LocalizedCopy.format("%@ is no longer reachable. Tap Scan to try again.", device.name)
             state = .idle
             return
         }
@@ -936,7 +937,7 @@ final class BLEService: NSObject {
             }
             self.clearConnectionState()
             self.reconnectDelay = 2.0   // timeout ≠ dropped connection; reset backoff
-            self.lastError = "H10 not responding. Is it powered on and in range?"
+            self.lastError = LocalizedCopy.text("H10 not responding. Is it powered on and in range?")
             // Restart scan so the device list becomes visible for manual retry.
             self.startScanning()
         }
@@ -957,7 +958,7 @@ final class BLEService: NSObject {
             discoverServices()
         case .giveUpAndReconnect:
             print("🔴 BLE: discovery failed \(DiscoveryRetryPolicy.maxRetries) times — forcing a reconnect")
-            lastError = "Bluetooth setup failed — reconnecting"
+            lastError = LocalizedCopy.text("Bluetooth setup failed — reconnecting")
             suppressNextDisconnect = false
             centralManager.cancelPeripheralConnection(p)
         }
@@ -1158,7 +1159,7 @@ final class BLEService: NSObject {
             lastACCRetryAt = now
             if !inSlowRetry {
                 inSlowRetry = true
-                lastError = "Breathing sensor stream stalled — still retrying in the background"
+                lastError = LocalizedCopy.text("Breathing sensor stream stalled — still retrying in the background")
                 print("🔴 BLE: PMD watchdog — fast budget exhausted, dropping to \(Int(Self.accSlowRetryGap))s retries for the rest of the session")
             }
             if both { reissuePMDStarts(acc: accCmd, ctrl: ctrl, p: p) }
@@ -1209,7 +1210,7 @@ final class BLEService: NSObject {
         reconnectTask?.cancel()
         clearCharacteristics()          // keep `peripheral` for the pending reconnect
         connectionGapSubject.send()
-        state = .disconnected(reason: error?.localizedDescription ?? "Disconnected")
+        state = .disconnected(reason: error?.localizedDescription ?? LocalizedCopy.text("Disconnected"))
 
         // Persistent, no-timeout pending reconnect — no scan, no give-up. iOS
         // completes it the instant the strap advertises again (worn / back in
@@ -1254,7 +1255,7 @@ extension BLEService: CBCentralManagerDelegate {
                 self.reconnectTask?.cancel()
                 self.clearConnectionState()
                 self.connectionGapSubject.send()
-                self.state = .disconnected(reason: "Bluetooth is off")
+                self.state = .disconnected(reason: LocalizedCopy.text("Bluetooth is off"))
             default:
                 break
             }
@@ -1383,12 +1384,13 @@ extension BLEService: CBCentralManagerDelegate {
             BLEDiag.log("connect failed: \(nsError.map { "\($0.domain) \($0.code)" } ?? "unknown")"
                        + (looksLikeContention ? " — repeated in \(Int(span))s" : ""))
 
-            var message = "Could not connect: \(error?.localizedDescription ?? "unknown error")"
+            var message = LocalizedCopy.format("Could not connect: %@",
+                error?.localizedDescription ?? LocalizedCopy.text("unknown error"))
             if looksLikeContention {
                 // Hedged on purpose — this is a pattern, not a detection. The
                 // H10 cannot be read by two apps at once, and this is the
                 // only shape the losing side ever sees.
-                message += " — if another app (e.g. the Polar app) is also connected to this sensor, close it fully and try again."
+                message += LocalizedCopy.text(" — if another app (e.g. the Polar app) is also connected to this sensor, close it fully and try again.")
             }
             self.lastError = message
             // For a paired strap, re-arm the persistent pending connect instead of
@@ -1586,7 +1588,8 @@ extension BLEService: CBPeripheralDelegate {
                     print("❌ BLE: stream start type=0x\(mt) failed status=0x\(st)")
                     BLEDiag.log("START RESULT type=0x\(mt) FAILED status=0x\(st)")
                     Task { @MainActor in
-                        self.lastError = "PMD start error type=0x\(mt) status=0x\(st)"
+                        self.lastError = LocalizedCopy.format(
+                            "PMD start error type=0x%@ status=0x%@", String(mt), String(st))
                     }
                 }
 
@@ -1675,7 +1678,7 @@ extension BLEService: CBPeripheralDelegate {
         if let error {
             print("❌ BLE: write error for \(characteristic.uuid) — \(error)")
             Task { @MainActor in
-                self.lastError = "BLE write error: \(error.localizedDescription)"
+                self.lastError = LocalizedCopy.format("BLE write error: %@", error.localizedDescription)
             }
         }
     }

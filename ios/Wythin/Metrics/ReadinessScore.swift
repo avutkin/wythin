@@ -76,6 +76,6 @@ enum ReadinessScore {
             verdict: value >= IndexBand.keepAbove ? "good to train on"
                    : value >= IndexBand.actBelow  ? "an ordinary day"
                                                   : "arrived under-recovered",
-            detail: "vs your last \(peerCount)")
+            detail: LocalizedCopy.format("vs your last %d", peerCount))
     }
 }

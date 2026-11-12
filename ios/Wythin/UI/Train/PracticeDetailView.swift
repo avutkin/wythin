@@ -31,7 +31,7 @@ struct PracticeDetailView: View {
                     metaRow
                     if !practice.states.isEmpty { stateRow }
                     if !practice.tags.isEmpty { tagRow }
-                    Text(practice.description)
+                    Text(LocalizedCopy.text(practice.description))
                         .font(Theme.monoBody)
                         .foregroundStyle(Theme.text.opacity(0.85))
                         .fixedSize(horizontal: false, vertical: true)
@@ -110,10 +110,10 @@ struct PracticeDetailView: View {
                     .padding(.vertical, 4)
                     .background(.black.opacity(0.25), in: Capsule())
                 }
-                Text(practice.title)
+                Text(LocalizedCopy.text(practice.title))
                     .font(Theme.display(26))
                     .foregroundStyle(.white)
-                Text(practice.subtitle)
+                Text(LocalizedCopy.text(practice.subtitle))
                     .font(Theme.monoBody)
                     .foregroundStyle(.white.opacity(0.9))
             }
@@ -128,9 +128,9 @@ struct PracticeDetailView: View {
 
     private var metaRow: some View {
         HStack(spacing: 16) {
-            metaItem(icon: "clock", text: "\(practice.defaultDurationMins) min")
+            metaItem(icon: "clock", text: LocalizedCopy.format("%d min", practice.defaultDurationMins))
             metaItem(icon: practice.activityType.icon,
-                     text: practice.subtype ?? practice.activityType.rawValue)
+                     text: LocalizedCopy.text(practice.subtype ?? practice.activityType.rawValue))
             metaItem(icon: "square.grid.2x2", text: practice.category.label)
             Spacer()
         }
@@ -167,7 +167,7 @@ struct PracticeDetailView: View {
     private var tagRow: some View {
         HStack(spacing: 8) {
             ForEach(practice.tags, id: \.self) { tag in
-                Text(tag)
+                Text(LocalizedCopy.text(tag))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.breathe)
                     .padding(.horizontal, 10)
@@ -203,21 +203,21 @@ struct PracticeDetailView: View {
                 showLogSheet = true
             }
         case .pacer:
-            actionButton(title: "Start \(practice.title)", icon: "play.fill", filled: true) {
+            actionButton(title: LocalizedCopy.format("Start %@", LocalizedCopy.text(practice.title)), icon: "play.fill", filled: true) {
                 showPacer = true
             }
             actionButton(title: "Log it", icon: "checkmark.circle", filled: false) {
                 showLogSheet = true
             }
         case .scripted:
-            actionButton(title: "Start \(practice.title)", icon: "play.fill", filled: true) {
+            actionButton(title: LocalizedCopy.format("Start %@", LocalizedCopy.text(practice.title)), icon: "play.fill", filled: true) {
                 showScripted = true
             }
             actionButton(title: "Log it", icon: "checkmark.circle", filled: false) {
                 showLogSheet = true
             }
         case .holdTrainer:
-            actionButton(title: "Set up \(practice.title)", icon: "timer", filled: true) {
+            actionButton(title: LocalizedCopy.format("Set up %@", LocalizedCopy.text(practice.title)), icon: "timer", filled: true) {
                 showHold = true
             }
             actionButton(title: "Log it", icon: "checkmark.circle", filled: false) {
@@ -231,7 +231,7 @@ struct PracticeDetailView: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
-                Text(title)
+                Text(LocalizedCopy.text(title))
             }
             .font(Theme.mono(15))
             .fontWeight(.medium)
@@ -262,7 +262,7 @@ struct PracticeDetailView: View {
                             .fill(Theme.accent.opacity(0.7))
                             .frame(width: 4, height: 4)
                             .padding(.top, 6)
-                        Text(line)
+                        Text(LocalizedCopy.text(line))
                             .font(Theme.monoBody)
                             .foregroundStyle(Theme.text.opacity(0.85))
                             .fixedSize(horizontal: false, vertical: true)
@@ -303,7 +303,7 @@ struct PracticeDetailView: View {
             Image(systemName: icon)
                 .font(.system(size: 10))
                 .foregroundStyle(Theme.accent)
-            Text(title)
+            Text(LocalizedCopy.text(title))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
                 .tracking(1)
@@ -350,12 +350,12 @@ private struct EvidenceCard: View {
                         .foregroundStyle(Theme.dim)
                 }
 
-                Text(study.title)
+                Text(LocalizedCopy.text(study.title))
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(Theme.text.opacity(0.9))
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text(study.finding)
+                Text(LocalizedCopy.text(study.finding))
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(Theme.dim)
                     .fixedSize(horizontal: false, vertical: true)

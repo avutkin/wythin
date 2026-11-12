@@ -98,11 +98,11 @@ enum RestorativeScore {
     /// Plain-language read. Describes the practice, never the practitioner.
     static func caption(_ score: Int) -> String {
         switch score {
-        case 80...:   return "deeply restorative"
-        case 60..<80: return "restorative"
-        case 40..<60: return "settling"
-        case 20..<40: return "lightly settling"
-        default:      return "held steady"
+        case 80...:   return LocalizedCopy.text("deeply restorative")
+        case 60..<80: return LocalizedCopy.text("restorative")
+        case 40..<60: return LocalizedCopy.text("settling")
+        case 20..<40: return LocalizedCopy.text("lightly settling")
+        default:      return LocalizedCopy.text("held steady")
         }
     }
 }

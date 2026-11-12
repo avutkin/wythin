@@ -126,6 +126,7 @@ struct DayPotentialStrip: View {
     // MARK: This week
 
     private static let weekdayLetters = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+        .map { LocalizedCopy.text($0) }
 
     /// Monday-through-Sunday context for the current calendar week, spread
     /// across the same width as the capsule beneath it so each letter sits
@@ -310,7 +311,7 @@ struct DayPotentialStrip: View {
                         .foregroundStyle(accent)
                         .padding(.top, 1)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("WHAT TODAY CAN HOLD")
+                        Text(LocalizedCopy.text("WHAT TODAY CAN HOLD"))
                             .font(Theme.monoLabel)
                             .foregroundStyle(accent)
                         Text(rec)
@@ -330,7 +331,7 @@ struct DayPotentialStrip: View {
         }
         if let load = store.loadLine {
             Divider().overlay(Theme.dim.opacity(0.2))
-            Text("HOW THE DAY HAS GONE SO FAR")
+            Text(LocalizedCopy.text("HOW THE DAY HAS GONE SO FAR"))
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.dim)
             Text(styled(load))
@@ -348,7 +349,7 @@ struct DayPotentialStrip: View {
             Image(systemName: "sun.max.fill")
                 .font(.system(size: 13))
                 .foregroundStyle(Theme.warn)
-            Text("Three quiet minutes with the strap on keeps it going.")
+            Text(LocalizedCopy.text("Three quiet minutes with the strap on keeps it going."))
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.text)
         }
@@ -363,10 +364,11 @@ struct DayPotentialStrip: View {
 
     private func anchorMeta(_ a: AnchorReading) -> String {
         let mins = Int((a.durationSec / 60).rounded())
-        let hh = Int(a.hour)
-        let mm = Int((a.hour - Double(hh)) * 60)
-        return String(format: "%@ · %02d:%02d · %d MIN STILL",
-                      a.late ? "LATER READ" : "MORNING READ", hh, mm, mins)
+        let clock = DateFormatter()
+        clock.setLocalizedDateFormatFromTemplate("jm")
+        return LocalizedCopy.format("%@ · %@ · %d MIN STILL",
+                      a.late ? LocalizedCopy.text("LATER READ") : LocalizedCopy.text("MORNING READ"),
+                      clock.string(from: a.startedAt), mins)
     }
 
     private func styled(_ s: String) -> AttributedString {

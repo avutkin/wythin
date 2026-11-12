@@ -240,7 +240,12 @@ enum TrackSeriesBuilder {
         // The chart's own reference line: the previous period's average,
         // absent entirely (not defaulted to anything) when there wasn't one.
         let referenceLines: [TrackReferenceLine] = priorAverage.map {
-            [TrackReferenceLine(value: $0, label: "prior \(range.period.priorNoun) avg")]
+            let label: String = switch range.period {
+            case .week: LocalizedCopy.text("prior week avg")
+            case .month: LocalizedCopy.text("prior month avg")
+            case .sixMonth: LocalizedCopy.text("prior 6 months avg")
+            }
+            return [TrackReferenceLine(value: $0, label: label)]
         } ?? []
         let chartBetterCount: Int? = priorAverage.map { prior in
             let priorBenefit = spec.def.direction.benefit(prior)
@@ -262,9 +267,27 @@ enum TrackSeriesBuilder {
     /// prior period to compare against at all, which reads differently from
     /// "0 of 7" (an actual, comparably worse period).
     private static func summary(period: TrackPeriod, better: Int?, total: Int) -> String {
-        guard total > 0 else { return "No data this period." }
-        guard let better else { return "No prior \(period.priorNoun) to compare yet." }
-        let noun = total == 1 ? period.bucketNoun.singular : period.bucketNoun.plural
-        return "\(better) of \(total) \(noun) better than prior \(period.priorNoun)."
+        guard total > 0 else { return LocalizedCopy.text("No data this period.") }
+        guard let better else {
+            switch period {
+            case .week: return LocalizedCopy.text("No prior week to compare yet.")
+            case .month: return LocalizedCopy.text("No prior month to compare yet.")
+            case .sixMonth: return LocalizedCopy.text("No prior 6 months to compare yet.")
+            }
+        }
+        switch period {
+        case .week:
+            return total == 1
+                ? LocalizedCopy.format("%d of %d day better than prior week.", better, total)
+                : LocalizedCopy.format("%d of %d days better than prior week.", better, total)
+        case .month:
+            return total == 1
+                ? LocalizedCopy.format("%d of %d day better than prior month.", better, total)
+                : LocalizedCopy.format("%d of %d days better than prior month.", better, total)
+        case .sixMonth:
+            return total == 1
+                ? LocalizedCopy.format("%d of %d month better than prior 6 months.", better, total)
+                : LocalizedCopy.format("%d of %d months better than prior 6 months.", better, total)
+        }
     }
 }

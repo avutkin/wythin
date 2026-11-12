@@ -38,7 +38,7 @@ final class TrainSession {
 
     var durationString: String {
         let mins = Int((duration / 60).rounded())
-        return "\(mins) min"
+        return LocalizedCopy.format("%d min", mins)
     }
 
     var isActive: Bool { endedAt == nil }

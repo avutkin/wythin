@@ -17,7 +17,7 @@ struct HRVAnalysisView: View {
     private var powerSpectrumCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("HRV POWER SPECTRUM")
+                Text(LocalizedCopy.text("HRV POWER SPECTRUM"))
                     .font(Theme.monoBody).foregroundStyle(Theme.text)
                 Spacer()
                 legendDot("VLF", Theme.dim)
@@ -31,7 +31,7 @@ struct HRVAnalysisView: View {
                     .filter { $0.0 <= 0.5 }
                     .map { PSDCanvas.Pt(f: Double($0.0), p: Double($0.1)) })
             } else {
-                noData("Need 30+ RR intervals")
+                noData(LocalizedCopy.text("Need 30+ RR intervals"))
             }
         }
         .cardChartStyle()
@@ -40,12 +40,12 @@ struct HRVAnalysisView: View {
     private func coherenceCard(_ t: MetricsTick) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("RR–BREATHING COHERENCE")
+                Text(LocalizedCopy.text("RR–BREATHING COHERENCE"))
                     .font(Theme.monoBody).foregroundStyle(Theme.text)
                 Spacer()
                 if let score = t.coherenceScore {
                     let col: Color = score > 0.6 ? Theme.coh : score > 0.3 ? Theme.rsa : Theme.warn
-                    Text(String(format: "score %.2f", score))
+                    Text(LocalizedCopy.format("score %.2f", score))
                         .font(Theme.monoLabel).foregroundStyle(col)
                 }
             }
@@ -56,7 +56,7 @@ struct HRVAnalysisView: View {
                     .filter { $0.0 >= 0.04 && $0.0 <= 0.5 }
                     .map { CohCanvas.Pt(f: Double($0.0), c: Double($0.1)) })
             } else {
-                noData("Collecting coherence data…")
+                noData(LocalizedCopy.text("Collecting coherence data…"))
             }
         }
         .cardChartStyle()
@@ -233,7 +233,7 @@ private struct CohCanvas: View {
             // X-axis labels
             for f in [0.04, 0.1, 0.2, 0.3, 0.4, 0.5] {
                 ctx.draw(
-                    Text(String(format: "%.2f", f))
+                    Text(String(format: "%.2f", locale: .current, f))
                         .font(.system(size: 8, design: .monospaced))
                         .foregroundStyle(Theme.dim),
                     at: CGPoint(x: tx(f), y: plotH + axisH / 2),

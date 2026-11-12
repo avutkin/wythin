@@ -18,10 +18,10 @@ struct CheckInSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(kind.title)
+                    Text(LocalizedCopy.text(kind.title))
                         .font(.system(size: 22, weight: .bold))
                         .foregroundStyle(Theme.text)
-                    Text(kind.helper)
+                    Text(LocalizedCopy.text(kind.helper))
                         .font(.system(size: 13))
                         .foregroundStyle(Theme.dim)
                 }

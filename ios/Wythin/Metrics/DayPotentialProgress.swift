@@ -284,11 +284,11 @@ enum DayPotentialCrownCopy {
     /// about the user's own data the first time a day is skipped.
     static func countLabel(current: Int, total: Int) -> String? {
         guard total > 0 else { return nil }
-        guard total > 1 else { return "1 day of measurement" }
+        guard total > 1 else { return LocalizedCopy.text("1 day of measurement") }
         if current == total {
-            return "\(total) consecutive days of measurement"
+            return LocalizedCopy.format("%d consecutive days of measurement", total)
         }
-        return "\(total) days of measurement"
+        return LocalizedCopy.format("%d days of measurement", total)
     }
 
     /// The line beneath the progress bar. Points at the next crown rather
@@ -298,19 +298,25 @@ enum DayPotentialCrownCopy {
     /// day it renders. Describes the bar's own measurement (mornings until
     /// the next crown) and nothing about the calendar week shown above it.
     ///
-    /// Names the colour of that next crown via `CrownLadder.nextCrownColor`,
-    /// the same function the trailing silhouette reads its tint from — so a
-    /// week that is about to collapse into a red or green crown is always
-    /// described in the same word the silhouette is painted, never "yellow"
-    /// in prose next to a red outline.
+    /// Names the colour from `CrownLadder.nextCrownColor`, the same function
+    /// that tints the trailing silhouette. Each localized sentence keeps the
+    /// colour's grammatical form together with the crown noun.
     static func nudgeText(forMorningCount mornings: Int) -> String {
         guard mornings > 0 else {
-            return "Record a morning to start your first crown."
+            return LocalizedCopy.text("Record a morning to start your first crown.")
         }
         let remainder = mornings % 7
         let toNext = remainder == 0 ? 7 : 7 - remainder
-        let noun = toNext == 1 ? "day" : "days"
-        let colorWord = CrownLadder.nextCrownColor(forMorningCount: mornings).word
-        return "\(toNext) \(noun) to your next \(colorWord) crown"
+        let color = CrownLadder.nextCrownColor(forMorningCount: mornings)
+        switch (color, toNext == 1) {
+        case (.white, true): return LocalizedCopy.text("1 day to your next white crown")
+        case (.yellow, true): return LocalizedCopy.text("1 day to your next yellow crown")
+        case (.red, true): return LocalizedCopy.text("1 day to your next red crown")
+        case (.green, true): return LocalizedCopy.text("1 day to your next green crown")
+        case (.white, false): return LocalizedCopy.format("%d days to your next white crown", toNext)
+        case (.yellow, false): return LocalizedCopy.format("%d days to your next yellow crown", toNext)
+        case (.red, false): return LocalizedCopy.format("%d days to your next red crown", toNext)
+        case (.green, false): return LocalizedCopy.format("%d days to your next green crown", toNext)
+        }
     }
 }

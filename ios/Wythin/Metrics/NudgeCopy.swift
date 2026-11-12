@@ -28,45 +28,45 @@ enum NudgeInterventionLibrary {
 
     static let all: [NudgeIntervention] = [
         .init(id: .resonance,
-              title: "Slow breathing",
+              title: LocalizedCopy.text("Slow breathing"),
               minutes: 5,
-              actionLabel: "Start 5-minute reset",
-              why: "Breathing at about six a minute is the pace your heart rhythm swings widest at, which settles the whole system.",
+              actionLabel: LocalizedCopy.text("Start 5-minute reset"),
+              why: LocalizedCopy.text("Breathing at about six a minute is the pace your heart rhythm swings widest at, which settles the whole system."),
               requiresLeavingDesk: false, isSilent: false, needsPacerHolds: false),
 
         .init(id: .sighing,
-              title: "Sighing breaths",
+              title: LocalizedCopy.text("Sighing breaths"),
               minutes: 5,
-              actionLabel: "Take 5 minutes",
-              why: "A double in-breath then a long sigh out, which shifts how you feel faster than anything else this short.",
+              actionLabel: LocalizedCopy.text("Take 5 minutes"),
+              why: LocalizedCopy.text("A double in-breath then a long sigh out, which shifts how you feel faster than anything else this short."),
               requiresLeavingDesk: false, isSilent: false, needsPacerHolds: true),
 
         .init(id: .box,
-              title: "Box breathing",
+              title: LocalizedCopy.text("Box breathing"),
               minutes: 5,
-              actionLabel: "Start box breathing",
-              why: "Equal counts in, hold, out, hold — easy to remember and you can do it without anyone noticing.",
+              actionLabel: LocalizedCopy.text("Start box breathing"),
+              why: LocalizedCopy.text("Equal counts in, hold, out, hold — easy to remember and you can do it without anyone noticing."),
               requiresLeavingDesk: false, isSilent: true, needsPacerHolds: true),
 
         .init(id: .observe,
-              title: "Just watch your breath",
+              title: LocalizedCopy.text("Just watch your breath"),
               minutes: 10,
-              actionLabel: "Sit for 10 minutes",
-              why: "No pacing, no counting — just following the breath. Works anywhere, including in a meeting.",
+              actionLabel: LocalizedCopy.text("Sit for 10 minutes"),
+              why: LocalizedCopy.text("No pacing, no counting — just following the breath. Works anywhere, including in a meeting."),
               requiresLeavingDesk: false, isSilent: true, needsPacerHolds: false),
 
         .init(id: .stretch,
-              title: "Gentle stretches",
+              title: LocalizedCopy.text("Gentle stretches"),
               minutes: 8,
-              actionLabel: "Stretch for a bit",
-              why: "Easy positions you hold and relax into — supported, never straining. Straining does the opposite.",
+              actionLabel: LocalizedCopy.text("Stretch for a bit"),
+              why: LocalizedCopy.text("Easy positions you hold and relax into — supported, never straining. Straining does the opposite."),
               requiresLeavingDesk: false, isSilent: true, needsPacerHolds: false),
 
         .init(id: .walk,
-              title: "A short walk",
+              title: LocalizedCopy.text("A short walk"),
               minutes: 10,
-              actionLabel: "Start a walk",
-              why: "Ten minutes moving, outside and in daylight if you can — it restores focus better than pushing on does.",
+              actionLabel: LocalizedCopy.text("Start a walk"),
+              why: LocalizedCopy.text("Ten minutes moving, outside and in daylight if you can — it restores focus better than pushing on does."),
               requiresLeavingDesk: true, isSilent: false, needsPacerHolds: false),
     ]
 
@@ -114,32 +114,32 @@ enum NudgeCopy {
         switch id {
         case .vagalWithdrawal:
             return NudgeContent(
-                title: "You've been running hot",
-                body: "Your stress dial has been climbing for half an hour and is sitting in the revved-up zone. A few minutes of slow breathing brings it down.",
+                title: LocalizedCopy.text("You've been running hot"),
+                body: LocalizedCopy.text("Your stress dial has been climbing for half an hour and is sitting in the revved-up zone. A few minutes of slow breathing brings it down."),
                 options: options)
 
         case .sustainedLoad:
             return NudgeContent(
-                title: "You've been at it a while",
-                body: "Ninety minutes of steady output, and your recovery signal is drifting down with it. Ten minutes away from the screen restores more than pushing through does.",
+                title: LocalizedCopy.text("You've been at it a while"),
+                body: LocalizedCopy.text("Ninety minutes of steady output, and your recovery signal is drifting down with it. Ten minutes away from the screen restores more than pushing through does."),
                 options: options)
 
         case .stuckStill:
             return NudgeContent(
-                title: "You've been still for a while",
-                body: "Nearly an hour without moving. Ten minutes outside — ideally daylight — resets more than you'd expect.",
+                title: LocalizedCopy.text("You've been still for a while"),
+                body: LocalizedCopy.text("Nearly an hour without moving. Ten minutes outside — ideally daylight — resets more than you'd expect."),
                 options: options)
 
         case .acuteSpike:
             return NudgeContent(
-                title: "Something just landed",
-                body: "Your heart rate jumped without you moving. A few minutes of slow breathing takes the edge off before it settles in.",
+                title: LocalizedCopy.text("Something just landed"),
+                body: LocalizedCopy.text("Your heart rate jumped without you moving. A few minutes of slow breathing takes the edge off before it settles in."),
                 options: options)
 
         case .focusWindow:
             return NudgeContent(
-                title: "This was your window",
-                body: "You were calm, steady and clear for a long stretch. Worth protecting that slot tomorrow.",
+                title: LocalizedCopy.text("This was your window"),
+                body: LocalizedCopy.text("You were calm, steady and clear for a long stretch. Worth protecting that slot tomorrow."),
                 options: [])
         }
     }

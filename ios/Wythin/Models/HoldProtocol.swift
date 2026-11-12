@@ -16,9 +16,9 @@ enum HoldPhase: Int, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .inhale: return "INHALE"
-        case .exhale: return "EXHALE"
-        case .hold:   return "HOLD"
+        case .inhale: return LocalizedCopy.text("INHALE")
+        case .exhale: return LocalizedCopy.text("EXHALE")
+        case .hold:   return LocalizedCopy.text("HOLD")
         }
     }
 }
@@ -48,7 +48,7 @@ struct HoldProtocol: Equatable, Hashable {
 
     /// "20s × 5" — the shape of the session in the fewest characters that still
     /// say both numbers.
-    var label: String { "\(holdSeconds)s × \(sets)" }
+    var label: String { LocalizedCopy.format("%ds × %d", holdSeconds, sets) }
 
     /// Time under hold across the whole session, which is the number that
     /// actually describes the dose.

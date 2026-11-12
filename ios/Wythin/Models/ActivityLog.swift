@@ -144,7 +144,7 @@ struct ImpactCoverage: Equatable {
 
     /// "avg of 7/8 metrics" — printed under the headline so the denominator is
     /// never implicit.
-    var summary: String { "avg of \(counted)/\(total) metrics" }
+    var summary: String { LocalizedCopy.format("avg of %d/%d metrics", counted, total) }
 }
 
 // MARK: - ActivityLog
@@ -466,18 +466,20 @@ final class ActivityLog {
 
     private static func gapReason(_ def: ActivityMetricDef,
                                   during: Double?, before: Double?) -> String {
-        let warmUp = def.warmUp.map { " It needs \($0) of steady signal before it can be computed at all." } ?? ""
+        let warmUp = def.warmUp.map {
+            LocalizedCopy.format(" It needs %@ of steady signal before it can be computed at all.", LocalizedCopy.text($0))
+        } ?? ""
         switch (before, during) {
         case (nil, nil):
-            return "No reading either before or during the session.\(warmUp)"
+            return LocalizedCopy.format("No reading either before or during the session.%@", warmUp)
         case (nil, _):
-            return "No baseline in the five minutes before you started, so there is nothing to compare against.\(warmUp)"
+            return LocalizedCopy.format("No baseline in the five minutes before you started, so there is nothing to compare against.%@", warmUp)
         case (_, nil):
-            return "No reading during the session itself."
+            return LocalizedCopy.text("No reading during the session itself.")
         default:
             // Both present, so benefitDelta bailed on a zero baseline: the
             // percentage would be a division by zero.
-            return "The baseline was zero, so a percentage change is undefined."
+            return LocalizedCopy.text("The baseline was zero, so a percentage change is undefined.")
         }
     }
 
@@ -501,14 +503,20 @@ final class ActivityLog {
     var isActive: Bool { endedAt == nil && !isManual }
 
     var displayName: String {
-        if let sub = activitySubtype { return sub }
-        if activityType == ActivityType.custom.rawValue { return customName ?? "Custom" }
-        return activityType
+        if let sub = activitySubtype {
+            // Only catalogued choices are app copy. A remembered subtype is
+            // text the person entered and must keep its exact spelling.
+            return activityTypeEnum.subtypes.contains(sub) ? LocalizedCopy.text(sub) : sub
+        }
+        if activityType == ActivityType.custom.rawValue { return customName ?? LocalizedCopy.text("Custom") }
+        return LocalizedCopy.text(activityType)
     }
 
     /// The parent type label (e.g. "Exercise" even when displayName is "Yoga")
     var typeLabel: String {
-        activityType == ActivityType.custom.rawValue ? (customName ?? "Custom") : activityType
+        activityType == ActivityType.custom.rawValue
+            ? (customName ?? LocalizedCopy.text("Custom"))
+            : LocalizedCopy.text(activityType)
     }
 
     var activityTypeEnum: ActivityType {
@@ -522,7 +530,9 @@ final class ActivityLog {
     var durationString: String {
         guard let d = duration else { return "—" }
         let mins = Int((d / 60).rounded())
-        return mins < 60 ? "\(mins) min" : String(format: "%d h %02d min", mins / 60, mins % 60)
+        return mins < 60
+            ? LocalizedCopy.format("%d min", mins)
+            : LocalizedCopy.format("%d h %02d min", mins / 60, mins % 60)
     }
 
     /// RSA delta during practice (during − before). Positive = nervous system activated/improved.
@@ -1156,17 +1166,17 @@ final class ActivityLog {
     /// wording rather than the number — "cheaper than usual" is a comparison,
     /// and a comparison cannot be the score when there is nothing to compare to.
     var suppressionAxis: AxisValue {
-        if vagalRoseDuring { return .unavailable(reason: "vagal tone rose — nothing suppressed") }
+        if vagalRoseDuring { return .unavailable(reason: LocalizedCopy.text("vagal tone rose — nothing suppressed")) }
         // The same case by another route: vagalRoseDuring needs a VSI fit, which
         // sparse or restored samples may not support — but a non-positive
         // brake-per-beat says the same thing directly. DC held or rose, nothing
         // was released, and clamping it to a perfect 100 dressed a gentle yoga
         // as flawless suppression.
         if let perBeat = brakePerBeat, perBeat <= 0 {
-            return .unavailable(reason: "vagal tone held — nothing released")
+            return .unavailable(reason: LocalizedCopy.text("vagal tone held — nothing released"))
         }
         guard let score = ExerciseSuppression.economyScore(brakePerBeat: brakePerBeat) else {
-            return .unavailable(reason: "not enough heart-rate rise to measure")
+            return .unavailable(reason: LocalizedCopy.text("not enough heart-rate rise to measure"))
         }
         let word = suppressionScore.map(ExerciseResponse.word(for:))
             ?? ExerciseResponse.word(for: score)
@@ -1192,7 +1202,7 @@ final class ActivityLog {
     /// looking recovered and being recovered.
     var heartRateRecoveryAxis: AxisValue {
         guard let score = HeartRateRecovery.score(hrr60: hrr60Bpm) else {
-            return .unavailable(reason: "ended too easy to measure a fall")
+            return .unavailable(reason: LocalizedCopy.text("ended too easy to measure a fall"))
         }
         return .score(score, word: ExerciseResponse.word(for: score))
     }
@@ -1205,8 +1215,8 @@ final class ActivityLog {
             // A session that never withdrew the brake is not a session with a
             // short recording, and saying so blamed the strap for a quiet hour.
             return .unavailable(reason: vagalExcursionScorable
-                                ? "not enough recording after"
-                                : "the brake barely dipped")
+                                ? LocalizedCopy.text("not enough recording after")
+                                : LocalizedCopy.text("the brake barely dipped"))
         }
         return .score(score, word: ExerciseResponse.word(for: score))
     }

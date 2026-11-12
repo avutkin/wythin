@@ -28,11 +28,11 @@ struct PracticeImpactMeter: View {
     var body: some View {
         VStack(spacing: 12) {
             VStack(spacing: 2) {
-                Text(String(format: "%+.0f%%", delta))
+                Text(String(format: "%+.0f%%", locale: .current, delta))
                     .font(.system(size: 42, weight: .bold, design: .rounded))
                     .foregroundStyle(barColor)
                     .monospacedDigit()
-                Text(caption)
+                Text(LocalizedCopy.text(caption))
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Text("avg change, before → during")

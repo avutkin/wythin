@@ -15,11 +15,11 @@ import SwiftData
 enum LiveWhyBand {
     static func text(for effective: Float) -> String {
         switch effective {
-        case 1.0...:         return "well above your usual"
-        case 0.35..<1.0:     return "above your usual"
-        case -0.35..<0.35:   return "right around your usual"
-        case -1.0 ..< -0.35: return "below your usual"
-        default:             return "well below your usual"
+        case 1.0...:         return LocalizedCopy.text("well above your usual")
+        case 0.35..<1.0:     return LocalizedCopy.text("above your usual")
+        case -0.35..<0.35:   return LocalizedCopy.text("right around your usual")
+        case -1.0 ..< -0.35: return LocalizedCopy.text("below your usual")
+        default:             return LocalizedCopy.text("well below your usual")
         }
     }
 
@@ -55,12 +55,14 @@ enum LiveWhyBand {
     /// the one call site, for the full reasoning and the regression test.
     static func text(level: Float, windowValue: Float, baselineCentre: Float) -> String {
         let band = text(for: level)
-        guard band != "right around your usual" else { return band }
+        guard band != LocalizedCopy.text("right around your usual") else { return band }
         guard abs(baselineCentre) > degenerateCentreThreshold else { return band }
 
         let percent = Int(((windowValue - baselineCentre) / baselineCentre * 100).rounded())
         guard percent != 0 else { return band }
-        return percent > 0 ? "\(percent)% above your usual" : "\(-percent)% below your usual"
+        return percent > 0
+            ? LocalizedCopy.format("%d%% above your usual", percent)
+            : LocalizedCopy.format("%d%% below your usual", -percent)
     }
 }
 
@@ -114,12 +116,12 @@ enum LiveWhyBar {
 /// state case the spec's error table requires be marked stale.
 enum LiveStateHeadline {
     static func text(isWeak: Bool, provisional: Bool, isStale: Bool) -> String {
-        var parts = ["CURRENT STATE"]
+        var parts = [LocalizedCopy.text("CURRENT STATE")]
         // Staleness leads: a held reading may well have been a strong call
         // when it was taken, so how old it is matters more than how firm.
-        if isStale     { parts.append("NOT UPDATING") }
-        if isWeak      { parts.append("WEAK SIGNAL") }
-        if provisional { parts.append("EARLY DAYS") }
+        if isStale     { parts.append(LocalizedCopy.text("NOT UPDATING")) }
+        if isWeak      { parts.append(LocalizedCopy.text("WEAK SIGNAL")) }
+        if provisional { parts.append(LocalizedCopy.text("EARLY DAYS")) }
         return parts.joined(separator: " · ")
     }
 }
@@ -273,7 +275,7 @@ struct LiveCollapsedRowSpec: Equatable {
                 feeling: nil,
                 iconName: insight.state?.iconName ?? "waveform.path.ecg",
                 accent:   insight.state?.color ?? Theme.accent,
-                label:   "CURRENT STATE",
+                label:   LocalizedCopy.text("CURRENT STATE"),
                 isExpandable: false)
         }
         return nil
@@ -289,11 +291,11 @@ struct LiveCollapsedRowSpec: Equatable {
 enum LiveEmptyStateCopy {
     static func text(hasBaseline: Bool, isConnected: Bool) -> String {
         guard hasBaseline else {
-            return "Building your baseline — check back in a few days."
+            return LocalizedCopy.text("Building your baseline — check back in a few days.")
         }
         return isConnected
-            ? "Reading your first window…"
-            : "No recent reading — connect your strap to see your current state."
+            ? LocalizedCopy.text("Reading your first window…")
+            : LocalizedCopy.text("No recent reading — connect your strap to see your current state.")
     }
 }
 
@@ -654,7 +656,7 @@ struct LiveStateWidget: View {
         if !insight.bullets.isEmpty {
             let accent = insight.state?.color ?? Theme.accent
             VStack(alignment: .leading, spacing: 8) {
-                Text("WHAT THIS MEANS")
+                Text(LocalizedCopy.text("WHAT THIS MEANS"))
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
                     .foregroundStyle(Theme.dim)
                 ForEach(Array(insight.bullets.enumerated()), id: \.offset) { _, bullet in
@@ -683,7 +685,7 @@ struct LiveStateWidget: View {
                 .foregroundStyle(accent)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
-                Text("RIGHT NOW")
+                Text(LocalizedCopy.text("RIGHT NOW"))
                     .font(Theme.monoLabel)
                     .foregroundStyle(accent)
                 Text(text)
@@ -708,7 +710,7 @@ struct LiveStateWidget: View {
     @ViewBuilder
     private func whyList(_ state: LiveStateResult, reading: LiveReading) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("WHY")
+            Text(LocalizedCopy.text("WHY"))
                 .font(.system(size: 12, weight: .bold, design: .monospaced))
                 .foregroundStyle(Theme.text)
             ForEach(state.contributions, id: \.metric) { c in

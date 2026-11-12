@@ -36,7 +36,7 @@ struct ResonateView: View {
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.dim)
                         Spacer()
-                        Text(String(format: "%.1f br/min", targetBPM))
+                        Text(LocalizedCopy.format("%.1f br/min", targetBPM))
                             .font(Theme.monoBody)
                             .foregroundStyle(Theme.accent)
                     }

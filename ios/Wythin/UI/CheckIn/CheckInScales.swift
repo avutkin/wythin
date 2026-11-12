@@ -185,7 +185,7 @@ struct FeltStateScaleRow: View {
         VStack(alignment: .leading, spacing: 6) {
             // The scale's name in white, a size up from a caption: it is
             // the question being answered, not a label on a chart.
-            Text(key.label)
+            Text(LocalizedCopy.text(key.label))
                 .font(.system(size: 14, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Theme.text)
             GeometryReader { geo in
@@ -222,15 +222,17 @@ struct FeltStateScaleRow: View {
             // The ends of the scale in plain white: they are the only words
             // that say what a position means, so they must read at a glance.
             HStack {
-                Text(key.leftAnchor)
+                Text(LocalizedCopy.text(key.leftAnchor))
                 Spacer()
-                Text(key.rightAnchor)
+                Text(LocalizedCopy.text(key.rightAnchor))
             }
             .font(.system(size: 12, weight: .medium))
             .foregroundStyle(Theme.text)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(key.label)
-        .accessibilityValue(value.map { "\(Int($0.rounded())) of 100" } ?? "not set")
+        .accessibilityLabel(LocalizedCopy.text(key.label))
+        .accessibilityValue(value.map {
+            LocalizedCopy.format("%lld of 100", Int($0.rounded()))
+        } ?? LocalizedCopy.text("not set"))
     }
 }

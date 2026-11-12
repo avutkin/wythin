@@ -17,7 +17,7 @@ struct ActivityLogRow: View {
 
     private var timeStr: String {
         let fmt = DateFormatter()
-        fmt.dateFormat = "HH:mm"
+        fmt.timeStyle = .short
         let start = fmt.string(from: entry.startedAt)
         if let end = entry.endedAt {
             return "\(start)–\(fmt.string(from: end))"
@@ -61,7 +61,7 @@ struct ActivityLogRow: View {
             let before = entry[keyPath: def.beforeKey].map(Double.init)
             let during = entry[keyPath: def.duringKey].map(Double.init)
             let after  = Self.afterKeys[def.label].flatMap { entry[keyPath: $0] }.map(Double.init)
-            return Reading(label: def.label,
+            return Reading(label: LocalizedCopy.text(def.label),
                            durPct: def.rawBenefitDelta(current: during, base: before),
                            durValue: def.format(during),
                            aftPct: def.rawBenefitDelta(current: after, base: before),
@@ -95,7 +95,7 @@ struct ActivityLogRow: View {
         if let before = entry.beforeHR.map(Double.init),
            let during = entry.duringHR.map(Double.init),
            during - before >= ActivityClass.activatingHRRise {
-            return "PULSE ROSE \(Int((during - before).rounded())) BPM"
+            return LocalizedCopy.format("PULSE ROSE %d BPM", Int((during - before).rounded()))
         }
         return "NO PULSE RISE"
     }
@@ -130,7 +130,7 @@ struct ActivityLogRow: View {
                         .font(.system(size: 14, weight: .medium, design: .monospaced))
                         .foregroundStyle(Theme.text)
                         .lineLimit(1)
-                    Text(chipText)
+                    Text(LocalizedCopy.text(chipText))
                         .font(.system(size: 7, weight: .semibold, design: .monospaced))
                         .tracking(0.7)
                         .foregroundStyle(Theme.hrv)
@@ -200,7 +200,7 @@ struct ActivityLogRow: View {
                     }
                     if crowned { laurel("laurel.trailing") }
                 }
-                Text(verdict)
+                Text(LocalizedCopy.text(verdict))
                     .font(.system(size: 11, design: .monospaced))
                     .tracking(0.8)
                     .foregroundStyle(crowned ? Theme.accent : Theme.dim)
@@ -227,7 +227,7 @@ struct ActivityLogRow: View {
         HStack(spacing: 14) {
             Text("DUR — during")
             Text("AFT — 10 min after")
-            Text("\(improvedCount)/9 improved")
+            Text(LocalizedCopy.format("%d/9 improved", improvedCount))
         }
         .font(.system(size: 9, design: .monospaced))
         .foregroundStyle(Theme.dim)
@@ -293,7 +293,7 @@ private struct MetricCell: View {
                 .foregroundStyle(Theme.dim)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            Text(tag)
+            Text(LocalizedCopy.text(tag))
                 .font(.system(size: 7, design: .monospaced))
                 .tracking(0.8)
                 .foregroundStyle(Theme.dim)
