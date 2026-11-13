@@ -20,6 +20,10 @@ struct CheckInLedger: Codable, Equatable {
     /// The day the previous-day review was shown, answered or not.
     var previousDayShownDayKey: String?
 
+    /// Shared lower bound for every survey, including the onboarding baseline.
+    /// This is a scheduling guard, not a clinical answer timestamp.
+    var nextPromptAllowedAt: Date?
+
     static let defaultsKey = "checkIn.ledger"
 
     static func load(from defaults: UserDefaults = .standard) -> CheckInLedger {
@@ -54,6 +58,29 @@ enum CheckInDayKey {
 }
 
 enum CheckInScheduler {
+    static let minimumSpacing: TimeInterval = 60 * 60
+
+    static func canAsk(now: Date, ledger: CheckInLedger) -> Bool {
+        ledger.nextPromptAllowedAt.map { now >= $0 } ?? true
+    }
+
+    /// A review/onboarding answer can arrive after the moment notification was
+    /// queued. Move that request too, without moving it outside the day's window.
+    static func postponingPendingMoment(_ ledger: CheckInLedger,
+                                         calendar: Calendar = .current) -> CheckInLedger {
+        var next = ledger
+        guard let allowed = next.nextPromptAllowedAt, let fire = next.momentFireAt,
+              next.momentPresentedDayKey != next.momentAskedDayKey,
+              fire < allowed else { return next }
+        let day = calendar.startOfDay(for: fire)
+        guard let close = calendar.date(byAdding: .hour, value: askWindowCloseHour, to: day) else {
+            next.momentFireAt = nil
+            return next
+        }
+        next.momentFireAt = allowed < close ? allowed : nil
+        return next
+    }
+
     /// How long the strap has to have been on before a moment can be asked.
     static let wearLead: TimeInterval = 10 * 60
     /// The random spread after that, so the ask does not always land on the
@@ -77,7 +104,7 @@ enum CheckInScheduler {
         let today = calendar.startOfDay(for: now)
         guard let open = calendar.date(byAdding: .hour, value: askWindowOpenHour, to: today),
               let close = calendar.date(byAdding: .hour, value: askWindowCloseHour, to: today) else { return nil }
-        let eligible = max(wornSince.addingTimeInterval(wearLead), open)
+        let eligible = max(wornSince.addingTimeInterval(wearLead), open, ledger.nextPromptAllowedAt ?? .distantPast)
         let fire = eligible.addingTimeInterval(random(0...jitter))
         guard fire < close else { return nil }
         return fire
@@ -96,7 +123,7 @@ enum CheckInScheduler {
         let todayKey = CheckInDayKey.string(for: now, calendar: calendar)
         guard ledger.momentAskedDayKey == todayKey, let fireAt = ledger.momentFireAt,
               ledger.momentPresentedDayKey != todayKey else { return .notYet }
-        guard now >= fireAt else { return .notYet }
+        guard now >= fireAt, canAsk(now: now, ledger: ledger) else { return .notYet }
         return now.timeIntervalSince(fireAt) > staleAfter ? .stale : .present
     }
 
@@ -116,7 +143,7 @@ enum CheckInScheduler {
     /// Yesterday's key when the review is due now, else nil.
     static func previousDayDue(now: Date, ledger: CheckInLedger, hadStrapDataYesterday: Bool,
                                calendar: Calendar = .current) -> String? {
-        guard hadStrapDataYesterday else { return nil }
+        guard hadStrapDataYesterday, canAsk(now: now, ledger: ledger) else { return nil }
         let todayKey = CheckInDayKey.string(for: now, calendar: calendar)
         guard ledger.previousDayShownDayKey != todayKey else { return nil }
         let yesterday = CheckInDayKey.yesterdayRange(now: now, calendar: calendar).lowerBound

@@ -113,7 +113,11 @@ struct OnboardingFlow: View {
                 progress: step.progress,
                 state: $profile.state,
                 onBack: { go(.goals) },
-                onContinue: { persist(); go(.practices) }
+                onContinue: {
+                    persist()
+                    if profile.state.isAnswered { env.checkIns.recordOnboardingAnswer() }
+                    go(.practices)
+                }
             )
 
         case .practices:

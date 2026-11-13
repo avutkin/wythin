@@ -13,10 +13,20 @@ final class CheckInCoordinatorTests: XCTestCase {
         var scheduled: [Date] = []
         var cancelCount = 0
         var clearCount = 0
+        var pendingFireAt: Date?
+        var suspendNextSchedule = false
+        var scheduleContinuation: CheckedContinuation<Void, Never>?
         func authorizationStatus() async -> UNAuthorizationStatus { status }
         func requestAuthorization() async -> Bool { status = .authorized; return true }
-        func schedule(fireAt: Date, now: Date) async { scheduled.append(fireAt) }
-        func cancelPending() { cancelCount += 1 }
+        func schedule(fireAt: Date, now: Date) async {
+            if suspendNextSchedule {
+                suspendNextSchedule = false
+                await withCheckedContinuation { scheduleContinuation = $0 }
+            }
+            scheduled.append(fireAt)
+            pendingFireAt = fireAt
+        }
+        func cancelPending() { cancelCount += 1; pendingFireAt = nil }
         func clearDelivered() { clearCount += 1 }
     }
 
@@ -332,18 +342,162 @@ final class CheckInCoordinatorTests: XCTestCase {
         XCTAssertEqual(notifier.clearCount, 2)
     }
 
-    func testTheReviewGoesFirstAndTheMomentFollowsIt() {
+    func testTheReviewAndMomentAreSeparatedByAFullHourEvenWhenSkipped() {
         addSample(at: at(2026, 9, 13, 15, 0))
         var ledger = CheckInLedger()
         ledger.momentAskedDayKey = "2026-09-14"
-        ledger.momentFireAt = at(2026, 9, 14, 7, 50)
+        ledger.momentFireAt = at(2026, 9, 14, 8, 30)
         ledger.save(to: defaults)
-        let c = makeCoordinator()          // 08:02: both due
+        let c = makeCoordinator()          // 08:02: review due before the moment
         c.canPresent = true
         c.appDidBecomeActive()
         XCTAssertEqual(c.presented, .previousDay(dayKey: "2026-09-13"))
         c.skipPresented()
+        XCTAssertNil(c.presented)
+        let skippedAt = clock.now
+        clock.now = skippedAt.addingTimeInterval(3599)
+        c.appDidBecomeActive()
+        XCTAssertNil(c.presented)
+        clock.now = skippedAt.addingTimeInterval(3600)
+        c.appDidBecomeActive()
         XCTAssertEqual(c.presented?.kind, .moment)
+    }
+
+    func testExistingRecentAnswerBlocksTheReviewUntilAFullHourPasses() {
+        let saved = addSavedAnswer()
+        saved.timestamp = clock.now.addingTimeInterval(-300)
+        try! container.mainContext.save()
+        addSample(at: at(2026, 9, 13, 15, 0))
+        let c = makeCoordinator()
+        c.canPresent = true
+        XCTAssertNil(c.presented)
+        clock.now = saved.timestamp.addingTimeInterval(3599)
+        c.appDidBecomeActive()
+        XCTAssertNil(c.presented)
+        clock.now = saved.timestamp.addingTimeInterval(3600)
+        c.appDidBecomeActive()
+        XCTAssertEqual(c.presented?.kind, .previousDay)
+    }
+
+    func testUnfinishedOnboardingCannotScheduleASystemCheckIn() async {
+        let c = makeCoordinator()
+        let worn = clock.now.addingTimeInterval(-900)
+        c.strapPolled(connected: true, wornSince: worn, now: clock.now, isForeground: false)
+        await allowScheduledUpload()
+        XCTAssertTrue(notifier.scheduled.isEmpty)
+    }
+
+    func testLegacyOnboardingAnswerGetsOneConservativeHourWithoutInventingACheckIn() {
+        var profile = ClientProfile()
+        profile.state.stress = 0
+        ClientProfileStore(defaults: defaults).save(profile)
+        addSample(at: at(2026, 9, 13, 15, 0))
+        let start = clock.now
+        let c = makeCoordinator()
+        c.canPresent = true
+        XCTAssertNil(c.presented)
+        XCTAssertTrue(fetchLogs().isEmpty)
+        clock.now = start.addingTimeInterval(3599)
+        let relaunched = makeCoordinator()
+        relaunched.canPresent = true
+        XCTAssertNil(relaunched.presented)
+        clock.now = start.addingTimeInterval(3600)
+        relaunched.appDidBecomeActive()
+        XCTAssertEqual(relaunched.presented?.kind, .previousDay)
+    }
+
+    func testOnboardingAnswerIsSeparateAndPostponesTheFirstMomentAcrossRelaunch() async {
+        let c = makeCoordinator()
+        let answeredAt = clock.now
+        c.recordOnboardingAnswer()
+        XCTAssertTrue(fetchLogs().isEmpty, "baseline must not become a 0–100 check-in")
+        clock.now = answeredAt.addingTimeInterval(300)
+        let relaunched = makeCoordinator()
+        relaunched.canPresent = true
+        relaunched.strapPolled(connected: true, wornSince: answeredAt, now: clock.now, isForeground: true)
+        await allowScheduledUpload()
+        XCTAssertNil(relaunched.presented)
+        guard let fire = notifier.pendingFireAt else { return XCTFail("expected deferred notification") }
+        XCTAssertGreaterThanOrEqual(fire, at(2026, 9, 14, 9, 2))
+        clock.now = answeredAt.addingTimeInterval(3599)
+        relaunched.appDidBecomeActive()
+        XCTAssertNil(relaunched.presented)
+        clock.now = fire
+        relaunched.appDidBecomeActive()
+        XCTAssertEqual(relaunched.presented?.kind, .moment)
+    }
+
+    func testAnsweringLaterRestartsTheHourAndDefersNotificationUntilAfterCompletion() async {
+        addSample(at: at(2026, 9, 13, 15, 0))
+        var ledger = CheckInLedger()
+        ledger.momentAskedDayKey = "2026-09-14"
+        ledger.momentFireAt = at(2026, 9, 14, 8, 30)
+        ledger.save(to: defaults)
+        let c = makeCoordinator()
+        c.canPresent = true
+        await allowScheduledUpload()
+        XCTAssertEqual(c.presented?.kind, .previousDay)
+        XCTAssertNil(notifier.pendingFireAt, "do not send another survey while this one is open")
+        clock.now = at(2026, 9, 14, 8, 20)
+        var draft = FeltStateDraft.empty
+        draft.sleep = 35
+        c.save(draft, for: .previousDay(dayKey: "2026-09-13"))
+        await allowScheduledUpload()
+        XCTAssertEqual(notifier.pendingFireAt, at(2026, 9, 14, 9, 20))
+        clock.now = at(2026, 9, 14, 9, 20).addingTimeInterval(-1)
+        c.appDidBecomeActive()
+        XCTAssertNil(c.presented)
+        clock.now = at(2026, 9, 14, 9, 20)
+        c.appDidBecomeActive()
+        XCTAssertEqual(c.presented?.kind, .moment)
+    }
+
+    func testDueMomentNotificationOpensItsOwnSurveyAndDefersTheReview() {
+        addSample(at: at(2026, 9, 13, 15, 0))
+        var ledger = CheckInLedger()
+        ledger.momentAskedDayKey = "2026-09-14"
+        ledger.momentFireAt = at(2026, 9, 14, 8, 0)
+        ledger.save(to: defaults)
+        let c = makeCoordinator() // open two minutes after the banner
+        c.canPresent = true
+        XCTAssertEqual(c.presented?.kind, .moment)
+        c.skipPresented()
+        XCTAssertNil(c.presented)
+        clock.now = at(2026, 9, 14, 9, 1).addingTimeInterval(59)
+        c.strapPolled(connected: false, wornSince: nil, now: clock.now, isForeground: true)
+        XCTAssertNil(c.presented)
+        clock.now = at(2026, 9, 14, 9, 2)
+        c.strapPolled(connected: false, wornSince: nil, now: clock.now, isForeground: true)
+        XCTAssertEqual(c.presented?.kind, .previousDay)
+    }
+
+    func testNotificationAlreadyBeingAddedCannotRestoreAnEarlyPromptAfterCooldownChanges() async {
+        let c = makeCoordinator()
+        c.canPresent = true
+        notifier.suspendNextSchedule = true
+        c.strapPolled(connected: true, wornSince: clock.now, now: clock.now, isForeground: false)
+        for _ in 0..<100 where notifier.scheduleContinuation == nil { await Task.yield() }
+        guard let continuation = notifier.scheduleContinuation else { return XCTFail("notification add did not start") }
+        clock.now = at(2026, 9, 14, 8, 10)
+        c.recordOnboardingAnswer()
+        continuation.resume()
+        await allowScheduledUpload()
+        XCTAssertEqual(notifier.pendingFireAt, at(2026, 9, 14, 9, 10))
+    }
+
+    func testStaleMomentCannotBeEnqueuedByADelayedNotificationAdd() async {
+        let c = makeCoordinator()
+        c.canPresent = true
+        notifier.suspendNextSchedule = true
+        c.strapPolled(connected: true, wornSince: clock.now, now: clock.now, isForeground: false)
+        for _ in 0..<100 where notifier.scheduleContinuation == nil { await Task.yield() }
+        guard let continuation = notifier.scheduleContinuation else { return XCTFail("notification add did not start") }
+        clock.now = at(2026, 9, 14, 10, 0)
+        c.appDidBecomeActive()
+        XCTAssertNil(c.presented)
+        continuation.resume()
+        await allowScheduledUpload()
+        XCTAssertNil(notifier.pendingFireAt)
     }
 
     func testTheLedgerSurvivesARelaunch() {
