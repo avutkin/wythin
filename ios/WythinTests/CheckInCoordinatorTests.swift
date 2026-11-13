@@ -21,9 +21,13 @@ final class CheckInCoordinatorTests: XCTestCase {
     }
 
     private final class RecordingClient: FeltStateAPIClient, @unchecked Sendable {
+        let baseURL = URL(string: "https://checkin-tests.example")!
         var payloads: [FeltStateUploadPayload] = []
+        var shouldFail = false
+        struct Offline: Error {}
         func uploadFeltStateLog(_ payload: FeltStateUploadPayload, userID: String) async throws {
             payloads.append(payload)
+            if shouldFail { throw Offline() }
         }
     }
 
@@ -64,10 +68,11 @@ final class CheckInCoordinatorTests: XCTestCase {
         super.tearDown()
     }
 
-    private func makeCoordinator() -> CheckInCoordinator {
+    private func makeCoordinator(saveContext: ((ModelContext) throws -> Void)? = nil) -> CheckInCoordinator {
         let clock = self.clock!
         return CheckInCoordinator(container: container, notifier: notifier, client: client,
-                                  userID: "u", defaults: defaults, calendar: cal, clock: { clock.now })
+                                  userID: "u", defaults: defaults, calendar: cal,
+                                  saveContext: saveContext ?? { try $0.save() }, clock: { clock.now })
     }
 
     private func addSample(at date: Date) {
@@ -79,6 +84,112 @@ final class CheckInCoordinatorTests: XCTestCase {
 
     private func fetchLogs() -> [FeltStateLog] {
         (try? container.mainContext.fetch(FetchDescriptor<FeltStateLog>())) ?? []
+    }
+
+    // MARK: Recovery without another answer
+
+    private func addSavedAnswer() -> FeltStateLog {
+        let log = FeltStateLog(timestamp: clock.now.addingTimeInterval(-3600), kind: "moment",
+                               focus: 65, energy: nil, stress: nil, mood: nil, anxiety: nil,
+                               sleep: nil, dayKey: "2026-09-14", timezone: "America/Los_Angeles",
+                               wornMinutes: 12, stateKey: nil)
+        container.mainContext.insert(log)
+        try! container.mainContext.save()
+        return log
+    }
+
+    private func allowScheduledUpload() async {
+        for _ in 0..<100 { await Task.yield() }
+    }
+
+    func testReturningToForegroundRetriesSavedAnswersWithoutAnotherAnswer() async {
+        let log = addSavedAnswer()
+        let c = makeCoordinator()
+        client.shouldFail = true
+        c.appDidBecomeActive()
+        await allowScheduledUpload()
+        XCTAssertEqual(client.payloads.map(\.id), [log.id.uuidString])
+
+        client.shouldFail = false
+        c.appDidBecomeActive()
+        await allowScheduledUpload()
+        XCTAssertEqual(client.payloads.map(\.id), [log.id.uuidString, log.id.uuidString])
+        XCTAssertEqual(fetchLogs().count, 1, "retry must keep the original answer")
+    }
+
+    func testForegroundPollRetriesAfterNetworkRecoveryEvenWithoutAStrap() async {
+        let log = addSavedAnswer()
+        let c = makeCoordinator()
+        client.shouldFail = true
+        c.appDidBecomeActive()
+        await allowScheduledUpload()
+        XCTAssertEqual(client.payloads.count, 1)
+
+        client.shouldFail = false
+        let start = clock.now
+        clock.now = start.addingTimeInterval(59)
+        c.strapPolled(connected: false, wornSince: nil, now: clock.now, isForeground: true)
+        await allowScheduledUpload()
+        XCTAssertEqual(client.payloads.count, 1, "do not retry every five-second poll")
+
+        clock.now = start.addingTimeInterval(60)
+        c.strapPolled(connected: false, wornSince: nil, now: clock.now, isForeground: false)
+        await allowScheduledUpload()
+        XCTAssertEqual(client.payloads.count, 1, "the periodic retry is foreground-only")
+
+        c.strapPolled(connected: false, wornSince: nil, now: clock.now, isForeground: true)
+        await allowScheduledUpload()
+        XCTAssertEqual(client.payloads.map(\.id), [log.id.uuidString, log.id.uuidString])
+    }
+
+    func testCloudSyncOffKeepsAnswerLocalUntilSyncIsEnabled() async {
+        defaults.set(false, forKey: "cloudSyncEnabled")
+        let c = makeCoordinator()
+        var draft = FeltStateDraft.empty
+        draft.energy = 72
+        c.save(draft, for: .moment(fireAt: clock.now, wornMinutes: 12))
+        await c.flushPendingAnswers()
+        await allowScheduledUpload()
+        XCTAssertEqual(fetchLogs().count, 1)
+        XCTAssertTrue(client.payloads.isEmpty, "cloud-off answers must stay on the phone")
+
+        defaults.set(true, forKey: "cloudSyncEnabled")
+        c.requestSync()
+        await allowScheduledUpload()
+        XCTAssertEqual(client.payloads.count, 1)
+        XCTAssertEqual(client.payloads.first?.energy, 72)
+    }
+
+    func testFailedLocalSaveKeepsTheSheetAndRetrySavesOnlyOneAnswer() async {
+        struct DiskFailure: Error {}
+        var shouldFailSave = true
+        let c = makeCoordinator { context in
+            if shouldFailSave { throw DiskFailure() }
+            try context.save()
+        }
+        let prompt = CheckInPrompt.previousDay(dayKey: "2026-09-13")
+        c.presented = prompt
+        var draft = FeltStateDraft.empty
+        draft.sleep = 35
+        draft.focus = 60
+
+        c.save(draft, for: prompt)
+        await allowScheduledUpload()
+        XCTAssertEqual(c.presented, prompt, "failed save must leave the draft on screen")
+        XCTAssertNotNil(c.saveError)
+        XCTAssertTrue(fetchLogs().isEmpty, "failed inserted row must not enter the upload queue")
+        XCTAssertTrue(client.payloads.isEmpty)
+
+        shouldFailSave = false
+        c.save(draft, for: prompt)
+        await allowScheduledUpload()
+        XCTAssertNil(c.presented)
+        XCTAssertNil(c.saveError)
+        let logs = fetchLogs()
+        XCTAssertEqual(logs.count, 1, "retry must not leave a duplicate answer")
+        XCTAssertEqual(logs.first?.sleep, 35)
+        XCTAssertEqual(logs.first?.focus, 60)
+        XCTAssertEqual(client.payloads.count, 1)
     }
 
     // MARK: Previous day

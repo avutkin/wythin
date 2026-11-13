@@ -7,7 +7,7 @@ import SwiftData
 /// strap is on, 10–15 minutes into a wear, about right now. A `previous_day`
 /// is asked on the first open of a day, about yesterday as a whole; `dayKey`
 /// names that day. `timestamp` is always the instant the answer was saved,
-/// never back-dated — the uploader's watermark keys on it.
+/// never the day being reviewed. Upload acknowledgements are per answer, not per date.
 ///
 /// Each scale is optional, and `nil` means something different from any
 /// in-range number: the user never touched that scale. A default (e.g. 50)
@@ -47,6 +47,10 @@ final class FeltStateLog {
     var timezone: String?
     /// How long the strap had been on when a moment was asked, in minutes.
     var wornMinutes: Double?
+    /// Destination that acknowledged this exact answer. Optional for lightweight
+    /// migration: every pre-fix row is replayed once, including old watermarked rows.
+    /// Stored with the answer so a crash cannot leave a separate cursor ahead of it.
+    var uploadedDestination: String?
 
     init(timestamp: Date = .now, kind: String?, focus: Double?, energy: Double?, stress: Double?,
          mood: Double?, anxiety: Double?, sleep: Double?, dayKey: String?, timezone: String?,

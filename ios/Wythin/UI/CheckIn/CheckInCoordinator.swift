@@ -48,11 +48,13 @@ final class CheckInCoordinator {
     /// The sheet offers a one-line "remind me when the app is closed" while
     /// notification permission has never been asked for.
     private(set) var needsNotificationOptIn = false
+    /// A failed local save leaves the sheet (and its draft) in place for retry.
+    private(set) var saveError: String?
 
     private let container: ModelContainer
     private let notifier: CheckInNotifying
-    private let client: FeltStateAPIClient
-    private let userID: String
+    private let uploader: FeltStateLogUploader
+    private let saveContext: (ModelContext) throws -> Void
     private let defaults: UserDefaults
     private let clock: () -> Date
     private let calendar: Calendar
@@ -61,14 +63,17 @@ final class CheckInCoordinator {
         didSet { ledger.save(to: defaults) }
     }
     private var wornSince: Date?
+    private var lastSyncAttemptAt: Date?
+    private let syncRetryInterval: TimeInterval = 60
 
     init(container: ModelContainer, notifier: CheckInNotifying, client: FeltStateAPIClient,
          userID: String, defaults: UserDefaults = .standard, calendar: Calendar = .current,
+         saveContext: @escaping (ModelContext) throws -> Void = { try $0.save() },
          clock: @escaping () -> Date = { .now }) {
         self.container = container
         self.notifier = notifier
-        self.client = client
-        self.userID = userID
+        self.uploader = FeltStateLogUploader(client: client, userID: userID, defaults: defaults)
+        self.saveContext = saveContext
         self.defaults = defaults
         self.calendar = calendar
         self.clock = clock
@@ -80,6 +85,12 @@ final class CheckInCoordinator {
     /// Called every few seconds by the strap-watching loop in `AppEnvironment`.
     /// `wornSince` is when the current wear began, nil when the strap is off.
     func strapPolled(connected: Bool, wornSince: Date?, now: Date, isForeground: Bool) {
+        // Network recovery must not depend on wearing the strap or answering
+        // another prompt. This loop already runs while the strap is off.
+        if isForeground,
+           lastSyncAttemptAt.map({ now < $0 || now.timeIntervalSince($0) >= syncRetryInterval }) ?? true {
+            requestSync(now: now)
+        }
         self.wornSince = connected ? wornSince : nil
         guard connected, let wornSince else {
             // Off before the ask fired: the day has not been asked after all.
@@ -108,7 +119,20 @@ final class CheckInCoordinator {
     /// Called on launch and on every return to the foreground — including the
     /// one a notification tap causes.
     func appDidBecomeActive(now: Date? = nil) {
-        evaluate(now: now ?? clock())
+        let now = now ?? clock()
+        requestSync(now: now)
+        evaluate(now: now)
+    }
+
+    /// All lifecycle triggers share one uploader, including its in-flight
+    /// coalescing and cloud-sync preference checks.
+    func requestSync(now: Date? = nil) {
+        lastSyncAttemptAt = now ?? clock()
+        Task { await flushPendingAnswers() }
+    }
+
+    func flushPendingAnswers() async {
+        await uploader.flushPending(context: container.mainContext)
     }
 
     // MARK: Outputs
@@ -125,15 +149,24 @@ final class CheckInCoordinator {
             log = draft.makeLog(kind: .previousDay, dayKey: dayKey, wornMinutes: nil, now: now)
         }
         context.insert(log)
-        try? context.save()
+        do {
+            try saveContext(context)
+        } catch {
+            // Discard only this unsuccessful insertion, without rolling back
+            // unrelated metric samples in the shared main context.
+            context.delete(log)
+            saveError = "Couldn't save your answers. Please try again."
+            return
+        }
+        saveError = nil
         presented = nil
-        let client = self.client, userID = self.userID
-        Task { await FeltStateLogUploader(client: client, userID: userID).flushPending(context: context) }
+        requestSync(now: now)
         evaluate(now: now)
     }
 
     /// Skip, or a swipe-down. The day stays marked as shown.
     func skipPresented() {
+        saveError = nil
         presented = nil
         evaluate(now: clock())
     }
@@ -176,6 +209,7 @@ final class CheckInCoordinator {
     }
 
     private func present(_ prompt: CheckInPrompt) {
+        saveError = nil
         presented = prompt
         Task {
             needsNotificationOptIn = await notifier.authorizationStatus() == .notDetermined
