@@ -43,7 +43,14 @@ final class CheckInCoordinator {
     /// sheet (the cloud-sync notice) is on screen. A second sheet on the same
     /// view fails silently, so nothing is presented until this is true.
     var canPresent = false {
-        didSet { if canPresent, !oldValue { evaluate(now: clock()) } }
+        didSet {
+            if canPresent, !oldValue {
+                evaluate(now: clock())
+                schedulePendingNotification(now: clock())
+            } else if !canPresent, oldValue {
+                invalidateNotification()
+            }
+        }
     }
     /// The sheet offers a one-line "remind me when the app is closed" while
     /// notification permission has never been asked for.
@@ -65,6 +72,8 @@ final class CheckInCoordinator {
     private var wornSince: Date?
     private var lastSyncAttemptAt: Date?
     private let syncRetryInterval: TimeInterval = 60
+    private var notificationRevision = 0
+    private var notificationTask: Task<Void, Never>?
 
     init(container: ModelContainer, notifier: CheckInNotifying, client: FeltStateAPIClient,
          userID: String, defaults: UserDefaults = .standard, calendar: Calendar = .current,
@@ -77,7 +86,21 @@ final class CheckInCoordinator {
         self.defaults = defaults
         self.calendar = calendar
         self.clock = clock
-        self.ledger = CheckInLedger.load(from: defaults)
+        var ledger = CheckInLedger.load(from: defaults)
+        if ledger.nextPromptAllowedAt == nil {
+            var latest = FetchDescriptor<FeltStateLog>(sortBy: [SortDescriptor(\.timestamp, order: .reverse)])
+            latest.fetchLimit = 1
+            if let answer = try? container.mainContext.fetch(latest).first {
+                ledger.nextPromptAllowedAt = answer.timestamp.addingTimeInterval(CheckInScheduler.minimumSpacing)
+            } else if ClientProfileStore(defaults: defaults).load().state.isAnswered {
+                // Old profiles have no answer time. Wait once after upgrading;
+                // do not fabricate a baseline timestamp or a regular check-in.
+                ledger.nextPromptAllowedAt = clock().addingTimeInterval(CheckInScheduler.minimumSpacing)
+            }
+        }
+        self.ledger = CheckInScheduler.postponingPendingMoment(ledger, calendar: calendar)
+        self.ledger.save(to: defaults)
+        if ledger.momentFireAt != nil { notifier.cancelPending() }
     }
 
     // MARK: Inputs
@@ -95,23 +118,18 @@ final class CheckInCoordinator {
         guard connected, let wornSince else {
             // Off before the ask fired: the day has not been asked after all.
             if CheckInScheduler.shouldCancelOnStrapOff(now: now, ledger: ledger) {
-                notifier.cancelPending()
+                invalidateNotification()
                 ledger = CheckInScheduler.cancelled(ledger)
             }
+            if isForeground { evaluate(now: now) }
             return
         }
+        guard canPresent else { return }
         if let fireAt = CheckInScheduler.momentFireTime(wornSince: wornSince, now: now, ledger: ledger,
                                                         calendar: calendar) {
             ledger.momentAskedDayKey = CheckInDayKey.string(for: now, calendar: calendar)
             ledger.momentFireAt = fireAt
-            // Hand it to the OS now: the process is unlikely to be awake at
-            // fireAt. Without permission there is nothing to hand over; the
-            // foreground poll still presents the sheet when the time comes.
-            Task {
-                if await notifier.authorizationStatus() == .authorized {
-                    await notifier.schedule(fireAt: fireAt, now: now)
-                }
-            }
+            schedulePendingNotification(now: now)
         }
         if isForeground { evaluate(now: now) }
     }
@@ -160,15 +178,61 @@ final class CheckInCoordinator {
         }
         saveError = nil
         presented = nil
+        recordInteraction(now: now)
         requestSync(now: now)
         evaluate(now: now)
     }
 
     /// Skip, or a swipe-down. The day stays marked as shown.
     func skipPresented() {
+        guard presented != nil else { return }
         saveError = nil
         presented = nil
-        evaluate(now: clock())
+        let now = clock()
+        recordInteraction(now: now)
+        evaluate(now: now)
+    }
+
+    /// The baseline remains in ClientProfile (0–10); only its timing participates
+    /// in the common survey spacing rule.
+    func recordOnboardingAnswer(now: Date? = nil) {
+        recordInteraction(now: now ?? clock())
+    }
+
+    private func recordInteraction(now: Date) {
+        let hadPendingMoment = ledger.momentFireAt != nil &&
+            ledger.momentPresentedDayKey != ledger.momentAskedDayKey
+        ledger.nextPromptAllowedAt = max(ledger.nextPromptAllowedAt ?? .distantPast,
+                                        now.addingTimeInterval(CheckInScheduler.minimumSpacing))
+        ledger = CheckInScheduler.postponingPendingMoment(ledger, calendar: calendar)
+        invalidateNotification()
+        if hadPendingMoment { notifier.clearDelivered() }
+        schedulePendingNotification(now: now)
+    }
+
+    private func invalidateNotification() {
+        notificationRevision += 1
+        notifier.cancelPending()
+    }
+
+    private func schedulePendingNotification(now: Date) {
+        guard canPresent, presented == nil, let fireAt = ledger.momentFireAt,
+              ledger.momentAskedDayKey == CheckInDayKey.string(for: now, calendar: calendar),
+              ledger.momentPresentedDayKey != ledger.momentAskedDayKey else { return }
+        let revision = notificationRevision
+        let previous = notificationTask
+        // Serialize OS adds. An older add may finish after cancelPending; it
+        // must be removed before the replacement is added, not after it.
+        notificationTask = Task { [weak self] in
+            await previous?.value
+            guard let self, revision == self.notificationRevision else { return }
+            guard await self.notifier.authorizationStatus() == .authorized,
+                  revision == self.notificationRevision else { return }
+            let scheduledAt = max(now, self.clock())
+            guard scheduledAt.timeIntervalSince(fireAt) <= CheckInScheduler.staleAfter else { return }
+            await self.notifier.schedule(fireAt: fireAt, now: scheduledAt)
+            if revision != self.notificationRevision { self.notifier.cancelPending() }
+        }
     }
 
     func allowNotifications() {
@@ -181,36 +245,39 @@ final class CheckInCoordinator {
     // MARK: Decision
 
     private func evaluate(now: Date) {
-        guard canPresent, presented == nil else { return }
+        guard canPresent, presented == nil, CheckInScheduler.canAsk(now: now, ledger: ledger) else { return }
         let todayKey = CheckInDayKey.string(for: now, calendar: calendar)
 
-        // The previous-day review goes first; the moment waits its turn.
-        if ledger.previousDayShownDayKey != todayKey,
-           let yesterdayKey = CheckInScheduler.previousDayDue(
-                now: now, ledger: ledger,
-                hadStrapDataYesterday: hadStrapData(yesterdayOf: now), calendar: calendar) {
-            ledger.previousDayShownDayKey = todayKey
-            present(.previousDay(dayKey: yesterdayKey))
-            return
-        }
-
+        // If the moment's banner already fired, open that same survey. Showing
+        // the review first would ask two different questions within minutes.
         switch CheckInScheduler.momentDue(now: now, ledger: ledger, calendar: calendar) {
         case .notYet:
             break
         case .stale:
+            invalidateNotification()
             ledger.momentPresentedDayKey = todayKey
             notifier.clearDelivered()
         case .present:
             ledger.momentPresentedDayKey = todayKey
             notifier.clearDelivered()
             let worn = wornSince.map { now.timeIntervalSince($0) / 60 }
-            present(.moment(fireAt: ledger.momentFireAt ?? now, wornMinutes: worn))
+            present(.moment(fireAt: ledger.momentFireAt ?? now, wornMinutes: worn), now: now)
+            return
+        }
+
+        if ledger.previousDayShownDayKey != todayKey,
+           let yesterdayKey = CheckInScheduler.previousDayDue(
+                now: now, ledger: ledger,
+                hadStrapDataYesterday: hadStrapData(yesterdayOf: now), calendar: calendar) {
+            ledger.previousDayShownDayKey = todayKey
+            present(.previousDay(dayKey: yesterdayKey), now: now)
         }
     }
 
-    private func present(_ prompt: CheckInPrompt) {
+    private func present(_ prompt: CheckInPrompt, now: Date) {
         saveError = nil
         presented = prompt
+        recordInteraction(now: now)
         Task {
             needsNotificationOptIn = await notifier.authorizationStatus() == .notDetermined
         }
