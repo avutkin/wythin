@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, HTTPException
 
 from ..db import get_pool, get_or_create_user
 from ..models import FeltStateLogUpload, UploadResponse
@@ -42,8 +42,13 @@ async def save_felt_state(body: FeltStateLogUpload,
     updates = ", ".join(f"{c} = COALESCE(EXCLUDED.{c}, felt_state_logs.{c})" for c in _COLS)
     sql = (
         f"INSERT INTO felt_state_logs ({', '.join(cols)}) VALUES ({placeholders}) "
-        f"ON CONFLICT (client_id) DO UPDATE SET {updates} RETURNING id"
+        f"ON CONFLICT (client_id) DO UPDATE SET {updates} "
+        "WHERE felt_state_logs.user_id = EXCLUDED.user_id RETURNING id"
     )
     async with get_pool().acquire() as conn:
         row = await conn.fetchrow(sql, *vals)
+    if row is None:
+        # A local row can survive an identity change. Never acknowledge that
+        # upload as saved for the new caller, or alter the original owner's row.
+        raise HTTPException(status_code=409, detail="check-in belongs to another user")
     return UploadResponse(id=str(row["id"]))

@@ -490,6 +490,8 @@ final class AppEnvironment {
         // arrives with no menu buttons on it.
         notifications.refreshCategories(disabled: disabledInterventions,
                                         pacerHoldsAvailable: false)
+        // Self-reports are small and must not wait behind a sensor backlog.
+        checkIns.requestSync()
         Task {
             await rawSync?.syncIfEnabled()
             await metricSync.syncIfEnabled()
@@ -500,8 +502,6 @@ final class AppEnvironment {
             await activityUploader.flushPending(context: context)
             let usageUploader = UsageUploader(client: sync.client, userID: userID)
             await usageUploader.flushPending(context: context)
-            let feltStateUploader = FeltStateLogUploader(client: sync.client, userID: userID)
-            await feltStateUploader.flushPending(context: context)
         }
     }
 

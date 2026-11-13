@@ -151,3 +151,32 @@ async def test_delete_my_data_removes_check_ins():
         assert r.status_code == 200
         assert r.json()["felt_state_logs"] >= 1
         assert await _rows("felt-del") == []
+
+
+@pytest.mark.asyncio
+async def test_replay_under_another_identity_is_rejected_without_changing_the_original():
+    """An HTTP success must mean the answer belongs to the uploading user.
+
+    Local history may survive a device identity change. A global client-id
+    collision must neither silently acknowledge that new user's upload nor
+    overwrite the original user's answer.
+    """
+    original = dict(_MOMENT, id="aaaaaaaa-0000-0000-0000-000000000077")
+    async with _client() as c:
+        first = await c.post("/felt-state-logs", json=original,
+                             headers={"X-User-ID": "felt-owner"})
+        assert first.status_code == 200, first.text
+        original_rows = await _rows("felt-owner")
+        assert len(original_rows) == 1
+
+        conflict = await c.post("/felt-state-logs", json=dict(original, mood=5.0),
+                                headers={"X-User-ID": "felt-other-owner"})
+        assert conflict.status_code == 409, conflict.text
+        assert await _rows("felt-owner") == original_rows
+        assert await _rows("felt-other-owner") == []
+
+        replay = await c.post("/felt-state-logs", json=original,
+                              headers={"X-User-ID": "felt-owner"})
+        assert replay.status_code == 200, replay.text
+        assert replay.json() == first.json()
+        assert await _rows("felt-owner") == original_rows

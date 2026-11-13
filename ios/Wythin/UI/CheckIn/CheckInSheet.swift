@@ -6,6 +6,7 @@ import SwiftUI
 struct CheckInSheet: View {
     let prompt: CheckInPrompt
     let needsNotificationOptIn: Bool
+    var saveError: String? = nil
     let onDone: (FeltStateDraft) -> Void
     let onSkip: () -> Void
     let onAllowNotifications: () -> Void
@@ -32,6 +33,12 @@ struct CheckInSheet: View {
                 }
 
                 VStack(spacing: 10) {
+                    if let saveError {
+                        Text(saveError)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Theme.warn)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                     Button { onDone(draft) } label: {
                         Text("Done")
                             .font(Theme.monoBody)

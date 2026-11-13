@@ -52,46 +52,75 @@ struct FeltStateUploadPayload: Codable {
 
 // MARK: - FeltStateLogUploader
 
-/// Uploads saved check-ins to the server, mirroring `ActivityUploader`: a
-/// UserDefaults watermark (the last uploaded `timestamp`) so a re-run only
-/// sends what's new. Flushed once at launch and again right after every
-/// save, so an answer normally reaches the server within a second of being
-/// given.
-///
-/// Main-actor isolated for the same reason as `ActivityUploader`: it operates
-/// on the caller's `ModelContext`, which belongs to the main actor.
+/// Each answer stays pending until the server acknowledges it and that receipt
+/// is saved locally. Legacy timestamp watermarks are deliberately ignored: they
+/// cannot prove which rows were actually received. The server upserts by UUID,
+/// making the one-time historical replay and retries after a lost receipt safe.
 @MainActor
 final class FeltStateLogUploader {
-
     private let client: FeltStateAPIClient
     private let userID: String
-    private let watermarkKey = "feltStateLogs.lastUploadedTimestamp"
+    private let defaults: UserDefaults
+    private let destination: String
+    private(set) var isUploading = false
+    private(set) var lastError: String?
+    private var flushRequested = false
 
-    init(client: FeltStateAPIClient, userID: String) {
+    init(client: FeltStateAPIClient, userID: String, defaults: UserDefaults = .standard) {
         self.client = client
         self.userID = userID
+        self.defaults = defaults
+        // Use the actual client's endpoint, not a setting changed before relaunch.
+        // The server resolves device IDs as case-sensitive text.
+        self.destination = client.baseURL.absoluteString + "|" + userID
+    }
+
+    private var isEnabled: Bool {
+        defaults.object(forKey: "cloudSyncEnabled") as? Bool ?? true
     }
 
     func flushPending(context: ModelContext) async {
-        let since = (UserDefaults.standard.object(forKey: watermarkKey) as? Date) ?? .distantPast
+        guard isEnabled else { return }
+        if isUploading {
+            flushRequested = true
+            return
+        }
+        isUploading = true
+        lastError = nil
+        defer { isUploading = false }
 
-        let descriptor = FetchDescriptor<FeltStateLog>(sortBy: [SortDescriptor(\.timestamp)])
-        guard let all = try? context.fetch(descriptor) else { return }
-        let pending = all.filter { $0.timestamp > since }
-        guard !pending.isEmpty else { return }
-
-        var maxTimestamp = since
-        for entry in pending {
+        repeat {
+            flushRequested = false
+            let all: [FeltStateLog]
             do {
-                try await client.uploadFeltStateLog(FeltStateUploadPayload(from: entry), userID: userID)
-                if entry.timestamp > maxTimestamp { maxTimestamp = entry.timestamp }
+                // Never upload or acknowledge an answer that failed local persistence.
+                try context.save()
+                all = try context.fetch(FetchDescriptor<FeltStateLog>(sortBy: [SortDescriptor(\.timestamp)]))
             } catch {
-                // Stop before advancing past the failure so it retries next flush.
-                break
+                lastError = "Could not read saved check-ins. They will be retried."
+                return
             }
-        }
-        if maxTimestamp > since {
-            UserDefaults.standard.set(maxTimestamp, forKey: watermarkKey)
-        }
+            for entry in all where entry.uploadedDestination != destination {
+                guard isEnabled, !Task.isCancelled else { return }
+                do {
+                    try await client.uploadFeltStateLog(FeltStateUploadPayload(from: entry), userID: userID)
+                } catch {
+                    lastError = "Check-ins are saved on this device. Upload will be retried."
+                    // A malformed/conflicting row must not hold up other answers.
+                    // Keep it pending; never convert a rejection into an acknowledgement.
+                    if let failure = error as? FeltStateUploadError, failure.isRecordRejection { continue }
+                    return
+                }
+                let previousDestination = entry.uploadedDestination
+                entry.uploadedDestination = destination
+                do {
+                    try context.save()
+                } catch {
+                    entry.uploadedDestination = previousDestination
+                    lastError = "Could not save the upload confirmation. Check-ins will be retried."
+                    return
+                }
+            }
+        } while flushRequested && isEnabled && !Task.isCancelled
     }
 }

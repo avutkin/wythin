@@ -400,9 +400,14 @@ struct APIClient {
         var req = request(path: "/felt-state-logs", method: "POST")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
-        let (_, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
+        let (data, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw FeltStateUploadError.invalidReceipt }
+        guard (200..<300).contains(http.statusCode) else {
+            throw FeltStateUploadError.httpStatus(http.statusCode)
+        }
+        guard let receipt = try? JSONDecoder().decode(UploadResponse.self, from: data),
+              let id = Int64(receipt.id), id > 0 else {
+            throw FeltStateUploadError.invalidReceipt
         }
     }
 
@@ -912,7 +917,18 @@ extension APIClient: UsageAPIClient {}
 
 /// Narrow protocol over `APIClient.uploadFeltStateLog` so `FeltStateLogUploader`
 /// can be tested with a fake instead of a real network call.
+enum FeltStateUploadError: Error {
+    case httpStatus(Int)
+    case invalidReceipt
+
+    var isRecordRejection: Bool {
+        guard case .httpStatus(let code) = self else { return false }
+        return [400, 409, 422].contains(code)
+    }
+}
+
 protocol FeltStateAPIClient {
+    var baseURL: URL { get }
     func uploadFeltStateLog(_ payload: FeltStateUploadPayload, userID: String) async throws
 }
 

@@ -177,6 +177,7 @@
 		AT63 /* CheckInSchedulerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT63 /* CheckInSchedulerTests.swift */; };
 		AT64 /* CheckInNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT64 /* CheckInNotificationTests.swift */; };
 		AT65 /* CheckInCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT65 /* CheckInCoordinatorTests.swift */; };
+		AT66 /* CheckInMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FT66 /* CheckInMigrationTests.swift */; };
 		A213 /* AnchorBaseline.swift in Sources */ = {isa = PBXBuildFile; fileRef = F213 /* AnchorBaseline.swift */; };
 		A214 /* PotentialScore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F214 /* PotentialScore.swift */; };
 		A215 /* StreakCompute.swift in Sources */ = {isa = PBXBuildFile; fileRef = F215 /* StreakCompute.swift */; };
@@ -494,6 +495,7 @@
 		FT63 /* CheckInSchedulerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInSchedulerTests.swift; sourceTree = "<group>"; };
 		FT64 /* CheckInNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInNotificationTests.swift; sourceTree = "<group>"; };
 		FT65 /* CheckInCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInCoordinatorTests.swift; sourceTree = "<group>"; };
+		FT66 /* CheckInMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInMigrationTests.swift; sourceTree = "<group>"; };
 		F213 /* AnchorBaseline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorBaseline.swift; sourceTree = "<group>"; };
 		F214 /* PotentialScore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PotentialScore.swift; sourceTree = "<group>"; };
 		F215 /* StreakCompute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakCompute.swift; sourceTree = "<group>"; };
@@ -1020,6 +1022,7 @@
 				FT63 /* CheckInSchedulerTests.swift */,
 				FT64 /* CheckInNotificationTests.swift */,
 				FT65 /* CheckInCoordinatorTests.swift */,
+				FT66 /* CheckInMigrationTests.swift */,
 				FT37 /* NudgeNotificationTests.swift */,
 				FT36 /* NudgeCopyTests.swift */,
 				FT35 /* NudgeEngineTests.swift */,
@@ -1423,6 +1426,7 @@
 				AT63 /* CheckInSchedulerTests.swift in Sources */,
 				AT64 /* CheckInNotificationTests.swift in Sources */,
 				AT65 /* CheckInCoordinatorTests.swift in Sources */,
+				AT66 /* CheckInMigrationTests.swift in Sources */,
 				AT37 /* NudgeNotificationTests.swift in Sources */,
 				AT36 /* NudgeCopyTests.swift in Sources */,
 				AT35 /* NudgeEngineTests.swift in Sources */,

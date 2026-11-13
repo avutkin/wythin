@@ -260,7 +260,8 @@ struct SettingsView: View {
                             }
                         }
                         .tint(Theme.accent)
-                        .onChange(of: cloudSyncEnabled) { _, _ in
+                        .onChange(of: cloudSyncEnabled) { _, enabled in
+                            if enabled { env.checkIns.requestSync() }
                             Task { await env.rawSync?.syncIfEnabled() }
                             Task { await env.metricSync.syncIfEnabled() }
                         }

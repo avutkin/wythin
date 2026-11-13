@@ -159,6 +159,7 @@ struct ContentView: View {
                              set: { if $0 == nil { env.checkIns.skipPresented() } })) { prompt in
             CheckInSheet(prompt: prompt,
                          needsNotificationOptIn: env.checkIns.needsNotificationOptIn,
+                         saveError: env.checkIns.saveError,
                          onDone: { env.checkIns.save($0, for: prompt) },
                          onSkip: { env.checkIns.skipPresented() },
                          onAllowNotifications: { env.checkIns.allowNotifications() })
@@ -223,6 +224,7 @@ struct ContentView: View {
             CloudSyncNoticeView(
                 onKeepOn:  {
                     cloudSyncEnabled = true
+                    env.checkIns.requestSync()
                     didShowCloudSyncNotice = true
                     showCloudNotice = false
                     Task { await env.metricSync.syncIfEnabled() }
@@ -236,6 +238,7 @@ struct ContentView: View {
                 onEnable: {
                     cloudSyncEnabled = true
                     rawCloudSyncEnabled = true
+                    env.checkIns.requestSync()
                     didShowRawArchiveNotice = true
                     showRawNotice = false
                     Task { await env.rawSync?.syncIfEnabled() }
