@@ -596,6 +596,8 @@ _TRACK_MIN_BASELINE_DAYS = 14
 
 # period -> (bucket, count) where bucket is 'day', 'week' or 'month'.
 _TRACK_PERIODS = {
+    # "day" is the bottom of the drill-down — a day bar opened hour by hour.
+    "day":       ("hour", 24),
     "week":      ("day", 7),
     "halfmonth": ("day", 15),
     "month":     ("day", 30),
@@ -617,11 +619,15 @@ _TRACK_TARGET = {"dfa1": 1.0}
 
 @router.get("/users/{user_id}/track")
 async def user_track(user_id: str, period: str = "week", offset: int = 0,
-                     tz_offset: int = 0):
-    """Per-metric daily averages over a period, with the baseline and the
+                     tz_offset: int = 0,
+                     from_: str | None = Query(None, alias="from")):
+    """Per-metric averages per bar over a period, with the baseline and the
     period-over-period delta the app's Track screen shows.
 
-    `offset` pages backwards whole periods. `tz_offset` is the viewer's JS
+    `offset` pages backwards whole periods from today. `from` (a local
+    YYYY-MM-DD) anchors the period on that date instead — how a bar opens
+    into the period it covers: a week bar as seven days, a day bar as 24
+    hours, a month bar as its calendar month. `tz_offset` is the viewer's JS
     timezone offset so days break on their midnight, not UTC's."""
     period = period if period in _TRACK_PERIODS else "week"
     bucket, count = _TRACK_PERIODS[period]
@@ -629,10 +635,35 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
     tz_offset = max(-900, min(tz_offset, 900))
     off = timedelta(minutes=tz_offset)
 
+    anchor = None
+    if from_:
+        try:
+            anchor = datetime.strptime(from_[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            anchor = None
+
     # Work in the viewer's local calendar, then shift back to UTC for the query.
     local_today = (datetime.now(timezone.utc) - off).replace(
         hour=0, minute=0, second=0, microsecond=0)
-    if bucket == "day":
+    if anchor is not None:
+        # Anchored: the whole period starts on the bar's own first day. A
+        # month opens as its calendar month, not thirty days from the first.
+        start_local = anchor if bucket != "month" else anchor.replace(day=1)
+        if period == "month":
+            start_local = anchor.replace(day=1)
+            end_local = _add_months(start_local, 1)
+        elif bucket == "hour":
+            end_local = start_local + timedelta(days=1)
+        elif bucket == "day":
+            end_local = start_local + timedelta(days=count)
+        elif bucket == "week":
+            end_local = start_local + timedelta(weeks=count)
+        else:
+            end_local = _add_months(start_local, count)
+    elif bucket == "hour":
+        end_local = local_today + timedelta(days=1 - offset)
+        start_local = end_local - timedelta(days=1)
+    elif bucket == "day":
         end_local = local_today + timedelta(days=1) - timedelta(days=count * offset)
         start_local = end_local - timedelta(days=count)
     elif bucket == "week":
@@ -667,6 +698,22 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
             user_id, off, query_from + off, end_local + off,
         )
 
+        # Hourly bars read their own aggregation: a day's bar is the mean of
+        # that hour's ticks, not a share of the day's mean.
+        hourly = {}
+        if bucket == "hour":
+            hrows = await conn.fetch(
+                f"""
+                SELECT date_trunc('hour', ts - $2::interval) AS hour, {avg_cols}
+                FROM metric_samples
+                WHERE user_id = $1::uuid AND ts >= $3 AND ts < $4
+                GROUP BY hour
+                ORDER BY hour
+                """,
+                user_id, off, prior_start_local + off, end_local + off,
+            )
+            hourly = {r["hour"].replace(tzinfo=None): r for r in hrows}
+
     daily = {r["day"]: r for r in rows}
     buckets = _track_buckets(bucket, start_local, end_local, count)
     prior_buckets = _track_buckets(bucket, prior_start_local, start_local, count)
@@ -676,7 +723,8 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
         return sum(vals) / len(vals) if vals else None
 
     def bucket_value(col, b_start, b_end):
-        return mean([daily[d][col] for d in daily if b_start <= d < b_end])
+        source = hourly if bucket == "hour" else daily
+        return mean([source[k][col] for k in source if b_start <= k < b_end])
 
     metrics = []
     for col in _METRIC_COLS:
@@ -740,9 +788,15 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
     return {
         "period": period,
         "offset": offset,
+        "from": start_local.date().isoformat() if anchor is not None else None,
         "bucket": bucket,
         "start": start_local.isoformat(),
         "end": end_local.isoformat(),
+        # Plain local dates, so the page can print the window without
+        # shifting a wall-clock midnight through a zone again.
+        "start_date": start_local.date().isoformat(),
+        "end_date": end_local.date().isoformat(),
+        "last_date": (end_local - timedelta(days=1)).date().isoformat(),
         "metrics": metrics,
     }
 
@@ -759,9 +813,17 @@ def _add_months(d: datetime, n: int) -> datetime:
 
 
 def _track_buckets(bucket: str, start: datetime, end: datetime, count: int):
-    """(label, start_date, end_date) per bar, in the viewer's calendar."""
+    """(label, start, end) per bar, in the viewer's calendar — dates for
+    day/week/month bars, naive local datetimes for hour bars."""
     out = []
-    if bucket == "day":
+    if bucket == "hour":
+        d = start.replace(tzinfo=None)
+        end = end.replace(tzinfo=None)
+        while d < end:
+            nxt = d + timedelta(hours=1)
+            out.append((f"{d.hour:02d}:00", d, nxt))
+            d = nxt
+    elif bucket == "day":
         d = start
         while d < end:
             nxt = d + timedelta(days=1)

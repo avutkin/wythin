@@ -632,6 +632,60 @@ async def test_track_daily_averages_and_baseline():
 
 
 @pytest.mark.asyncio
+async def test_track_zooms_into_a_bar():
+    """Clicking a bar drills in: a week bar opens that week day by day, a
+    day bar opens that day hour by hour, anchored on the bar's own start
+    (`from`) rather than paged back from today. Requires a database."""
+    from datetime import datetime, timezone, timedelta
+    import uuid
+
+    now = datetime.now(timezone.utc)
+    device = f"test-zoom-{uuid.uuid4().hex[:8]}"
+    # Readings at 09:00 and 15:00 UTC on each of the last 10 days; dc differs
+    # by hour so the hourly bars are tellable apart.
+    samples = []
+    for day_back in range(10):
+        for hour, value in ((9, 10.0), (15, 20.0)):
+            ts = (now - timedelta(days=day_back)).replace(hour=hour, minute=0, second=0, microsecond=0)
+            samples.append({"ts": ts.isoformat(), "dc": value, "mean_bpm": 60.0})
+    async with _client() as client:
+        r = await client.post("/v1/metrics", headers={"X-User-ID": device}, json={"samples": samples})
+        assert r.status_code in (200, 201), r.text
+        stats = (await client.get("/admin/stats", params={"range": "all"})).json()
+        uid = next(u["id"] for u in stats["users"] if u["device_id"] == device)
+
+        six = (await client.get(f"/admin/users/{uid}/track",
+                                params={"period": "sixweek", "tz_offset": 0})).json()
+        week_bar = six["metrics"][0]["bars"][-1]          # the current week
+        wk = (await client.get(f"/admin/users/{uid}/track",
+                               params={"period": "week", "from": week_bar["start"], "tz_offset": 0})).json()
+        day_bar = next(b for b in next(m for m in wk["metrics"] if m["key"] == "dc")["bars"]
+                       if b["value"] is not None)
+        day = (await client.get(f"/admin/users/{uid}/track",
+                                params={"period": "day", "from": day_bar["start"], "tz_offset": 0})).json()
+        bad = await client.get(f"/admin/users/{uid}/track", params={"period": "day", "from": "yesterday"})
+
+    # A week anchored on the bar starts exactly there and is seven days.
+    assert wk["period"] == "week" and wk["bucket"] == "day"
+    assert wk["start_date"] == week_bar["start"] and len(wk["metrics"][0]["bars"]) == 7
+    assert wk["metrics"][0]["bars"][0]["start"] == week_bar["start"]
+
+    # A day is 24 hourly bars; only the two hours with readings carry values.
+    assert day["period"] == "day" and day["bucket"] == "hour"
+    assert day["start_date"] == day_bar["start"]
+    dc = next(m for m in day["metrics"] if m["key"] == "dc")
+    assert len(dc["bars"]) == 24
+    present = {i: b["value"] for i, b in enumerate(dc["bars"]) if b["value"] is not None}
+    assert present == {9: 10.0, 15: 20.0}, present
+    assert dc["average"] == 15.0
+    # The hourly bar's start is a full timestamp, not a date.
+    assert dc["bars"][9]["start"].startswith(day_bar["start"] + "T09:00")
+
+    # An anchor that is not a date is ignored, not a 500.
+    assert bad.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_activity_series_spans_the_window():
     """The activity chart needs the metric's line across the window, not just
     three averages: five minutes before the start through ten after the end,

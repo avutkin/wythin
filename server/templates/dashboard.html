@@ -106,6 +106,18 @@
   .mini.track .cap .t .tech { color: var(--dim); opacity: .7; }
   .mini.track svg { height: 130px; }
   .mini.track .foot { font: 11px var(--mono); color: var(--dim); margin-top: 4px; }
+  /* Drill-down: a bar that opens into its own period, and the trail back out. */
+  .mini.track .tbar.drill { cursor: pointer; }
+  .mini.track .tbar.drill:hover { opacity: 1; filter: brightness(1.12); }
+  .track-trail a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .track-trail a:hover { text-decoration: underline; }
+  .track-trail .here { color: var(--text); }
+  .track-trail .sep { opacity: .5; margin: 0 4px; }
+  .track-hint { font: 11px var(--mono); color: var(--dim); margin: 10px 2px 0; }
+  /* The shared cursor: the chart under the pointer owns the readout; every
+     other chart in the grid shows the same instant with its own value. */
+  .mini svg.pinned { outline: 1px solid var(--border); border-radius: 8px; }
+  .mini .cap .v .at { font: 10px var(--mono); color: var(--dim); font-weight: 500; margin-left: 5px; }
   .ref { stroke: var(--dim); stroke-width: 1; stroke-dasharray: 4 4; opacity: .6; }
   .ref-t { opacity: .7; }
   .mini.actline svg { height: 150px; }
@@ -202,7 +214,6 @@
   .avg.better { fill: var(--accent); opacity: 1; font-weight: 650; }
   .avg.worse  { fill: var(--warn);   opacity: 1; font-weight: 650; }
   .mini.actline svg { cursor: crosshair; }
-  .mini.actline svg.pinned { outline: 1px solid var(--border); border-radius: 8px; }
   .phase { stroke: var(--text); stroke-width: 1.5; opacity: .55; stroke-dasharray: 5 3; }
   .tbar { opacity: .85; }
   .tbar.best  { stroke: var(--accent); stroke-width: 2; opacity: 1; }
@@ -302,11 +313,12 @@
               <option value="sixmonth">6 months</option>
             </select>
             <button id="track-prev" title="Previous period">‹</button>
-            <span id="track-label"></span>
+            <span id="track-label" class="track-trail"></span>
             <button id="track-next" title="Next period">›</button>
           </span>
         </h2>
         <div class="charts" id="track-charts"></div>
+        <div class="track-hint" id="track-hint"></div>
       </div>
       <div class="panel">
         <h2>Usage <span class="sub">— app opens, active time &amp; ECG recordings per day (30d)</span></h2>
@@ -667,11 +679,17 @@
     // and forward a whole window at a time.
     state.metricOffset = 0;
     state.trackOffset = 0;
-    $("#track-period").onchange = () => { state.trackOffset = 0; loadUserTrack(id).catch(() => {}); };
-    $("#track-prev").onclick = () => { state.trackOffset = (state.trackOffset || 0) + 1; loadUserTrack(id).catch(() => {}); };
+    state.trackPath = [];
+    $("#track-period").onchange = () => { state.trackOffset = 0; state.trackPath = []; loadUserTrack(id).catch(() => {}); };
+    // Zoomed in, the arrows walk the zoomed unit — the day before, the week
+    // after — rather than paging the top-level period underneath.
+    $("#track-prev").onclick = () => {
+      if (state.trackPath.length) trackShift(-1); else state.trackOffset = (state.trackOffset || 0) + 1;
+      loadUserTrack(id).catch(() => {});
+    };
     $("#track-next").onclick = () => {
-      if (!state.trackOffset) return;
-      state.trackOffset -= 1;
+      if (state.trackPath.length) trackShift(1);
+      else { if (!state.trackOffset) return; state.trackOffset -= 1; }
       loadUserTrack(id).catch(() => {});
     };
     $("#user-window").onchange = () => { state.metricOffset = 0; loadUserMetrics(id).catch(() => {}); };
@@ -831,15 +849,72 @@
   }
 
   // ── Trends: daily averages per metric, the app's Track card ─────────────
-  const TRACK_PRIOR_NOUN = { week: "week", halfmonth: "half-month", month: "month",
+  const TRACK_PRIOR_NOUN = { day: "day", week: "week", halfmonth: "half-month", month: "month",
                              sixweek: "6 weeks", sixmonth: "6 months" };
+  const TRACK_BAR_NOUN = { hour: "hours", day: "days", week: "weeks", month: "months" };
+  // What a bar opens into: a month bar as its calendar month, a week bar as
+  // seven days, a day bar as 24 hours. An hour is the bottom.
+  const TRACK_DRILL = { month: "month", week: "week", day: "day" };
+
+  // Plain local dates (YYYY-MM-DD) from the server, formatted without a zone
+  // shift — a wall-clock midnight pushed through Intl again lands on the
+  // evening before.
+  const ymdFmt = new Map();
+  const fmtYMD = (ymd, opts) => {
+    const k = JSON.stringify(opts);
+    if (!ymdFmt.has(k)) ymdFmt.set(k, new Intl.DateTimeFormat(undefined, { ...opts, timeZone: "UTC" }));
+    return ymdFmt.get(k).format(new Date(ymd.slice(0, 10) + "T00:00:00Z"));
+  };
+  const ymdShift = (ymd, period, dir) => {
+    const d = new Date(ymd.slice(0, 10) + "T00:00:00Z");
+    if (period === "month") d.setUTCMonth(d.getUTCMonth() + dir);
+    else d.setUTCDate(d.getUTCDate() + dir * (period === "week" ? 7 : 1));
+    return d.toISOString().slice(0, 10);
+  };
+  const localToday = () => { const f = fields(new Date()); return `${f.year}-${pad2(f.month)}-${pad2(f.day)}`; };
+  // The crumb for a zoom level: "Week of Nov 9", "Tue, Nov 10", "November".
+  const trackCrumb = (period, from) =>
+    period === "month" ? fmtYMD(from, { month: "long", year: "numeric" })
+    : period === "week" ? `Week of ${fmtYMD(from, F.md)}`
+    : fmtYMD(from, { weekday: "short", month: "short", day: "numeric" });
+
+  function trackShift(dir) {
+    const top = state.trackPath[state.trackPath.length - 1];
+    top.from = ymdShift(top.from, top.period, dir);
+  }
+  // A bar was clicked: push its period onto the stack and reload.
+  function trackZoomInto(bucket, start) {
+    const period = TRACK_DRILL[bucket];
+    if (!period || !state.userId) return;
+    state.trackPath.push({ period, from: start.slice(0, 10) });
+    loadUserTrack(state.userId).catch(() => {});
+  }
 
   async function loadUserTrack(id) {
-    const period = $("#track-period").value, off = state.trackOffset || 0;
-    const d = await api(`users/${id}/track?period=${period}&offset=${off}&tz_offset=${tzOffsetNow()}`);
-    const day = (iso) => when(iso, F.md);
-    $("#track-label").textContent = `${day(d.start)} → ${day(d.end)}`;
-    $("#track-next").disabled = off === 0;
+    const path = state.trackPath || [], top = path[path.length - 1];
+    const off = state.trackOffset || 0;
+    const q = top ? `period=${top.period}&from=${top.from}` : `period=${$("#track-period").value}&offset=${off}`;
+    const d = await api(`users/${id}/track?${q}&tz_offset=${tzOffsetNow()}`);
+    if (state.userId !== id) return;
+
+    // The trail: the top-level period, then each zoom level; every earlier
+    // level is a link back out.
+    const sel = $("#track-period");
+    const topLabel = top ? (state.trackTopLabel || sel.options[sel.selectedIndex].text)
+                         : `${sel.options[sel.selectedIndex].text} · ${fmtYMD(d.start_date, F.md)} → ${fmtYMD(d.last_date, F.md)}`;
+    if (!top) state.trackTopLabel = topLabel;
+    const crumbs = [`<a data-level="0">${esc(topLabel)}</a>`]
+      .concat(path.map((lv, i) => `<a data-level="${i + 1}">${esc(trackCrumb(lv.period, lv.from))}</a>`));
+    crumbs[crumbs.length - 1] = crumbs[crumbs.length - 1].replace(/^<a /, '<span class="here" ').replace(/<\/a>$/, "</span>");
+    $("#track-label").innerHTML = crumbs.join('<span class="sep">›</span>');
+    $("#track-label").querySelectorAll("a[data-level]").forEach(a => a.onclick = () => {
+      state.trackPath = path.slice(0, Number(a.dataset.level));
+      loadUserTrack(id).catch(() => {});
+    });
+    $("#track-next").disabled = top ? d.end_date > localToday() : off === 0;
+    $("#track-hint").textContent = d.bucket === "hour"
+      ? "Hour by hour. Click a crumb above to zoom back out."
+      : `Click a bar to open that ${d.bucket} ${d.bucket === "day" ? "hour by hour" : d.bucket === "week" ? "day by day" : "day by day"}.`;
 
     const host = $("#track-charts");
     host.innerHTML = LIVE_SIGNALS.map(sig => {
@@ -855,11 +930,11 @@
     const delta = m.delta_pct == null ? ""
       : `<div class="delta ${m.delta_pct >= 0 ? "up" : "down"}">${m.delta_pct >= 0 ? "▲" : "▼"} ${fmt(Math.abs(m.delta_pct), 0)}% vs prior ${TRACK_PRIOR_NOUN[d.period]}</div>`;
     const footer = (m.better_count == null || !m.present_count) ? ""
-      : `<div class="foot">${m.better_count} of ${m.present_count} ${d.bucket === "month" ? "months" : "days"} better than typical.</div>`;
+      : `<div class="foot">${m.better_count} of ${m.present_count} ${TRACK_BAR_NOUN[d.bucket] || "days"} better than typical.</div>`;
     return `<div class="mini track" data-bars='${esc(JSON.stringify({
         bars: m.bars, reference: m.reference, color: sig.color, decimals: sig.d,
         direction: m.direction, target: sig.k === 'dfa1' ? 1.0 : null,
-        personal: m.reference_is_personal }))}'>
+        personal: m.reference_is_personal, bucket: d.bucket, drill: !!TRACK_DRILL[d.bucket] }))}'>
       <div class="cap">
         <span class="t">${esc(sig.label)}${sig.tech && sig.tech.toUpperCase() !== sig.label.toUpperCase()
             ? ` <span class="tech">${esc(sig.tech)}</span>` : ""}</span>
@@ -910,7 +985,8 @@
       if (b.value == null) return;
       const x = pad.l + i * bw, h = Math.max(1, ih - (y(b.value) - pad.t));
       const mark = i === bestI ? " best" : i === worstI ? " worst" : "";
-      el += `<rect class="tbar${mark}" x="${(x + bw * 0.15).toFixed(1)}" y="${y(b.value).toFixed(1)}" width="${Math.max(1, bw * 0.7).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${cfg.color}"><title>${b.label}: ${Number(b.value).toFixed(cfg.decimals)}${mark ? " — " + mark.trim() + " of period" : ""}</title></rect>`;
+      const tip = `${b.label}: ${Number(b.value).toFixed(cfg.decimals)}${mark ? " — " + mark.trim() + " of period" : ""}${cfg.drill ? " · click to zoom in" : ""}`;
+      el += `<rect class="tbar${mark}${cfg.drill ? " drill" : ""}" data-i="${i}" x="${(x + bw * 0.15).toFixed(1)}" y="${y(b.value).toFixed(1)}" width="${Math.max(1, bw * 0.7).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${cfg.color}"><title>${tip}</title></rect>`;
       // Value labels only when the bars are wide enough to carry them.
       if (bars.length <= 8) {
         el += `<text class="tick" x="${(x + bw / 2).toFixed(1)}" y="${(y(b.value) - 4).toFixed(1)}" text-anchor="middle">${Number(b.value).toFixed(cfg.decimals)}</text>`;
@@ -923,6 +999,12 @@
       el += `<text class="tick" x="${(pad.l + i * bw + bw / 2).toFixed(1)}" y="${H - 5}" text-anchor="middle">${esc(bars[i].label)}</text>`;
     });
     svg.innerHTML = el;
+    if (cfg.drill) {
+      svg.querySelectorAll(".tbar.drill").forEach(r => r.addEventListener("click", () => {
+        const b = bars[Number(r.dataset.i)];
+        if (b && b.start) trackZoomInto(cfg.bucket, b.start);
+      }));
+    }
   }
 
   async function loadUserUsage(id) {
@@ -1507,7 +1589,8 @@
     }).join("") || `<div class="empty">no metrics recorded around this activity</div>`;
 
     const boxes = [...host.querySelectorAll(".mini.actline")];
-    const draw = () => boxes.forEach(box => drawActivityLine(box, pts, meta));
+    const agrp = cursorGroup();
+    const draw = () => { agrp.reset(); boxes.forEach(box => drawActivityLine(box, pts, meta, agrp)); };
     draw();
     clearTimeout(state.actResize);
     state.actResize = setTimeout(draw, 300);
@@ -1522,7 +1605,7 @@
     // LF/HF line under stress-dial rules put the line on the floor.
   };
 
-  function drawActivityLine(box, pts, meta) {
+  function drawActivityLine(box, pts, meta, grp) {
     const svg = box.querySelector("svg"), col = box.dataset.key;
     const dp = Number(box.dataset.dp), color = box.dataset.color;
     const phases = JSON.parse(box.dataset.phases);
@@ -1604,41 +1687,62 @@
              <circle class="dot" r="3.5" fill="${color}"/></g>`;
     svg.innerHTML = el;
 
-    // Same hover behaviour as the live charts: snap to the nearest sample.
+    // Same hover behaviour as the live charts, and the same shared moment:
+    // the chart under the pointer owns the tooltip, the others follow with
+    // their own value for that instant beside the headline.
     const cursor = svg.querySelector(".cursor"), hair = cursor.querySelector("line"), dot = cursor.querySelector("circle");
+    const capV = box.querySelector(".cap .v"), capHTML = capV.innerHTML;
     const sig = { label: box.querySelector(".cap .t").textContent, unit: "", color, d: dp };
-    const setCursor = (i) => {
+    const place = (i) => {
       const p = series[Math.max(0, Math.min(series.length - 1, i))];
       const x = pxOf(p.t), y = pyOf(p.v);
       cursor.style.display = "";
       hair.setAttribute("x1", x); hair.setAttribute("x2", x);
       dot.setAttribute("cx", x); dot.setAttribute("cy", y);
-      const r = svg.getBoundingClientRect();
-      showTip(r.left + x * (r.width / W), r.top + y * (r.height / H), sig, p, span);
+      return p;
     };
-    const nearest = (clientX) => {
-      const r = svg.getBoundingClientRect();
-      const t = x0 + ((clientX - r.left) / r.width * W - pad.l) / (W - pad.l - pad.r) * span;
+    const nearestT = (t) => {
       let best = 0;
       for (let i = 1; i < series.length; i++)
         if (Math.abs(series[i].t - t) < Math.abs(series[best].t - t)) best = i;
       return best;
     };
-    // Hover previews; a click pins the readout so a value can be read, copied
-    // or compared without holding the pointer still. Click again to release.
-    svg.addEventListener("pointermove", (e) => { if (!box.dataset.pinned) setCursor(nearest(e.clientX)); });
-    svg.addEventListener("pointerleave", () => {
-      if (box.dataset.pinned) return;
-      cursor.style.display = "none"; hideTip();
-    });
+    const bucketMs = span / Math.max(1, series.length);
+    const member = {
+      svg,
+      showAt: (t) => {
+        const i = nearestT(t);
+        if (Math.abs(series[i].t - t) > bucketMs * 3) { cursor.style.display = "none"; capV.innerHTML = `— <span class="at">${esc(when(t, F.clock))}</span>`; return; }
+        const p = place(i);
+        capV.innerHTML = `${fmt(p.v, dp)} <span class="at">${esc(when(p.t, F.clock))}</span>`;
+      },
+      clear: () => { cursor.style.display = "none"; capV.innerHTML = capHTML; },
+    };
+    grp.add(member);
+    const setCursor = (i) => {
+      const p = place(i), x = pxOf(p.t), y = pyOf(p.v);
+      capV.innerHTML = `${fmt(p.v, dp)} <span class="at">${esc(when(p.t, F.clock))}</span>`;
+      const r = svg.getBoundingClientRect();
+      showTip(r.left + x * (r.width / W), r.top + y * (r.height / H), sig, p, span);
+      grp.sync(p.t, member);
+    };
+    const nearest = (clientX) => {
+      const r = svg.getBoundingClientRect();
+      const t = x0 + ((clientX - r.left) / r.width * W - pad.l) / (W - pad.l - pad.r) * span;
+      return nearestT(t);
+    };
+    // Hover previews; a click pins the moment on every chart so values can be
+    // read and compared without holding the pointer still. Click again to release.
+    svg.addEventListener("pointermove", (e) => { if (grp.pinned == null) setCursor(nearest(e.clientX)); });
+    svg.addEventListener("pointerleave", () => { if (grp.pinned == null) grp.release(); });
     svg.addEventListener("click", (e) => {
-      if (box.dataset.pinned) { delete box.dataset.pinned; svg.classList.remove("pinned"); }
-      else { box.dataset.pinned = "1"; svg.classList.add("pinned"); }
-      setCursor(nearest(e.clientX));
+      if (grp.pinned != null) { grp.release(); return; }
+      const i = nearest(e.clientX);
+      grp.pinned = series[i].t;
+      setCursor(i);
+      svg.classList.add("pinned");
     });
-    svg.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") { delete box.dataset.pinned; svg.classList.remove("pinned"); cursor.style.display = "none"; hideTip(); }
-    });
+    svg.addEventListener("keydown", (e) => { if (e.key === "Escape") grp.release(); });
   }
 
   // ── Charts ────────────────────────────────────────────────────────────
@@ -1694,6 +1798,24 @@
   // Render a grid of mini charts, then redraw them on resize: each chart is
   // laid out at its true pixel width, so a width change needs a real redraw
   // rather than an SVG stretch that would smear the axis labels.
+  // One cursor for a whole grid of charts. The chart under the pointer owns
+  // the tooltip; every other chart in the grid moves its hairline to the same
+  // instant and prints its own value for that moment in place of the latest
+  // one, so a spike in one signal can be read against the rest. A click pins
+  // the moment on every chart; click again, or Escape, releases it.
+  function cursorGroup() {
+    const g = { members: [], pinned: null };
+    g.add = (m) => g.members.push(m);
+    g.reset = () => { g.members = []; g.pinned = null; };
+    g.sync = (t, src) => g.members.forEach(m => { if (m !== src) m.showAt(t); });
+    g.release = () => {
+      g.pinned = null;
+      g.members.forEach(m => { m.clear(); m.svg.classList.remove("pinned"); });
+      hideTip();
+    };
+    return g;
+  }
+
   const miniRedraws = [];
   function renderMinis(host, sigs, samples, window_) {
     // Drop any open readout: the charts under it are about to be replaced, and
@@ -1701,9 +1823,11 @@
     hideTip();
     host.innerHTML = sigs.map(miniShell).join("");
     const boxes = [...host.querySelectorAll(".mini")];
+    const grp = cursorGroup();
     const draw = () => {
       let live = false;
-      boxes.forEach((box, i) => { if (box.isConnected) { live = true; drawMini(box, sigs[i], samples, window_); } });
+      grp.reset();
+      boxes.forEach((box, i) => { if (box.isConnected) { live = true; drawMini(box, sigs[i], samples, window_, grp); } });
       return live;
     };
     draw();
@@ -1723,12 +1847,13 @@
       <svg tabindex="0" role="img" aria-label="${sig.label} over time"></svg></div>`;
   }
 
-  function drawMini(box, sig, samples, window_) {
+  function drawMini(box, sig, samples, window_, grp) {
     const svg = box.querySelector("svg"), cap = box.querySelector(".cap .v");
     const pts = samples.map(s => ({ t: new Date(s.ts).getTime(), v: s[sig.k] }))
                        .filter(p => p.v != null && isFinite(p.v));
     const last = pts.length ? pts[pts.length - 1].v : null;
-    cap.textContent = (last == null ? "—" : sigVal(last, sig)) + (sig.unit ? " " + sig.unit : "");
+    const latestText = (last == null ? "—" : sigVal(last, sig)) + (sig.unit ? " " + sig.unit : "");
+    cap.textContent = latestText;
 
     const W = Math.max(160, Math.round(svg.clientWidth || 320)), H = 112;
     const pad = { l: 6, r: 8, t: 8, b: 20 };
@@ -1790,31 +1915,64 @@
     // ── Hover / focus readout ──
     const cursor = svg.querySelector(".cursor"), hair = cursor.querySelector("line"), dot = cursor.querySelector("circle");
     let idx = -1;
-    const setCursor = (i) => {
+    const place = (i) => {
       idx = Math.max(0, Math.min(pts.length - 1, i));
       const p = pts[idx], x = px(p.t), y = py(p.v);
       cursor.style.display = "";
       hair.setAttribute("x1", x); hair.setAttribute("x2", x);
       dot.setAttribute("cx", x); dot.setAttribute("cy", y);
-      const r = svg.getBoundingClientRect(), sx = r.width / W, sy = r.height / H;
-      showTip(r.left + x * sx, r.top + y * sy, sig, p, span);
+      return p;
     };
-    const clear = () => { cursor.style.display = "none"; hideTip(); idx = -1; };
-    const nearest = (clientX) => {
-      const r = svg.getBoundingClientRect();
-      const t = x0 + ((clientX - r.left) / r.width * W - pad.l) / (W - pad.l - pad.r) * span;
+    const nearestT = (t) => {
       let best = 0;
       for (let i = 1; i < pts.length; i++) if (Math.abs(pts[i].t - t) < Math.abs(pts[best].t - t)) best = i;
       return best;
     };
-    svg.addEventListener("pointermove", (e) => setCursor(nearest(e.clientX)));
-    svg.addEventListener("pointerleave", clear);
-    svg.addEventListener("focus", () => setCursor(idx < 0 ? pts.length - 1 : idx));
-    svg.addEventListener("blur", clear);
+    // This chart as a follower: the same instant, its own value in the cap.
+    // No sample near that moment — the strap was off — and it says so.
+    const member = {
+      svg,
+      showAt: (t) => {
+        const i = nearestT(t);
+        if (Math.abs(pts[i].t - t) > maxGap) { cursor.style.display = "none"; cap.innerHTML = `— <span class="at">${esc(when(t, F.clock))}</span>`; return; }
+        const p = place(i);
+        cap.innerHTML = `${sigVal(p.v, sig)}${sig.unit ? " " + sig.unit : ""} <span class="at">${esc(when(p.t, F.clock))}</span>`;
+      },
+      clear: () => { cursor.style.display = "none"; cap.textContent = latestText; idx = -1; },
+    };
+    if (grp) grp.add(member);
+    // This chart as the owner: tooltip here, the moment everywhere else.
+    const setCursor = (i) => {
+      const p = place(i), x = px(p.t), y = py(p.v);
+      cap.innerHTML = `${sigVal(p.v, sig)}${sig.unit ? " " + sig.unit : ""} <span class="at">${esc(when(p.t, F.clock))}</span>`;
+      const r = svg.getBoundingClientRect(), sx = r.width / W, sy = r.height / H;
+      showTip(r.left + x * sx, r.top + y * sy, sig, p, span);
+      if (grp) grp.sync(p.t, member);
+    };
+    const clear = () => { if (grp) grp.release(); else { member.clear(); hideTip(); } };
+    const nearest = (clientX) => {
+      const r = svg.getBoundingClientRect();
+      const t = x0 + ((clientX - r.left) / r.width * W - pad.l) / (W - pad.l - pad.r) * span;
+      return nearestT(t);
+    };
+    const pinned = () => grp && grp.pinned != null;
+    svg.addEventListener("pointermove", (e) => { if (!pinned()) setCursor(nearest(e.clientX)); });
+    svg.addEventListener("pointerleave", () => { if (!pinned()) clear(); });
+    svg.addEventListener("click", (e) => {
+      if (!grp) return;
+      if (pinned()) { grp.release(); return; }
+      const i = nearest(e.clientX);
+      grp.pinned = pts[i].t;
+      setCursor(i);
+      svg.classList.add("pinned");
+    });
+    svg.addEventListener("focus", () => { if (!pinned()) setCursor(idx < 0 ? pts.length - 1 : idx); });
+    svg.addEventListener("blur", () => { if (!pinned()) clear(); });
     svg.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { clear(); return; }
+      if (pinned()) return;
       if (e.key === "ArrowLeft") { setCursor(idx - 1); e.preventDefault(); }
       else if (e.key === "ArrowRight") { setCursor(idx + 1); e.preventDefault(); }
-      else if (e.key === "Escape") clear();
     });
   }
 
