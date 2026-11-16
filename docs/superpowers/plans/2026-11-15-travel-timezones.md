@@ -34,9 +34,9 @@
 
 **Interface:** Optional `timezone: String?` on metric samples/history points and activities, serialized as `timezone`. Live construction captures the current identifier. Restore and legacy construction can explicitly preserve nil. Activity display uses its reference zone at start; sample points preserve zone changes within an activity.
 
-- [ ] Add failing regressions for capture → timezone change → upload, both restore paths, legacy nil, and delayed sleep reconstruction.
-- [ ] Implement the payload contract and calendar usage; preserve stable UTC durations and historical day/correction association.
-- [ ] Run focused Swift tests, then full WythinTests after integration.
+- [x] Add failing regressions for capture → timezone change → upload, both restore paths, legacy nil, and delayed sleep reconstruction.
+- [x] Implement the payload contract and calendar usage; preserve stable UTC durations and historical day/correction association.
+- [x] Run focused Swift tests, then full WythinTests after integration.
 
 ## Task 2: Server storage and historical dashboards
 
@@ -44,13 +44,22 @@
 
 **Interface:** Accept validated optional sample `timezone`; export it; keep it outside numeric aggregation fields. Existing known zones win over duplicate uploads. Admin raw/aggregated series retain zone metadata without averaging across zones. Daily history uses each recorded zone, with explicitly identified profile fallback only for legacy data.
 
-- [ ] Add failing API tests for valid/invalid zones, duplicate legacy upload, export, mixed-zone charts and local dates.
-- [ ] Add schema and handlers; update chart clocks/tooltips and historical day bucketing.
-- [ ] Run server suite against an isolated local test database and JavaScript syntax checks.
+- [x] Add failing API tests for valid/invalid zones, duplicate legacy upload, export, mixed-zone charts and local dates.
+- [x] Add schema and handlers; update chart clocks/tooltips and historical day bucketing.
+- [x] Run server suite against an isolated local test database and JavaScript syntax checks.
 
 ## Task 3: Review, repair verified history, integration
 
-- [ ] Review the combined diff and exercise travel/DST cases; resolve important findings.
-- [ ] Verify production November 11 measurement coverage. Apply a bounded, auditable Asia/Dubai correction only to the user-confirmed Dubai day (2026-11-10 20:00Z ≤ t < 2026-11-11 20:00Z), preserving UTC data and current profile. Do not guess other trip dates.
-- [ ] Recheck build 146 in the public-link external group; report access eligibility without claiming a named anonymous tester's installation.
+- [x] Review the combined diff and exercise travel/DST cases; resolve important findings.
+- [x] Verify production November 11 measurement coverage. Apply a bounded, auditable Asia/Dubai correction only to the user-confirmed Dubai day (2026-11-10 20:00Z ≤ t < 2026-11-11 20:00Z), preserving UTC data and current profile. Do not guess other trip dates.
+- [x] Recheck build 146 in the public-link external group; report access eligibility without claiming a named anonymous tester's installation.
 - [ ] Integrate tested changes safely and report exactly what is deployed versus pending.
+
+## Execution evidence
+
+- Server commit `287fbc3` passed all 176 server tests on a clean, isolated PostgreSQL database. Independent review verified corrected duplicate-upload protection, per-zone query performance, and explicit unknown-zone fallback labels. Dashboard clock helpers passed Dubai/Moscow, historical DST, and UTC-override checks in Node.
+- Server changes are on main and deployed to the existing production `prod` branch via a merge, preserving its configuration. A restrictive file creation mask briefly prevented API startup; source read permissions were restored and `/health` plus authenticated chart endpoints verified healthy.
+- The user-confirmed Dubai civil day was corrected for 17,220 metric rows. UTC timestamps were compared before/after and unchanged. A private, mode-0600 backup of original timezone metadata is stored on the server. No other trip dates or the current profile were rewritten. The exact interval's chart API now reports only Asia/Dubai; neighbouring legacy readings still show an explicit unknown-zone fallback.
+- Build 146 is VALID, IN_BETA_TESTING externally, and assigned to the enabled public-link External Testers group. The user confirmed Alexey joined by that public link; his individual installation is anonymous.
+- Initial integrated iOS capture/restore/sleep changes passed all 1,713 tests. Review found and fixed migration of applied legacy sleep corrections before enrichment/purging; 131 focused tests passed, including rebuilds. A pending pre-upgrade correction without a saved day or matching UTC boundary cannot safely be associated by guessing its original zone.
+- Review also required the Live history screen to use stable civil dates, a bounded 52-hour UTC candidate query, recorded-zone membership, explicit chart bounds/reference clock, and correct cache invalidation. Tests cover Dubai midnight under a Moscow viewer, mixed-zone/date-line days, DST, and repaired metadata versus stale memory. This patch passed 49 focused tests and independent review. The combined iOS tree passed the final full suite before release; details are in `/tmp/wythin-travel-final-full.log`.
