@@ -5,7 +5,15 @@ private, object-lock-disabled `wythin-raw-154618769-hel1` bucket was created in
 Helsinki. The authenticated console quoted USD 7.99/month base with 1 TB included;
 over-quota storage is USD 0.0123/TB-hour and egress USD 1.20/TB. The console
 also reports partial degradation of HEL Object Storage. The bucket is empty.
-S3 credentials, encryption verification and independent backup remain pending.
+The operator explicitly approved a project-wide S3 credential, which has been
+generated. Its secret has not yet been transferred to the server; encryption
+verification remains pending. A BX11 1 TB backup
+was prepared in Falkenstein at an authenticated quote of USD 4.00/month; it has
+not been purchased. Total quoted base cost is USD 11.99/month, before overages
+and applicable taxes. SSH Support with External Reachability off (Hetzner
+network only) was blocked by automatic approval review; explicit protocol/scope
+approval has been requested. Existing owner SSH key is selected in the draft
+order; no new key was created.
 `RawArchiveFeature.isAvailable` remains false until the live
 storage, backup restore and physical recording checks below pass.
 
@@ -86,6 +94,25 @@ RAW_S3_ACCESS_KEY=<project credential>
 RAW_S3_SECRET_KEY=<project credential>
 RAW_S3_ENCRYPTION_KEY=<base64 of 32 random bytes>
 ```
+
+An isolated verification environment is prepared at
+`/opt/wythin-archive-preflight`; it does not load production configuration or
+connect to PostgreSQL. Once credentials have been securely staged in a
+root-owned mode-0600 `/etc/wythin/archive-staged.env`, run:
+
+```sh
+cd /opt/wythin-archive-preflight
+.venv/bin/python -m server.tools.verify_archive_storage /etc/wythin/archive-staged.env
+```
+
+The verifier checks owner-only bucket ACLs, disabled versioning, denied anonymous
+listing, exact synthetic payload round-trip, SHA-256 metadata and SSE-C AES256.
+It also checks that a read without the encryption key fails, then deletes only
+its freshly generated synthetic prefix and verifies that prefix is empty.
+It never reads a patient record or changes production capture settings.
+The modules compile on the server; **the live storage check has not run**.
+Passing it is not a substitute for API authorization, independent backup/restore,
+encryption-key recovery or the other release checks below.
 
 For a filesystem archive, keep `RAW_ARCHIVE_BACKEND=filesystem`, configure an
 existing `RAW_ARCHIVE_ROOT` mount, and retain `RAW_ARCHIVE_REQUIRE_MOUNT=1`.
@@ -208,10 +235,13 @@ one worker; keep it at low scheduling priority and scale only from measurement.
    queue recovery. A simulator test cannot substitute for this. Start a limited
    pilot, then widen to 100 after capacity and backup evidence.
 
-Current blockers: primary bucket exists, but S3 credential generation was blocked
-by automatic approval review because a key covers all project buckets. Explicit
-approval for that scope has been requested. No new key or independent backup is
-configured, no live restore or overnight test has run, and
+Current blockers: the primary bucket and explicitly approved project-wide S3
+credential exist. Automatic approval review requires separate permission to
+temporarily stage the secret in a mode-0600 local file for SSH transfer; that
+permission is pending. A direct browser-runtime SSH transfer was unavailable,
+so no secret has been saved locally or on the server. Enabling internal-only
+SSH on the proposed Storage Box also awaits explicit approval. No independent
+backup is configured, no live restore or overnight test has run, and
 the legal/security release requirements above are incomplete. The operator
 confirmed he acts as an individual, with public postal contact 77 Bruton St.,
 San Francisco, and an 18+ audience. Address reproduced as supplied, not

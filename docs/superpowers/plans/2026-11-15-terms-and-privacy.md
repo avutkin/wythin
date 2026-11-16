@@ -26,7 +26,7 @@
 - [x] Add failing server tests for receipt persistence, retries, legacy omission and invalid receipts; implement additive schema and profile upload fields without granting data consent.
 - [x] Remove the late mandatory raw-archive onboarding step; add legal links and accurate choice copy in Settings. Keep raw feature rollout disabled.
 - [x] Verify common bundle/Pages source, targeted tests, full server/iOS suites, and fresh review; fix cloud transport bypasses, receipt-cache invalidation and client-clock failure. Public publication remains gated.
-- [ ] Update the existing draft PR and runbook with exact remaining provisioning blockers.
+- [x] Update the existing draft PR and runbook with exact remaining provisioning blockers. Primary storage is purchased and the approved project-wide S3 key is generated; secure transfer and backup SSH access await their pending approvals. No production activation.
 
 ## Review focus
 
