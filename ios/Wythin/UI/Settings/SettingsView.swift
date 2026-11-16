@@ -534,12 +534,18 @@ struct SettingsView: View {
     private func deleteCloudData() async {
         isDeletingCloudData = true; accessError = nil
         defer { isDeletingCloudData = false }
+        // Stop producers and cancel queued raw tasks before erasing their
+        // server manifest, otherwise the next sync could recreate the archive.
+        RawArchiveConsent.revoke()
+        cloudSyncEnabled = false
+        await env.rawSync?.syncIfEnabled()
         do {
             let created = try await env.sync.client.createToken(name: "delete-my-data", userID: env.userID)
             defer {
                 Task { try? await env.sync.client.revokeToken(id: created.id, userID: env.userID) }
             }
             try await env.sync.client.deleteMyData(token: created.token)
+            await env.rawSync?.syncIfEnabled()
             await loadTokens()
         } catch {
             accessError = "Couldn't delete cloud data. Check the server URL and try again."

@@ -443,6 +443,8 @@ struct APIClient {
 
     // MARK: Continuous metric sync
 
+    enum ArchiveConsentError: Error { case conflict }
+
     struct ArchiveConsentState: Codable {
         let enabled: Bool
         let revision: Int
@@ -471,6 +473,7 @@ struct APIClient {
         req.httpBody = try JSONEncoder().encode(Change(enabled: enabled,
             expected_revision: revision, consent_version: RawArchiveConsent.version))
         let (data, response) = try await session.data(for: req)
+        if (response as? HTTPURLResponse)?.statusCode == 409 { throw ArchiveConsentError.conflict }
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
@@ -515,7 +518,10 @@ struct APIClient {
     func deleteMyData(token: String) async throws {
         var req = request(path: "/v1/me/data", method: "DELETE")
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        _ = try await session.data(for: req)
+        let (_, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
     }
 
     func uploadProfile(_ payload: ProfilePayload, userID: String) async throws {
@@ -681,14 +687,39 @@ final class RawChunkSyncService: NSObject, URLSessionTaskDelegate {
         }
         do {
             var consent = try await client.archiveConsent(userID: userID)
-            guard decision == RawArchiveConsent.revision(), desired == RawArchiveConsent.mayCapture() else { return }
             let syncedKey = "rawArchiveSyncedDecision-\(userID)"
-            if consent.enabled != desired || (desired && UserDefaults.standard.integer(forKey: syncedKey) != decision) {
-                consent = try await client.changeArchiveConsent(enabled: desired, revision: consent.revision, userID: userID)
+            reconcile: for attempt in 0..<3 {
+                UserDefaults.standard.set(consent.revision, forKey: RawArchiveConsent.serverRevisionKey)
+                guard decision == RawArchiveConsent.revision(), desired == RawArchiveConsent.mayCapture() else { return }
+                let action = RawArchiveConsent.syncAction(desired: desired, decision: decision,
+                    syncedDecision: UserDefaults.standard.object(forKey: syncedKey) as? Int,
+                    expectedRevision: UserDefaults.standard.integer(forKey: RawArchiveConsent.expectedRevisionKey),
+                    serverEnabled: consent.enabled, serverRevision: consent.revision)
+                switch action {
+                case .useCurrent:
+                    break reconcile
+                case .requireAcceptance:
+                    RawArchiveConsent.revoke()
+                    UserDefaults.standard.set(true, forKey: RawArchiveConsent.needsAcceptanceKey)
+                    for task in await currentTasks() { task.cancel() }
+                    lastError = "Archive paused on the server. Review and enable it again in Settings."
+                    return
+                case .write:
+                    do {
+                        consent = try await client.changeArchiveConsent(enabled: desired,
+                            revision: consent.revision, userID: userID)
+                        UserDefaults.standard.set(consent.revision, forKey: RawArchiveConsent.serverRevisionKey)
+                        break reconcile
+                    } catch APIClient.ArchiveConsentError.conflict {
+                        guard attempt < 2 else { throw APIClient.ArchiveConsentError.conflict }
+                        consent = try await client.archiveConsent(userID: userID)
+                    }
+                }
             }
             guard decision == RawArchiveConsent.revision(), desired == RawArchiveConsent.mayCapture() else { return }
             UserDefaults.standard.set(decision, forKey: syncedKey)
-            lastError = nil
+            lastError = UserDefaults.standard.bool(forKey: RawArchiveConsent.needsAcceptanceKey)
+                ? "Archive paused on the server. Review and enable it again in Settings." : nil
             guard desired, let token = consent.token else { return }
             try journal.seal()
             var tasks = await currentTasks()

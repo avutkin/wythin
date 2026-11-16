@@ -71,6 +71,8 @@ def analyze_chunk(payload: bytes) -> dict:
             continue
         try:
             record = json.loads(line)
+            if not isinstance(record, dict) or not isinstance(record.get('id'), str):
+                raise ValueError('packet id must be a UUID string')
             identifier = str(uuid.UUID(record['id']))
             stream, at = record['stream'], record['receivedAt']
             if stream not in counts or isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
@@ -109,6 +111,9 @@ def analyze_chunk(payload: bytes) -> dict:
                 quality['hr_receipt_gaps'] += 1
                 previous_rr = None
             prev_hr_at = at
+            if not decoded['rr_ticks']:
+                # HR delivery does not establish continuity of beat intervals.
+                previous_rr = None
             rr_ticks.extend(decoded['rr_ticks'])
             rr_packets.append({'packet_id': identifier, 'received_at_apple_seconds': at,
                                'contact': decoded['contact'], 'rr_ticks': decoded['rr_ticks']})

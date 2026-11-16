@@ -40,6 +40,14 @@ async def delete_my_data(user_id: str = Depends(current_user_id)):
         for backend in sorted(backends):
             archive = archive_store.get_archive(backend)
             await run_in_threadpool(archive.delete_user, user_id)
+        # Keep a minimal disabled barrier, not historical acceptance. Deleting
+        # its revision would make a pre-erasure enable request valid again.
+        await conn.execute("""INSERT INTO raw_consents
+            (user_id,enabled,revision,consent_version,upload_token)
+            VALUES ($1,FALSE,1,'erased',gen_random_uuid())
+            ON CONFLICT (user_id) DO UPDATE SET enabled=FALSE,
+            revision=raw_consents.revision+1,consent_version='erased',
+            upload_token=gen_random_uuid(),updated_at=NOW()""",user_id)
         async def _del(table: str) -> int:
             tag = await conn.execute(f"DELETE FROM {table} WHERE user_id = $1", user_id)
             return int(tag.split()[-1]) if tag.startswith("DELETE") else 0
@@ -48,7 +56,7 @@ async def delete_my_data(user_id: str = Depends(current_user_id)):
             "sessions":       await _del("sessions"),
             "activities":     await _del("activities"),
             "profiles":       await _del("profiles"),
-            "raw_consents": await _del("raw_consents"),
+            "raw_collection_paused": True,
             "raw_consent_events": await _del("raw_consent_events"),
             "raw_chunks":     await _del("raw_chunks"),
             "usage_events":   await _del("usage_events"),

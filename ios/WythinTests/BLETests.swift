@@ -25,6 +25,69 @@ final class BLETests: XCTestCase {
         XCTAssertFalse(RawArchiveConsent.mayCapture(in: defaults, available: true))
     }
 
+    func testNewRefusalRequiresWriteEvenWhenReadStillSaysDisabled() {
+        XCTAssertEqual(RawArchiveConsent.syncAction(desired: false, decision: 2,
+            syncedDecision: 0, expectedRevision: 0, serverEnabled: false, serverRevision: 0), .write)
+    }
+
+    func testServerPauseCannotBeUndoneByPreviouslySyncedAcceptance() {
+        XCTAssertEqual(RawArchiveConsent.syncAction(desired: true, decision: 1,
+            syncedDecision: 1, expectedRevision: 0, serverEnabled: false, serverRevision: 2), .requireAcceptance)
+        XCTAssertEqual(RawArchiveConsent.syncAction(desired: true, decision: 1,
+            syncedDecision: nil, expectedRevision: 0, serverEnabled: false, serverRevision: 2), .requireAcceptance)
+    }
+
+    func testExplicitNewAcceptanceUsesObservedRevisionAndLostAckCanRecover() {
+        XCTAssertEqual(RawArchiveConsent.syncAction(desired: true, decision: 3,
+            syncedDecision: 2, expectedRevision: 5, serverEnabled: false, serverRevision: 5), .write)
+        XCTAssertEqual(RawArchiveConsent.syncAction(desired: true, decision: 3,
+            syncedDecision: 2, expectedRevision: 5, serverEnabled: true, serverRevision: 6), .useCurrent)
+        XCTAssertEqual(RawArchiveConsent.syncAction(desired: false, decision: 2,
+            syncedDecision: 2, expectedRevision: 0, serverEnabled: false, serverRevision: 2), .useCurrent)
+    }
+
+    @MainActor
+    func testNewRefusalActuallyWritesEvenWhenServerReadIsDisabled() async throws {
+        let defaults = UserDefaults.standard
+        let user = "consent-test-\(UUID().uuidString)"
+        let syncedKey = "rawArchiveSyncedDecision-\(user)"
+        let keys = ["rawCloudSyncEnabled", RawArchiveConsent.revisionKey,
+                    RawArchiveConsent.serverRevisionKey, RawArchiveConsent.needsAcceptanceKey, syncedKey]
+        let original = keys.map { (key: $0, value: defaults.object(forKey: $0)) }
+        defer {
+            for item in original { defaults.set(item.value, forKey: item.key) }
+        }
+        defaults.set(false, forKey: "rawCloudSyncEnabled")
+        defaults.set(2, forKey: RawArchiveConsent.revisionKey)
+        defaults.set(0, forKey: syncedKey)
+        defaults.set(false, forKey: RawArchiveConsent.needsAcceptanceKey)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RawConsentTestURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let client = APIClient(baseURL: URL(string: "https://pause.raw-consent-test.invalid")!, session: session)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sync = RawChunkSyncService(client: client, userID: user, journal: try RawPacketJournal(directory: directory))
+        await sync.syncIfEnabled()
+        // GET returns revision 0; only a successful PUT can produce revision 1.
+        XCTAssertEqual(defaults.integer(forKey: RawArchiveConsent.serverRevisionKey), 1)
+        XCTAssertEqual(defaults.integer(forKey: syncedKey), 2)
+        XCTAssertNil(sync.lastError)
+    }
+
+    func testFailedCloudErasureIsNotReportedAsSuccess() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RawConsentTestURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let client = APIClient(baseURL: URL(string: "https://erase-failed.raw-consent-test.invalid")!, session: session)
+        do {
+            try await client.deleteMyData(token: "synthetic-owner-token")
+            XCTFail("a rejected erasure must remain a visible failure")
+        } catch { }
+    }
+
     func testCaptureAuditSurvivesRestartAndSeparatesPacketsFromSavedMetrics() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -828,4 +891,23 @@ final class LaunchForegroundTests: XCTestCase {
         XCTAssertTrue(LaunchForeground.isForeground(.inactive))
         XCTAssertTrue(LaunchForeground.isForeground(.active))
     }
+}
+
+
+private final class RawConsentTestURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host?.hasSuffix(".raw-consent-test.invalid") == true
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let code = request.httpMethod == "DELETE" ? 503 : 200
+        let revision = request.httpMethod == "PUT" ? 1 : 0
+        let body = "{\"enabled\":false,\"revision\":\(revision),\"consent_version\":null,\"token\":null}"
+        let response = HTTPURLResponse(url: request.url!, statusCode: code,
+                                       httpVersion: "HTTP/1.1", headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

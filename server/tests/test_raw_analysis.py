@@ -65,3 +65,22 @@ def test_flatline_and_motion_are_described_without_claiming_mood_or_position():
     assert result['acc']['magnitude_sd_mg'] == 0
     assert result['acc']['gravity_direction'] == [0, 0, -1]
     assert 'mood' not in result and 'diagnosis' not in result
+
+
+@pytest.mark.parametrize('bad_id', [1, [], {}, None, True])
+def test_malformed_packet_id_is_normalized_to_validation_error(bad_id):
+    record = json.loads(packet('hr', b'\x10\x3c\x00\x04'))
+    record['id'] = bad_id
+    with pytest.raises(ValueError):
+        analyze_chunk((json.dumps(record) + '\n').encode())
+
+
+def test_hr_only_packets_break_rr_continuity():
+    data = packet('hr', b'\x16\x3c\x00\x04', received=1000)
+    for i in range(1,11):
+        data += packet('hr', b'\x06\x3c', received=1000+i)
+    data += packet('hr', b'\x16\x3c\x66\x04', received=1011)
+    result = analyze_chunk(data.encode())
+    assert result['rr']['ticks'] == [1024,1126]
+    assert result['rr']['successive_pairs'] == 0
+    assert result['rr']['rmssd_ms'] is None

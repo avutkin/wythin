@@ -14,6 +14,29 @@ enum RawArchiveConsent {
     static let version = "raw-v1-2026-11-15"
     static let versionKey = "rawArchiveConsentVersion"
     static let revisionKey = "rawArchiveConsentLocalRevision"
+    static let serverRevisionKey = "rawArchiveObservedServerRevision"
+    static let expectedRevisionKey = "rawArchiveAcceptanceExpectedRevision"
+    static let needsAcceptanceKey = "rawArchiveNeedsAcceptance"
+
+    enum SyncAction: Equatable { case useCurrent, write, requireAcceptance }
+
+    /// A refusal needs a write barrier even if an unlocked GET still reads
+    /// false. An old acceptance must not be rebased over a newer server pause.
+    static func syncAction(desired: Bool, decision: Int, syncedDecision: Int?,
+                           expectedRevision: Int, serverEnabled: Bool,
+                           serverRevision: Int) -> SyncAction {
+        if !desired {
+            return syncedDecision == decision && !serverEnabled ? .useCurrent : .write
+        }
+        if syncedDecision == decision {
+            return serverEnabled ? .useCurrent : .requireAcceptance
+        }
+        if expectedRevision == serverRevision { return .write }
+        // A successful enable may have lost its response. Its next revision
+        // can be adopted only while the server still has an active consent.
+        if serverEnabled && serverRevision == expectedRevision + 1 { return .useCurrent }
+        return .requireAcceptance
+    }
 
     static func revision(in defaults: UserDefaults = .standard) -> Int {
         defaults.integer(forKey: revisionKey)
@@ -21,10 +44,16 @@ enum RawArchiveConsent {
 
     static func noteChange(in defaults: UserDefaults = .standard) {
         defaults.set(revision(in: defaults) + 1, forKey: revisionKey)
+        if defaults.string(forKey: versionKey) == version,
+           defaults.bool(forKey: "rawCloudSyncEnabled"),
+           defaults.object(forKey: "cloudSyncEnabled") as? Bool ?? true {
+            defaults.set(defaults.integer(forKey: serverRevisionKey), forKey: expectedRevisionKey)
+        }
     }
 
     static func accept(in defaults: UserDefaults = .standard) {
         defaults.set(version, forKey: versionKey)
+        defaults.set(false, forKey: needsAcceptanceKey)
         defaults.set(Date(), forKey: "rawArchiveAcceptedAt")
         defaults.set(true, forKey: "rawCloudSyncEnabled")
         noteChange(in: defaults)
