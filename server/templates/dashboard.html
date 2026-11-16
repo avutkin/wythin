@@ -111,6 +111,12 @@
   td .email { font-family: var(--mono); font-size: 12px; }
   td .never { color: var(--dim); font-size: 12px; }
   .mini.track .delta { font: 11px var(--mono); margin: -2px 0 4px; }
+  /* The four direction indexes: one row of four, then each direction's own signals. */
+  .charts.four { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); margin-bottom: 6px; }
+  .mini.track .subline { font: 11px var(--sans); color: var(--dim); margin: -4px 0 6px; }
+  .dir-block h3 { font: 600 13px var(--sans); margin: 20px 0 10px; color: var(--text);
+                  border-left: 3px solid var(--c, var(--accent)); padding-left: 10px; }
+  .dir-block h3 .sub { margin-left: 8px; font-weight: 400; text-transform: none; letter-spacing: 0; }
   .mini.track .delta.up { color: var(--accent); }
   .mini.track .delta.down { color: var(--warn); }
   .mini.track .cap .t .tech { color: var(--dim); opacity: .7; }
@@ -320,6 +326,24 @@
         </h2>
         <div class="charts" id="user-charts"></div>
         <div class="track-hint" id="live-hint"></div>
+      </div>
+      <div class="panel">
+        <h2>Four directions
+          <span class="sub">—
+            <select id="dir-period">
+              <option value="week">Week</option>
+              <option value="halfmonth">Half-month</option>
+              <option value="month">Month</option>
+              <option value="sixweek">6 weeks</option>
+              <option value="sixmonth">6 months</option>
+            </select>
+            <button id="dir-prev" title="Previous period">‹</button>
+            <span id="dir-label" class="track-trail"></span>
+            <button id="dir-next" title="Next period">›</button>
+          </span>
+        </h2>
+        <div id="dir-charts"></div>
+        <div class="track-hint" id="dir-hint"></div>
       </div>
       <div class="panel">
         <h2>Trends
@@ -701,20 +725,22 @@
     state.metricOffset = 0;
     state.live = null;        // an exact {from, to} span (ms) chosen by dragging; null = the select's window
     state.liveStack = [];     // the spans zoomed out of, innermost last
-    state.trackOffset = 0;
-    state.trackPath = [];
-    $("#track-period").onchange = () => { state.trackOffset = 0; state.trackPath = []; loadUserTrack(id).catch(() => {}); };
-    // Zoomed in, the arrows walk the zoomed unit — the day before, the week
-    // after — rather than paging the top-level period underneath.
-    $("#track-prev").onclick = () => {
-      if (state.trackPath.length) trackShift(-1); else state.trackOffset = (state.trackOffset || 0) + 1;
-      loadUserTrack(id).catch(() => {});
-    };
-    $("#track-next").onclick = () => {
-      if (state.trackPath.length) trackShift(1);
-      else { if (!state.trackOffset) return; state.trackOffset -= 1; }
-      loadUserTrack(id).catch(() => {});
-    };
+    state.tp = {};
+    for (const key of Object.keys(TRACK_PANELS)) {
+      const P = TRACK_PANELS[key], ps = panelState(key);
+      $(P.sel).onchange = () => { ps.offset = 0; ps.path = []; loadUserTrack(id, key).catch(() => {}); };
+      // Zoomed in, the arrows walk the zoomed unit — the day before, the week
+      // after — rather than paging the top-level period underneath.
+      $(P.prev).onclick = () => {
+        if (ps.path.length) trackShift(key, -1); else ps.offset = (ps.offset || 0) + 1;
+        loadUserTrack(id, key).catch(() => {});
+      };
+      $(P.next).onclick = () => {
+        if (ps.path.length) trackShift(key, 1);
+        else { if (!ps.offset) return; ps.offset -= 1; }
+        loadUserTrack(id, key).catch(() => {});
+      };
+    }
     $("#user-window").onchange = () => { state.metricOffset = 0; state.live = null; state.liveStack = []; loadUserMetrics(id).catch(() => {}); };
     // Zoomed in, the arrows slide the zoomed span by its own length.
     const slideLive = (dir) => {
@@ -732,7 +758,8 @@
     };
     $("#win-back").onclick = () => { state.live = state.liveStack.pop() || null; loadUserMetrics(id).catch(() => {}); };
     loadUserMetrics(id).catch(() => {});
-    loadUserTrack(id).catch(() => {});
+    loadUserTrack(id, "dirs").catch(() => {});
+    loadUserTrack(id, "track").catch(() => {});
     loadUserUsage(id).catch(() => {});
     const t = $("#user-sessions");
     if (!d.sessions.length) {
@@ -936,55 +963,100 @@
     : period === "week" ? `Week of ${fmtYMD(from, F.md)}`
     : fmtYMD(from, { weekday: "short", month: "short", day: "numeric" });
 
-  function trackShift(dir) {
-    const top = state.trackPath[state.trackPath.length - 1];
+  // Two panels read the same endpoint with their own period, trail and
+  // zoom stack: the four direction indexes, and every signal's trend.
+  const TRACK_PANELS = {
+    dirs:  { sel: "#dir-period",   prev: "#dir-prev",   next: "#dir-next",   label: "#dir-label",   hint: "#dir-hint",   host: "#dir-charts",   render: renderDirectionCards },
+    track: { sel: "#track-period", prev: "#track-prev", next: "#track-next", label: "#track-label", hint: "#track-hint", host: "#track-charts", render: renderTrackCards },
+  };
+  const panelState = (key) => (state.tp = state.tp || {}, state.tp[key] = state.tp[key] || { offset: 0, path: [], topLabel: null });
+
+  function trackShift(key, dir) {
+    const path = panelState(key).path, top = path[path.length - 1];
     top.from = ymdShift(top.from, top.period, dir);
   }
   // A bar was clicked: push its period onto the stack and reload.
-  function trackZoomInto(bucket, start) {
+  function trackZoomInto(key, bucket, start) {
     const period = TRACK_DRILL[bucket];
     if (!period || !state.userId) return;
-    state.trackPath.push({ period, from: start.slice(0, 10) });
-    loadUserTrack(state.userId).catch(() => {});
+    panelState(key).path.push({ period, from: start.slice(0, 10) });
+    loadUserTrack(state.userId, key).catch(() => {});
   }
 
-  async function loadUserTrack(id) {
-    const path = state.trackPath || [], top = path[path.length - 1];
-    const off = state.trackOffset || 0;
-    const q = top ? `period=${top.period}&from=${top.from}` : `period=${$("#track-period").value}&offset=${off}`;
+  async function loadUserTrack(id, key) {
+    const P = TRACK_PANELS[key], ps = panelState(key);
+    const path = ps.path, top = path[path.length - 1];
+    const off = ps.offset || 0;
+    const q = top ? `period=${top.period}&from=${top.from}` : `period=${$(P.sel).value}&offset=${off}`;
     const d = await api(`users/${id}/track?${q}&tz_offset=${tzOffsetNow()}`);
     if (state.userId !== id) return;
 
     // The trail: the top-level period, then each zoom level; every earlier
     // level is a link back out.
-    const sel = $("#track-period");
-    const topLabel = top ? (state.trackTopLabel || sel.options[sel.selectedIndex].text)
+    const sel = $(P.sel);
+    const topLabel = top ? (ps.topLabel || sel.options[sel.selectedIndex].text)
                          : `${sel.options[sel.selectedIndex].text} · ${fmtYMD(d.start_date, F.md)} → ${fmtYMD(d.last_date, F.md)}`;
-    if (!top) state.trackTopLabel = topLabel;
+    if (!top) ps.topLabel = topLabel;
     const crumbs = [`<a data-level="0">${esc(topLabel)}</a>`]
       .concat(path.map((lv, i) => `<a data-level="${i + 1}">${esc(trackCrumb(lv.period, lv.from))}</a>`));
     crumbs[crumbs.length - 1] = crumbs[crumbs.length - 1].replace(/^<a /, '<span class="here" ').replace(/<\/a>$/, "</span>");
-    $("#track-label").innerHTML = crumbs.join('<span class="sep">›</span>');
-    $("#track-label").querySelectorAll("a[data-level]").forEach(a => a.onclick = () => {
-      state.trackPath = path.slice(0, Number(a.dataset.level));
-      loadUserTrack(id).catch(() => {});
+    $(P.label).innerHTML = crumbs.join('<span class="sep">›</span>');
+    $(P.label).querySelectorAll("a[data-level]").forEach(a => a.onclick = () => {
+      ps.path = path.slice(0, Number(a.dataset.level));
+      loadUserTrack(id, key).catch(() => {});
     });
-    $("#track-next").disabled = top ? d.end_date > localToday() : off === 0;
-    $("#track-hint").textContent = d.bucket === "hour"
+    $(P.next).disabled = top ? d.end_date > localToday() : off === 0;
+    const drillHint = d.bucket === "hour"
       ? "Hour by hour. Click a crumb above to zoom back out."
-      : `Click a bar to open that ${d.bucket} ${d.bucket === "day" ? "hour by hour" : d.bucket === "week" ? "day by day" : "day by day"}.`;
+      : `Click a bar to open that ${d.bucket} ${d.bucket === "day" ? "hour by hour" : "day by day"}.`;
+    $(P.hint).textContent = key === "dirs"
+      ? `Each index reads 100 at this person's own typical; above 100 is better in every member signal's own direction. ${drillHint}`
+      : drillHint;
 
-    const host = $("#track-charts");
+    P.render($(P.host), d, key);
+  }
+
+  function renderTrackCards(host, d, key) {
     host.innerHTML = LIVE_SIGNALS.map(sig => {
       const m = d.metrics.find(x => x.key === sig.k);
-      return m ? trackCard(sig, m, d) : "";
+      return m ? trackCard(sig, m, d, key) : "";
     }).join("");
     // Hour cards are lines and share one cursor, like the live charts.
     const tgrp = cursorGroup();
     [...host.querySelectorAll(".mini")].forEach(box => drawTrackBars(box, tgrp));
   }
 
-  function trackCard(sig, m, d) {
+  // The four directions the First Steps guide teaches, each with the signals
+  // the guide files under it (of the guide's Energy signals only Pulse is
+  // stored; LF/HF stands in for the stress balance).
+  const DIRECTIONS = [
+    { k: "relaxation", label: "Relaxation", sub: "the brake · the side most of us never train", color: "var(--accent)",  members: ["dc", "rmssd", "rsa_ms", "breath_bpm"] },
+    { k: "energy",     label: "Energy",     sub: "the accelerator · the side we use all day",   color: "var(--warn)",    members: ["mean_bpm", "lf_hf"] },
+    { k: "adaptivity", label: "Adaptivity", sub: "flexibility, resilience",                      color: "var(--coh)",     members: ["rcmse", "coherence"] },
+    { k: "focus",      label: "Focus",      sub: "a settled, ordered mind",                      color: "var(--breathe)", members: ["pip", "dfa1"] },
+  ];
+  // One row of index cards, then each direction's own signals under its
+  // name. Every card in the panel shares one cursor, so a day hovered on an
+  // index reads on the signals that made it.
+  function renderDirectionCards(host, d, key) {
+    const groups = d.groups || [];
+    const row = DIRECTIONS.map(g => {
+      const m = groups.find(x => x.key === g.k);
+      const sig = { k: "dir:" + g.k, label: g.label, unit: "", color: g.color, d: 0, tech: "index" };
+      return m ? trackCard(sig, m, d, key, g.sub) : "";
+    }).join("");
+    const blocks = DIRECTIONS.map(g => `<div class="dir-block" style="--c:${g.color}">
+        <h3>${esc(g.label)} <span class="sub">${esc(g.sub)}</span></h3>
+        <div class="charts">${g.members.map(k => {
+          const sig = LIVE_SIGNALS.find(x => x.k === k), m = d.metrics.find(x => x.key === k);
+          return sig && m ? trackCard(sig, m, d, key) : "";
+        }).join("")}</div></div>`).join("");
+    host.innerHTML = `<div class="charts four">${row}</div>${blocks}`;
+    const tgrp = cursorGroup();
+    [...host.querySelectorAll(".mini")].forEach(box => drawTrackBars(box, tgrp));
+  }
+
+  function trackCard(sig, m, d, key, sub) {
     const val = m.average == null ? "—" : fmt(m.average, sig.d);
     // Benefit-signed, so a positive delta always reads as improvement.
     const delta = m.delta_pct == null ? ""
@@ -994,13 +1066,14 @@
     return `<div class="mini track" data-bars='${esc(JSON.stringify({
         bars: m.bars, reference: m.reference, color: sig.color, decimals: sig.d,
         direction: m.direction, target: sig.k === 'dfa1' ? 1.0 : null,
-        personal: m.reference_is_personal, bucket: d.bucket, drill: !!TRACK_DRILL[d.bucket],
+        personal: m.reference_is_personal, bucket: d.bucket, drill: !!TRACK_DRILL[d.bucket], panel: key,
         unit: sig.unit, label: sig.label, day: fmtYMD(d.start_date, F.md) }))}'>
       <div class="cap">
         <span class="t">${esc(sig.label)}${sig.tech && sig.tech.toUpperCase() !== sig.label.toUpperCase()
             ? ` <span class="tech">${esc(sig.tech)}</span>` : ""}</span>
         <span class="v" style="color:${sig.color}">${val} <small>${esc(sig.unit)}</small></span>
       </div>
+      ${sub ? `<div class="subline">${esc(sub)}</div>` : ""}
       ${delta}
       <svg></svg>
       ${footer}
@@ -1023,6 +1096,9 @@
     const top = Math.max(...values, cfg.reference ?? 0) * 1.12 || 1;
     const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b, bw = iw / bars.length;
     const y = (v) => pad.t + ih - (v / top) * ih;
+    // A bar carries its own value and date only when ~40px wide: in the
+    // narrow index cards seven day labels would otherwise run together.
+    const roomy = bars.length <= 8 && bw >= 40;
 
     let el = "";
     if (cfg.reference != null) {
@@ -1049,13 +1125,13 @@
       const mark = i === bestI ? " best" : i === worstI ? " worst" : "";
       el += `<rect class="tbar${mark}${cfg.drill ? " drill" : ""}" data-i="${i}" x="${(x + bw * 0.15).toFixed(1)}" y="${y(b.value).toFixed(1)}" width="${Math.max(1, bw * 0.7).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${cfg.color}"/>`;
       // Value labels only when the bars are wide enough to carry them.
-      if (bars.length <= 8) {
+      if (roomy) {
         el += `<text class="tick" x="${(x + bw / 2).toFixed(1)}" y="${(y(b.value) - 4).toFixed(1)}" text-anchor="middle">${Number(b.value).toFixed(cfg.decimals)}</text>`;
       }
     });
-    // X labels: every bar when few, otherwise first / middle / last.
-    const idx = bars.length <= 8 ? bars.map((_, i) => i)
-                                 : [0, Math.floor(bars.length / 2), bars.length - 1];
+    // X labels: every bar when they have room, otherwise first / middle / last.
+    const idx = roomy ? bars.map((_, i) => i)
+                      : [0, Math.floor(bars.length / 2), bars.length - 1];
     idx.forEach(i => {
       el += `<text class="tick" x="${(pad.l + i * bw + bw / 2).toFixed(1)}" y="${H - 5}" text-anchor="middle">${esc(bars[i].label)}</text>`;
     });
@@ -1063,7 +1139,7 @@
     if (cfg.drill) {
       svg.querySelectorAll(".tbar.drill").forEach(r => r.addEventListener("click", () => {
         const b = bars[Number(r.dataset.i)];
-        if (b && b.start) trackZoomInto(cfg.bucket, b.start);
+        if (b && b.start) trackZoomInto(cfg.panel || "track", cfg.bucket, b.start);
       }));
     }
 

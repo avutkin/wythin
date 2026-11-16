@@ -209,6 +209,50 @@ async def test_user_metrics_resolution_follows_the_data():
 
 
 @pytest.mark.asyncio
+async def test_track_four_direction_indexes():
+    """The track response carries one index per direction: 100 at this
+    person's typical, above it when the members sit better than their
+    baselines in their own direction. Requires a database."""
+    import math
+    from datetime import datetime, timezone, timedelta
+    from server.routers import admin
+    today = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
+    # Twenty flat days make the personal baseline; today is better on every
+    # relaxation signal (dc, rmssd, rsa up; breath down) and worse on focus
+    # (pip up, dfa1 off its 1.0 target).
+    samples = []
+    for back in range(1, 21):
+        samples.append({"ts": (today - timedelta(days=back)).isoformat(), "dc": 10.0, "rmssd": 40.0, "rsa_ms": 20.0,
+                        "breath_bpm": 12.0, "pip": 40.0, "dfa1": 1.0, "mean_bpm": 60.0, "lf_hf": 2.0,
+                        "rcmse": 1.2, "coherence": 0.5})
+    samples.append({"ts": today.isoformat(), "dc": 12.0, "rmssd": 48.0, "rsa_ms": 24.0, "breath_bpm": 10.0,
+                    "pip": 50.0, "dfa1": 0.8, "mean_bpm": 60.0, "lf_hf": 2.0, "rcmse": 1.2, "coherence": 0.5})
+    async with _client() as client:
+        up = await client.post("/v1/metrics", headers={"X-User-ID": "test-dirs-user"}, json={"samples": samples})
+        assert up.status_code in (200, 201), up.text
+        stats = await client.get("/admin/stats", params={"days": 3650})
+        uid = next(u["id"] for u in stats.json()["users"] if u["device_id"] == "test-dirs-user")
+        d = (await client.get(f"/admin/users/{uid}/track", params={"period": "week"})).json()
+    groups = {g["key"]: g for g in d["groups"]}
+    assert list(groups) == ["relaxation", "energy", "adaptivity", "focus"]
+    assert groups["relaxation"]["members"] == ["dc", "rmssd", "rsa_ms", "breath_bpm"]
+    todays = {k: g["bars"][-1]["value"] for k, g in groups.items()}
+    # Every relaxation member is 20% better → the index is 120.
+    assert todays["relaxation"] == 120.0
+    assert todays["energy"] == 100.0 and todays["adaptivity"] == 100.0
+    # pip 25% worse (ln 0.8), dfa1 off target by ln 0.8 → geometric mean 0.8.
+    assert todays["focus"] == 80.0
+    # A flat baseline day reads exactly typical.
+    assert groups["relaxation"]["bars"][-2]["value"] == 100.0
+    assert groups["relaxation"]["reference"] == 100.0 and groups["relaxation"]["direction"] == "higher"
+    assert groups["relaxation"]["reference_is_personal"] is True
+    assert groups["relaxation"]["better_count"] == 1 and groups["relaxation"]["present_count"] == 7
+    # The clamp: one member can swing an index by at most a factor of two.
+    assert admin._group_index(("dc",), {"dc": 1000.0}, {"dc": 1.0}) == 200.0
+    assert admin._group_index(("pip",), {"pip": 0.0}, {"pip": 40.0}) is None
+
+
+@pytest.mark.asyncio
 async def test_activity_detail():
     """Upload an activity, then fetch its before/during/after detail by SERVER id
     (the upload returns the server id, distinct from the client id)."""

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import math
 import json
 import io
 from datetime import date, datetime, timedelta, timezone
@@ -678,6 +679,46 @@ _TRACK_DIRECTION = {
 }
 _TRACK_TARGET = {"dfa1": 1.0}
 
+# ── The four directions: one index per group of signals ──
+#
+# The groups are the ones the First Steps guide teaches (relaxation, energy,
+# adaptivity, focus). An index is 100 at this person's own typical and moves
+# with the geometric mean of the members' benefit-signed ratios to their
+# baselines — 110 means the group sits 10% better than typical, in each
+# member's own direction. One member can swing it by at most a factor of 2.
+# Of the guide's Energy signals only Pulse is stored; LF/HF stands in for the
+# stress balance. Breath rate joins Relaxation as lower-is-calmer.
+_GROUPS = (
+    ("relaxation", "Relaxation", ("dc", "rmssd", "rsa_ms", "breath_bpm")),
+    ("energy",     "Energy",     ("mean_bpm", "lf_hf")),
+    ("adaptivity", "Adaptivity", ("rcmse", "coherence")),
+    ("focus",      "Focus",      ("pip", "dfa1")),
+)
+_GROUP_DIRECTION = {**_TRACK_DIRECTION, "breath_bpm": "lower"}
+_INDEX_CLAMP = math.log(2.0)
+
+
+def _index_term(col: str, v, ref):
+    """One member's contribution: signed log ratio to its baseline, clamped."""
+    if v is None or ref is None or v <= 0 or ref <= 0:
+        return None
+    d = _GROUP_DIRECTION.get(col)
+    if d == "higher":
+        t = math.log(v / ref)
+    elif d == "lower":
+        t = math.log(ref / v)
+    elif d == "target":
+        target = _TRACK_TARGET.get(col, 1.0)
+        t = abs(math.log(ref / target)) - abs(math.log(v / target))
+    else:
+        return None
+    return max(-_INDEX_CLAMP, min(_INDEX_CLAMP, t))
+
+
+def _group_index(cols, values, refs):
+    terms = [t for c in cols for t in [_index_term(c, values.get(c), refs.get(c))] if t is not None]
+    return 100.0 * math.exp(sum(terms) / len(terms)) if terms else None
+
 
 @router.get("/users/{user_id}/track")
 async def user_track(user_id: str, period: str = "week", offset: int = 0,
@@ -789,6 +830,7 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
         return mean([source[k][col] for k in source if b_start <= k < b_end])
 
     metrics = []
+    refs, prior_vals, personal_ref = {}, {}, {}
     for col in _METRIC_COLS:
         bars = [{"label": label, "start": b_start.isoformat(),
                  "value": bucket_value(col, b_start, b_end)}
@@ -823,6 +865,11 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
             reference = (window[mid] if len(window) % 2
                          else (window[mid - 1] + window[mid]) / 2)
             personal = True
+        # The group indexes need a baseline from day one: until there are
+        # enough days for a personal median, the mean of whatever days exist.
+        refs[col] = reference if personal else (sum(window) / len(window) if window else None)
+        personal_ref[col] = personal
+        prior_vals[col] = prior
 
         better = None
         if reference is not None and direction in ("higher", "lower", "target"):
@@ -847,11 +894,43 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
             "present_count": len(present),
         })
 
+    groups = []
+    for key, label, cols in _GROUPS:
+        by_col = {c: next(m for m in metrics if m["key"] == c) for c in cols}
+        bars = []
+        for i, (blabel, b_start, _) in enumerate(buckets):
+            vals = {c: by_col[c]["bars"][i]["value"] for c in cols}
+            bars.append({"label": blabel, "start": b_start.isoformat(),
+                         "value": _group_index(cols, vals, refs)})
+        present = [b["value"] for b in bars if b["value"] is not None]
+        average = sum(present) / len(present) if present else None
+        prior = [_group_index(cols, {c: prior_vals[c][i] for c in cols}, refs)
+                 for i in range(len(prior_buckets))]
+        prior_present = [v for v in prior if v is not None]
+        prior_avg = sum(prior_present) / len(prior_present) if prior_present else None
+        delta = (round((average - prior_avg) / prior_avg * 100.0, 1)
+                 if average is not None and prior_avg else None)
+        groups.append({
+            "key": key,
+            "label": label,
+            "members": list(cols),
+            "bars": [{**b, "value": round(b["value"], 1) if b["value"] is not None else None}
+                     for b in bars],
+            "average": round(average, 1) if average is not None else None,
+            "delta_pct": delta,
+            "direction": "higher",
+            "reference": 100.0,
+            "reference_is_personal": all(personal_ref.get(c) for c in cols if refs.get(c) is not None),
+            "better_count": sum(1 for v in present if v > 100.0),
+            "present_count": len(present),
+        })
+
     return {
         "period": period,
         "offset": offset,
         "from": start_local.date().isoformat() if anchor is not None else None,
         "bucket": bucket,
+        "groups": groups,
         "start": start_local.isoformat(),
         "end": end_local.isoformat(),
         # Plain local dates, so the page can print the window without
