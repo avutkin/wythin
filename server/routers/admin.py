@@ -817,6 +817,26 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
             )
             hourly = {r["hour"].replace(tzinfo=None): r for r in hrows}
 
+        # Everyone's typical, for the second rule on each card: each user's
+        # mean of their daily averages over the same 90 days, then the mean
+        # of those — every person weighs the same however much they wear.
+        cohort = await conn.fetchrow(
+            f"""
+            SELECT COUNT(*) AS users, {avg_cols}
+            FROM (
+                SELECT user_id, {avg_cols}
+                FROM (
+                    SELECT user_id, date_trunc('day', ts - $1::interval)::date AS day, {avg_cols}
+                    FROM metric_samples
+                    WHERE ts >= $2 AND ts < $3
+                    GROUP BY user_id, day
+                ) d
+                GROUP BY user_id
+            ) u
+            """,
+            off, baseline_start_local + off, end_local + off,
+        )
+
     daily = {r["day"]: r for r in rows}
     buckets = _track_buckets(bucket, start_local, end_local, count)
     prior_buckets = _track_buckets(bucket, prior_start_local, start_local, count)
@@ -889,6 +909,7 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
             "delta_pct": delta,
             "direction": direction,
             "reference": round(reference, 3) if reference is not None else None,
+            "cohort": round(float(cohort[col]), 3) if cohort[col] is not None else None,
             "reference_is_personal": personal,
             "better_count": better,
             "present_count": len(present),
@@ -920,6 +941,9 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
             "delta_pct": delta,
             "direction": "higher",
             "reference": 100.0,
+            # Where everyone's typical lands on this person's own scale.
+            "cohort": (lambda v: round(v, 1) if v is not None else None)(
+                _group_index(cols, {c: cohort[c] for c in cols}, refs)),
             "reference_is_personal": all(personal_ref.get(c) for c in cols if refs.get(c) is not None),
             "better_count": sum(1 for v in present if v > 100.0),
             "present_count": len(present),
@@ -938,6 +962,7 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
         "start_date": start_local.date().isoformat(),
         "end_date": end_local.date().isoformat(),
         "last_date": (end_local - timedelta(days=1)).date().isoformat(),
+        "cohort_users": cohort["users"],
         "metrics": metrics,
     }
 
