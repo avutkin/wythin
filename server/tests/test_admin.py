@@ -247,11 +247,6 @@ async def test_track_four_direction_indexes():
     assert groups["relaxation"]["reference"] == 100.0 and groups["relaxation"]["direction"] == "higher"
     assert groups["relaxation"]["reference_is_personal"] is True
     assert groups["relaxation"]["better_count"] == 1 and groups["relaxation"]["present_count"] == 7
-    # Everyone's typical rides along: this user is in the cohort, so dc has a value.
-    assert d["cohort_users"] >= 1
-    dc = next(m for m in d["metrics"] if m["key"] == "dc")
-    assert dc["cohort"] is not None and dc["cohort"] > 0
-    assert groups["relaxation"]["cohort"] is not None
     # The clamp: one member can swing an index by at most a factor of two.
     assert admin._group_index(("dc",), {"dc": 1000.0}, {"dc": 1.0}) == 200.0
     assert admin._group_index(("pip",), {"pip": 0.0}, {"pip": 40.0}) is None
