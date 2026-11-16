@@ -53,7 +53,7 @@
 - [x] Review the combined diff and exercise travel/DST cases; resolve important findings.
 - [x] Verify production November 11 measurement coverage. Apply a bounded, auditable Asia/Dubai correction only to the user-confirmed Dubai day (2026-11-10 20:00Z ≤ t < 2026-11-11 20:00Z), preserving UTC data and current profile. Do not guess other trip dates.
 - [x] Recheck build 146 in the public-link external group; report access eligibility without claiming a named anonymous tester's installation.
-- [ ] Integrate tested changes safely and report exactly what is deployed versus pending.
+- [x] Integrate tested changes safely and report exactly what is deployed versus pending.
 
 ## Execution evidence
 
@@ -63,3 +63,4 @@
 - Build 146 is VALID, IN_BETA_TESTING externally, and assigned to the enabled public-link External Testers group. The user confirmed Alexey joined by that public link; his individual installation is anonymous.
 - Initial integrated iOS capture/restore/sleep changes passed all 1,713 tests. Review found and fixed migration of applied legacy sleep corrections before enrichment/purging; 131 focused tests passed, including rebuilds. A pending pre-upgrade correction without a saved day or matching UTC boundary cannot safely be associated by guessing its original zone.
 - Review also required the Live history screen to use stable civil dates, a bounded 52-hour UTC candidate query, recorded-zone membership, explicit chart bounds/reference clock, and correct cache invalidation. Tests cover Dubai midnight under a Moscow viewer, mixed-zone/date-line days, DST, and repaired metadata versus stale memory. This patch passed 49 focused tests and independent review. The combined iOS tree passed the final full suite before release; details are in `/tmp/wythin-travel-final-full.log`.
+- The final combined suite and the mandatory `tools/ship.sh testflight` release suite each passed all 1,729 tests. Build **147**, commit `eaf84db`, was uploaded successfully, became VALID, passed Beta App Review, and is IN_BETA_TESTING for the public-link External Testers group. English and Russian release notes were saved. Build 146 remains available in that same group. Production server health and the corrected interval's chart API were verified after deployment.
