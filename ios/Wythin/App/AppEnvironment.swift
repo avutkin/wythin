@@ -102,6 +102,7 @@ final class AppEnvironment {
             if oldValue != isInForeground {
                 BLEDiag.log("PHASE foreground=\(isInForeground) ble=\(ble.state)")
                 ble.captureAudit?.recordPhase(isInForeground ? "foreground" : "background")
+                ble.checkRecordingRecovery()
             }
             if !isInForeground {
                 // Record the just-ended foreground interval as a usage event.

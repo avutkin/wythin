@@ -5,6 +5,175 @@ import UIKit
 /// BLE packet parser tests — run on simulator or device.
 final class BLETests: XCTestCase {
 
+    private let recoveryStart = Date(timeIntervalSince1970: 10_000)
+
+    func testHRRefreshDisablesThenEnablesFromAcknowledgement() {
+        var commands = RRRecoveryCommands()
+        commands.beginConnection()
+        XCTAssertEqual(commands.perform(.refreshHeartRate, hrIsNotifying: true), [.clearRecordingGap, .setHRNotifications(false)])
+        XCTAssertEqual(commands.perform(.refreshHeartRate, hrIsNotifying: true), [])
+        // Both successful and failed disable acknowledgements take this path:
+        // either way the desired final subscription state is enabled.
+        XCTAssertEqual(commands.hrNotificationStateUpdated(), .setHRNotifications(true))
+        XCTAssertNil(commands.hrNotificationStateUpdated())
+    }
+
+    func testAlreadyDisabledHRIsEnabledWithoutWaitingForAnotherDisableAck() {
+        var commands = RRRecoveryCommands()
+        commands.beginConnection()
+        XCTAssertEqual(commands.perform(.refreshHeartRate, hrIsNotifying: false), [.clearRecordingGap, .setHRNotifications(true)])
+        XCTAssertNil(commands.hrNotificationStateUpdated())
+    }
+
+    func testMissingHRCharacteristicRestartsDiscovery() {
+        var commands = RRRecoveryCommands()
+        commands.beginConnection()
+        XCTAssertEqual(commands.perform(.refreshHeartRate, hrIsNotifying: nil), [.clearRecordingGap, .discoverServices])
+    }
+
+    func testRecoveryCancelIsIssuedOnceAndSuppressesLateNotificationAck() {
+        var commands = RRRecoveryCommands()
+        commands.beginConnection()
+        XCTAssertEqual(commands.perform(.refreshHeartRate, hrIsNotifying: true), [.clearRecordingGap, .setHRNotifications(false)])
+        XCTAssertEqual(commands.perform(.reconnect, hrIsNotifying: false), [.cancelConnection])
+        XCTAssertTrue(commands.reconnectPending)
+        XCTAssertNil(commands.hrNotificationStateUpdated())
+        XCTAssertEqual(commands.perform(.reconnect, hrIsNotifying: false), [])
+        commands.endConnection()
+        commands.beginConnection()
+        XCTAssertFalse(commands.reconnectPending)
+        XCTAssertEqual(commands.perform(.probe, hrIsNotifying: true), [.readRSSI])
+    }
+
+    func testDisconnectCancelsPendingRefreshAndRejectsRecoveryCommands() {
+        var commands = RRRecoveryCommands()
+        commands.beginConnection()
+        XCTAssertEqual(commands.perform(.refreshHeartRate, hrIsNotifying: true), [.clearRecordingGap, .setHRNotifications(false)])
+        commands.endConnection()
+        XCTAssertNil(commands.hrNotificationStateUpdated())
+        XCTAssertEqual(commands.perform(.reconnect, hrIsNotifying: true), [])
+        XCTAssertEqual(commands.perform(.probe, hrIsNotifying: true), [])
+        XCTAssertEqual(commands.perform(.refreshHeartRate, hrIsNotifying: true), [])
+    }
+
+    // No watchdog or foreground ticks: these are the same event inputs that
+    // Bluetooth callbacks supply when iOS wakes the app in the background.
+    func testPMDCallbacksRecoverMissingRRWithoutTimerTicks() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(14)), .wait)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(15)), .refreshHeartRate)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(24)), .wait)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(25)), .reconnect)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(26)), .wait)
+    }
+
+    func testHRWithoutRRDoesNotKeepRecordingWatchdogAlive() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        let frame = PolarH10Profile.parseHRFrame(Data([0x00, 60]))!
+        XCTAssertEqual(recovery.receivedHeartRate(frame, at: recoveryStart.addingTimeInterval(15),
+                                                inStandby: false, ecgLive: false), .refreshHeartRate)
+        XCTAssertEqual(recovery.receivedHeartRate(frame, at: recoveryStart.addingTimeInterval(25),
+                                                inStandby: false, ecgLive: false), .reconnect)
+    }
+
+    func testFreshRRStopsEscalationAfterSubscriptionRefresh() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(15)), .refreshHeartRate)
+        let frame = PolarH10Profile.parseHRFrame(Data([0x10, 60, 0x00, 0x04]))!
+        XCTAssertEqual(recovery.receivedHeartRate(frame, at: recoveryStart.addingTimeInterval(20),
+                                                inStandby: false, ecgLive: true), .wait)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(25)), .wait)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(35)), .refreshHeartRate)
+    }
+
+    func testStandbyBeaconsAvoidReconnectButCannotMaskLaterSilence() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        let beacon = PolarH10Profile.parseHRFrame(Data([0x04, 0]))!
+        for second in stride(from: 1, through: 120, by: 1) {
+            XCTAssertEqual(recovery.receivedHeartRate(beacon, at: recoveryStart.addingTimeInterval(Double(second)),
+                                                    inStandby: true, ecgLive: false), .wait)
+        }
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(149)), .wait)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(150)), .probe)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(160)), .reconnect)
+    }
+
+    func testLiveECGOverridesAnOffBodyBeaconWhenRRIsMissing() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        let beacon = PolarH10Profile.parseHRFrame(Data([0x04, 0]))!
+        XCTAssertEqual(recovery.receivedHeartRate(beacon, at: recoveryStart.addingTimeInterval(15),
+                                                inStandby: false, ecgLive: true), .refreshHeartRate)
+    }
+
+    func testStandbyPositiveHRWithoutRRRecoversFromCallbacks() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        let frame = PolarH10Profile.parseHRFrame(Data([0x04, 60]))!
+        XCTAssertEqual(recovery.receivedHeartRate(frame, at: recoveryStart.addingTimeInterval(15),
+                                                inStandby: true, ecgLive: false), .refreshHeartRate)
+        XCTAssertEqual(recovery.receivedHeartRate(frame, at: recoveryStart.addingTimeInterval(25),
+                                                inStandby: true, ecgLive: false), .reconnect)
+    }
+
+    func testTotalSilenceProbesThenReconnectsEvenWithoutProbeResponse() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(29)), .wait)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(30)), .probe)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(39)), .wait)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(40)), .reconnect)
+    }
+
+    func testLostSubscriptionAcknowledgementStillEscalatesDuringSilence() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(15)), .refreshHeartRate)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(25)), .reconnect)
+    }
+
+    func testProbeResponseRefreshesSubscriptionWithoutForegroundTick() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(30)), .probe)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(31)), .refreshHeartRate)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(41)), .reconnect)
+    }
+
+    func testReconnectCooldownSurvivesAnAutomaticConnectionCycle() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(15)), .refreshHeartRate)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(25)), .reconnect)
+        recovery.endConnection()
+        recovery.beginConnection(at: recoveryStart.addingTimeInterval(26))
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(84)), .wait)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(85)), .refreshHeartRate)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(95)), .reconnect)
+    }
+
+    func testDisconnectedAndPreviousConnectionPacketsCannotStartRecovery() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        recovery.endConnection()
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(100)), .wait)
+        recovery.beginConnection(at: recoveryStart.addingTimeInterval(200))
+        XCTAssertFalse(recovery.acceptsPacket(at: recoveryStart.addingTimeInterval(199)))
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(199)), .wait)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(215)), .wait)
+    }
+
+    func testRestoredConnectionGetsFreshRecoveryGrace() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(14)), .wait)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(15)), .refreshHeartRate)
+    }
+
     @MainActor
     func testManualConnectionRejectsWatchBeforeBluetoothLookup() {
         let ble = BLEService()

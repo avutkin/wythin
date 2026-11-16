@@ -211,6 +211,141 @@ enum BLEDiag {
     }
 }
 
+// MARK: - RR stream recovery
+
+/// Bluetooth events drive this state machine even when the app is in the
+/// background. The watchdog is only a fallback while iOS allows execution.
+struct RRStreamRecovery {
+    enum Action: Equatable { case wait, probe, refreshHeartRate, reconnect }
+
+    private var connectedAt: Date?
+    private var lastPacketAt: Date?
+    private var lastHealthyHRAt: Date?
+    private var refreshAt: Date?
+    private var probeAt: Date?
+    private var lastReconnectAt: Date?
+    private var reconnectPending = false
+
+    mutating func beginConnection(at now: Date) {
+        endConnection()
+        connectedAt = now
+    }
+
+    /// Preserve the cooldown across automatic reconnects.
+    mutating func endConnection() {
+        connectedAt = nil
+        lastPacketAt = nil
+        lastHealthyHRAt = nil
+        refreshAt = nil
+        probeAt = nil
+        reconnectPending = false
+    }
+
+    func acceptsPacket(at now: Date) -> Bool {
+        !reconnectPending && (connectedAt.map { now >= $0 } ?? false)
+    }
+
+    mutating func receivedPacket(at now: Date) -> Action {
+        guard acceptsPacket(at: now) else { return .wait }
+        lastPacketAt = now
+        return evaluate(at: now)
+    }
+
+    mutating func receivedHeartRate(_ frame: HRFrame, at now: Date,
+                                   inStandby: Bool, ecgLive: Bool) -> Action {
+        guard acceptsPacket(at: now) else { return .wait }
+        lastPacketAt = now
+        let hasRR = !frame.rrIntervalsMs.isEmpty && (!inStandby ||
+            StandbyResumeGate.isPhysiologicallyPlausible(bpm: frame.bpm, rr: frame.rrIntervalsMs))
+        // Fresh zero-HR beacons are normal off-body. A contact flag alone must
+        // not hide a lost RR stream, particularly while ECG is still arriving.
+        let offBodyBeacon = frame.bpm == 0 && frame.rrIntervalsMs.isEmpty &&
+            frame.contact != true && !ecgLive
+        if hasRR || offBodyBeacon {
+            lastHealthyHRAt = now
+            refreshAt = nil
+            probeAt = nil
+        }
+        return evaluate(at: now)
+    }
+
+    mutating func evaluate(at now: Date) -> Action {
+        guard let connectedAt, !reconnectPending,
+              now.timeIntervalSince(lastHealthyHRAt ?? connectedAt) >= 15 else { return .wait }
+        if let lastReconnectAt, now.timeIntervalSince(lastReconnectAt) < 60 { return .wait }
+        // A lost notification acknowledgement must not strand the disabled
+        // subscription, even if all traffic stops after the refresh request.
+        if let refreshAt {
+            guard now.timeIntervalSince(refreshAt) >= 10 else { return .wait }
+            return reconnect(at: now)
+        }
+        if let lastPacketAt, now.timeIntervalSince(lastPacketAt) <= 5 {
+            refreshAt = now
+            probeAt = nil
+            return .refreshHeartRate
+        }
+        if let probeAt {
+            guard now.timeIntervalSince(probeAt) >= 10 else { return .wait }
+            return reconnect(at: now)
+        }
+        guard now.timeIntervalSince(lastPacketAt ?? connectedAt) >= 30 else { return .wait }
+        probeAt = now
+        return .probe
+    }
+
+    private mutating func reconnect(at now: Date) -> Action {
+        lastReconnectAt = now
+        reconnectPending = true
+        return .reconnect
+    }
+}
+
+/// Owns the asynchronous command sequence independently of CoreBluetooth.
+/// BLEService maps each command to one framework operation.
+struct RRRecoveryCommands {
+    enum Command: Equatable {
+        case clearRecordingGap, setHRNotifications(Bool), discoverServices, readRSSI, cancelConnection
+    }
+
+    private var active = false
+    private var refreshPending = false
+    private(set) var reconnectPending = false
+
+    mutating func beginConnection() {
+        self = Self()
+        active = true
+    }
+
+    mutating func endConnection() { self = Self() }
+
+    mutating func perform(_ action: RRStreamRecovery.Action, hrIsNotifying: Bool?) -> [Command] {
+        guard active, !reconnectPending else { return [] }
+        switch action {
+        case .wait: return []
+        case .probe: return [.readRSSI]
+        case .refreshHeartRate:
+            guard !refreshPending else { return [] }
+            // The >=15s RR gap is real even when refreshing succeeds without
+            // disconnecting. Clear before new beats can enter the HRV buffer.
+            guard let hrIsNotifying else { return [.clearRecordingGap, .discoverServices] }
+            refreshPending = hrIsNotifying
+            return [.clearRecordingGap, .setHRNotifications(!hrIsNotifying)]
+        case .reconnect:
+            refreshPending = false
+            reconnectPending = true
+            return [.cancelConnection]
+        }
+    }
+
+    /// A failed disable still needs an enable. No timer is required between
+    /// the two writes, and disconnect/cancel invalidates any pending ack.
+    mutating func hrNotificationStateUpdated() -> Command? {
+        guard active, !reconnectPending, refreshPending else { return nil }
+        refreshPending = false
+        return .setHRNotifications(true)
+    }
+}
+
 // MARK: - Standby Policy (pure, testable)
 //
 // Off-body standby originally leaned on the HR packet's skin-contact bit in
@@ -733,9 +868,11 @@ final class BLEService: NSObject {
     // When true, auto-scan on BT-power-on is skipped (user intentionally disconnected).
     private(set) var userDisconnected = false
 
-    // When true, we're in off-body standby: streaming stopped, a no-timeout
-    // pending connect is armed. Cleared on (re)connect and on manual disconnect.
+    // Off-body standby pauses PMD, retaining HR notifications and recovery.
     private var inStandby = false
+    private var rrRecovery = RRStreamRecovery()
+    private var recoveryCommands = RRRecoveryCommands()
+    private var recoveryReconnectPending: Bool { recoveryCommands.reconnectPending }
 
     // MARK: Init
 
@@ -937,6 +1074,7 @@ final class BLEService: NSObject {
             cancelConnection(p)
         }
         clearConnectionState()
+        rrRecovery = RRStreamRecovery()
         reconnectDelay = 2.0
         state = .idle
     }
@@ -958,7 +1096,7 @@ final class BLEService: NSObject {
         standbyEnteredAt = Date()          // starts the resume grace window
         connectionTimeoutTask?.cancel()
         reconnectTask?.cancel()
-        watchdogTask?.cancel()
+        // Keep monitoring the HR link that is responsible for standby resume.
         accWatchdogTask?.cancel()
         // No `connectionGapSubject.send()` here any more. That used to wipe
         // the RR buffer on every standby entry — right, for a strap that is
@@ -1054,6 +1192,8 @@ final class BLEService: NSObject {
             pmdStreamsStarted = false
             discoveryRetryCount = 0
             state = .connected(name: device.name)
+            rrRecovery.beginConnection(at: Date())
+            recoveryCommands.beginConnection()
             discoverServices()
             startWatchdog()
         } else {
@@ -1240,6 +1380,15 @@ final class BLEService: NSObject {
         lastACCRetryAt    = nil
         accRetryCount     = 0
         lastACCStartCmd   = nil
+        lastRRSampleAt    = nil
+        lastRRIntervalAt  = nil
+        lastPlausibleBPMAt = nil
+        lastForwardedBeatAt = nil
+        sensorContact    = nil
+        inStandby        = false
+        standbyEnteredAt = nil
+        recoveryCommands.endConnection()
+        rrRecovery.endConnection()
     }
 
     /// Full reset including the peripheral reference. Used for intentional
@@ -1260,12 +1409,60 @@ final class BLEService: NSObject {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(8))
                 guard !Task.isCancelled, let self else { return }
-                guard case .connected = self.state,
-                      let p = self.peripheral,
-                      p.state != .connected else { continue }
-                print("🔴 BLE watchdog: silent disconnect detected — reconnecting")
-                self.handleUnexpectedDisconnect(p, error: nil)
+                self.checkRecordingRecovery()
             }
+        }
+    }
+
+    /// Called on lifecycle transitions as well as by the fallback timer.
+    /// HR/PMD callbacks evaluate recovery directly, without a foreground tick.
+    func checkRecordingRecovery() {
+        guard !userDisconnected, !recoveryReconnectPending,
+              centralManager.state == .poweredOn, let p = peripheral else { return }
+        switch state {
+        case .connected, .standby: break
+        default: return
+        }
+        if p.state == .disconnected {
+            handleUnexpectedDisconnect(p, error: nil)
+        } else if p.state == .connected {
+            applyRecordingRecovery(rrRecovery.evaluate(at: Date()))
+        }
+    }
+
+    private func applyRecordingRecovery(_ action: RRStreamRecovery.Action) {
+        guard !userDisconnected, !recoveryReconnectPending,
+              centralManager.state == .poweredOn,
+              let p = peripheral, p.state == .connected else { return }
+        for command in recoveryCommands.perform(action, hrIsNotifying: hrChar?.isNotifying) {
+            performRecoveryCommand(command)
+        }
+    }
+
+    private func performRecoveryCommand(_ command: RRRecoveryCommands.Command?) {
+        guard let command, !userDisconnected, let p = peripheral,
+              p.state == .connected else { return }
+        switch command {
+        case .clearRecordingGap:
+            BLEDiag.log("RR recovery clearing buffered signals after gap")
+            connectionGapSubject.send()
+        case .readRSSI:
+            BLEDiag.log("RR recovery probe background=\(UIApplication.shared.applicationState == .background)")
+            p.readRSSI()
+        case .setHRNotifications(let enabled):
+            BLEDiag.log("RR recovery HR notify=\(enabled) background=\(UIApplication.shared.applicationState == .background)")
+            if let hrChar {
+                p.setNotifyValue(enabled, for: hrChar)
+            }
+        case .discoverServices:
+            discoverServices()
+        case .cancelConnection:
+            BLEDiag.log("RR recovery reconnect background=\(UIApplication.shared.applicationState == .background)")
+            state = .connecting(name: supportedName(p) ?? "Polar H10")
+            // Deliberately use the unexpected-disconnect path: its callback
+            // clears the gap and arms a persistent OS-managed connection.
+            canceledPeripheralIDs.remove(p.identifier)
+            centralManager.cancelPeripheralConnection(p)
         }
     }
 
@@ -1528,6 +1725,8 @@ extension BLEService: CBCentralManagerDelegate {
             self.discoveryRetryCount = 0
             self.recentConnectFailures.removeAll()
             self.state = .connected(name: name)
+            self.rrRecovery.beginConnection(at: Date())
+            self.recoveryCommands.beginConnection()
             self.discoverServices()
             self.startWatchdog()
         }
@@ -1607,6 +1806,7 @@ extension BLEService: CBPeripheralDelegate {
         if let error { print("❌ BLE: service discovery error — \(error)") }
         Task { @MainActor in
             guard self.peripheral?.identifier == peripheral.identifier,
+                  !self.recoveryReconnectPending, peripheral.state == .connected,
                   self.supportedName(peripheral) != nil else { return }
             guard error == nil, let services = peripheral.services else {
                 self.retryOrGiveUpOnDiscoveryFailure(peripheral)
@@ -1633,6 +1833,7 @@ extension BLEService: CBPeripheralDelegate {
         if let error { print("❌ BLE: char discovery error — \(error)") }
         Task { @MainActor in
             guard self.peripheral?.identifier == peripheral.identifier,
+                  !self.recoveryReconnectPending, peripheral.state == .connected,
                   self.supportedName(peripheral) != nil else { return }
             guard error == nil, let chars = service.characteristics else {
                 self.retryOrGiveUpOnDiscoveryFailure(peripheral)
@@ -1694,15 +1895,18 @@ extension BLEService: CBPeripheralDelegate {
             }
             Task { @MainActor in
                 guard self.peripheral?.identifier == peripheral.identifier,
+                      !self.recoveryReconnectPending, peripheral.state == .connected,
                       self.supportedName(peripheral) != nil, !self.userDisconnected else { return }
                 if sealed { self.rawChunkReadySubject.send(()) }
+                guard self.rrRecovery.acceptsPacket(at: receivedAt) else { return }
                 if let ecg = parsed as? ECGFrame {
-                    self.lastECGSampleAt = Date()
+                    self.lastECGSampleAt = receivedAt
                     self.ecgSubject.send(ecg.samplesUV.map { Float($0) })
                 } else if let acc = parsed as? ACCFrame {
                     self.noteACCSampleReceived()
                     self.accSubject.send(acc.samples)
                 }
+                self.applyRecordingRecovery(self.rrRecovery.receivedPacket(at: receivedAt))
             }
 
         case PolarH10Profile.pmdControl:
@@ -1791,13 +1995,18 @@ extension BLEService: CBPeripheralDelegate {
             if let frame {
                 Task { @MainActor in
                     guard self.peripheral?.identifier == peripheral.identifier,
+                          !self.recoveryReconnectPending, peripheral.state == .connected,
                           let name = self.supportedName(peripheral), !self.userDisconnected else { return }
+                    guard self.rrRecovery.acceptsPacket(at: receivedAt) else { return }
+                    let recoveryAction = self.rrRecovery.receivedHeartRate(frame, at: receivedAt,
+                        inStandby: self.inStandby, ecgLive: self.ecgStreamLive)
+                    defer { self.applyRecordingRecovery(recoveryAction) }
                     // RR liveness for the PMD watchdog: this characteristic is
                     // independent of both PMD streams, so it can prove the
                     // link is alive while ECG and ACC are both stalled.
-                    self.lastRRSampleAt = Date()
-                    if !frame.rrIntervalsMs.isEmpty { self.lastRRIntervalAt = Date() }
-                    if frame.bpm >= 30 { self.lastPlausibleBPMAt = Date() }
+                    self.lastRRSampleAt = receivedAt
+                    if !frame.rrIntervalsMs.isEmpty { self.lastRRIntervalAt = receivedAt }
+                    if frame.bpm >= 30 { self.lastPlausibleBPMAt = receivedAt }
                     self.sensorContact = frame.contact
                     // Paused for off-body: keep watching the contact bit over the
                     // lightweight HR link and resume the moment the strap is worn
@@ -1854,6 +2063,37 @@ extension BLEService: CBPeripheralDelegate {
             }
 
         default: break
+        }
+    }
+
+    nonisolated func peripheral(_ peripheral: CBPeripheral,
+                                didUpdateNotificationStateFor characteristic: CBCharacteristic,
+                                error: Error?) {
+        Task { @MainActor in
+            guard self.peripheral?.identifier == peripheral.identifier,
+                  !self.userDisconnected, !self.recoveryReconnectPending,
+                  peripheral.state == .connected,
+                  characteristic === self.hrChar else { return }
+            if let error {
+                BLEDiag.log("HR notification error: \(error.localizedDescription)")
+            }
+            self.performRecoveryCommand(self.recoveryCommands.hrNotificationStateUpdated())
+            self.checkRecordingRecovery()
+        }
+    }
+
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber,
+                                error: Error?) {
+        let receivedAt = Date()
+        Task { @MainActor in
+            guard self.peripheral?.identifier == peripheral.identifier,
+                  !self.userDisconnected, !self.recoveryReconnectPending,
+                  peripheral.state == .connected else { return }
+            if error == nil {
+                self.applyRecordingRecovery(self.rrRecovery.receivedPacket(at: receivedAt))
+            } else {
+                self.checkRecordingRecovery()
+            }
         }
     }
 
