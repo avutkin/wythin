@@ -63,8 +63,8 @@ class ActivitySchema(BaseModel):
     # A recorded night's summary (score, sections, stages, positions, the
     # run-length hypnogram). Stored as uploaded; only the app computes it.
     sleep:            Optional[dict] = None
-    # The phone's IANA zone when it uploaded this row, so the activity keeps
-    # its own clock even after the person has flown somewhere else.
+    # Recording-time IANA zone. Older clients supplied their upload-time
+    # zone here, so legacy values are not proof of historical location.
     timezone:         Optional[str] = None
 
     _zone = field_validator("timezone")(lambda cls, v: zone_or_none(v))
@@ -85,6 +85,9 @@ class ActivitySchema(BaseModel):
 
 class MetricSample(BaseModel):
     ts: str
+    # Snapshot at measurement time, never inferred from the current profile.
+    timezone: Optional[str] = None
+    _zone = field_validator("timezone")(lambda cls, v: zone_or_none(v))
     mean_bpm: Optional[float] = None
     rmssd: Optional[float] = None
     sdnn: Optional[float] = None

@@ -16,12 +16,13 @@ import json
 import io
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse, HTMLResponse
 from ..db import get_pool
 from ..impact import impact_for
 from .. import zones
-from ..models import AdminUserRow
+from ..models import AdminUserRow, zone_or_none
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -592,13 +593,18 @@ async def user_metrics(user_id: str, window: str = "24h", offset: int = 0,
     ladder_cols = ", ".join(
         f"count(DISTINCT date_bin('{s} seconds', ts, TIMESTAMPTZ 'epoch')) AS b{s}"
         for s in _METRIC_LADDER_S)
+    ladder_sums = ", ".join(f"COALESCE(sum(b{s}), 0)::bigint AS b{s}" for s in _METRIC_LADDER_S)
     pool = get_pool()
     async with pool.acquire() as conn:
         counts = await conn.fetchrow(
             f"""
-            SELECT count(*) AS raw, {ladder_cols}
-            FROM metric_samples
-            WHERE user_id = $1::uuid AND ts > $2 AND ts <= $3
+            SELECT COALESCE(sum(raw), 0)::bigint AS raw, {ladder_sums}
+            FROM (
+                SELECT count(*) AS raw, {ladder_cols}
+                FROM metric_samples
+                WHERE user_id = $1::uuid AND ts > $2 AND ts <= $3
+                GROUP BY timezone
+            ) AS clocks
             """,
             user_id, start, end,
         )
@@ -612,7 +618,7 @@ async def user_metrics(user_id: str, window: str = "24h", offset: int = 0,
         if bucket_s == 0:
             rows = await conn.fetch(
                 f"""
-                SELECT ts AS bucket, {raw_cols}
+                SELECT ts AS bucket, ts AS first_ts, timezone, {raw_cols}
                 FROM metric_samples
                 WHERE user_id = $1::uuid AND ts > $2 AND ts <= $3
                 ORDER BY ts
@@ -622,11 +628,12 @@ async def user_metrics(user_id: str, window: str = "24h", offset: int = 0,
         else:
             rows = await conn.fetch(
                 f"""
-                SELECT date_bin($2::interval, ts, TIMESTAMPTZ 'epoch') AS bucket, {avg_cols}
+                SELECT date_bin($2::interval, ts, TIMESTAMPTZ 'epoch') AS bucket,
+                       MIN(ts) AS first_ts, timezone, {avg_cols}
                 FROM metric_samples
                 WHERE user_id = $1::uuid AND ts > $3 AND ts <= $4
-                GROUP BY bucket
-                ORDER BY bucket
+                GROUP BY bucket, timezone
+                ORDER BY first_ts
                 """,
                 user_id, timedelta(seconds=bucket_s), start, end,
             )
@@ -643,7 +650,8 @@ async def user_metrics(user_id: str, window: str = "24h", offset: int = 0,
         "bucket_seconds": bucket_s,
         "ticks": counts["raw"],
         "samples": [
-            {"ts": r["bucket"].isoformat(), **{c: _f(r[c]) for c in _METRIC_COLS}}
+            {"ts": r["first_ts"].isoformat(), "timezone": r["timezone"],
+             **{c: _f(r[c]) for c in _METRIC_COLS}}
             for r in rows
         ],
     }
@@ -723,20 +731,42 @@ def _group_index(cols, values, refs):
 @router.get("/users/{user_id}/track")
 async def user_track(user_id: str, period: str = "week", offset: int = 0,
                      tz_offset: int = 0,
-                     from_: str | None = Query(None, alias="from")):
+                     from_: str | None = Query(None, alias="from"),
+                     zone: str | None = None, clock: str = "recorded"):
     """Per-metric averages per bar over a period, with the baseline and the
     period-over-period delta the app's Track screen shows.
 
     `offset` pages backwards whole periods from today. `from` (a local
     YYYY-MM-DD) anchors the period on that date instead — how a bar opens
     into the period it covers: a week bar as seven days, a day bar as 24
-    hours, a month bar as its calendar month. `tz_offset` is the viewer's JS
-    timezone offset so days break on their midnight, not UTC's."""
+    hours, a month bar as its calendar month. Recorded zones determine each
+    sample's civil day, including travel and DST. `zone` is only a fallback
+    for legacy samples; `tz_offset` supports older dashboards. `clock=utc`
+    explicitly displays all samples in UTC."""
     period = period if period in _TRACK_PERIODS else "week"
     bucket, count = _TRACK_PERIODS[period]
     offset = max(0, min(offset, 120))
     tz_offset = max(-900, min(tz_offset, 900))
     off = timedelta(minutes=tz_offset)
+    if zone is not None and not zone_or_none(zone):
+        raise HTTPException(status_code=422, detail="zone must be an IANA timezone")
+    if clock not in ("recorded", "utc"):
+        raise HTTPException(status_code=422, detail="clock must be recorded or utc")
+    pool = get_pool()
+    fallback_zone = "UTC" if clock == "utc" else zone
+    if not fallback_zone:
+        fallback_zone = zone_or_none(await pool.fetchval(
+            "SELECT timezone FROM profiles WHERE user_id=$1::uuid", user_id))
+    # SQL yields a timestamp WITHOUT timezone: a historical civil date/time,
+    # not an instant to shift again. Bounds are expanded for every IANA offset
+    # then trimmed in civil time, so a 23/25-hour day keeps all its readings.
+    if clock == "utc":
+        local_sql = "ts AT TIME ZONE $2"
+    elif fallback_zone:
+        local_sql = "ts AT TIME ZONE COALESCE(timezone, $2)"
+    else:
+        local_sql = "CASE WHEN timezone IS NOT NULL THEN ts AT TIME ZONE timezone ELSE (ts - $2::interval) AT TIME ZONE 'UTC' END"
+    zone_arg = fallback_zone or off
 
     anchor = None
     if from_:
@@ -745,9 +775,9 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
         except ValueError:
             anchor = None
 
-    # Work in the viewer's local calendar, then shift back to UTC for the query.
-    local_today = (datetime.now(timezone.utc) - off).replace(
-        hour=0, minute=0, second=0, microsecond=0)
+    now = datetime.now(timezone.utc)
+    local_now = now.astimezone(ZoneInfo(fallback_zone)) if fallback_zone else now - off
+    local_today = local_now.replace(tzinfo=timezone.utc, hour=0, minute=0, second=0, microsecond=0)
     if anchor is not None:
         # Anchored: the whole period starts on the bar's own first day. A
         # month opens as its calendar month, not thirty days from the first.
@@ -788,17 +818,25 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
     query_from = min(prior_start_local, baseline_start_local)
 
     avg_cols = ", ".join(f"AVG({c}) AS {c}" for c in _METRIC_COLS)
-    pool = get_pool()
     async with pool.acquire() as conn:
+        # The WHERE bounds retain the user/ts index; the inner civil-time
+        # filter removes the padding without assuming today's UTC offset.
         rows = await conn.fetch(
             f"""
-            SELECT (date_trunc('day', ts - $2::interval))::date AS day, {avg_cols}
-            FROM metric_samples
-            WHERE user_id = $1::uuid AND ts >= $3 AND ts < $4
+            WITH localized AS (
+                SELECT {local_sql} AS local_ts, timezone, {', '.join(_METRIC_COLS)}
+                FROM metric_samples
+                WHERE user_id = $1::uuid AND ts >= $3 AND ts < $4
+            )
+            SELECT local_ts::date AS day, {avg_cols},
+                   array_agg(DISTINCT timezone) FILTER (WHERE timezone IS NOT NULL) AS timezones,
+                   bool_or(timezone IS NULL) AS has_unknown_timezone
+            FROM localized WHERE local_ts >= $5 AND local_ts < $6
             GROUP BY day
             ORDER BY day
             """,
-            user_id, off, query_from + off, end_local + off,
+            user_id, zone_arg, query_from - timedelta(days=1), end_local + timedelta(days=1),
+            query_from.replace(tzinfo=None), end_local.replace(tzinfo=None),
         )
 
         # Hourly bars read their own aggregation: a day's bar is the mean of
@@ -807,13 +845,18 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
         if bucket == "hour":
             hrows = await conn.fetch(
                 f"""
-                SELECT date_trunc('hour', ts - $2::interval) AS hour, {avg_cols}
-                FROM metric_samples
-                WHERE user_id = $1::uuid AND ts >= $3 AND ts < $4
+                WITH localized AS (
+                    SELECT {local_sql} AS local_ts, {', '.join(_METRIC_COLS)}
+                    FROM metric_samples
+                    WHERE user_id = $1::uuid AND ts >= $3 AND ts < $4
+                )
+                SELECT date_trunc('hour', local_ts) AS hour, {avg_cols}
+                FROM localized WHERE local_ts >= $5 AND local_ts < $6
                 GROUP BY hour
                 ORDER BY hour
                 """,
-                user_id, off, prior_start_local + off, end_local + off,
+                user_id, zone_arg, prior_start_local - timedelta(days=1), end_local + timedelta(days=1),
+                prior_start_local.replace(tzinfo=None), end_local.replace(tzinfo=None),
             )
             hourly = {r["hour"].replace(tzinfo=None): r for r in hrows}
 
@@ -927,6 +970,12 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
 
     return {
         "period": period,
+        "clock": clock,
+        "fallback_timezone": fallback_zone,
+        "timezones": sorted({z for r in rows if start_local.date() <= r["day"] < end_local.date()
+                             for z in (r["timezones"] or [])}),
+        "has_unknown_timezone": any(r["has_unknown_timezone"] for r in rows
+                                    if start_local.date() <= r["day"] < end_local.date()),
         "offset": offset,
         "from": start_local.date().isoformat() if anchor is not None else None,
         "bucket": bucket,

@@ -440,12 +440,9 @@
   const fmt = (n, d = 0) => (n == null ? "—" : Number(n).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d }));
 
   // ── The clock ─────────────────────────────────────────────────────────
-  // Every instant on this page is shown in ONE zone: the phone's own, by
-  // default, so a night that began at 23:10 in Berlin reads 23:10 whoever is
-  // looking — or UTC, on the switch in the header. The phone reports its
-  // IANA zone with the profile (where it is now) and with each activity
-  // (where it was then); until a build that sends it has synced, the tag
-  // says so and the page falls back to the browser's zone.
+  // Recordings keep their own clocks across travel; the profile is only a
+  // fallback for older rows without a saved zone. The header switch can
+  // explicitly show every instant in UTC.
   const CLOCK_STORE = "wythin_admin_clock";
   const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const clockMode = () => { try { return localStorage.getItem(CLOCK_STORE) === "utc" ? "utc" : "phone"; } catch { return "phone"; } };
@@ -473,6 +470,19 @@
     full:  { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" },
   };
   const when = (t, opts, zone) => dtf(opts, zone).format(t instanceof Date ? t : new Date(t));
+  // Samples are UTC-ordered. Keep each point's recorded zone, including
+  // changes within a chart; never replace it with today's profile zone.
+  const recordingZoneAt = (t, samples) => {
+    if (!samples.length) return null;
+    const instant = new Date(t).getTime();
+    let lo = 0, hi = samples.length - 1;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (new Date(samples[mid].ts).getTime() <= instant) lo = mid;
+      else hi = mid - 1;
+    }
+    return samples[lo].timezone || null;
+  };
   // Calendar fields of an instant in the zone in effect — for labels built
   // by hand (the bar chart's MM-DD) and for the offset the server takes.
   const fields = (t, zone) => {
@@ -495,10 +505,10 @@
     if (m) return `UTC${m[1] === "-" ? "+" : "−"}${m[2]}`;
     return z === "Etc/UTC" ? "UTC" : z;
   };
-  const gmtLabel = (zone) => {
+  const gmtLabel = (zone, instant = new Date()) => {
     try {
       return new Intl.DateTimeFormat("en-US", { timeZone: tzFor(zone), timeZoneName: "shortOffset" })
-        .formatToParts(new Date()).find(p => p.type === "timeZoneName").value;
+        .formatToParts(new Date(instant)).find(p => p.type === "timeZoneName").value;
     } catch { return ""; }
   };
   // The tag in the header: which zone the page is in, and whose it is.
@@ -519,7 +529,7 @@
     } else if (zoneOk(state.zone)) {
       tag.classList.add("known");
       tag.textContent = `${zoneName(state.zone)} · ${gmtLabel()}${state.zoneFrom ? " · " + state.zoneFrom : ""}`;
-      tag.title = "This person's phone zone; every time on this page is in it";
+      tag.title = "Latest phone zone. Historical recordings use their saved zones; older recordings fall back to this zone.";
     } else {
       tag.classList.add("unknown");
       tag.textContent = `${BROWSER_TZ} · ${gmtLabel()} · phone zone not synced yet`;
@@ -867,7 +877,7 @@
     // Name the window being shown. At offset 0 it is simply "now"; stepping
     // back, the dates matter more than the clock; zoomed below ten minutes,
     // the seconds do.
-    const fmtEdge = (iso) => when(iso, spanMs < 10 * 60e3 ? F.timeS : F.time);
+    const fmtEdge = (iso) => when(iso, spanMs < 10 * 60e3 ? F.timeS : F.time, recordingZoneAt(iso, s));
     $("#win-label").textContent = !live && off === 0
       ? `now — back to ${fmtEdge(d.start)}`
       : `${fmtEdge(d.start)} → ${fmtEdge(d.end)}`;
@@ -881,6 +891,12 @@
     res.textContent = !s.length ? ""
       : bucketMs === 0 ? `every tick · ${s.length.toLocaleString()} points`
       : `${fmtBucket(bucketMs)} means · ${s.length.toLocaleString()} of ${Number(d.ticks || 0).toLocaleString()} ticks`;
+    if (s.length) {
+      const zones = [...new Set(s.map(p => p.timezone).filter(zoneOk))];
+      const clocks = clockMode() === "utc" ? "UTC" : zones.map(zoneName).join(" → ");
+      res.textContent += clocks ? ` · ${clocks}` : " · recording zone unknown";
+      if (clockMode() !== "utc" && zones.length && s.some(p => !p.timezone)) res.textContent += " · some zones unknown";
+    }
     $("#live-hint").textContent = !s.length ? ""
       : bucketMs === 0 ? "Every stored tick is drawn. Hover a point to read it on every chart; drag across a chart to zoom into that span."
       : "Drag across any chart to zoom into that span — narrower spans show finer means, down to every tick.";
@@ -988,7 +1004,7 @@
     const path = ps.path, top = path[path.length - 1];
     const off = ps.offset || 0;
     const q = top ? `period=${top.period}&from=${top.from}` : `period=${$(P.sel).value}&offset=${off}`;
-    const d = await api(`users/${id}/track?${q}&tz_offset=${tzOffsetNow()}`);
+    const d = await api(`users/${id}/track?${q}&tz_offset=${tzOffsetNow()}&zone=${encodeURIComponent(tzFor())}&clock=${clockMode() === "utc" ? "utc" : "recorded"}`);
     if (state.userId !== id) return;
 
     // The trail: the top-level period, then each zoom level; every earlier
@@ -1012,6 +1028,12 @@
     $(P.hint).textContent = key === "dirs"
       ? `Each index reads 100 at this person's own typical; above 100 is better in every member signal's own direction. ${drillHint}`
       : drillHint;
+    const clocks = (d.timezones || []).map(zoneName).join(", ");
+    if (clockMode() === "utc") $(P.hint).textContent += " Days shown in UTC.";
+    else {
+      if (clocks) $(P.hint).textContent += ` Recorded local days: ${clocks}.`;
+      if (d.has_unknown_timezone) $(P.hint).textContent += ` Older samples have no recorded zone; using ${zoneName(d.fallback_timezone || tzFor())} for them.`;
+    }
 
     P.render($(P.host), d, key);
   }
@@ -2140,7 +2162,7 @@
   function drawMini(box, sig, samples, window_, grp, opts) {
     opts = opts || {};
     const svg = box.querySelector("svg"), cap = box.querySelector(".cap .v");
-    const pts = samples.map(s => ({ t: new Date(s.ts).getTime(), v: s[sig.k] }))
+    const pts = samples.map(s => ({ t: new Date(s.ts).getTime(), v: s[sig.k], timezone: s.timezone }))
                        .filter(p => p.v != null && isFinite(p.v));
     const last = pts.length ? pts[pts.length - 1].v : null;
     const latestText = (last == null ? "—" : sigVal(last, sig)) + (sig.unit ? " " + sig.unit : "");
@@ -2195,9 +2217,10 @@
     // stays bare so three dated stamps don't collide in a 300px card.
     const hourly = span <= 36 * 3600e3;
     const fmtT = (t, dated) => {
-      if (!hourly) return when(t, F.mdn);
-      const clock = when(t, clockF);
-      return dated ? `${when(t, F.mdn)} ${clock}` : clock;
+      const zone = recordingZoneAt(t, samples);
+      if (!hourly) return when(t, F.mdn, zone);
+      const clock = when(t, clockF, zone);
+      return dated ? `${when(t, F.mdn, zone)} ${clock}` : clock;
     };
     el += `<line class="axis" x1="${pad.l}" y1="${base}" x2="${W - pad.r}" y2="${base}"/>`;
     [[x0, pad.l, "start", true],
@@ -2236,9 +2259,9 @@
       svg,
       showAt: (t) => {
         const i = nearestT(t);
-        if (Math.abs(pts[i].t - t) > maxGap) { cursor.style.display = "none"; cap.innerHTML = `— <span class="at">${esc(when(t, clockF))}</span>`; return; }
+        if (Math.abs(pts[i].t - t) > maxGap) { cursor.style.display = "none"; cap.innerHTML = `— <span class="at">${esc(when(t, clockF, recordingZoneAt(t, samples)))}</span>`; return; }
         const p = place(i);
-        cap.innerHTML = `${sigVal(p.v, sig)}${sig.unit ? " " + sig.unit : ""} <span class="at">${esc(when(p.t, clockF))}</span>`;
+        cap.innerHTML = `${sigVal(p.v, sig)}${sig.unit ? " " + sig.unit : ""} <span class="at">${esc(when(p.t, clockF, p.timezone))}</span>`;
       },
       clear: () => { cursor.style.display = "none"; cap.textContent = latestText; idx = -1; },
     };
@@ -2246,9 +2269,10 @@
     // This chart as the owner: tooltip here, the moment everywhere else.
     const setCursor = (i) => {
       const p = place(i), x = px(p.t), y = py(p.v);
-      cap.innerHTML = `${sigVal(p.v, sig)}${sig.unit ? " " + sig.unit : ""} <span class="at">${esc(when(p.t, clockF))}</span>`;
+      cap.innerHTML = `${sigVal(p.v, sig)}${sig.unit ? " " + sig.unit : ""} <span class="at">${esc(when(p.t, clockF, p.timezone))}</span>`;
       const r = svg.getBoundingClientRect(), sx = r.width / W, sy = r.height / H;
-      showTip(r.left + x * sx, r.top + y * sy, sig, p, span, when(p.t, timeF));
+      showTip(r.left + x * sx, r.top + y * sy, sig, p, span,
+        `${when(p.t, timeF, p.timezone)} · ${tzFor(p.timezone)} ${gmtLabel(p.timezone, p.t)}`);
       if (grp) grp.sync(p.t, member);
     };
     const clear = () => { if (grp) grp.release(); else { member.clear(); hideTip(); } };

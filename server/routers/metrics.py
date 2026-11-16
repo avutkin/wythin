@@ -87,14 +87,16 @@ async def upload_metrics(body: MetricsUpload, x_user_id: str = Header(..., alias
     for s in body.samples:
         values = [getattr(s, c) for c in _COLS]
         if any(v is not None for v in values):
-            rows.append(tuple([user_id, _dt(s.ts)] + values))
+            rows.append(tuple([user_id, _dt(s.ts)] + values + [s.timezone]))
     skipped = len(body.samples) - len(rows)
     if not rows:
         return {"stored": 0, "skipped": skipped}
-    placeholders = ", ".join(f"${i}" for i in range(1, len(_COLS) + 3))
+    placeholders = ", ".join(f"${i}" for i in range(1, len(_COLS) + 4))
     sql = (
-        f"INSERT INTO metric_samples (user_id, ts, {', '.join(_COLS)}) "
-        f"VALUES ({placeholders}) ON CONFLICT (user_id, ts) DO NOTHING"
+        f"INSERT INTO metric_samples (user_id, ts, {', '.join(_COLS)}, timezone) "
+        f"VALUES ({placeholders}) ON CONFLICT (user_id, ts) DO UPDATE "
+        "SET timezone = EXCLUDED.timezone "
+        "WHERE metric_samples.timezone IS NULL AND EXCLUDED.timezone IS NOT NULL"
     )
     async with get_pool().acquire() as conn:
         await conn.executemany(sql, rows)
@@ -118,11 +120,12 @@ async def export_metrics(
     after = _dt(cursor) if cursor else datetime(1970, 1, 1, tzinfo=timezone.utc)
     pool = await get_pool()
     rows = await pool.fetch(
-        f"SELECT ts, received_at, {', '.join(_COLS)} FROM metric_samples "
+        f"SELECT ts, received_at, timezone, {', '.join(_COLS)} FROM metric_samples "
         "WHERE user_id = $1 AND ts > $2 ORDER BY ts LIMIT $3",
         user_id, after, limit)
     samples = [
         {"ts": r["ts"].isoformat(),
+         "timezone": r["timezone"],
          "received_at": r["received_at"].isoformat() if r["received_at"] else None,
          **{c: r[c] for c in _COLS}}
         for r in rows
