@@ -537,39 +537,98 @@ async def user_detail(user_id: str):
 
 
 _METRIC_WINDOWS = {
-    "24h": (timedelta(hours=24), timedelta(minutes=5)),
-    "7d":  (timedelta(days=7),   timedelta(hours=1)),
-    "30d": (timedelta(days=30),  timedelta(hours=4)),
+    "1h":  timedelta(hours=1),
+    "6h":  timedelta(hours=6),
+    "24h": timedelta(hours=24),
+    "7d":  timedelta(days=7),
+    "30d": timedelta(days=30),
 }
 _METRIC_COLS = ("mean_bpm", "rmssd", "sdnn", "pnn50", "lf_hf", "rsa_ms",
                 "coherence", "cbi", "breath_bpm", "dfa1", "rcmse", "pip", "dc", "vti")
+# Live-chart resolution. A chart shows every stored tick (one every 2–3 s)
+# whenever the window holds few enough of them; past that it takes the
+# finest bucket on this ladder that still fits, so narrowing the window
+# always reveals more — down to the individual tick.
+_METRIC_LADDER_S = (10, 30, 60, 300, 900, 3600, 14400)
+_METRIC_MAX_POINTS = 3000
+_METRIC_MIN_SPAN = timedelta(seconds=30)
+_METRIC_MAX_SPAN = timedelta(days=92)
+
+
+def _parse_instant(s: str | None) -> datetime | None:
+    if not s:
+        return None
+    try:
+        d = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
 @router.get("/users/{user_id}/metrics")
-async def user_metrics(user_id: str, window: str = "24h", offset: int = 0):
-    """Bucketed per-user metric_samples series for the live charts. `window` is
-    one of 24h / 7d / 30d; each column is averaged per time bucket.
-
-    `offset` steps backwards a whole window at a time — offset=1 is the window
-    before the current one — so yesterday is reachable without a date picker."""
+async def user_metrics(user_id: str, window: str = "24h", offset: int = 0,
+                       from_: str | None = Query(None, alias="from"), to: str | None = None):
+    """Per-user metric_samples series for the live charts, at the finest
+    resolution the window allows: every tick when there are at most
+    _METRIC_MAX_POINTS of them, else the smallest bucket that fits. `window`
+    is one of 1h / 6h / 24h / 7d / 30d and `offset` steps back a whole window
+    at a time; `from`/`to` (ISO instants) name an exact span instead — the
+    chart's drag-to-zoom — and win over window/offset when both parse."""
     window = window if window in _METRIC_WINDOWS else "24h"
-    span, bucket = _METRIC_WINDOWS[window]
+    span = _METRIC_WINDOWS[window]
     offset = max(0, min(offset, 3650))
-    end = datetime.now(timezone.utc) - span * offset
-    start = end - span
+    start, end = _parse_instant(from_), _parse_instant(to)
+    if start and end and end > start:
+        if end - start < _METRIC_MIN_SPAN:
+            end = start + _METRIC_MIN_SPAN
+        if end - start > _METRIC_MAX_SPAN:
+            start = end - _METRIC_MAX_SPAN
+    else:
+        end = datetime.now(timezone.utc) - span * offset
+        start = end - span
     avg_cols = ", ".join(f"AVG({c}) AS {c}" for c in _METRIC_COLS)
+    raw_cols = ", ".join(_METRIC_COLS)
+    ladder_cols = ", ".join(
+        f"count(DISTINCT date_bin('{s} seconds', ts, TIMESTAMPTZ 'epoch')) AS b{s}"
+        for s in _METRIC_LADDER_S)
     pool = get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
+        counts = await conn.fetchrow(
             f"""
-            SELECT date_bin($2::interval, ts, TIMESTAMPTZ 'epoch') AS bucket, {avg_cols}
+            SELECT count(*) AS raw, {ladder_cols}
             FROM metric_samples
-            WHERE user_id = $1::uuid AND ts > $3 AND ts <= $4
-            GROUP BY bucket
-            ORDER BY bucket
+            WHERE user_id = $1::uuid AND ts > $2 AND ts <= $3
             """,
-            user_id, bucket, start, end,
+            user_id, start, end,
         )
+        bucket_s = 0
+        if counts["raw"] > _METRIC_MAX_POINTS:
+            bucket_s = _METRIC_LADDER_S[-1]
+            for s in _METRIC_LADDER_S:
+                if counts[f"b{s}"] <= _METRIC_MAX_POINTS:
+                    bucket_s = s
+                    break
+        if bucket_s == 0:
+            rows = await conn.fetch(
+                f"""
+                SELECT ts AS bucket, {raw_cols}
+                FROM metric_samples
+                WHERE user_id = $1::uuid AND ts > $2 AND ts <= $3
+                ORDER BY ts
+                """,
+                user_id, start, end,
+            )
+        else:
+            rows = await conn.fetch(
+                f"""
+                SELECT date_bin($2::interval, ts, TIMESTAMPTZ 'epoch') AS bucket, {avg_cols}
+                FROM metric_samples
+                WHERE user_id = $1::uuid AND ts > $3 AND ts <= $4
+                GROUP BY bucket
+                ORDER BY bucket
+                """,
+                user_id, timedelta(seconds=bucket_s), start, end,
+            )
 
     def _f(v):
         return float(v) if v is not None else None
@@ -579,6 +638,9 @@ async def user_metrics(user_id: str, window: str = "24h", offset: int = 0):
         "offset": offset,
         "start":  start.isoformat(),
         "end":    end.isoformat(),
+        # 0 = every stored tick; otherwise the mean over this many seconds.
+        "bucket_seconds": bucket_s,
+        "ticks": counts["raw"],
         "samples": [
             {"ts": r["bucket"].isoformat(), **{c: _f(r[c]) for c in _METRIC_COLS}}
             for r in rows

@@ -36,6 +36,11 @@
   button:hover, select:hover { border-color: var(--accent); }
   button:disabled { opacity: .35; cursor: default; border-color: var(--border); }
   #win-label { font-family: var(--mono); font-size: 11px; color: var(--dim); margin: 0 2px; }
+  /* Resolution of the live charts: every tick, or the mean over N seconds. */
+  #win-res { font: 10.5px var(--mono); letter-spacing: .04em; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+             background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
+  #win-res:empty { display: none; }
+  #win-res.means { color: var(--hold); border-color: color-mix(in srgb, var(--hold) 35%, transparent); background: color-mix(in srgb, var(--hold) 10%, transparent); }
   /* The clock in effect: which zone every date and time on the page is in. */
   .tzwrap { display: inline-flex; align-items: center; gap: 6px; }
   .tztag { font: 10.5px var(--mono); letter-spacing: .04em; color: var(--dim); border: 1px solid var(--border);
@@ -78,6 +83,11 @@
   .mini svg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
   .mini .line { fill: none; stroke-width: 2; }
   .mini .area { opacity: .12; }
+  /* One dot per stored point, drawn once the points sit far enough apart to be told apart. */
+  .mini .pt { stroke: var(--surface); stroke-width: 1; }
+  /* Drag-to-zoom selection. */
+  .mini .brush { fill: var(--accent); opacity: .18; pointer-events: none; }
+  .mini svg.zoomable { cursor: crosshair; }
   /* Hover layer: a hairline finds the X, a ringed dot marks the reading. */
   .mini .hair { stroke: var(--dim); stroke-width: 1; opacity: .5; }
   .mini .dot { stroke: var(--surface); stroke-width: 2; }
@@ -224,6 +234,7 @@
   .tbar.best  { stroke: var(--accent); stroke-width: 2; opacity: 1; }
   .tbar.worst { stroke: var(--warn);   stroke-width: 2; opacity: 1; }
   .tbar:hover { opacity: 1; }
+  .tbar.lit { opacity: 1; filter: brightness(1.18); }
   .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px 20px; }
   .facts .k { font-family: var(--mono); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); margin-bottom: 5px; }
   .facts .v { font-size: 14px; color: var(--text); word-break: break-word; }
@@ -299,13 +310,16 @@
       <div class="panel">
         <h2>Live metrics
           <span class="sub">—
-            <select id="user-window"><option value="24h">24h</option><option value="7d">7d</option><option value="30d">30d</option></select>
+            <select id="user-window"><option value="1h">1h</option><option value="6h">6h</option><option value="24h" selected>24h</option><option value="7d">7d</option><option value="30d">30d</option></select>
             <button id="win-prev" title="Previous window">‹</button>
             <span id="win-label"></span>
             <button id="win-next" title="Next window">›</button>
+            <button id="win-back" title="Zoom back out" hidden>↶ zoom out</button>
+            <span id="win-res" title="How much each point on the charts stands for"></span>
           </span>
         </h2>
         <div class="charts" id="user-charts"></div>
+        <div class="track-hint" id="live-hint"></div>
       </div>
       <div class="panel">
         <h2>Trends
@@ -428,6 +442,8 @@
     date:  { year: "2-digit", month: "short", day: "numeric" },
     time:  { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" },
     clock: { hour: "2-digit", minute: "2-digit" },
+    clockS: { hour: "2-digit", minute: "2-digit", second: "2-digit" },
+    timeS: { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" },
     md:    { month: "short", day: "numeric" },
     mdn:   { month: "numeric", day: "numeric" },
     full:  { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" },
@@ -683,6 +699,8 @@
     // Changing the window length restarts at the present; the arrows walk back
     // and forward a whole window at a time.
     state.metricOffset = 0;
+    state.live = null;        // an exact {from, to} span (ms) chosen by dragging; null = the select's window
+    state.liveStack = [];     // the spans zoomed out of, innermost last
     state.trackOffset = 0;
     state.trackPath = [];
     $("#track-period").onchange = () => { state.trackOffset = 0; state.trackPath = []; loadUserTrack(id).catch(() => {}); };
@@ -697,13 +715,22 @@
       else { if (!state.trackOffset) return; state.trackOffset -= 1; }
       loadUserTrack(id).catch(() => {});
     };
-    $("#user-window").onchange = () => { state.metricOffset = 0; loadUserMetrics(id).catch(() => {}); };
-    $("#win-prev").onclick = () => { state.metricOffset = (state.metricOffset || 0) + 1; loadUserMetrics(id).catch(() => {}); };
-    $("#win-next").onclick = () => {
-      if (!state.metricOffset) return;
-      state.metricOffset -= 1;
+    $("#user-window").onchange = () => { state.metricOffset = 0; state.live = null; state.liveStack = []; loadUserMetrics(id).catch(() => {}); };
+    // Zoomed in, the arrows slide the zoomed span by its own length.
+    const slideLive = (dir) => {
+      const w = state.live.to - state.live.from;
+      state.live = { from: state.live.from + dir * w, to: state.live.to + dir * w };
+    };
+    $("#win-prev").onclick = () => {
+      if (state.live) slideLive(-1); else state.metricOffset = (state.metricOffset || 0) + 1;
       loadUserMetrics(id).catch(() => {});
     };
+    $("#win-next").onclick = () => {
+      if (state.live) { if (state.live.to >= Date.now()) return; slideLive(1); }
+      else { if (!state.metricOffset) return; state.metricOffset -= 1; }
+      loadUserMetrics(id).catch(() => {});
+    };
+    $("#win-back").onclick = () => { state.live = state.liveStack.pop() || null; loadUserMetrics(id).catch(() => {}); };
     loadUserMetrics(id).catch(() => {});
     loadUserTrack(id).catch(() => {});
     loadUserUsage(id).catch(() => {});
@@ -800,25 +827,51 @@
     { k: "breath_bpm", label: "Breath",              unit: "br/min", color: "var(--breathe)", d: 1 , tech: "BR" },
   ];
   async function loadUserMetrics(id) {
-    const off = state.metricOffset || 0;
-    const d = await api(`users/${id}/metrics?window=${$("#user-window").value}&offset=${off}`);
+    const off = state.metricOffset || 0, live = state.live;
+    const q = live
+      ? `from=${encodeURIComponent(new Date(live.from).toISOString())}&to=${encodeURIComponent(new Date(live.to).toISOString())}`
+      : `window=${$("#user-window").value}&offset=${off}`;
+    const d = await api(`users/${id}/metrics?${q}`);
+    if (state.live !== live) return;   // a later zoom superseded this load
     const s = d.samples || [];
     const host = $("#user-charts");
+    const spanMs = new Date(d.end) - new Date(d.start);
 
     // Name the window being shown. At offset 0 it is simply "now"; stepping
-    // back, the dates matter more than the clock.
-    const fmtEdge = (iso) => when(iso, F.time);
-    $("#win-label").textContent = off === 0
+    // back, the dates matter more than the clock; zoomed below ten minutes,
+    // the seconds do.
+    const fmtEdge = (iso) => when(iso, spanMs < 10 * 60e3 ? F.timeS : F.time);
+    $("#win-label").textContent = !live && off === 0
       ? `now — back to ${fmtEdge(d.start)}`
       : `${fmtEdge(d.start)} → ${fmtEdge(d.end)}`;
-    $("#win-next").disabled = off === 0;
+    $("#win-next").disabled = live ? live.to >= Date.now() : off === 0;
+    $("#win-back").hidden = !live;
+
+    // What one point stands for: a stored tick, or the mean over a bucket.
+    const bucketMs = (d.bucket_seconds || 0) * 1000;
+    const res = $("#win-res");
+    res.classList.toggle("means", bucketMs > 0);
+    res.textContent = !s.length ? ""
+      : bucketMs === 0 ? `every tick · ${s.length.toLocaleString()} points`
+      : `${fmtBucket(bucketMs)} means · ${s.length.toLocaleString()} of ${Number(d.ticks || 0).toLocaleString()} ticks`;
+    $("#live-hint").textContent = !s.length ? ""
+      : bucketMs === 0 ? "Every stored tick is drawn. Hover a point to read it on every chart; drag across a chart to zoom into that span."
+      : "Drag across any chart to zoom into that span — narrower spans show finer means, down to every tick.";
 
     if (!s.length) {
-      host.innerHTML = `<div class="empty">no live metrics in this window${off ? " — try stepping back further" : ""}</div>`;
+      host.innerHTML = `<div class="empty">no live metrics in this window${off || live ? " — try stepping back further" : ""}</div>`;
       return;
     }
-    renderMinis(host, LIVE_SIGNALS, s, d.window);
+    renderMinis(host, LIVE_SIGNALS, s, d.window, {
+      bucketMs,
+      onZoom: (from, to) => {
+        state.liveStack.push(state.live);
+        state.live = { from, to };
+        loadUserMetrics(id).catch(() => {});
+      },
+    });
   }
+  const fmtBucket = (ms) => ms < 60e3 ? `${ms / 1e3}-s` : ms < 3600e3 ? `${ms / 60e3}-min` : `${ms / 3600e3}-h`;
 
   // Everything the person answered at onboarding. All of it is user-typed or
   // user-picked, so every value goes through esc().
@@ -994,8 +1047,7 @@
       if (b.value == null) return;
       const x = pad.l + i * bw, h = Math.max(1, ih - (y(b.value) - pad.t));
       const mark = i === bestI ? " best" : i === worstI ? " worst" : "";
-      const tip = `${b.label}: ${Number(b.value).toFixed(cfg.decimals)}${mark ? " — " + mark.trim() + " of period" : ""}${cfg.drill ? " · click to zoom in" : ""}`;
-      el += `<rect class="tbar${mark}${cfg.drill ? " drill" : ""}" data-i="${i}" x="${(x + bw * 0.15).toFixed(1)}" y="${y(b.value).toFixed(1)}" width="${Math.max(1, bw * 0.7).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${cfg.color}"><title>${tip}</title></rect>`;
+      el += `<rect class="tbar${mark}${cfg.drill ? " drill" : ""}" data-i="${i}" x="${(x + bw * 0.15).toFixed(1)}" y="${y(b.value).toFixed(1)}" width="${Math.max(1, bw * 0.7).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${cfg.color}"/>`;
       // Value labels only when the bars are wide enough to carry them.
       if (bars.length <= 8) {
         el += `<text class="tick" x="${(x + bw / 2).toFixed(1)}" y="${(y(b.value) - 4).toFixed(1)}" text-anchor="middle">${Number(b.value).toFixed(cfg.decimals)}</text>`;
@@ -1014,6 +1066,45 @@
         if (b && b.start) trackZoomInto(cfg.bucket, b.start);
       }));
     }
+
+    // ── Hover: this bar's value in the header here, and the same bar read
+    // on every other card, so one day can be compared across the metrics. ──
+    const rects = {};
+    svg.querySelectorAll(".tbar").forEach(r => { rects[r.dataset.i] = r; });
+    const capV = box.querySelector(".cap .v"), capHTML = capV.innerHTML;
+    const unit = cfg.unit ? " " + cfg.unit : "";
+    const sig = { label: cfg.label, unit: cfg.unit || "", color: cfg.color, d: cfg.decimals };
+    const mark = (i) => i === bestI ? " · best of period" : i === worstI ? " · worst of period" : "";
+    let lit = null;
+    const member = {
+      svg,
+      showAt: (i) => {
+        if (lit) lit.classList.remove("lit");
+        lit = rects[i] || null;
+        const b = bars[i];
+        if (!b || b.value == null) { capV.innerHTML = `— <span class="at">${esc(b ? b.label : "")}</span>`; return; }
+        lit.classList.add("lit");
+        capV.innerHTML = `${fmt(b.value, cfg.decimals)}${unit} <span class="at">${esc(b.label)}${mark(i)}</span>`;
+      },
+      clear: () => { if (lit) lit.classList.remove("lit"); lit = null; capV.innerHTML = capHTML; },
+    };
+    if (grp) grp.add(member);
+    const barAt = (clientX) => {
+      const r = svg.getBoundingClientRect();
+      const i = Math.floor(((clientX - r.left) / r.width * W - pad.l) / bw);
+      return Math.max(0, Math.min(bars.length - 1, i));
+    };
+    svg.addEventListener("pointermove", (e) => {
+      const i = barAt(e.clientX), b = bars[i];
+      member.showAt(i);
+      if (b && b.value != null) {
+        const r = svg.getBoundingClientRect();
+        showTip(r.left + (pad.l + i * bw + bw / 2) * (r.width / W), r.top + y(b.value) * (r.height / H), sig, { v: b.value }, 0,
+                `${b.label}${mark(i)}${cfg.drill ? " · click to zoom in" : ""}`);
+      } else hideTip();
+      if (grp) grp.sync(i, member);
+    });
+    svg.addEventListener("pointerleave", () => { if (grp) grp.release(); else { member.clear(); hideTip(); } });
   }
 
   // Inside a day the shape matters more than the height of each hour, so the
@@ -1940,7 +2031,7 @@
   }
 
   const miniRedraws = [];
-  function renderMinis(host, sigs, samples, window_) {
+  function renderMinis(host, sigs, samples, window_, opts) {
     // Drop any open readout: the charts under it are about to be replaced, and
     // a tooltip left showing yesterday's point over today's chart is a lie.
     hideTip();
@@ -1950,7 +2041,7 @@
     const draw = () => {
       let live = false;
       grp.reset();
-      boxes.forEach((box, i) => { if (box.isConnected) { live = true; drawMini(box, sigs[i], samples, window_, grp); } });
+      boxes.forEach((box, i) => { if (box.isConnected) { live = true; drawMini(box, sigs[i], samples, window_, grp, opts); } });
       return live;
     };
     draw();
@@ -1970,7 +2061,8 @@
       <svg tabindex="0" role="img" aria-label="${sig.label} over time"></svg></div>`;
   }
 
-  function drawMini(box, sig, samples, window_, grp) {
+  function drawMini(box, sig, samples, window_, grp, opts) {
+    opts = opts || {};
     const svg = box.querySelector("svg"), cap = box.querySelector(".cap .v");
     const pts = samples.map(s => ({ t: new Date(s.ts).getTime(), v: s[sig.k] }))
                        .filter(p => p.v != null && isFinite(p.v));
@@ -1995,7 +2087,13 @@
     const base = H - pad.b;
 
     // Split into runs of contiguous samples so gaps stay visible as gaps.
-    const maxGap = (BUCKET_MS[window_] || 5 * 60e3) * 2.5;
+    // Raw ticks arrive every 2–3 s, so even at full resolution a gap has to
+    // be a good half minute before it counts as the strap coming off.
+    const bucketMs = opts.bucketMs != null ? opts.bucketMs : (BUCKET_MS[window_] || 5 * 60e3);
+    const maxGap = Math.max(bucketMs, 12e3) * 2.5;
+    // Clock stamps carry seconds once the points are closer than a minute.
+    const fine = bucketMs < 60e3 && span < 6 * 3600e3;
+    const clockF = fine ? F.clockS : F.clock, timeF = fine ? F.timeS : F.time;
     const runs = [[pts[0]]];
     for (let i = 1; i < pts.length; i++) {
       if (pts[i].t - pts[i - 1].t > maxGap) runs.push([]);
@@ -2011,6 +2109,10 @@
             ` L${px(run[run.length - 1].t).toFixed(1)},${base} Z"/>`;
       el += `<path class="line" stroke="${sig.color}" d="${d}"/>`;
     }
+    // Once the points sit a few pixels apart, each gets its own dot so a
+    // single tick can be seen, aimed at and read on its own.
+    const gapPx = (W - pad.l - pad.r) / pts.length, dotR = gapPx >= 7 ? 2.2 : 1.5;
+    if (gapPx >= 2.5) el += pts.map(p => `<circle class="pt" cx="${px(p.t).toFixed(1)}" cy="${py(p.v).toFixed(1)}" r="${dotR}" fill="${sig.color}"/>`).join("");
 
     // Time axis: a baseline plus start / middle / end stamps. The two edges
     // carry the date so the window can be placed on a calendar; the middle
@@ -2018,7 +2120,7 @@
     const hourly = span <= 36 * 3600e3;
     const fmtT = (t, dated) => {
       if (!hourly) return when(t, F.mdn);
-      const clock = when(t, F.clock);
+      const clock = when(t, clockF);
       return dated ? `${when(t, F.mdn)} ${clock}` : clock;
     };
     el += `<line class="axis" x1="${pad.l}" y1="${base}" x2="${W - pad.r}" y2="${base}"/>`;
@@ -2029,6 +2131,7 @@
         el += `<text class="tick" x="${x.toFixed(1)}" y="${H - 6}" text-anchor="${anchor}">${fmtT(t, dated)}</text>`;
       });
 
+    el += `<rect class="brush" y="${pad.t}" height="${base - pad.t}" style="display:none"/>`;
     el += `<g class="cursor" style="display:none">
              <line class="hair" y1="${pad.t}" y2="${base}"/>
              <circle class="dot" r="3.5" fill="${sig.color}"/>
@@ -2057,9 +2160,9 @@
       svg,
       showAt: (t) => {
         const i = nearestT(t);
-        if (Math.abs(pts[i].t - t) > maxGap) { cursor.style.display = "none"; cap.innerHTML = `— <span class="at">${esc(when(t, F.clock))}</span>`; return; }
+        if (Math.abs(pts[i].t - t) > maxGap) { cursor.style.display = "none"; cap.innerHTML = `— <span class="at">${esc(when(t, clockF))}</span>`; return; }
         const p = place(i);
-        cap.innerHTML = `${sigVal(p.v, sig)}${sig.unit ? " " + sig.unit : ""} <span class="at">${esc(when(p.t, F.clock))}</span>`;
+        cap.innerHTML = `${sigVal(p.v, sig)}${sig.unit ? " " + sig.unit : ""} <span class="at">${esc(when(p.t, clockF))}</span>`;
       },
       clear: () => { cursor.style.display = "none"; cap.textContent = latestText; idx = -1; },
     };
@@ -2067,9 +2170,9 @@
     // This chart as the owner: tooltip here, the moment everywhere else.
     const setCursor = (i) => {
       const p = place(i), x = px(p.t), y = py(p.v);
-      cap.innerHTML = `${sigVal(p.v, sig)}${sig.unit ? " " + sig.unit : ""} <span class="at">${esc(when(p.t, F.clock))}</span>`;
+      cap.innerHTML = `${sigVal(p.v, sig)}${sig.unit ? " " + sig.unit : ""} <span class="at">${esc(when(p.t, clockF))}</span>`;
       const r = svg.getBoundingClientRect(), sx = r.width / W, sy = r.height / H;
-      showTip(r.left + x * sx, r.top + y * sy, sig, p, span);
+      showTip(r.left + x * sx, r.top + y * sy, sig, p, span, when(p.t, timeF));
       if (grp) grp.sync(p.t, member);
     };
     const clear = () => { if (grp) grp.release(); else { member.clear(); hideTip(); } };
@@ -2079,9 +2182,49 @@
       return nearestT(t);
     };
     const pinned = () => grp && grp.pinned != null;
-    svg.addEventListener("pointermove", (e) => { if (!pinned()) setCursor(nearest(e.clientX)); });
-    svg.addEventListener("pointerleave", () => { if (!pinned()) clear(); });
+    // ── Drag to zoom: a span swept across this chart becomes the window ──
+    // for every chart. A short press stays a click (pin / release).
+    const brush = svg.querySelector(".brush");
+    const tAt = (clientX) => {
+      const r = svg.getBoundingClientRect();
+      const t = x0 + ((clientX - r.left) / r.width * W - pad.l) / (W - pad.l - pad.r) * span;
+      return Math.max(x0, Math.min(x1, t));
+    };
+    let drag = null, swallowClick = false;
+    if (opts.onZoom) {
+      svg.classList.add("zoomable");
+      svg.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        drag = { x: e.clientX, id: e.pointerId, on: false };
+      });
+      svg.addEventListener("pointerup", (e) => {
+        if (!drag) return;
+        const d = drag; drag = null;
+        brush.style.display = "none";
+        if (!d.on) return;
+        try { svg.releasePointerCapture(d.id); } catch (_) {}
+        swallowClick = true;
+        const a = tAt(Math.min(d.x, e.clientX)), b = tAt(Math.max(d.x, e.clientX));
+        if (b - a >= 5e3) opts.onZoom(a, b);
+      });
+      svg.addEventListener("pointercancel", () => { drag = null; brush.style.display = "none"; });
+    }
+    svg.addEventListener("pointermove", (e) => {
+      if (drag) {
+        if (!drag.on && Math.abs(e.clientX - drag.x) < 4) return;
+        if (!drag.on) { drag.on = true; try { svg.setPointerCapture(drag.id); } catch (_) {} if (grp) grp.release(); }
+        const r = svg.getBoundingClientRect();
+        const xa = Math.max(pad.l, Math.min(W - pad.r, (Math.min(drag.x, e.clientX) - r.left) / r.width * W));
+        const xb = Math.max(pad.l, Math.min(W - pad.r, (Math.max(drag.x, e.clientX) - r.left) / r.width * W));
+        brush.setAttribute("x", xa.toFixed(1)); brush.setAttribute("width", Math.max(1, xb - xa).toFixed(1));
+        brush.style.display = "";
+        return;
+      }
+      if (!pinned()) setCursor(nearest(e.clientX));
+    });
+    svg.addEventListener("pointerleave", () => { if (!drag && !pinned()) clear(); });
     svg.addEventListener("click", (e) => {
+      if (swallowClick) { swallowClick = false; return; }
       if (!grp) return;
       if (pinned()) { grp.release(); return; }
       const i = nearest(e.clientX);

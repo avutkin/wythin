@@ -166,6 +166,46 @@ async def test_user_metrics_series():
     assert body["window"] == "24h"
     assert isinstance(body["samples"], list) and body["samples"], "expected bucketed samples"
     assert {"ts", "mean_bpm", "rmssd", "coherence", "dc", "dfa1"} <= set(body["samples"][0])
+    # Two ticks in a day: well under the cap, so both come back as stored.
+    assert body["bucket_seconds"] == 0 and body["ticks"] == 2 and len(body["samples"]) == 2
+    assert body["samples"][0]["mean_bpm"] == 61.0 and body["samples"][1]["mean_bpm"] == 62.0
+
+
+@pytest.mark.asyncio
+async def test_user_metrics_resolution_follows_the_data():
+    """Live charts show every tick while the window holds few enough, else the
+    finest bucket that keeps a chart under the point cap; `from`/`to` pick an
+    exact span. Requires a database."""
+    from datetime import datetime, timezone, timedelta
+    from server.routers import admin
+    base = datetime.now(timezone.utc) - timedelta(hours=2)
+    n = admin._METRIC_MAX_POINTS + 200          # one tick every 2 s, ~1.8 h of wear
+    async with _client() as client:
+        for i in range(0, n, 500):
+            up = await client.post("/v1/metrics", headers={"X-User-ID": "test-metrics-dense"}, json={
+                "samples": [{"ts": (base + timedelta(seconds=2 * j)).isoformat(), "mean_bpm": 60.0 + (j % 7)}
+                            for j in range(i, min(n, i + 500))]})
+            assert up.status_code in (200, 201), up.text
+        stats = await client.get("/admin/stats", params={"days": 3650})
+        uid = next(u["id"] for u in stats.json()["users"] if u["device_id"] == "test-metrics-dense")
+
+        day = (await client.get(f"/admin/users/{uid}/metrics", params={"window": "24h"})).json()
+        # Over the cap as raw ticks → 10-second means (6400 s of wear / 10 = 640 buckets).
+        assert day["ticks"] == n and day["bucket_seconds"] == 10
+        assert 600 <= len(day["samples"]) <= 700
+
+        # Zoomed to ten minutes of it: 300 raw ticks, every one returned.
+        f, t = base + timedelta(minutes=10), base + timedelta(minutes=20)
+        z = (await client.get(f"/admin/users/{uid}/metrics",
+                              params={"from": f.isoformat(), "to": t.isoformat()})).json()
+        assert z["bucket_seconds"] == 0 and len(z["samples"]) == 300
+        assert z["start"] == f.isoformat() and z["end"] == t.isoformat()
+        ts = [s["ts"] for s in z["samples"]]
+        assert ts == sorted(ts)
+
+        # A span that does not parse falls back to the window.
+        bad = (await client.get(f"/admin/users/{uid}/metrics", params={"from": "yesterday", "to": "now"})).json()
+        assert bad["window"] == "24h" and bad["bucket_seconds"] == 10
 
 
 @pytest.mark.asyncio
