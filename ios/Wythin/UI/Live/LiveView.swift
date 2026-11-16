@@ -3,6 +3,166 @@ import SwiftData
 import UIKit
 import Combine
 
+// A calendar date, independent of the timezone used to display it later.
+struct LiveCivilDay: Hashable {
+    let year: Int
+    let month: Int
+    let day: Int
+
+    init(year: Int, month: Int, day: Int) {
+        self.year = year
+        self.month = month
+        self.day = day
+    }
+
+    init(date: Date, timeZone: TimeZone) {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        self.init(year: parts.year!, month: parts.month!, day: parts.day!)
+    }
+
+    func interval(in timeZone: TimeZone) -> Range<Date> {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let start = calendar.date(from: DateComponents(year: year, month: month, day: day))!
+        let interval = calendar.dateInterval(of: .day, for: start)!
+        return interval.start..<interval.end
+    }
+
+    /// Every possible recorded local day lies in this 52-hour UTC envelope.
+    /// Centering on the viewer's midnight would miss the opposite date-line edge.
+    var candidateRange: Range<Date> {
+        let utcDay = interval(in: TimeZone(secondsFromGMT: 0)!)
+        return utcDay.lowerBound.addingTimeInterval(-14 * 3600)..<utcDay.upperBound.addingTimeInterval(14 * 3600)
+    }
+
+    static func recentDays(now: Date = .now, timeZone: TimeZone = .current) -> [LiveCivilDay] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let today = calendar.startOfDay(for: now)
+        return (0..<LiveView.dayCount).reversed().map {
+            LiveCivilDay(date: calendar.date(byAdding: .day, value: -$0, to: today)!, timeZone: timeZone)
+        }
+    }
+}
+
+struct LiveDayHistory {
+    let raw: [MetricsHistoryPoint]
+    let filtered: [MetricsHistoryPoint]
+    let chartDay: LiveChartDay
+    /// Persisted candidates can belong to an adjacent recorded day even when
+    /// an old in-memory copy with no zone appears to belong here. Keep only the
+    /// timestamps needed to prevent their reintroduction, not another 52h array.
+    private let excludedRecordedTimestamps: Set<Date>
+
+    static func mergedPoints(_ stored: [MetricsHistoryPoint], incoming: [MetricsHistoryPoint]) -> [MetricsHistoryPoint] {
+        // Both producers are chronological. Keep persisted early ticks when
+        // the rolling in-memory buffer has already trimmed them, without
+        // duplicating the overlapping part or sorting the whole day every 15 s.
+        var result: [MetricsHistoryPoint] = []
+        result.reserveCapacity(stored.count + incoming.count)
+        var knownZones: [String: Bool] = [:]
+        func hasKnownZone(_ identifier: String?) -> Bool {
+            guard let identifier else { return false }
+            if let known = knownZones[identifier] { return known }
+            let known = TimeZone(identifier: identifier) != nil
+            knownZones[identifier] = known
+            return known
+        }
+        var old = 0
+        var new = 0
+        while old < stored.count && new < incoming.count {
+            if stored[old].timestamp < incoming[new].timestamp {
+                result.append(stored[old])
+                old += 1
+            } else {
+                if stored[old].timestamp == incoming[new].timestamp {
+                    // A legacy rolling copy must not erase restored provenance.
+                    let preserveRecorded = stored[old].timezone != incoming[new].timezone
+                        && hasKnownZone(stored[old].timezone) && !hasKnownZone(incoming[new].timezone)
+                    result.append(preserveRecorded ? stored[old] : incoming[new])
+                    old += 1
+                } else {
+                    result.append(incoming[new])
+                }
+                new += 1
+            }
+        }
+        result.append(contentsOf: stored[old...])
+        result.append(contentsOf: incoming[new...])
+        return result
+    }
+
+    func refreshing(with incoming: [MetricsHistoryPoint], day: LiveCivilDay,
+                    fallbackTimeZone: TimeZone, isToday: Bool) -> LiveDayHistory {
+        let incoming = incoming.filter { !excludedRecordedTimestamps.contains($0.timestamp) }
+        let selected = Self.select(Self.mergedPoints(raw, incoming: incoming), day: day,
+                                   fallbackTimeZone: fallbackTimeZone, isToday: isToday)
+        return LiveDayHistory(raw: selected.raw, filtered: selected.filtered, chartDay: selected.chartDay,
+                              excludedRecordedTimestamps: excludedRecordedTimestamps.union(selected.excludedRecordedTimestamps))
+    }
+
+    static func select(_ points: [MetricsHistoryPoint], day: LiveCivilDay,
+                       fallbackTimeZone: TimeZone, isToday: Bool) -> LiveDayHistory {
+        // Resolve each recorded zone once. Tens of thousands of ticks generally
+        // share just one or two zones; the hot loop only checks absolute bounds.
+        var zones: [String: (zone: TimeZone, known: Bool, bounds: Range<Date>)] = [:]
+        var raw: [MetricsHistoryPoint] = []
+        raw.reserveCapacity(points.count)
+        var firstKnown: (date: Date, zone: TimeZone)?
+        var selectedBounds: Range<Date>?
+        var excludedRecordedTimestamps = Set<Date>()
+        for point in points {
+            let key = point.timezone ?? ""
+            if zones[key] == nil {
+                let recorded = point.timezone.flatMap(TimeZone.init(identifier:))
+                let zone = recorded ?? fallbackTimeZone
+                zones[key] = (zone, recorded != nil, day.interval(in: zone))
+            }
+            let clock = zones[key]!
+            guard clock.bounds.contains(point.timestamp) else {
+                if clock.known { excludedRecordedTimestamps.insert(point.timestamp) }
+                continue
+            }
+            raw.append(point)
+            if clock.known, firstKnown == nil || point.timestamp < firstKnown!.date {
+                firstKnown = (point.timestamp, clock.zone)
+            }
+            if let bounds = selectedBounds {
+                selectedBounds = min(bounds.lowerBound, clock.bounds.lowerBound)..<max(bounds.upperBound, clock.bounds.upperBound)
+            } else {
+                selectedBounds = clock.bounds
+            }
+        }
+        return LiveDayHistory(raw: raw, filtered: MetricsQualityFilter.filter(raw),
+                              chartDay: LiveChartDay(bounds: selectedBounds ?? day.interval(in: fallbackTimeZone),
+                                                     timeZone: firstKnown?.zone ?? fallbackTimeZone,
+                                                     isToday: isToday),
+                              excludedRecordedTimestamps: excludedRecordedTimestamps)
+    }
+}
+
+struct LiveDayLoadID: Hashable {
+    let day: LiveCivilDay
+    let fallbackTimeZone: TimeZone
+    let historyRevision: Int
+    let isToday: Bool
+}
+
+struct LiveDayHistoryState {
+    private(set) var loadID: LiveDayLoadID?
+    var history: LiveDayHistory?
+    var reference: LiveDayReference?
+
+    mutating func begin(_ id: LiveDayLoadID) {
+        guard loadID != id else { return }
+        loadID = id
+        history = nil
+        reference = nil
+    }
+}
+
 // MARK: - Live View
 
 struct LiveView: View {
@@ -10,7 +170,8 @@ struct LiveView: View {
     @Environment(\.modelContext) var ctx
     @State private var showBLESheet  = false
     @State private var keepAwake     = false
-    @State private var days:      [Date] = LiveView.makeDays()
+    @State private var days = LiveCivilDay.recentDays()
+    @State private var viewingTimeZone = TimeZone.current
     @State private var pageIndex: Int    = LiveView.dayCount - 1   // today
     // Shared chart window for every chart on every day-page; persisted.
     @AppStorage("liveChartWindow") private var chartWindow: TimeWindow = .h24
@@ -19,15 +180,9 @@ struct LiveView: View {
     // 90-day window: index 0 = oldest, last = today. Rebuilt on day-change /
     // foreground so the "today" page rolls over at midnight without an app restart.
     static let dayCount = 90
-    static func makeDays() -> [Date] {
-        let cal   = Calendar.current
-        let today = cal.startOfDay(for: .now)
-        return (0..<dayCount).map { cal.date(byAdding: .day, value: -$0, to: today)! }.reversed()
-    }
-
     private var todayIndex:   Int  { days.count - 1 }
     private var isToday:      Bool { pageIndex == todayIndex }
-    private var selectedDate: Date { days[pageIndex] }
+    private var selectedDay: LiveCivilDay { days[pageIndex] }
 
     private func goBack()    { if pageIndex > 0 { pageIndex -= 1 } }
     private func goForward() { if !isToday      { pageIndex += 1 } }
@@ -36,11 +191,14 @@ struct LiveView: View {
     /// rebuild the day window; if we were on "today", follow it to the new today so
     /// the first morning reading shows on today's page, not yesterday's.
     private func refreshForDayChange() {
-        let newDays = LiveView.makeDays()
-        guard newDays.last != days.last else { return }
-        let wasToday = (pageIndex == days.count - 1)
+        let zone = TimeZone.current
+        let newDays = LiveCivilDay.recentDays(timeZone: zone)
+        guard newDays != days || zone != viewingTimeZone else { return }
+        let wasToday = isToday
+        let selected = selectedDay
+        viewingTimeZone = zone
         days = newDays
-        if wasToday { pageIndex = newDays.count - 1 }
+        pageIndex = wasToday ? newDays.count - 1 : (newDays.firstIndex(of: selected) ?? 0)
     }
 
     private var currentQuality: CombinedSignalQuality? {
@@ -59,8 +217,9 @@ struct LiveView: View {
                     // ── Date navigator lives OUTSIDE TabView so it never
                     //    conflicts with the inner ScrollViews.
                     DateNavigator(
-                        date:      selectedDate,
+                        day:       selectedDay,
                         isToday:   isToday,
+                        isYesterday: pageIndex == todayIndex - 1,
                         window:    $chartWindow,
                         onBack:    goBack,
                         onForward: goForward
@@ -70,7 +229,8 @@ struct LiveView: View {
                     //    natively; SwiftUI disambiguates H vs V gestures for us.
                     TabView(selection: $pageIndex) {
                         ForEach(0..<LiveView.dayCount, id: \.self) { i in
-                            DayScrollView(date: days[i], window: chartWindow)
+                            DayScrollView(day: days[i], window: chartWindow,
+                                          fallbackTimeZone: viewingTimeZone, isToday: i == todayIndex)
                                 .tag(i)
                         }
                     }
@@ -109,6 +269,9 @@ struct LiveView: View {
             .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
                 refreshForDayChange()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+                refreshForDayChange()
+            }
             .task {
                 // Runs on appear and self-heals every 60 s while Live is visible —
                 // catches the midnight rollover even if scenePhase or the day-change
@@ -127,8 +290,10 @@ struct LiveView: View {
 /// One page in the TabView — a plain vertical ScrollView for a single day.
 /// Manages its own history fetch so the parent stays lightweight.
 private struct DayScrollView: View {
-    let date: Date
+    let day: LiveCivilDay
     let window: TimeWindow
+    let fallbackTimeZone: TimeZone
+    let isToday: Bool
 
     @Environment(AppEnvironment.self) var env
     @Environment(\.modelContext) var ctx
@@ -139,25 +304,19 @@ private struct DayScrollView: View {
     // periodic scroll hitch. Instead these refresh on a ~15 s cadence (today) or
     // once on load (past days); MetricsChartsView is `.equatable()` so the 2 s
     // body re-evals don't touch it while this snapshot is unchanged.
-    @State private var chartRaw:      [MetricsHistoryPoint] = []
-    @State private var chartFiltered: [MetricsHistoryPoint] = []
-    @State private var chartDayAvg:   MetricsTick?          = nil
-    // The last 7 recorded days before this page's day — the metrics grid's
-    // comparison target. Built once per page from cached rollups.
-    @State private var reference:     LiveDayReference?     = nil
-    @State private var liveStore      = LiveStateStore()
+    @State private var historyState = LiveDayHistoryState()
+    @State private var chartDayAvg: MetricsTick?
+    @State private var liveStore = LiveStateStore()
     @State private var potentialStore = DayPotentialStore()
 
-    private var isToday: Bool { Calendar.current.isDateInToday(date) }
-
-    /// Half-open [startOfDay, nextDay) for `date` — computed once instead of
-    /// calling Calendar.isDateInToday per history element.
-    private var dayRange: Range<Date>? {
-        let cal   = Calendar.current
-        let start = cal.startOfDay(for: date)
-        guard let end = cal.date(byAdding: .day, value: 1, to: start) else { return nil }
-        return start..<end
+    private var loadID: LiveDayLoadID {
+        LiveDayLoadID(day: day, fallbackTimeZone: fallbackTimeZone,
+                      historyRevision: env.historyRevision, isToday: isToday)
     }
+
+    // Hide a stale snapshot immediately; the task clears it before refetching.
+    private var history: LiveDayHistory? { historyState.loadID == loadID ? historyState.history : nil }
+    private var reference: LiveDayReference? { historyState.loadID == loadID ? historyState.reference : nil }
 
     var body: some View {
         LogoRefreshableScrollView(enabled: isToday, onRefresh: {
@@ -196,21 +355,27 @@ private struct DayScrollView: View {
                     }
                     .padding(.horizontal)
                     MetricsTableView(
-                        tick:      isToday ? env.latestTick : chartDayAvg,
-                        dayAvg:    isToday ? chartDayAvg    : nil,
+                        tick:      isToday ? env.latestTick : (history == nil ? nil : chartDayAvg),
+                        dayAvg:    isToday && history != nil ? chartDayAvg : nil,
                         reference: reference
                     )
                     .padding(.horizontal)
                 }
 
                 // ── Historical metric charts ────────────────────────
-                if !chartFiltered.isEmpty {
+                if let history, !history.filtered.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("METRICS HISTORY")
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.dim)
                             .padding(.horizontal)
-                        MetricsChartsView(history: chartFiltered, rawHistory: chartRaw, date: date, window: window)
+                        Text("Reference time · \(history.chartDay.timeZone.identifier)")
+                            .font(Theme.monoLabel)
+                            .foregroundStyle(Theme.dim)
+                            .padding(.horizontal)
+                        MetricsChartsView(history: history.filtered, rawHistory: history.raw,
+                                          day: history.chartDay, window: window,
+                                          historyRevision: env.historyRevision)
                             .equatable()
                     }
                 } else if !isToday {
@@ -229,79 +394,70 @@ private struct DayScrollView: View {
             // collapsible SIGNAL QUALITY header) hides under the menu.
             .padding(.bottom, 72)
         }
-        .task(id: date) {
+        .task(id: loadID) {
+            let request = loadID
+            historyState.begin(request)
+            chartDayAvg = nil
             if isToday {
-                // Refresh the charts immediately, then on a slow cadence. The live
-                // card/table still update every 2 s via env.latestTick; the charts
-                // don't need 2 s granularity and re-rendering 9 Swift Charts that
-                // often is what made scrolling hitch.
+                // Paint the rolling buffer immediately, then recover the early
+                // part of a long DST/travel day from persistence once per load.
                 refreshLiveCharts()
+                await loadDayHistory(request)
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(15))
                     guard !Task.isCancelled else { break }
                     refreshLiveCharts()
                 }
             } else {
-                // Debounce: if the user swipes past this day within 150 ms, the
-                // task is cancelled during the sleep and the fetch never fires —
-                // keeps fast swiping smooth and avoids piling up background fetches
-                // for days you only pass through.
+                // Avoid fetching pages the user only swipes through.
                 try? await Task.sleep(for: .milliseconds(150))
                 guard !Task.isCancelled else { return }
-                await loadDayHistory()
+                await loadDayHistory(request)
             }
-        }
-        // History is now loaded asynchronously at launch and merged on foreground;
-        // refresh today's charts the instant it lands rather than waiting for the
-        // next 15 s poll (bumps only on bulk loads, not on live 2 s appends).
-        .onChange(of: env.historyRevision) {
-            if isToday { refreshLiveCharts() }
         }
     }
 
     // MARK: - Data helpers
 
-    /// Snapshots today's live history into the chart @State on a slow cadence.
-    /// Reads env.tickHistory OUTSIDE `body` (from the .task loop) so it does not
-    /// register a body dependency — the 9 charts stay off the 2 s tick path.
     @MainActor
     private func refreshLiveCharts() {
-        guard let range = dayRange else { return }
-        let raw      = env.tickHistory.filter { range.contains($0.timestamp) }
-        let filtered = MetricsQualityFilter.filter(raw)
-        chartRaw      = raw
-        chartFiltered = filtered
-        chartDayAvg   = dayAverageTick(from: filtered)
-        loadReferenceIfNeeded()
+        if let history = historyState.history {
+            applyHistory(history.refreshing(with: env.tickHistory, day: day,
+                                             fallbackTimeZone: fallbackTimeZone, isToday: isToday))
+        } else {
+            applyHistory(LiveDayHistory.select(env.tickHistory, day: day,
+                                              fallbackTimeZone: fallbackTimeZone, isToday: isToday))
+        }
     }
 
-    /// Loads a past day's history off the main thread. The synchronous 43k-row
-    /// SwiftData fetch used to run in `onAppear` on the main thread, blocking the
-    /// horizontal swipe animation; here it runs on a background ModelContext and
-    /// only the (Sendable) plain-struct result is handed back to the main actor.
+    /// The query is bounded in UTC, then membership is resolved using each
+    /// sample's saved clock. A 43,200-row cap would truncate 25–50-hour days.
     @MainActor
-    private func loadDayHistory() async {
-        guard chartRaw.isEmpty else { return }   // already loaded for this day
+    private func loadDayHistory(_ request: LiveDayLoadID) async {
         let container = ctx.container
-        let cal   = Calendar.current
-        let start = cal.startOfDay(for: date)
-        guard let end = cal.date(byAdding: .day, value: 1, to: start) else { return }
-
-        let result: ([MetricsHistoryPoint], [MetricsHistoryPoint]) = await Task.detached {
+        let range = request.day.candidateRange
+        let start = range.lowerBound
+        let end = range.upperBound
+        let result = await Task.detached {
             let bg = ModelContext(container)
-            var desc = FetchDescriptor<HRVSample>(
+            let desc = FetchDescriptor<HRVSample>(
                 predicate: #Predicate { $0.timestamp >= start && $0.timestamp < end },
-                sortBy:    [SortDescriptor(\.timestamp)]
+                sortBy: [SortDescriptor(\.timestamp)]
             )
-            desc.fetchLimit = 43_200
-            let pts = ((try? bg.fetch(desc)) ?? []).map { MetricsHistoryPoint(from: $0) }
-            return (pts, MetricsQualityFilter.filter(pts))
+            let points = ((try? bg.fetch(desc)) ?? []).map { MetricsHistoryPoint(from: $0) }
+            return LiveDayHistory.select(points, day: request.day,
+                                         fallbackTimeZone: request.fallbackTimeZone, isToday: request.isToday)
         }.value
 
-        guard !Task.isCancelled else { return }
-        chartRaw      = result.0
-        chartFiltered = result.1
-        chartDayAvg   = dayAverageTick(from: result.1)
+        guard !Task.isCancelled, historyState.loadID == request, loadID == request else { return }
+        applyHistory(result)
+        if isToday { refreshLiveCharts() } // includes ticks received while the fetch was running
+    }
+
+    @MainActor
+    private func applyHistory(_ history: LiveDayHistory) {
+        historyState.history = history
+        chartDayAvg = dayAverageTick(from: history.filtered)
         loadReferenceIfNeeded()
     }
 
@@ -312,9 +468,13 @@ private struct DayScrollView: View {
     private func loadReferenceIfNeeded() {
         guard reference == nil else { return }
         env.trackCache.load()
-        let start  = Calendar.current.startOfDay(for: date)
-        let cutoff = Calendar.current.date(byAdding: .day, value: -180, to: start) ?? .distantPast
-        reference  = LiveDayComparison.reference(
+        // Track rollups retain their existing calendar semantics; this only
+        // invalidates the page's cached comparison when its load identity changes.
+        var calendar = Calendar.current
+        calendar.timeZone = fallbackTimeZone
+        let start = day.interval(in: fallbackTimeZone).lowerBound
+        let cutoff = calendar.date(byAdding: .day, value: -180, to: start) ?? .distantPast
+        historyState.reference = LiveDayComparison.reference(
             rollups: env.trackCache.rollups(in: cutoff...start),
             before:  start
         )
@@ -375,8 +535,9 @@ private struct TodayLiveSection: View {
 // MARK: - Date Navigator
 
 private struct DateNavigator: View {
-    let date:      Date
-    let isToday:   Bool
+    let day: LiveCivilDay
+    let isToday: Bool
+    let isYesterday: Bool
     @Binding var window: TimeWindow
     let onBack:    () -> Void
     let onForward: () -> Void
@@ -420,12 +581,13 @@ private struct DateNavigator: View {
     }
 
     private var dateLabel: String {
-        let cal = Calendar.current
-        if cal.isDateInToday(date)     { return "TODAY" }
-        if cal.isDateInYesterday(date) { return "YESTERDAY" }
+        if isToday { return "TODAY" }
+        if isYesterday { return "YESTERDAY" }
         let fmt = DateFormatter()
+        fmt.calendar = Calendar(identifier: .gregorian)
+        fmt.timeZone = TimeZone(secondsFromGMT: 0)!
         fmt.dateFormat = "EEE  MMM d"
-        return fmt.string(from: date).uppercased()
+        return fmt.string(from: day.interval(in: fmt.timeZone).lowerBound).uppercased()
     }
 }
 

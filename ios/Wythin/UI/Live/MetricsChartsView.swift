@@ -10,7 +10,7 @@ enum TimeWindow: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// Duration in seconds shown from 00:00 of the selected day.
+    /// Nominal duration; the 24h choice displays the entire recorded civil day.
     var seconds: TimeInterval {
         switch self {
         case .m30: return 1_800
@@ -26,6 +26,38 @@ enum TimeWindow: String, CaseIterable, Identifiable {
         let secs = Int(bucketSeconds)
         if secs < 60 { return "\(secs)s avg" }
         return "\(secs / 60) min avg"
+    }
+}
+
+/// The clock and absolute day domain shared by Live's metric cards.
+struct LiveChartDay: Equatable {
+    let bounds: Range<Date>
+    let timeZone: TimeZone
+    let isToday: Bool
+
+    func anchorEnd(now: Date) -> Date {
+        isToday ? min(max(now, bounds.lowerBound), bounds.upperBound) : bounds.upperBound
+    }
+
+    func panBounds(_ window: TimeWindow, now: Date) -> ClosedRange<TimeInterval> {
+        guard window != .h24 else { return 0...0 }
+        let span = anchorEnd(now: now).timeIntervalSince(bounds.lowerBound) - window.seconds
+        return min(0, -span)...0
+    }
+
+    func windowRange(_ window: TimeWindow, panOffset: TimeInterval, now: Date) -> Range<Date> {
+        // "24h" means the complete civil day, including DST and travel.
+        if window == .h24 { return bounds }
+        let pan = panBounds(window, now: now)
+        let end = anchorEnd(now: now).addingTimeInterval(min(max(panOffset, pan.lowerBound), pan.upperBound))
+        return end.addingTimeInterval(-window.seconds)..<end
+    }
+
+    func clockLabel(at date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
     }
 }
 
@@ -248,6 +280,7 @@ struct MetricChartCard: View {
     let history:    [MetricsHistoryPoint]   // quality-filtered
     let rawHistory: [MetricsHistoryPoint]   // unfiltered — used for anomaly detection
     let date:       Date
+    let liveDay:    LiveChartDay?
     let smooth:     Bool
     let dynamicY:   Bool
     /// Dim the line where the underlying window is low-confidence (high artifact
@@ -291,6 +324,7 @@ struct MetricChartCard: View {
          history: [MetricsHistoryPoint],
          rawHistory: [MetricsHistoryPoint] = [],
          date: Date,
+         liveDay: LiveChartDay? = nil,
          bucketTransform: ((Double) -> Double)? = nil,
          stageBands: [StageBand] = [],
          extract: @escaping (MetricsHistoryPoint) -> Double?) {
@@ -313,12 +347,20 @@ struct MetricChartCard: View {
         self.history         = history
         self.rawHistory      = rawHistory
         self.date            = date
+        self.liveDay         = liveDay
         self.bucketTransform = bucketTransform
         self.extract         = extract
         self.win   = win
         self.night = night
         _selectedX = selectedX
         _panOffset = panOffset
+    }
+
+    // Live's full-day buckets start at the day boundary. Epoch alignment can
+    // place the first/last bucket center outside a 23h/25h or travel domain.
+    // Pinned sleep/activity charts retain their existing shared bucket clock.
+    private var bucketOrigin: TimeInterval {
+        night == nil ? (liveDay?.bounds.lowerBound.timeIntervalSince1970 ?? 0) : 0
     }
 
     // MARK: Anomaly bands
@@ -329,13 +371,14 @@ struct MetricChartCard: View {
         guard !history.isEmpty else { return [] }
         let (wStart, wEnd) = windowDates
         let bucket = bucketSeconds
+        let origin = bucketOrigin
 
         // Accumulate per-bucket quality sums
         var sums:   [Int: Float] = [:]
         var counts: [Int: Int]   = [:]
         for pt in history where pt.timestamp >= wStart && pt.timestamp < wEnd {
             guard let q = pt.signalQuality else { continue }
-            let key = Int(pt.timestamp.timeIntervalSince1970 / bucket)
+            let key = Int((pt.timestamp.timeIntervalSince1970 - origin) / bucket)
             sums[key]   = (sums[key]   ?? 0) + q
             counts[key] = (counts[key] ?? 0) + 1
         }
@@ -351,8 +394,8 @@ struct MetricChartCard: View {
         var bands: [AnomalyBand] = []
         var prevKey: Int? = nil
         for key in poorKeys {
-            let bStart = Date(timeIntervalSince1970: Double(key)     * bucket)
-            let bEnd   = Date(timeIntervalSince1970: Double(key + 1) * bucket)
+            let bStart = Date(timeIntervalSince1970: origin + Double(key)     * bucket)
+            let bEnd   = Date(timeIntervalSince1970: origin + Double(key + 1) * bucket)
             if let pk = prevKey, pk == key - 1, !bands.isEmpty {
                 bands[bands.count - 1] = AnomalyBand(id: bands.last!.id, start: bands.last!.start, end: bEnd)
             } else {
@@ -369,16 +412,17 @@ struct MetricChartCard: View {
         guard !rawHistory.isEmpty else { return [] }
         let (wStart, wEnd) = windowDates
         let bucket = bucketSeconds
+        let origin = bucketOrigin
 
         var rawCounts: [Int: Int]  = [:]
         var qualCounts: [Int: Int] = [:]
 
         for pt in rawHistory where pt.timestamp >= wStart && pt.timestamp < wEnd {
-            let key = Int(pt.timestamp.timeIntervalSince1970 / bucket)
+            let key = Int((pt.timestamp.timeIntervalSince1970 - origin) / bucket)
             rawCounts[key] = (rawCounts[key] ?? 0) + 1
         }
         for pt in history where pt.timestamp >= wStart && pt.timestamp < wEnd {
-            let key = Int(pt.timestamp.timeIntervalSince1970 / bucket)
+            let key = Int((pt.timestamp.timeIntervalSince1970 - origin) / bucket)
             qualCounts[key] = (qualCounts[key] ?? 0) + 1
         }
 
@@ -391,8 +435,8 @@ struct MetricChartCard: View {
         var bands: [AnomalyBand] = []
         var prevKey: Int? = nil
         for key in badKeys {
-            let bStart = Date(timeIntervalSince1970: Double(key)     * bucket)
-            let bEnd   = Date(timeIntervalSince1970: Double(key + 1) * bucket)
+            let bStart = Date(timeIntervalSince1970: origin + Double(key)     * bucket)
+            let bEnd   = Date(timeIntervalSince1970: origin + Double(key + 1) * bucket)
             if let pk = prevKey, pk == key - 1, !bands.isEmpty {
                 bands[bands.count - 1] = AnomalyBand(
                     id: bands.last!.id, start: bands.last!.start, end: bEnd)
@@ -404,86 +448,67 @@ struct MetricChartCard: View {
         return bands
     }
 
-    /// Data bucketing range — always loads the full day so selection-based
-    /// panning can reach any point without a data gap.
+    /// Live supplies a stable civil-day domain and reference clock. Other
+    /// consumers keep their environment clock and pinned night/activity span.
+    private var chartDay: LiveChartDay {
+        if let liveDay { return liveDay }
+        var calendar = Calendar.current
+        calendar.timeZone = timeZone
+        let interval = calendar.dateInterval(of: .day, for: date)!
+        return LiveChartDay(bounds: interval.start..<interval.end, timeZone: timeZone,
+                            isToday: calendar.isDateInToday(date))
+    }
+
+    private var chartTimeZone: TimeZone { liveDay?.timeZone ?? timeZone }
+
+    /// Bucketing includes the complete domain, including long travel/DST days.
     private var bucketDates: (start: Date, end: Date) {
         if let night { return (night.lowerBound, night.upperBound) }
-        let cal = Calendar.current
-        if cal.isDateInToday(date) {
-            return (cal.startOfDay(for: date), Date())
-        }
-        let s = cal.startOfDay(for: date)
-        return (s, cal.date(byAdding: .day, value: 1, to: s)!)
+        let bounds = chartDay.bounds
+        return (bounds.lowerBound, bounds.upperBound)
     }
 
-    /// Newest edge the window can reach (right edge at pan 0): now for today,
-    /// end-of-day for a past day.
-    private var anchorEnd: Date {
-        if let night { return night.upperBound }
-        let cal = Calendar.current
-        return cal.isDateInToday(date)
-            ? Date()
-            : cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: date))!
-    }
-
-    /// How wide the drawn window is. `win.seconds` unless a caller pinned a
-    /// span of its own.
     private var spanSeconds: TimeInterval {
-        night.map { $0.upperBound.timeIntervalSince($0.lowerBound) } ?? win.seconds
+        if let night { return night.upperBound.timeIntervalSince(night.lowerBound) }
+        if win == .h24 { return chartDay.bounds.upperBound.timeIntervalSince(chartDay.bounds.lowerBound) }
+        return win.seconds
     }
 
-    /// Same target as `TimeWindow.bucketSeconds` — about 120 points across
-    /// whatever is being shown — so a pinned span gets the same granularity
-    /// per pixel that the live windows do.
+    /// Approximately 120 points across the actual domain, not a fixed 24h.
     private var bucketSeconds: TimeInterval {
-        night == nil ? win.bucketSeconds : max(1, spanSeconds / 120)
+        night == nil && win != .h24 ? win.bucketSeconds : max(1, spanSeconds / 120)
     }
 
-    /// Allowed pan range in seconds (≤ 0). Panning back is bounded by the
-    /// earliest data; you can't pan past the newest edge (0).
     private var panBounds: ClosedRange<TimeInterval> {
-        // A pinned span is already exactly the thing being looked at; there is
-        // nothing to pan to, and allowing it would slide the sleep charts out
-        // of register with the hypnogram they sit under.
         if night != nil { return 0...0 }
-        let span = anchorEnd.timeIntervalSince(bucketDates.start) - spanSeconds
-        return min(0, -span)...0
+        return chartDay.panBounds(win, now: .now)
     }
 
-    /// Visible chart domain. The window is a fixed `win.seconds` wide and is
-    /// dragged through time via `panOffset` (0 = newest edge). Selecting a
-    /// point only shows an inspection cursor; it no longer moves the window.
-    private var windowDates: (start: Date, end: Date) {
-        let clamped = min(max(panOffset, panBounds.lowerBound), panBounds.upperBound)
-        let end     = anchorEnd.addingTimeInterval(clamped)
-        return (end.addingTimeInterval(-spanSeconds), end)
+    var windowDates: (start: Date, end: Date) {
+        if let night { return (night.lowerBound, night.upperBound) }
+        let range = chartDay.windowRange(win, panOffset: panOffset, now: .now)
+        return (range.lowerBound, range.upperBound)
     }
 
     private var windowLabel: String {
+        let mins = Int(bucketSeconds / 60)
+        let grain = mins < 1 ? "\(Int(bucketSeconds))s avg" : "\(mins) min avg"
         if night != nil {
             let fmt = DateFormatter()
-            fmt.timeZone = timeZone
+            fmt.timeZone = chartTimeZone
             fmt.dateFormat = "HH:mm"
-            let mins = Int(bucketSeconds / 60)
-            let grain = mins < 1 ? "\(Int(bucketSeconds))s avg" : "\(mins) min avg"
             return "\(fmt.string(from: windowDates.start))–\(fmt.string(from: windowDates.end))  ·  \(grain)"
         }
-        // Panned back from the newest edge → show the window's start time.
-        if panOffset < -1 {
-            let fmt = DateFormatter()
-            fmt.timeZone = timeZone
-            fmt.dateFormat = "HH:mm"
-            return "\(fmt.string(from: windowDates.start))  ·  \(win.bucketLabel)"
-        }
-        if Calendar.current.isDateInToday(date) {
-            return "\(win == .h24 ? "today" : "last \(win.rawValue)")  ·  \(win.bucketLabel)"
-        }
-        return "00:00 + \(win.rawValue)  ·  \(win.bucketLabel)"
+        let day = chartDay
+        if win == .h24 { return "\(day.isToday ? "today" : "full day")  ·  \(grain)" }
+        if day.isToday && panOffset >= -1 { return "last \(win.rawValue)  ·  \(grain)" }
+        return "\(day.clockLabel(at: windowDates.start))–\(day.clockLabel(at: windowDates.end))  ·  \(grain)"
     }
 
-    private var points: [ChartPoint] {
+    var points: [ChartPoint] {
         let (start, end) = bucketDates
         let bucket = bucketSeconds
+        let origin = bucketOrigin
         var sums:    [Int: Double] = [:]
         var counts:  [Int: Int]    = [:]
         var qualSum: [Int: Float]  = [:]
@@ -491,7 +516,7 @@ struct MetricChartCard: View {
         var estCnt:  [Int: Int]    = [:]
         var presentKeys = Set<Int>()   // buckets with ANY valid sample (sensor on)
         for pt in history where pt.timestamp >= start && pt.timestamp < end {
-            let key = Int(pt.timestamp.timeIntervalSince1970 / bucket)
+            let key = Int((pt.timestamp.timeIntervalSince1970 - origin) / bucket)
             presentKeys.insert(key)          // record sensor-on regardless of this metric
             guard let v = extract(pt) else { continue }
             sums[key]   = (sums[key]   ?? 0) + v
@@ -516,7 +541,7 @@ struct MetricChartCard: View {
         var result: [ChartPoint] = []
         result.reserveCapacity(valueKeys.count)
         for (i, key) in valueKeys.enumerated() {
-            let mid = Double(key) * bucket + bucket / 2
+            let mid = origin + Double(key) * bucket + bucket / 2
             var val = sums[key]! / Double(counts[key]!)
             if let transform = bucketTransform { val = transform(val) }
             let q: Float? = qualCnt[key].map { (qualSum[key] ?? 0) / Float($0) }
@@ -780,7 +805,7 @@ struct MetricChartCard: View {
                     AxisGridLine().foregroundStyle(Theme.border)
                     AxisValueLabel {
                         if let date = value.as(Date.self) {
-                            Text(date, format: Date.FormatStyle(date: .omitted, time: .shortened, timeZone: timeZone))
+                            Text(date, format: Date.FormatStyle(date: .omitted, time: .shortened, timeZone: chartTimeZone))
                         }
                     }
                         .font(.system(size: 9, design: .monospaced))
@@ -861,7 +886,7 @@ struct MetricChartCard: View {
 
     private func selectionBubble(_ pt: ChartPoint) -> some View {
         let fmt = DateFormatter()
-        fmt.timeZone = timeZone
+        fmt.timeZone = chartTimeZone
         fmt.dateFormat = "HH:mm"
         return HStack(spacing: 5) {
             Text(fmt.string(from: pt.date)).foregroundStyle(Theme.dim)
@@ -879,17 +904,20 @@ struct MetricChartCard: View {
 
 /// `Equatable` so callers can wrap it in `.equatable()` and skip re-rendering
 /// all 9 charts when the underlying history hasn't changed. The comparison is
-/// cheap by design — count + newest timestamp + date — never a deep compare of
-/// the (up to 43k-element) arrays. Append-only day history means count and the
-/// last timestamp fully capture "did the data change".
+/// cheap by design — count + newest timestamp + explicit clock/domain — never
+/// a deep compare of the history arrays. Bulk restores also carry their revision
+/// so corrected values/timezones redraw even when timestamps did not change.
 struct MetricsChartsView: View, Equatable {
     let history:    [MetricsHistoryPoint]   // quality-filtered
     let rawHistory: [MetricsHistoryPoint]   // unfiltered — for anomaly highlighting
-    let date:       Date
+    let day:        LiveChartDay
     let window:     TimeWindow              // shared across all charts, set at the Today header
+    let historyRevision: Int
+    private var date: Date { day.bounds.lowerBound }
 
     static func == (lhs: MetricsChartsView, rhs: MetricsChartsView) -> Bool {
-        lhs.date == rhs.date
+        lhs.day == rhs.day
+            && lhs.historyRevision == rhs.historyRevision
             && lhs.window == rhs.window
             && lhs.history.count == rhs.history.count
             && lhs.rawHistory.count == rhs.rawHistory.count
@@ -898,12 +926,14 @@ struct MetricsChartsView: View, Equatable {
 
     init(history: [MetricsHistoryPoint],
          rawHistory: [MetricsHistoryPoint] = [],
-         date: Date,
-         window: TimeWindow) {
+         day: LiveChartDay,
+         window: TimeWindow,
+         historyRevision: Int = 0) {
         self.history    = history
         self.rawHistory = rawHistory
-        self.date       = date
+        self.day        = day
         self.window     = window
+        self.historyRevision = historyRevision
     }
 
     @State private var sharedSelectedX: Date? = nil
@@ -932,7 +962,8 @@ struct MetricsChartsView: View, Equatable {
 
             signalQualitySection
         }
-        .onChange(of: date)   { _, _ in resetPan() }
+        .environment(\.timeZone, day.timeZone)
+        .onChange(of: day)    { _, _ in resetPan() }
         .onChange(of: window) { _, _ in resetPan() }
     }
 
@@ -1007,7 +1038,7 @@ struct MetricsChartsView: View, Equatable {
                 sensitivity: "Reacts instantly to movement or a loose strap — so keep an eye on it live while you're getting set up.",
                 levels:      "Great: under 2%\nFine: 2–5%\nShaky: 5–20%\nUnreliable: over 20% (fix the strap)"
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { pt in
             guard let inv = pt.rrInvalidRate else { return nil }
             return Double(inv + (pt.rrCorrectedRate ?? 0)) * 100
@@ -1038,7 +1069,7 @@ struct MetricsChartsView: View, Equatable {
                 sensitivity: "Tracks strap contact moment to moment, like the other signal-quality charts.",
                 levels:      "Routine: under 2%\nWatch: 2–5%\nShaky: over 5% (fix the strap)"
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.rrCorrectedRate.map { Double($0) * 100 } }
     }
 
@@ -1068,7 +1099,7 @@ struct MetricsChartsView: View, Equatable {
                 sensitivity: "Reacts fast to contact and movement. Nothing to do with your stress or fitness — purely signal quality.",
                 levels:      "Clean: 0%\nMoving / noisy: around 50%\nStrap not connected: 100% (reseat it)"
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.ecgQualityTier.map { Double(2 - $0) / 2 * 100 } }
     }
 
@@ -1099,7 +1130,7 @@ struct MetricsChartsView: View, Equatable {
                 sensitivity: "Changes within seconds — posture, stress, caffeine, a warm room, or a big breath all move it. For a clean baseline, measure at rest.",
                 levels:      "Very fit: under 50 bpm\nExcellent: 50–60 bpm\nGood: 60–70 bpm\nAverage: 70–80 bpm\nHigh for rest: over 80 bpm (measured fully at rest)"
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.meanBPM.map(Double.init) }
     }
 
@@ -1129,7 +1160,7 @@ struct MetricsChartsView: View, Equatable {
                 sensitivity: "Changes with every breath and every shift in posture or stress. Very live.",
                 levels:      "60 bpm: about 1000 ms\n70 bpm: about 860 ms\n80 bpm: about 750 ms\nVery fit (50 bpm): about 1200 ms"
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) {
             guard let bpm = $0.meanBPM, bpm > 0 else { return nil }
             return Double(60_000.0 / bpm)
@@ -1162,7 +1193,7 @@ struct MetricsChartsView: View, Equatable {
                 sensitivity: "Fully in your control — even a half-second longer exhale shows up here right away.",
                 levels:      "Even:            1.0 (in = out)\nCalming:         1.5 or more\nDeeply calming:  2.0 or more\nSweet spot:      2.0–2.5"
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.ieRatio.map(Double.init) }
     }
 
@@ -1192,7 +1223,7 @@ struct MetricsChartsView: View, Equatable {
                 sensitivity: "Live and personal — big swings within a day are normal; compare against your own usual range, not other people's.",
                 levels:      "Low:      under 20 ms\nModerate: 20–40 ms\nHealthy:  40–65 ms\nHigh:     65+ ms\nHigher is better — against your own baseline."
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.rmssd.map(Double.init) }
     }
 
@@ -1229,7 +1260,7 @@ struct MetricsChartsView: View, Equatable {
                 levels:      "Over a 30m or 2h window\nNarrow:  under 20 ms\nTypical: 20–80 ms\nBroad:   80+ ms\n\nThe familiar clinical cut-offs (50 ms, 100 ms) are 24-hour numbers and do not apply to a short window.",
                 notes:       "A single big artifact inflates it more than any other metric here, since one wrong interval enters the sum squared. Trust it most where the Signal Artifacts chart below is low."
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.sdnn.map(Double.init) }
     }
 
@@ -1271,7 +1302,7 @@ struct MetricsChartsView: View, Equatable {
                 levels:      "Building: under 4.5\nTypical:  around 6\nStrong:   10+\nShown as size, so higher = a stronger throttle.\n(Short readings aren\u{2019}t directly comparable to overnight ones.)",
                 notes:       "Blank before 2026-08-31: AC was computed and discarded until then, so no earlier history holds a value. It shares Vagal Tone\u{2019}s gate of ~192 clean intervals, so the two appear and disappear together."
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.activationCapacity }
     }
 
@@ -1313,7 +1344,7 @@ struct MetricsChartsView: View, Equatable {
                 sensitivity: "Needs at least 100 clean beats before it reports at all, and moves slowly after that. Distance from 50 is the signal; small wanders around it are noise.",
                 levels:      "Low \u{2014} throttle-led:  under 46\nMiddle \u{2014} even:        46\u{2013}54  (50 is dead even)\nHigh \u{2014} brake-led:    54+\n\nUnlike most charts here, high is not simply better. Resting adults usually sit a little above 50, so brake-led is the familiar resting pattern and a drift toward a flat 50 is the one worth noticing. Read the distance from 50, in either direction, rather than chasing a number."
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.hra.map(Double.init) }
     }
 
@@ -1356,7 +1387,7 @@ struct MetricsChartsView: View, Equatable {
                 levels:      "Low \u{2014} choppy:    under 30 %\nMiddle \u{2014} typical:  30\u{2013}50 %\nHigh \u{2014} steady:    50 %+\n\nHigher is better: more of your rhythm is running in sustained stretches rather than breaking up into very short runs.",
                 notes:       "Treat these bands as orientation, not diagnosis. They are anchored on the fragmentation literature\u{2019}s healthy midpoint, but those figures come from 24-hour recordings and this is a short window \u{2014} so the shape of your own trend is the trustworthy part, and the band you land in is the rough part. Blank before this shipped: the value was computed and discarded until now."
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.rhythmStability }
     }
 
@@ -1410,7 +1441,7 @@ struct MetricsChartsView: View, Equatable {
                 levels:      "Low \u{2014} unsteady:  under 1.0\nMiddle \u{2014} typical:  1.0\u{2013}1.9\nHigh \u{2014} steady:    1.9+\n\nHigher is steadier. These come from the published QTVI range, which is negative \u{2014} about \u{2212}1.9 (steady) to \u{2212}1.0 (unsteady), with anything above \u{2212}1.0 treated as abnormal. This chart plots the sign-flipped value, so the numbers read the right way up.",
                 notes:       "Read the bands with real caution. The strap samples at 130 Hz where this literature uses 500\u{2013}1000 Hz, and early readings here sit well below the published range \u{2014} which says our scale is offset, not that your heart is unwell. Until it is calibrated against a clinical recording, the direction your own line moves is the only part worth trusting. Blank before this shipped, and blank on any window the ECG stream was not running."
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.qtvi.map { -Double($0) } }
     }
 
@@ -1450,7 +1481,7 @@ struct MetricsChartsView: View, Equatable {
                 notes:       "Measured from body movement, so walking, driving, or fidgeting can be mistaken for breathing. Trust it most when you're still."
             ),
             isEstimated: { $0.breathSource == .heart },
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.breathBPM.map(Double.init) }
     }
 
@@ -1483,7 +1514,7 @@ struct MetricsChartsView: View, Equatable {
                 levels:      "Low:       under 10 ms\nModerate:  10–30 ms\nGood:      30–60 ms\nStrong:    60–90 ms\nExcellent: 90+ ms",
                 notes:       "Brief dips to near zero are normal — for example right after a breath-hold or a sudden change in posture."
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.rsaMs.map(Double.init) }
     }
 
@@ -1514,7 +1545,7 @@ struct MetricsChartsView: View, Equatable {
                 sensitivity: "Responsive — moves quickly with your breathing and with sudden stress.",
                 levels:      "Very low:  under 3%\nLow:       3–8%\nNormal:    8–20%\nGood:      20–35%\nExcellent: 35%+"
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.pnn50.map(Double.init) }
     }
 
@@ -1546,7 +1577,7 @@ struct MetricsChartsView: View, Equatable {
                 sensitivity: "Changes slowly — read it as a trend over days and weeks. It needs a couple of minutes of clean signal to show a value.",
                 levels:      "Building: under 4.5\nTypical:  around 6\nStrong:   10+\nHigher = more calm-and-recover capacity.\n(Short readings aren't directly comparable to overnight ones.)"
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.dc.map(Double.init) }
     }
 
@@ -1578,7 +1609,7 @@ struct MetricsChartsView: View, Equatable {
                 sensitivity: "Fairly steady — needs a few minutes of continuous wear and is far more useful as a trend than a one-off number.",
                 levels:      "Stressed / depleted: under 1.2\nTypical healthy:     about 1.4–2.2\nHighly trained:      2.0+\nHigher is better."
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.rcmse.map(Double.init) }
     }
 
@@ -1610,7 +1641,7 @@ struct MetricsChartsView: View, Equatable {
                 sensitivity: "Moderately responsive to your state, and steadier than the complexity metrics on short recordings.",
                 levels:      "Calm:     under 45%\nTypical:  around 55%\nElevated: over 70%\nLower is calmer."
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.pip.map(Double.init) }
     }
 
@@ -1643,7 +1674,7 @@ struct MetricsChartsView: View, Equatable {
                 levels:      "Drifting (too random): under 0.75\nIn balance:            0.75–1.5  (aim here)\nIdeal:                 around 1.0\nStrained (too rigid):  over 1.5",
                 notes:       "Shows '—' until about 2 minutes of data have been collected. That's just how long the math needs — not a sensor problem."
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.dfa1.map(Double.init) }
     }
 
@@ -1674,7 +1705,7 @@ struct MetricsChartsView: View, Equatable {
                 levels:      "Calm:      under 45%\nBalanced:  45–65%\nRevved-up: over 65%\nLower is calmer.",
                 notes:       "An old-school 'stress ratio' isn't shown here because it misleads during breathwork — this dial is the app's stress signal."
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { pt in
             AutonomicCompute.balance(rmssd: pt.rmssd, lf: pt.lfPower, hf: pt.hfPower,
                                      breathBPM: pt.breathBPM, meanBPM: pt.meanBPM,
@@ -1706,7 +1737,7 @@ struct MetricsChartsView: View, Equatable {
                 levels:      "These values depend on recording length, so compare only your own trends under similar conditions — not against fixed targets.",
                 notes:       "Needs about 5 minutes of data to compute. It reads near zero in short sessions — that's normal, not an error."
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.vlfPower.map(Double.init) }
     }
 
@@ -1734,7 +1765,7 @@ struct MetricsChartsView: View, Equatable {
                 levels:      "Meaningful values come from long (24-hour) recordings; short-session numbers here aren't comparable to those.",
                 notes:       "This chart fills in only after about 10 minutes of continuous recording — a limitation of the math, not the sensor."
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.ulfPower.map(Double.init) }
     }
 
@@ -1764,7 +1795,7 @@ struct MetricsChartsView: View, Equatable {
                 sensitivity: "Very live — it responds within a couple of breaths to changes in your pace, depth, or steadiness.",
                 levels:      "Low:       under 0.30\nModerate:  0.30–0.60\nGood:      0.60–0.80\nExcellent: 0.80+\nPeak:      0.90+  (rare — perfect sync)"
             ),
-            history: history, rawHistory: rawHistory, date: date
+            history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { $0.coherence.map(Double.init) }
     }
 }
@@ -1773,7 +1804,9 @@ struct MetricsChartsView: View, Equatable {
 
 #Preview("Metrics Charts") {
     ScrollView {
-        MetricsChartsView(history: mockHistory(), date: Date(), window: .h24)
+        let history = LiveDayHistory.select(mockHistory(), day: LiveCivilDay(date: .now, timeZone: .current),
+                                            fallbackTimeZone: .current, isToday: true)
+        MetricsChartsView(history: history.filtered, day: history.chartDay, window: .h24)
             .padding(.horizontal)
     }
     .background(Theme.bg)
