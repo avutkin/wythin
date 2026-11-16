@@ -79,6 +79,7 @@ struct MetricsHistoryPoint {
     let lfPower:    Float?   // ms²
     let hfPower:    Float?   // ms²
     let lfHF:       Float?   // ratio
+    var stressBalance: Float? = nil // captured 0–100 dial; legacy rows derive it
     let coherence:  Float?   // 0–1
     let cbi:        Float?   // 0–1
     let breathBPM:  Float?   // br/min
@@ -118,6 +119,7 @@ struct MetricsHistoryPoint {
         lfPower    = tick.lfPower
         hfPower    = tick.hfPower
         lfHF       = tick.lfHF
+        stressBalance = AutonomicCompute.compute(tick: tick, baseline: nil).map { $0.sns * 100 }
         coherence  = tick.coherenceScore
         cbi        = tick.cbi
         breathBPM  = tick.breathBPM
@@ -154,6 +156,7 @@ struct MetricsHistoryPoint {
         lfPower    = sample.lfPower
         hfPower    = sample.hfPower
         lfHF       = sample.lfHF
+        stressBalance = sample.stressBalance
         coherence  = sample.coherence
         cbi        = sample.cbi
         breathBPM  = sample.breathBPM

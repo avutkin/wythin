@@ -198,6 +198,24 @@ CREATE INDEX IF NOT EXISTS raw_chunks_user_created ON raw_chunks(user_id, create
 -- the device did. See tools/nights.sql.
 ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS motion REAL;
 ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS timezone TEXT;
+ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS stress_balance REAL;
+ALTER TABLE hrv_samples ADD COLUMN IF NOT EXISTS stress_balance REAL;
+
+-- Matches the app's absolute AutonomicCompute dial, not a raw LF/HF ratio.
+-- A ratio can recover the spectral fallback only outside paced breathing.
+CREATE OR REPLACE FUNCTION wythin_stress_balance(rmssd REAL, ratio REAL, breath REAL)
+RETURNS REAL LANGUAGE SQL IMMUTABLE PARALLEL SAFE AS $$
+    SELECT CASE
+        WHEN rmssd > 0 AND rmssd < 'Infinity'::real THEN
+            (100 * (1 - LEAST(0.95::double precision, GREATEST(0.05::double precision,
+                rmssd::double precision / (rmssd::double precision + 40)))))::real
+        WHEN ratio >= 0 AND ratio < 'Infinity'::real
+             AND (breath IS NULL OR (breath >= 10 AND breath < 'Infinity'::real)) THEN
+            (100 * ratio::double precision / (1 + ratio::double precision))::real
+        ELSE NULL
+    END
+$$;
+
 -- Signal-quality telemetry — see server/models.py and docs/superpowers/specs/2026-10-25-signal-quality-design.md.
 ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS signal_quality REAL;
 ALTER TABLE metric_samples ADD COLUMN IF NOT EXISTS rr_invalid_rate REAL;

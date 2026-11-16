@@ -13,6 +13,12 @@ struct SessionPayload: Codable {
     let avgCoherence: Float?
     let notes:        String?
     let samples:      [SamplePayload]
+
+    enum CodingKeys: String, CodingKey {
+        case id, notes, samples
+        case startedAt = "started_at", endedAt = "ended_at"
+        case avgRSAms = "avg_rsa_ms", avgCoherence = "avg_coherence"
+    }
 }
 
 struct SamplePayload: Codable {
@@ -27,6 +33,13 @@ struct SamplePayload: Codable {
     let coherence:  Float?
     let cbi:        Float?
     let breathBPM:  Float?
+    var stressBalance: Float? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case ts, rmssd, sdnn, pnn50, coherence, cbi
+        case meanBPM = "mean_bpm", lfHF = "lf_hf", rsaMs = "rsa_ms", rsaIdx = "rsa_idx"
+        case breathBPM = "breath_bpm", stressBalance = "stress_balance"
+    }
 }
 
 struct TickPayload: Codable {
@@ -297,10 +310,11 @@ struct MetricSamplePayload: Codable {
     let rr_invalid_rate: Float?
     let ecg_quality_tier: Int?
     var timezone: String? = nil
+    var stress_balance: Float? = nil
 }
 struct MetricsUploadPayload: Codable { let samples: [MetricSamplePayload] }
 
-// Read-back of the same fourteen columns `/v1/metrics` stores, for restoring
+// Read-back of the scalar columns `/v1/metrics` stores, for restoring
 // a wiped local store from the cloud copy.
 struct MetricExportSample: Codable {
     let ts: String
@@ -314,6 +328,7 @@ struct MetricExportSample: Codable {
     let rr_invalid_rate: Float?
     let ecg_quality_tier: Int?
     var timezone: String? = nil
+    var stress_balance: Float? = nil
 }
 
 struct MetricExportPage: Codable {
@@ -835,14 +850,9 @@ final class MetricSyncService {
                 lastError = nil
                 return
             }
-            let payload = MetricsUploadPayload(samples: samples.map { s in
-                MetricSamplePayload(ts: iso.string(from: s.timestamp),
-                    mean_bpm: s.meanBPM, rmssd: s.rmssd, sdnn: s.sdnn, pnn50: s.pnn50,
-                    lf_hf: s.lfHF, rsa_ms: s.rsaMs, coherence: s.coherence, cbi: s.cbi,
-                    breath_bpm: s.breathBPM, dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip,
-                    dc: s.dc, vti: s.vti, motion: s.motion,
-                    signal_quality: s.signalQuality, rr_invalid_rate: s.rrInvalidRate,
-                    ecg_quality_tier: s.ecgQualityTier, timezone: s.timezone) })
+            let payload = MetricsUploadPayload(samples: samples.map {
+                MetricSamplePayload(from: $0, timestamp: iso.string(from: $0.timestamp))
+            })
             do {
                 _ = try await client.uploadMetrics(payload, userID: userID)
             } catch {
@@ -951,6 +961,24 @@ extension SessionPayload {
     }
 }
 
+extension MetricSamplePayload {
+    init(from s: HRVSample, timestamp: String? = nil) {
+        let ts: String
+        if let timestamp { ts = timestamp } else {
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            ts = iso.string(from: s.timestamp)
+        }
+        self.init(ts: ts, mean_bpm: s.meanBPM, rmssd: s.rmssd, sdnn: s.sdnn,
+                  pnn50: s.pnn50, lf_hf: s.lfHF, rsa_ms: s.rsaMs,
+                  coherence: s.coherence, cbi: s.cbi, breath_bpm: s.breathBPM,
+                  dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip, dc: s.dc, vti: s.vti,
+                  motion: s.motion, signal_quality: s.signalQuality,
+                  rr_invalid_rate: s.rrInvalidRate, ecg_quality_tier: s.ecgQualityTier,
+                  timezone: s.timezone, stress_balance: s.stressBalanceValue)
+    }
+}
+
 extension SamplePayload {
     init(from s: HRVSample) {
         let iso = ISO8601DateFormatter()
@@ -965,6 +993,7 @@ extension SamplePayload {
         self.coherence = s.coherence
         self.cbi       = s.cbi
         self.breathBPM = s.breathBPM
+        self.stressBalance = s.stressBalanceValue
     }
 }
 

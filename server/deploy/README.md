@@ -145,3 +145,16 @@ deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart wythin-api
 | `Caddyfile` | reverse proxy + automatic HTTPS + security headers |
 | `migrate.py` | idempotent schema creation |
 | `env.example` | template for the (gitignored) `.env` |
+
+## Stress Balance sample migration
+
+`migrate.py` adds nullable `stress_balance` columns to continuous and legacy
+session samples and the shared SQL derivation function. Deploy the API after
+migrating; then run `.venv/bin/python server/deploy/backfill_stress_balance.py`
+with the same environment to fill recoverable historical values in bounded
+batches. It is safe to resume/repeat: known snapshots, other measurements,
+measurement times and receipt times are preserved. Missing source data stays
+null. Old clients derive the same dial at ingestion; new clients upload the
+captured snapshot. `stress_balance` is a distinct 0–100 value, never the raw
+`lf_hf` column. Connector aggregate tools, samples and activity summaries,
+JSON export and legacy session CSV now expose it.

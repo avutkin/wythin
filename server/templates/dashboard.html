@@ -848,6 +848,7 @@
   // disagree — note Energy Reserve is RMSSD there, not SDNN, which this
   // dashboard had wrong. Columns with no product name keep their technical one.
   const LIVE_SIGNALS = [
+    { k: "stress_balance", label: "Stress Balance", unit: "%", color: "var(--warn)", d: 0, tech: "SNS %" },
     { k: "mean_bpm",   label: "Pulse",               unit: "bpm",    color: "var(--warn)",    d: 0 , tech: "HR" },
     { k: "rmssd",      label: "Energy Reserve",      unit: "ms",     color: "var(--hrv)",     d: 0 , tech: "RMSSD" },
     { k: "rsa_ms",     label: "Conscious Breathing", unit: "ms",     color: "var(--rsa)",     d: 0 , tech: "RSA" },
@@ -1373,7 +1374,7 @@
   const ACT_METRICS = [
     ["Pulse", "hr", 0, false, "HR"], ["Conscious Breathing", "rsa", 0, true, "RSA"],
     ["Energy Reserve", "rmssd", 0, true, "RMSSD"], ["HRV Spread", "sdnn", 0, true, "SDNN"],
-    ["Calm Power", "vti", 2, true, "VTI"], ["Stress Balance", "stress", 0, false, "LF/HF"],
+    ["Calm Power", "vti", 2, true, "VTI"], ["Stress Balance", "stress", 0, false, "SNS %"],
     ["Adaptive Capacity", "rcmse", 2, true, "RCMSE"], ["Inner Noise", "pip", 0, false, "PIP"],
     ["Vagal Tone", "dc", 1, true, "DC"], ["Harmony", "dfa1", 2, true, "DFA α1"],
   ];
@@ -1912,9 +1913,7 @@
   const ACT_SERIES_COL = {
     hr: "mean_bpm", rsa: "rsa_ms", rmssd: "rmssd", sdnn: "sdnn", vti: "vti",
     rcmse: "rcmse", pip: "pip", dc: "dc", dfa1: "dfa1",
-    // No per-tick stress column: the app derives the dial from RMSSD against
-    // a baseline. Its card shows the three window averages only — drawing the
-    // LF/HF line under stress-dial rules put the line on the floor.
+    stress: "stress_balance",
   };
 
   function drawActivityLine(box, pts, meta, grp) {
@@ -1926,8 +1925,7 @@
     const W = Math.max(200, Math.round(svg.clientWidth || 320)), H = 150;
     const pad = { l: 6, r: 8, t: 10, b: 20 };
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-    // A metric with no per-tick column (Stress Balance) still gets its three
-    // window averages drawn as rules; one with too few samples gets nothing.
+    // Window averages remain visible even when the per-tick line is sparse.
     const hasLine = series.length >= 2;
     if (!hasLine && Object.values(phases).every(v => v == null)) {
       svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle" class="tick">not enough data</text>`;

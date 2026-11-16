@@ -17,6 +17,7 @@ class SampleSchema(BaseModel):
     sdnn:       Optional[float] = None
     pnn50:      Optional[float] = None
     lf_hf:      Optional[float] = None
+    stress_balance: Optional[float] = Field(default=None, ge=0, le=100, allow_inf_nan=False)
     rsa_ms:     Optional[float] = None
     rsa_idx:    Optional[float] = None
     coherence:  Optional[float] = None
@@ -93,6 +94,7 @@ class MetricSample(BaseModel):
     sdnn: Optional[float] = None
     pnn50: Optional[float] = None
     lf_hf: Optional[float] = None
+    stress_balance: Optional[float] = Field(default=None, ge=0, le=100, allow_inf_nan=False)
     rsa_ms: Optional[float] = None
     coherence: Optional[float] = None
     cbi: Optional[float] = None

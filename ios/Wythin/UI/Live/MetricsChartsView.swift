@@ -1707,9 +1707,7 @@ struct MetricsChartsView: View, Equatable {
             ),
             history: history, rawHistory: rawHistory, date: date, liveDay: day
         ) { pt in
-            AutonomicCompute.balance(rmssd: pt.rmssd, lf: pt.lfPower, hf: pt.hfPower,
-                                     breathBPM: pt.breathBPM, meanBPM: pt.meanBPM,
-                                     baselineRmssd: nil).map { Double($0.sns) * 100 }
+            LiveMetric.stressBalance.value(pt).map(Double.init)
         }
     }
 

@@ -14,7 +14,7 @@ router = APIRouter(prefix="/v1/metrics", tags=["metrics"])
 _MAX_BATCH = 5000
 _COLS = ["mean_bpm","rmssd","sdnn","pnn50","lf_hf","rsa_ms","coherence","cbi",
          "breath_bpm","dfa1","rcmse","pip","dc","vti","motion",
-         "signal_quality","rr_invalid_rate","ecg_quality_tier"]
+         "signal_quality","rr_invalid_rate","ecg_quality_tier","stress_balance"]
 
 
 def _dt(s: str) -> datetime:
@@ -91,12 +91,23 @@ async def upload_metrics(body: MetricsUpload, x_user_id: str = Header(..., alias
     skipped = len(body.samples) - len(rows)
     if not rows:
         return {"stored": 0, "skipped": skipped}
-    placeholders = ", ".join(f"${i}" for i in range(1, len(_COLS) + 4))
+    params = {column: f"${i + 3}" for i, column in enumerate(_COLS)}
+    stress_param = params["stress_balance"]
+    params["stress_balance"] = (
+        f"COALESCE({stress_param}::real, wythin_stress_balance("
+        f"{params['rmssd']}, {params['lf_hf']}, {params['breath_bpm']}))")
+    placeholders = ", ".join(["$1", "$2", *params.values(), f"${len(_COLS) + 3}"])
+    # Replays may fill missing fields, but never replace captured values. For
+    # old rows, derive from their original inputs, not changed retry inputs.
+    missing_stress = (f"COALESCE({stress_param}::real, wythin_stress_balance("
+                      "metric_samples.rmssd, metric_samples.lf_hf, metric_samples.breath_bpm))")
     sql = (
         f"INSERT INTO metric_samples (user_id, ts, {', '.join(_COLS)}, timezone) "
         f"VALUES ({placeholders}) ON CONFLICT (user_id, ts) DO UPDATE "
-        "SET timezone = EXCLUDED.timezone "
-        "WHERE metric_samples.timezone IS NULL AND EXCLUDED.timezone IS NOT NULL"
+        "SET timezone = COALESCE(metric_samples.timezone, EXCLUDED.timezone), "
+        f"stress_balance = COALESCE(metric_samples.stress_balance, {missing_stress}) "
+        "WHERE (metric_samples.timezone IS NULL AND EXCLUDED.timezone IS NOT NULL) "
+        f"OR (metric_samples.stress_balance IS NULL AND {missing_stress} IS NOT NULL)"
     )
     async with get_pool().acquire() as conn:
         await conn.executemany(sql, rows)

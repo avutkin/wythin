@@ -108,10 +108,7 @@ struct NudgeSignals {
     /// `100 × 40/(RMSSD + 40)`. Its reference lines and the Calm Power
     /// reference lines agree: dial 50 is RMSSD 40, dial 65 is RMSSD 21.5.
     static func balance(_ pt: MetricsHistoryPoint) -> Float? {
-        AutonomicCompute.balance(rmssd: pt.rmssd, lf: pt.lfPower, hf: pt.hfPower,
-                                 breathBPM: pt.breathBPM, meanBPM: pt.meanBPM,
-                                 baselineRmssd: nil)
-            .map { $0.sns * 100 }
+        LiveMetric.stressBalance.value(pt)
     }
 
     /// Bucket endpoints rather than raw endpoints: a single stray tick at either

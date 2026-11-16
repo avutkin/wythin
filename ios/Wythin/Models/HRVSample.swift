@@ -29,6 +29,8 @@ final class HRVSample {
     var sdnn:           Float?
     var pnn50:          Float?
     var lfHF:           Float?
+    /// Captured 0–100 dial. Optional for stores predating this field.
+    var stressBalance:  Float?
     var rsaMs:          Float?
     var rsaIdx:         Float?
     var coherence:      Float?
@@ -83,6 +85,7 @@ final class HRVSample {
         self.sdnn       = tick.sdnn
         self.pnn50      = tick.pnn50
         self.lfHF       = tick.lfHF
+        self.stressBalance = AutonomicCompute.compute(tick: tick, baseline: nil).map { $0.sns * 100 }
         self.rsaMs      = tick.rsaMs
         self.rsaIdx     = tick.rsaIdx
         self.coherence  = tick.coherenceScore
@@ -128,7 +131,7 @@ final class HRVSample {
          lfHF: Float?, rsaMs: Float?, coherence: Float?, cbi: Float?,
          breathBPM: Float?, dfa1: Float?, rcmse: Float?, pip: Float?,
          dc: Float?, vti: Float?, motion: Float? = nil,
-         signalQuality: Float? = nil, rrInvalidRate: Float? = nil, ecgQualityTier: Int? = nil, timezone: String? = nil) {
+         signalQuality: Float? = nil, rrInvalidRate: Float? = nil, ecgQualityTier: Int? = nil, timezone: String? = nil, stressBalance: Float? = nil) {
         self.timezone = timezone
         self.timestamp = cloudTs
         self.meanBPM   = meanBPM
@@ -136,6 +139,7 @@ final class HRVSample {
         self.sdnn      = sdnn
         self.pnn50     = pnn50
         self.lfHF      = lfHF
+        self.stressBalance = stressBalance
         self.rsaMs     = rsaMs
         self.coherence = coherence
         self.cbi       = cbi
@@ -158,6 +162,11 @@ final class HRVSample {
         self.pss = nil; self.hra = nil; self.qtvi = nil
         self.bodyPositionRaw = nil; self.positionConfidence = nil
         self.ulfPower = nil; self.vlfPower = nil; self.lfPower = nil; self.hfPower = nil
+    }
+
+    /// Older local rows can still upload the same dial their charts display.
+    var stressBalanceValue: Float? {
+        LiveMetric.stressBalance.value(MetricsHistoryPoint(from: self))
     }
 
     /// Convenience initializer covering the fields the anchor pipeline reads,

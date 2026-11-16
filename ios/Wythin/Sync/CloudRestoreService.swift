@@ -143,6 +143,7 @@ final class CloudRestoreService {
                 // A verified server correction may fill missing metadata on
                 // this device. Never replace a known recording zone or its UTC instant.
                 if existing.timezone == nil { existing.timezone = s.timezone }
+                if existing.stressBalance == nil { existing.stressBalance = s.stress_balance }
                 continue
             }
             let sample = HRVSample(
@@ -152,7 +153,7 @@ final class CloudRestoreService {
                 breathBPM: s.breath_bpm, dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip,
                 dc: s.dc, vti: s.vti, motion: s.motion,
                 signalQuality: s.signal_quality, rrInvalidRate: s.rr_invalid_rate,
-                ecgQualityTier: s.ecg_quality_tier, timezone: s.timezone)
+                ecgQualityTier: s.ecg_quality_tier, timezone: s.timezone, stressBalance: s.stress_balance)
             context.insert(sample)
             existingBySecond[second, default: []].append(sample)
             inserted += 1

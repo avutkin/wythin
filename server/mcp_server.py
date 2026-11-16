@@ -63,12 +63,16 @@ def _session_row(r) -> dict:
         "avg_hr": r["during_hr"],
         "avg_rmssd": r["during_rmssd"],
         "avg_rsa_ms": r["during_rsa"],
+        "before_stress_balance": r["before_stress"],
+        "avg_stress_balance": r["during_stress"],
+        "after_stress_balance": r["after_stress"],
         "notes": r["notes"],
     }
 
 
 _SESSION_COLS = ("id, activity_type, custom_name, started_at, ended_at, "
-                 "impact_score, during_hr, during_rmssd, during_rsa, notes")
+                 "impact_score, during_hr, during_rmssd, during_rsa, notes, "
+                 "before_stress, during_stress, after_stress")
 
 
 # ---- data helpers (unit-testable without the MCP transport) ----
@@ -132,7 +136,7 @@ async def _get_session_samples(user_id: str, session_id: str, limit: int = 2000)
         window_end = act["ended_at"] or act["started_at"]
         rows = await conn.fetch(
             "SELECT ts, mean_bpm, rmssd, sdnn, pnn50, lf_hf, rsa_ms, coherence, cbi, "
-            "breath_bpm, dfa1, rcmse, pip, dc, vti "
+            "breath_bpm, dfa1, rcmse, pip, dc, vti, stress_balance "
             "FROM metric_samples WHERE user_id = $1 AND ts >= $2 AND ts <= $3 "
             "ORDER BY ts LIMIT $4", user_id, act["started_at"], window_end, limit)
     return [
@@ -142,7 +146,7 @@ async def _get_session_samples(user_id: str, session_id: str, limit: int = 2000)
             "pnn50": r["pnn50"], "lf_hf": r["lf_hf"], "rsa_ms": r["rsa_ms"],
             "coherence": r["coherence"], "cbi": r["cbi"], "breath_bpm": r["breath_bpm"],
             "dfa1": r["dfa1"], "rcmse": r["rcmse"], "pip": r["pip"],
-            "dc": r["dc"], "vti": r["vti"],
+            "dc": r["dc"], "vti": r["vti"], "stress_balance": r["stress_balance"],
         }
         for r in rows
     ]
@@ -182,11 +186,11 @@ async def get_session_samples(ctx: Context, session_id: str, limit: int = 2000) 
 # ---- metric_samples aggregate tools ----
 
 _METRIC_COLS = {"mean_bpm", "rmssd", "sdnn", "pnn50", "lf_hf", "rsa_ms", "coherence",
-                "cbi", "breath_bpm", "dfa1", "rcmse", "pip", "dc", "vti"}
+                "cbi", "breath_bpm", "dfa1", "rcmse", "pip", "dc", "vti", "stress_balance"}
 _METRIC_ALIASES = {
     "hr": "mean_bpm", "heart_rate": "mean_bpm", "pulse": "mean_bpm",
     "inner_noise": "pip", "harmony": "dfa1", "vagal_tone": "dc",
-    "calm_power": "vti", "hrv": "rmssd", "stress_balance": "lf_hf",
+    "calm_power": "vti", "hrv": "rmssd",
 }
 
 
@@ -245,19 +249,19 @@ async def _metric_trend(user_id: str, metric: str, since: str, until: str, bucke
 
 @mcp.tool()
 async def get_day_summary(ctx: Context, date: str) -> dict:
-    """Per-metric avg/min/max/count for one UTC day (YYYY-MM-DD) of your data. Best for 'how was my X today'."""
+    """Per-metric avg/min/max/count for one UTC day (YYYY-MM-DD) of your data. Best for 'how was my X today'. Includes stress_balance, the app's 0–100 dial (lower is calmer), separately from raw lf_hf."""
     return await _day_summary(await _auth(ctx), date)
 
 
 @mcp.tool()
 async def get_metric_trend(ctx: Context, metric: str, since: str, until: str, buckets: int = 60) -> list[dict]:
-    """Downsampled time series of one metric over [since, until) (ISO datetimes), ~`buckets` points. Metric accepts names/aliases like 'inner_noise', 'hr'."""
+    """Downsampled time series of one metric over [since, until) (ISO datetimes), ~`buckets` points. Metric accepts names/aliases like 'inner_noise', 'hr', 'stress_balance'. Stress Balance is the app's 0–100 dial (lower is calmer); lf_hf is a separate raw ratio."""
     return await _metric_trend(await _auth(ctx), metric, since, until, buckets)
 
 
 @mcp.tool()
 async def get_metric_stats(ctx: Context, metric: str, since: str, until: str) -> dict:
-    """avg/min/max/count of one metric over [since, until). Good for comparisons across ranges."""
+    """avg/min/max/count of one metric over [since, until). Good for comparisons across ranges. stress_balance is the app's 0–100 dial (lower is calmer), distinct from the raw lf_hf ratio."""
     return await _metric_stats(await _auth(ctx), metric, since, until)
 
 

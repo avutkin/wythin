@@ -546,7 +546,7 @@ _METRIC_WINDOWS = {
     "30d": timedelta(days=30),
 }
 _METRIC_COLS = ("mean_bpm", "rmssd", "sdnn", "pnn50", "lf_hf", "rsa_ms",
-                "coherence", "cbi", "breath_bpm", "dfa1", "rcmse", "pip", "dc", "vti")
+                "coherence", "cbi", "breath_bpm", "dfa1", "rcmse", "pip", "dc", "vti", "stress_balance")
 # Live-chart resolution. A chart shows every stored tick (one every 2–3 s)
 # whenever the window holds few enough of them; past that it takes the
 # finest bucket on this ladder that still fits, so narrowing the window
@@ -682,7 +682,7 @@ _TRACK_PERIODS = {
 _TRACK_DIRECTION = {
     "mean_bpm": "lower",  "rmssd": "higher", "rsa_ms": "higher", "vti": "higher",
     "dc": "higher",       "rcmse": "higher", "pip": "lower",     "lf_hf": "lower",
-    "dfa1": "target",     "coherence": "higher",
+    "dfa1": "target",     "coherence": "higher", "stress_balance": "lower",
     "sdnn": None, "pnn50": None, "cbi": None, "breath_bpm": None,
 }
 _TRACK_TARGET = {"dfa1": 1.0}
@@ -1253,7 +1253,7 @@ async def export_session_csv(session_id: str):
         rows = await conn.fetch(
             """
             SELECT ts, mean_bpm, rmssd, sdnn, pnn50, lf_hf,
-                   rsa_ms, rsa_idx, coherence, cbi, breath_bpm
+                   rsa_ms, rsa_idx, coherence, cbi, breath_bpm, stress_balance
             FROM hrv_samples
             WHERE session_id = $1::uuid
             ORDER BY ts
@@ -1264,12 +1264,12 @@ async def export_session_csv(session_id: str):
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["ts", "mean_bpm", "rmssd", "sdnn", "pnn50", "lf_hf",
-                     "rsa_ms", "rsa_idx", "coherence", "cbi", "breath_bpm"])
+                     "rsa_ms", "rsa_idx", "coherence", "cbi", "breath_bpm", "stress_balance"])
     for r in rows:
         writer.writerow([
             r["ts"].isoformat(),
             r["mean_bpm"], r["rmssd"], r["sdnn"], r["pnn50"], r["lf_hf"],
-            r["rsa_ms"], r["rsa_idx"], r["coherence"], r["cbi"], r["breath_bpm"],
+            r["rsa_ms"], r["rsa_idx"], r["coherence"], r["cbi"], r["breath_bpm"], r["stress_balance"],
         ])
 
     buf.seek(0)

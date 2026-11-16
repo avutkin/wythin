@@ -712,7 +712,8 @@ async def test_track_daily_averages_and_baseline():
     assert prev["offset"] == 1 and prev["start"] < wk["start"]
 
     # Every stored metric gets a card, even ones with no data this week.
-    assert len(wk["metrics"]) == 14
+    assert len(wk["metrics"]) == 15
+    assert next(m for m in wk["metrics"] if m["key"] == "stress_balance")["direction"] == "lower"
 
 
 @pytest.mark.asyncio

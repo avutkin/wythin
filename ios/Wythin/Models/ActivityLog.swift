@@ -815,9 +815,7 @@ final class ActivityLog {
         // breathing-robust balance per sample, then average over the window.
         func stressDial(_ arr: [HRVSample]) -> Float? {
             let vals = arr.compactMap { s in
-                AutonomicCompute.balance(rmssd: s.rmssd, lf: s.lfPower, hf: s.hfPower,
-                                         breathBPM: s.breathBPM, meanBPM: s.meanBPM,
-                                         baselineRmssd: nil).map { $0.sns * 100 }
+                s.stressBalanceValue
             }
             guard !vals.isEmpty else { return nil }
             return vals.reduce(0, +) / Float(vals.count)

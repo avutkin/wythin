@@ -384,3 +384,87 @@ final class MetricCapturePersistenceTests: XCTestCase {
         XCTAssertEqual(try context.fetchCount(FetchDescriptor<HRVSample>()), 301)
     }
 }
+
+@MainActor
+final class StressBalancePersistenceTests: XCTestCase {
+    private func container() throws -> ModelContainer {
+        try ModelContainer(for: HRVSession.self, HRVSample.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+    }
+
+    private func tick(rmssd: Float?, breath: Float?) -> MetricsTick {
+        MetricsTick(timestamp: Date(timeIntervalSince1970: 1_800_000_000),
+            meanBPM: 60, sdnn: 50, rmssd: rmssd, pnn50: nil, vti: nil,
+            ulfPower: nil, vlfPower: nil, lfPower: 9, hfPower: 1, lfHF: 9,
+            rsaMs: nil, rsaIdx: nil, breathBPM: breath, breathHz: nil, regularity: nil,
+            coherenceScore: nil, cbi: nil, dfa1: nil, signalQuality: nil, ecgQuality: nil,
+            rcmse: nil, pip: nil, ials: nil, dc: nil, breathPhases: nil,
+            psdFreqs: nil, psdValues: nil, coherenceFreqs: nil, coherenceValues: nil)
+    }
+
+    func testCapturePersistsTheSameDialAsLiveIncludingSpectralFallback() throws {
+        for (rmssd, breath, expected): (Float?, Float?, Float?) in [(40, 6, 50), (nil, 14, 90), (nil, 6, nil)] {
+            let reading = tick(rmssd: rmssd, breath: breath)
+            let store = try container()
+            let ctx = ModelContext(store)
+            try MetricSampleStore.persist(HRVSample(from: reading), session: nil, context: ctx)
+            let reloaded = try XCTUnwrap(ModelContext(store).fetch(FetchDescriptor<HRVSample>()).first)
+            XCTAssertEqual(reloaded.stressBalance, expected)
+            XCTAssertEqual(MetricsHistoryPoint(from: reading).stressBalance, expected)
+            XCTAssertEqual(LiveMetric.stressBalance.value(MetricsHistoryPoint(from: reloaded)), expected)
+        }
+    }
+
+    func testSavedSnapshotWinsOverRecomputationAndIsUploadedUnderItsOwnKey() throws {
+        let sample = HRVSample(from: tick(rmssd: 40, breath: 6))
+        sample.stressBalance = 17.5
+        let history = MetricsHistoryPoint(from: sample)
+        XCTAssertEqual(LiveMetric.stressBalance.value(history), 17.5)
+        XCTAssertEqual(DailyRollupCompute.stressBalance(history), 17.5)
+        XCTAssertEqual(NudgeSignals.balance(history), 17.5)
+        XCTAssertEqual(metricDef(.stressBalance).extract(history), 17.5)
+        let payload = MetricSamplePayload(from: sample)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(payload)) as? [String: Any])
+        XCTAssertEqual(json["stress_balance"] as? Double, 17.5)
+        XCTAssertEqual(json["lf_hf"] as? Double, 9)
+        XCTAssertEqual(SamplePayload(from: sample).stressBalance, 17.5)
+        let sessionJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(SamplePayload(from: sample))) as? [String: Any])
+        XCTAssertEqual(sessionJSON["stress_balance"] as? Double, 17.5)
+        XCTAssertEqual(sessionJSON["mean_bpm"] as? Double, 60)
+        XCTAssertEqual(sessionJSON["lf_hf"] as? Double, 9)
+        let session = HRVSession(startedAt: sample.timestamp)
+        session.samples.append(sample)
+        let sessionWire = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(SessionPayload(from: session))) as? [String: Any])
+        XCTAssertNotNil(sessionWire["started_at"])
+        XCTAssertNil(sessionWire["startedAt"])
+    }
+
+    func testLegacyLocalSampleStillUploadsComputedDialWithoutInventingMissingData() throws {
+        let sample = HRVSample(from: tick(rmssd: 40, breath: 6))
+        sample.stressBalance = nil
+        XCTAssertEqual(MetricSamplePayload(from: sample).stress_balance, 50)
+        let missing = HRVSample(anchorTestTimestamp: .now, meanBPM: 60)
+        XCTAssertNil(MetricSamplePayload(from: missing).stress_balance)
+    }
+
+    func testCloudRestorePreservesSnapshotAndFillsOnlyMissingValues() throws {
+        let store = try container()
+        let ctx = ModelContext(store)
+        func wire(_ value: Float?) throws -> MetricExportSample {
+            var object: [String: Any] = ["ts": "2026-11-16T10:00:00Z", "rmssd": 40, "lf_hf": 9]
+            if let value { object["stress_balance"] = value }
+            return try JSONDecoder().decode(MetricExportSample.self, from: JSONSerialization.data(withJSONObject: object))
+        }
+        XCTAssertEqual(CloudRestoreService.insert([try wire(17.5)], into: ctx), 1)
+        try ctx.save()
+        let sample = try XCTUnwrap(ctx.fetch(FetchDescriptor<HRVSample>()).first)
+        XCTAssertEqual(sample.stressBalance, 17.5)
+        XCTAssertEqual(MetricsHistoryPoint(from: sample).stressBalance, 17.5)
+        XCTAssertEqual(CloudRestoreService.insert([try wire(nil), try wire(90)], into: ctx), 0)
+        XCTAssertEqual(sample.stressBalance, 17.5)
+        sample.stressBalance = nil
+        XCTAssertEqual(CloudRestoreService.insert([try wire(25)], into: ctx), 0)
+        XCTAssertEqual(sample.stressBalance, 25)
+        XCTAssertNil(try wire(nil).stress_balance)
+    }
+}
