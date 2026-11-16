@@ -45,6 +45,100 @@ struct BLEDevice: Identifiable, Equatable {
     }
 }
 
+// MARK: - Supported device identity and pairing
+
+enum PolarH10ConnectionPolicy {
+    /// A shared HR service (or even Polar's PMD service) does not identify H10.
+    /// Prefer the current advertisement to CoreBluetooth's cached name.
+    static func name(peripheralName: String?, advertisedName: String? = nil,
+                     verifiedName: String? = nil) -> String? {
+        let name = [advertisedName, peripheralName, verifiedName]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        guard let name else { return nil }
+        let words = name.split(whereSeparator: \.isWhitespace)
+        guard (2...3).contains(words.count),
+              words[0].lowercased() == "polar", words[1].lowercased() == "h10" else { return nil }
+        return name
+    }
+
+    /// Only the most recently connected strap can be selected automatically.
+    /// With no saved strap, even a single H10 requires an explicit choice.
+    static func preferredDevice(in devices: [BLEDevice], savedID: UUID?) -> BLEDevice? {
+        guard let savedID else { return nil }
+        return devices.first { $0.id == savedID && name(peripheralName: $0.name) != nil }
+    }
+
+    static func canAutomaticallyConnect(in state: BLEState) -> Bool {
+        switch state {
+        case .idle, .scanning, .disconnected: return true
+        default: return false
+        }
+    }
+}
+
+/// Discovery runs independently of a connection. Connecting to the saved H10
+/// must not hide other straps or stop collecting their advertisements.
+struct BLEDiscoverySession {
+    private(set) var isScanning = false
+    private(set) var devices: [BLEDevice] = []
+
+    mutating func start(devices: [BLEDevice]) {
+        self.devices = devices.filter { PolarH10ConnectionPolicy.name(peripheralName: $0.name) != nil }
+        isScanning = true
+    }
+
+    mutating func stop() { isScanning = false }
+
+    mutating func remove(id: UUID) { devices.removeAll { $0.id == id } }
+
+    mutating func receive(_ device: BLEDevice, connectionState: BLEState, savedID: UUID?) -> BLEDevice? {
+        guard isScanning, PolarH10ConnectionPolicy.name(peripheralName: device.name) != nil else { return nil }
+        devices = DeviceRanking.merge(devices, id: device.id, name: device.name, rssi: device.rssi)
+        guard PolarH10ConnectionPolicy.canAutomaticallyConnect(in: connectionState) else { return nil }
+        return PolarH10ConnectionPolicy.preferredDevice(in: [device], savedID: savedID)
+    }
+}
+
+struct PolarH10Pairing {
+    let defaults: UserDefaults
+    private let uuidKey = "wythin.polar.uuid"
+    private let identityKey = "wythin.polar.verifiedIdentity"
+
+    var savedID: UUID? { defaults.string(forKey: uuidKey).flatMap(UUID.init(uuidString:)) }
+
+    func name(for id: UUID, peripheralName: String?, advertisedName: String? = nil) -> String? {
+        let record = defaults.dictionary(forKey: identityKey) as? [String: String]
+        let verifiedName = savedID == id && record?["id"] == id.uuidString ? record?["name"] : nil
+        return PolarH10ConnectionPolicy.name(peripheralName: peripheralName,
+                                             advertisedName: advertisedName,
+                                             verifiedName: verifiedName)
+    }
+
+    @discardableResult
+    func remember(id: UUID, name: String) -> Bool {
+        guard let name = PolarH10ConnectionPolicy.name(peripheralName: name) else { return false }
+        defaults.set(["id": id.uuidString, "name": name], forKey: identityKey)
+        defaults.set(id.uuidString, forKey: uuidKey)
+        return true
+    }
+
+    /// Older builds stored *any* HR peripheral here. An absent name is not
+    /// proof of a wrong device: preserve its UUID for rediscovery, but do not
+    /// connect until its model is known.
+    func discardIfUnsupported(id: UUID, name: String?) {
+        guard savedID == id, let name,
+              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              PolarH10ConnectionPolicy.name(peripheralName: name) == nil else { return }
+        forget()
+    }
+
+    func forget() {
+        defaults.removeObject(forKey: uuidKey)
+        defaults.removeObject(forKey: identityKey)
+    }
+}
+
 // MARK: - Device Ranking (pure, testable)
 //
 // The scan list promises "nearest first", but a single advertisement's RSSI
@@ -473,7 +567,9 @@ final class BLEService: NSObject {
     var state:             BLEState    = .idle
     var batteryLevel:      Int?        = nil
     var lastError:         String?     = nil
-    var discoveredDevices: [BLEDevice] = []
+    private var discovery = BLEDiscoverySession()
+    var discoveredDevices: [BLEDevice] { discovery.devices }
+    var isScanning: Bool { discovery.isScanning }
     /// Latest Polar-reported skin-contact status (HR flags bits 1–2).
     /// nil = sensor doesn't report it; false = off-body; true = on skin.
     var sensorContact:     Bool?       = nil
@@ -514,6 +610,8 @@ final class BLEService: NSObject {
     private var hrChar:                CBCharacteristic?
     private var battChar:              CBCharacteristic?
     private var peripheralMap:         [UUID: CBPeripheral] = [:]
+    private var advertisedNames:       [UUID: String] = [:]
+    private var restoredPeripherals:   [CBPeripheral] = []
     private var connectionTimeoutTask: Task<Void, Never>?
     private var scanTimeoutTask:       Task<Void, Never>?
     private var settingsQueryTask:     Task<Void, Never>?
@@ -622,18 +720,18 @@ final class BLEService: NSObject {
     private static let accWatchdogPollInterval: TimeInterval = 2.0
 
     private let bleQueue       = DispatchQueue(label: "com.wythin.ble", qos: .userInitiated)
-    private let savedDeviceKey = "wythin.polar.uuid"
+    private let pairing = PolarH10Pairing(defaults: .standard)
     private var pmdStreamsStarted = false
 
     // Backoff state — grows 2s → 4s → 8s → 16s → 30s on repeated unexpected disconnects.
     private var reconnectDelay: TimeInterval = 2.0
 
-    // When true, the next didDisconnectPeripheral callback is expected (we triggered it)
-    // and should NOT auto-reconnect. Cleared immediately after use.
-    private var suppressNextDisconnect = false
+    // Cancellations belong to a particular peripheral, not the next callback
+    // from any device (a rejected watch can finish disconnecting after H10).
+    private var canceledPeripheralIDs: Set<UUID> = []
 
     // When true, auto-scan on BT-power-on is skipped (user intentionally disconnected).
-    private var userDisconnected = false
+    private(set) var userDisconnected = false
 
     // When true, we're in off-body standby: streaming stopped, a no-timeout
     // pending connect is armed. Cleared on (re)connect and on manual disconnect.
@@ -677,78 +775,65 @@ final class BLEService: NSObject {
 
     // MARK: - Public API
 
-    /// Start scanning for a Polar H10. Cancels any pending reconnect timers.
-    /// Clears the device list so the UI shows fresh results.
-    func startScanning() {
-        userDisconnected = false       // explicit scan request resets the "stay idle" flag
-        print("🔵 BLE: startScanning — central state: \(centralManager.state.rawValue)")
-
-        guard centralManager.state == .poweredOn else {
-            // BT not ready yet — set scanning so centralManagerDidUpdateState retries
+    /// Refresh nearby H10s without interrupting the current connection.
+    /// Opening the picker preserves an explicit disconnect; tapping Scan can
+    /// opt back into connecting to the last-used strap.
+    func startScanning(resumeAutoConnect: Bool = true) {
+        if resumeAutoConnect { userDisconnected = false }
+        scanTimeoutTask?.cancel()
+        discovery.start(devices: [])
+        if peripheral == nil || PolarH10ConnectionPolicy.canAutomaticallyConnect(in: state) {
             state = .scanning
-            return
         }
+        guard centralManager.state == .poweredOn else { return }
 
         lastError = nil
-        discoveredDevices = []
+        // Keep the current peripheral's advertisement identity while refreshing
+        // the rest of the list. A scan never cancels a connection or its timeout.
+        let currentName = peripheral.flatMap { advertisedNames[$0.identifier] }
+        advertisedNames = [:]
         peripheralMap = [:]
-        connectionTimeoutTask?.cancel()
-        scanTimeoutTask?.cancel()
-        reconnectTask?.cancel()
-
-        // If a connection is in progress, cancel it first so we start clean.
         if let p = peripheral {
-            suppressNextDisconnect = true
-            centralManager.cancelPeripheralConnection(p)
-        }
-        clearConnectionState()
-        centralManager.stopScan()
-
-        // ── Step 1: check if H10 is already OS-connected (another app, background restore).
-        // This covers the common case where Polar Flow or a previous session holds the connection.
-        let alreadyConnected = centralManager.retrieveConnectedPeripherals(withServices: [
-            PolarH10Profile.heartRateService,
-            PolarH10Profile.pmdService,
-        ])
-        if let p = alreadyConnected.first {
-            print("✅ BLE: device already OS-connected — \(p.name ?? "?")")
             peripheralMap[p.identifier] = p
-            let name = p.name ?? "Polar H10"
-            discoveredDevices = [BLEDevice(id: p.identifier, name: name, rssi: -65)]
-            state = .connecting(name: name)
-            doConnect(p)
-            return
+            if let currentName { advertisedNames[p.identifier] = currentName }
         }
+        centralManager.stopScan()
+        let alreadyConnected = centralManager.retrieveConnectedPeripherals(withServices: [
+            PolarH10Profile.heartRateService, PolarH10Profile.pmdService,
+        ])
+        if let savedID = pairing.savedID,
+           let saved = centralManager.retrievePeripherals(withIdentifiers: [savedID]).first {
+            pairing.discardIfUnsupported(id: savedID, name: advertisedNames[savedID] ?? saved.name)
+        }
+        discovery.start(devices: supportedDevices(alreadyConnected, source: "os-connected"))
 
-        // ── Step 2: scan.
-        // Scan with nil (no service filter) so iOS delivers ALL advertising devices.
-        // Service-UUID filtering works only if the H10 includes the UUID in its ad
-        // packet — some Polar H10 firmware versions omit it, so a service filter
-        // silently drops the device before didDiscover is called.
-        // We filter for Polar devices by name in didDiscover instead.
-        state = .scanning
-        print("🔵 BLE: scanning (all devices, Polar name filter in didDiscover)…")
-        // AllowDuplicates keeps didDiscover firing for every advertisement, so
-        // RSSI (and the nearest-first sort) stays live as the phone moves.
-        // Battery cost is fine: the scan is foreground, user-initiated, and
-        // bounded by the 30 s timeout below.
+        // No service filter: H10 advertisements may omit the HR service UUID.
+        // The bounded foreground scan continues even after a strap connects.
         centralManager.scanForPeripherals(
             withServices: nil,
             options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
         )
-
         scanTimeoutTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(30))
-            guard case .scanning = self.state else { return }
-            self.centralManager.stopScan()
-            self.state = .idle
-            self.lastError = "No Polar H10 found (30 s). Make sure it is powered on and nearby."
+            guard !Task.isCancelled, self.isScanning else { return }
+            self.stopScanning()
+            if case .idle = self.state, self.discoveredDevices.isEmpty {
+                self.lastError = "No Polar H10 found (30 s). Wear the strap, moisten its electrodes and keep it nearby."
+            }
+        }
+
+        if !userDisconnected, PolarH10ConnectionPolicy.canAutomaticallyConnect(in: state),
+           let device = PolarH10ConnectionPolicy.preferredDevice(in: discoveredDevices, savedID: pairing.savedID),
+           let p = peripheralMap[device.id] {
+            BLEDiag.log("SELECT os-connected id=\(device.id) name=\(device.name)")
+            doConnect(p)
         }
     }
 
     func stopScanning() {
         scanTimeoutTask?.cancel()
-        centralManager.stopScan()
+        discovery.stop()
+        if centralManager.state == .poweredOn { centralManager.stopScan() }
         if case .scanning = state { state = .idle }
     }
 
@@ -756,40 +841,63 @@ final class BLEService: NSObject {
     /// no-timeout connect so iOS reconnects the moment the strap is worn again —
     /// no scan, no tap, no give-up. Safe to call repeatedly (launch, foreground,
     /// BT power-on, disconnect). No-op if the user explicitly disconnected, we're
-    /// paused/connected/connecting, BT isn't ready, or no strap is saved yet.
+    /// paused/connected/connecting or BT isn't ready. With no verified cached
+    /// strap, fall back to discovery.
     func ensureAutoConnect() {
         guard !userDisconnected, !inStandby,
               centralManager.state == .poweredOn else { return }
-        switch state {
-        case .connected, .connecting, .standby: return
-        default: break
+        guard PolarH10ConnectionPolicy.canAutomaticallyConnect(in: state) else { return }
+        // A picker scan must not prevent arming the saved strap's persistent
+        // connection: the strap may appear after the 30-second scan expires.
+        guard let uuid = pairing.savedID else {
+            if !centralManager.isScanning { startScanning() }
+            return
         }
-        guard let uuidStr = UserDefaults.standard.string(forKey: savedDeviceKey),
-              let uuid = UUID(uuidString: uuidStr) else { return }
 
         // Adopt an already-OS-connected strap (e.g. after state restoration).
         if let p = centralManager.retrieveConnectedPeripherals(withServices: [
             PolarH10Profile.heartRateService, PolarH10Profile.pmdService,
         ]).first(where: { $0.identifier == uuid }) {
+            guard supportedName(p) != nil else {
+                rejectPeripheral(p, source: "saved-os-connected")
+                startScanning()
+                return
+            }
             print("✅ BLE: auto-connect — adopting OS-connected strap")
             peripheralMap[p.identifier] = p
-            state = .connecting(name: p.name ?? "Polar H10")
             doConnect(p)
             return
         }
         // Otherwise arm a no-timeout pending connect that fulfils on advertise.
         if let p = centralManager.retrievePeripherals(withIdentifiers: [uuid]).first {
+            guard supportedName(p) != nil else {
+                rejectPeripheral(p, source: "saved-peripheral")
+                startScanning()
+                return
+            }
             print("🔵 BLE: auto-connect — armed persistent pending connect")
             peripheralMap[p.identifier] = p
             armPendingConnect(p)
+        } else {
+            // iOS can evict a cached peripheral. Keep the UUID and rediscover it.
+            if !centralManager.isScanning { startScanning() }
         }
     }
 
     /// Connect to a device the user tapped in the list.
     func connectToDevice(_ device: BLEDevice) {
+        guard PolarH10ConnectionPolicy.name(peripheralName: device.name) != nil else {
+            lastError = "Only Polar H10 is supported."
+            return
+        }
+        userDisconnected = false
         print("🔵 BLE: connectToDevice — '\(device.name)'")
-        centralManager.stopScan()
-        scanTimeoutTask?.cancel()
+        if peripheral?.identifier == device.id {
+            switch state {
+            case .connected, .connecting, .standby: return
+            default: break
+            }
+        }
 
         // Prefer the peripheral object captured during scanning over re-retrieval,
         // because retrieved peripherals may have stale state on older iOS.
@@ -797,26 +905,37 @@ final class BLEService: NSObject {
                ?? centralManager.retrievePeripherals(withIdentifiers: [device.id]).first
         guard let p else {
             lastError = "\(device.name) is no longer reachable. Tap Scan to try again."
-            state = .idle
             return
         }
-        state = .connecting(name: device.name)
+        if let previous = peripheral, previous.identifier != p.identifier {
+            cancelConnection(previous)
+            clearConnectionState()
+            connectionGapSubject.send()
+        }
+        inStandby = false
+        BLEDiag.log("SELECT manual id=\(p.identifier) name=\(device.name)")
         doConnect(p)
+    }
+
+    func forgetSavedDevice() {
+        pairing.forget()
+        disconnect()
     }
 
     /// Intentional user-initiated disconnect. Does not trigger auto-reconnect.
     func disconnect() {
-        guard let p = peripheral else { return }
         print("🔵 BLE: user disconnect")
         userDisconnected = true
         inStandby = false
-        suppressNextDisconnect = true
         connectionTimeoutTask?.cancel()
         scanTimeoutTask?.cancel()
         reconnectTask?.cancel()
         settingsQueryTask?.cancel()
-        stopPMDStreams()
-        centralManager.cancelPeripheralConnection(p)
+        stopScanning()
+        if let p = peripheral {
+            stopPMDStreams()
+            cancelConnection(p)
+        }
         clearConnectionState()
         reconnectDelay = 2.0
         state = .idle
@@ -878,10 +997,80 @@ final class BLEService: NSObject {
 
     // MARK: - Private helpers
 
+    private func supportedName(_ p: CBPeripheral) -> String? {
+        pairing.name(for: p.identifier, peripheralName: p.name,
+                     advertisedName: advertisedNames[p.identifier])
+    }
+
+    private func cancelConnection(_ p: CBPeripheral) {
+        guard p.state != .disconnected else { return }
+        canceledPeripheralIDs.insert(p.identifier)
+        centralManager.cancelPeripheralConnection(p)
+    }
+
+    private func rejectPeripheral(_ p: CBPeripheral, source: String) {
+        let name = advertisedNames[p.identifier] ?? p.name
+        BLEDiag.log("REJECT \(source) id=\(p.identifier) name=\(name ?? "<unknown>")")
+        pairing.discardIfUnsupported(id: p.identifier, name: name)
+        cancelConnection(p)
+        peripheralMap.removeValue(forKey: p.identifier)
+        discovery.remove(id: p.identifier)
+        if peripheral?.identifier == p.identifier {
+            clearConnectionState()
+            state = .idle
+        }
+    }
+
+    private func supportedDevices(_ peripherals: [CBPeripheral], source: String) -> [BLEDevice] {
+        peripherals.compactMap { p in
+            guard let name = supportedName(p) else {
+                // OS retrieval includes other apps' watches. Do not attach to
+                // them or cancel their connections; just exclude them.
+                BLEDiag.log("IGNORE \(source) id=\(p.identifier) name=\(p.name ?? "<unknown>")")
+                pairing.discardIfUnsupported(id: p.identifier, name: p.name)
+                return nil
+            }
+            peripheralMap[p.identifier] = p
+            return BLEDevice(id: p.identifier, name: name, rssi: -65)
+        }
+    }
+
+    private func restoreSupportedPeripheral() {
+        guard !restoredPeripherals.isEmpty else { return }
+        let restored = restoredPeripherals
+        restoredPeripherals = []
+        let devices = supportedDevices(restored, source: "restore")
+        let selected = PolarH10ConnectionPolicy.preferredDevice(in: devices, savedID: pairing.savedID)
+        for p in restored where p.identifier != selected?.id {
+            rejectPeripheral(p, source: "restore-unselected")
+        }
+        guard !userDisconnected, let device = selected,
+              let p = restored.first(where: { $0.identifier == device.id }) else { return }
+        peripheral = p
+        p.delegate = self
+        BLEDiag.log("SELECT restore id=\(device.id) name=\(device.name) state=\(p.state.rawValue)")
+        if p.state == .connected {
+            pairing.remember(id: device.id, name: device.name)
+            pmdStreamsStarted = false
+            discoveryRetryCount = 0
+            state = .connected(name: device.name)
+            discoverServices()
+            startWatchdog()
+        } else {
+            doConnect(p)
+        }
+    }
+
     /// Register a no-timeout pending connection: unlike `doConnect`, no 15 s
     /// timeout is armed, so iOS keeps the request queued indefinitely and
     /// connects when the peripheral next advertises (strap put back on).
     private func armPendingConnect(_ p: CBPeripheral) {
+        guard let name = supportedName(p) else {
+            rejectPeripheral(p, source: "pending-connect")
+            return
+        }
+        BLEDiag.log("CONNECT pending id=\(p.identifier) name=\(name)")
+        state = .connecting(name: name)
         print("🌙 BLE: armed pending reconnect (no timeout) — waiting for strap-on")
         peripheral = p
         p.delegate = self
@@ -894,6 +1083,13 @@ final class BLEService: NSObject {
     }
 
     private func doConnect(_ p: CBPeripheral) {
+        guard let name = supportedName(p) else {
+            rejectPeripheral(p, source: "connect")
+            lastError = "Only Polar H10 is supported."
+            return
+        }
+        state = .connecting(name: name)
+        BLEDiag.log("CONNECT id=\(p.identifier) name=\(name)")
         print("🔵 BLE: doConnect — '\(p.name ?? "?")'  p.state=\(p.state.rawValue)")
         peripheral = p
         p.delegate = self
@@ -911,6 +1107,7 @@ final class BLEService: NSObject {
         connectionTimeoutTask?.cancel()
         connectionTimeoutTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled else { return }
             guard case .connecting = self.state else { return }
 
             // In the background a scan is useless — iOS starves filterless
@@ -930,9 +1127,8 @@ final class BLEService: NSObject {
 
             print("⏱️ BLE: connection timed out — falling back to scan")
             // Cancel the pending connect without triggering auto-reconnect.
-            self.suppressNextDisconnect = true
             if let p = self.peripheral {
-                self.centralManager.cancelPeripheralConnection(p)
+                self.cancelConnection(p)
             }
             self.clearConnectionState()
             self.reconnectDelay = 2.0   // timeout ≠ dropped connection; reset backoff
@@ -946,8 +1142,8 @@ final class BLEService: NSObject {
     /// callback. A retry simply restarts the whole chain — service and
     /// characteristic discovery are cheap and idempotent, so there is no
     /// benefit to resuming from the exact failed step. Giving up forces a
-    /// disconnect rather than inventing a second recovery path: clearing
-    /// `suppressNextDisconnect` routes it through `handleUnexpectedDisconnect`,
+    /// disconnect rather than inventing a second recovery path: leaving this
+    /// cancellation unsuppressed routes it through `handleUnexpectedDisconnect`,
     /// the same persistent no-timeout pending-reconnect every other drop uses.
     private func retryOrGiveUpOnDiscoveryFailure(_ p: CBPeripheral) {
         switch DiscoveryRetryPolicy.decide(retriesUsed: discoveryRetryCount) {
@@ -958,7 +1154,7 @@ final class BLEService: NSObject {
         case .giveUpAndReconnect:
             print("🔴 BLE: discovery failed \(DiscoveryRetryPolicy.maxRetries) times — forcing a reconnect")
             lastError = "Bluetooth setup failed — reconnecting"
-            suppressNextDisconnect = false
+            canceledPeripheralIDs.remove(p.identifier)
             centralManager.cancelPeripheralConnection(p)
         }
     }
@@ -1237,20 +1433,21 @@ extension BLEService: CBCentralManagerDelegate {
                 // auto-connect a previously-paired strap (persistent pending connect,
                 // no scan), or scan only if none has been paired yet.
                 if !self.userDisconnected {
-                    if UserDefaults.standard.string(forKey: self.savedDeviceKey) != nil {
-                        self.ensureAutoConnect()
-                    } else {
-                        self.startScanning()
-                    }
+                    self.restoreSupportedPeripheral()
                 }
+                if self.isScanning { self.startScanning(resumeAutoConnect: false) }
+                self.ensureAutoConnect()
             case .unauthorized:
+                self.discovery.stop()
                 self.state = .unauthorized
             case .unsupported:
+                self.discovery.stop()
                 self.state = .unsupported
             case .poweredOff, .resetting:
                 // BT went away — cancel timers, clean up, wait for poweredOn
                 self.connectionTimeoutTask?.cancel()
                 self.scanTimeoutTask?.cancel()
+                self.discovery.stop()
                 self.reconnectTask?.cancel()
                 self.clearConnectionState()
                 self.connectionGapSubject.send()
@@ -1264,35 +1461,15 @@ extension BLEService: CBCentralManagerDelegate {
     nonisolated func centralManager(_ central: CBCentralManager,
                                     willRestoreState dict: [String: Any]) {
         guard let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey]
-                as? [CBPeripheral],
-              let p = peripherals.first else { return }
-        p.delegate = self
+                as? [CBPeripheral] else { return }
         Task { @MainActor in
-            self.peripheralMap[p.identifier] = p
-            if p.state == .connected {
-                // Already connected — just attach
-                self.peripheral = p
-                self.pmdStreamsStarted = false
-                self.discoveryRetryCount = 0
-                self.state = .connected(name: p.name ?? "Polar H10")
-                self.discoverServices()
-                // `didConnect` always arms this; this path skipped it, so a
-                // silent drop sometime after a restoration-triggered relaunch
-                // went uncaught — no watchdog running to notice. The gap this
-                // closes: the app comes back (system relaunch, or Kate opening
-                // it), attaches to an already-connected peripheral, and if the
-                // OS-level link quietly dies hours later there was nothing
-                // watching for it until the next unrelated trigger.
-                self.startWatchdog()
-            } else {
-                // Was connecting — try again via doConnect so timeout is set correctly
-                self.state = .connecting(name: p.name ?? "Polar H10")
-                self.doConnect(p)
+            self.restoredPeripherals = peripherals
+            // Restoration can precede poweredOn. Defer central operations until
+            // Bluetooth is ready, including canceling a restored watch.
+            if central.state == .poweredOn {
+                self.restoreSupportedPeripheral()
+                self.ensureAutoConnect()
             }
-            // The one event this whole investigation keeps lacking evidence
-            // for: was the app even running overnight, and in what state did
-            // it come back? This is the only place that can answer it.
-            BLEDiag.log("RESTORE state=\(p.state.rawValue) → \(self.state)")
         }
     }
 
@@ -1300,45 +1477,31 @@ extension BLEService: CBCentralManagerDelegate {
                                     didDiscover peripheral: CBPeripheral,
                                     advertisementData: [String: Any],
                                     rssi RSSI: NSNumber) {
-        // Resolve device name: prefer peripheral.name (cached by iOS) then
-        // the ad-packet local name. Polar H10 always advertises "Polar H10".
-        let name = peripheral.name
-                   ?? advertisementData[CBAdvertisementDataLocalNameKey] as? String
-                   ?? ""
-
-        // Filter: only Polar devices or devices advertising the HR service UUID.
-        // This is more reliable than a service-UUID scan filter because some H10
-        // firmware versions don't include the HR UUID in the ad packet, so iOS
-        // would silently drop them before didDiscover is called.
-        let adServiceUUIDs = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
-        let isPolar   = name.localizedCaseInsensitiveContains("Polar") ||
-                        name.localizedCaseInsensitiveContains("H10")
-        let hasHRUUID = adServiceUUIDs.contains(PolarH10Profile.heartRateService)
-        guard isPolar || hasHRUUID else { return }
-
-        let displayName = name.isEmpty ? "Polar H10" : name
+        let advertisedName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
         let rssiVal = RSSI.intValue
-        let uuid    = peripheral.identifier
+        let uuid = peripheral.identifier
 
         Task { @MainActor in
-            // With AllowDuplicates on, this fires for every ad packet — log
-            // only the first sighting to keep the console readable.
+            guard self.isScanning else { return }
+            if let advertisedName, !advertisedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                self.advertisedNames[uuid] = advertisedName
+            }
+            guard let displayName = self.supportedName(peripheral) else {
+                self.pairing.discardIfUnsupported(id: uuid,
+                    name: self.advertisedNames[uuid] ?? peripheral.name)
+                self.discovery.remove(id: uuid)
+                self.peripheralMap.removeValue(forKey: uuid)
+                return
+            }
             if self.peripheralMap[uuid] == nil {
-                print("📡 BLE: found '\(displayName)' RSSI \(rssiVal) dB  \(uuid)")
+                BLEDiag.log("DISCOVER id=\(uuid) name=\(displayName) rssi=\(rssiVal)")
             }
             self.peripheralMap[uuid] = peripheral
-
-            self.discoveredDevices = DeviceRanking.merge(
-                self.discoveredDevices, id: uuid, name: displayName, rssi: rssiVal)
-
-            // Auto-connect when the previously-used device is found
-            let savedUUID = UserDefaults.standard.string(forKey: self.savedDeviceKey)
-            guard uuid.uuidString == savedUUID else { return }
-            guard case .scanning = self.state else { return }  // don't interrupt an active connection
-            print("✅ BLE: saved device found — auto-connecting")
-            self.scanTimeoutTask?.cancel()
-            self.centralManager.stopScan()
-            self.state = .connecting(name: displayName)
+            let selected = self.discovery.receive(
+                BLEDevice(id: uuid, name: displayName, rssi: rssiVal),
+                connectionState: self.state, savedID: self.pairing.savedID)
+            guard selected != nil, !self.userDisconnected else { return }
+            BLEDiag.log("SELECT saved-advertisement id=\(uuid) name=\(displayName)")
             self.doConnect(peripheral)
         }
     }
@@ -1347,18 +1510,24 @@ extension BLEService: CBCentralManagerDelegate {
                                     didConnect peripheral: CBPeripheral) {
         print("✅ BLE: connected to '\(peripheral.name ?? "?")'")
         Task { @MainActor in
+            guard !self.userDisconnected,
+                  self.peripheral?.identifier == peripheral.identifier,
+                  let name = self.supportedName(peripheral) else {
+                self.rejectPeripheral(peripheral, source: "didConnect")
+                return
+            }
             self.connectionTimeoutTask?.cancel()
             // A live connection outdates any earlier failure — most visibly the
             // "No Polar H10 found (30 s)" scan timeout, which otherwise stays
             // on screen under a green connected card.
             self.lastError = nil
             self.inStandby = false      // worn again — leaving off-body standby
-            UserDefaults.standard.set(peripheral.identifier.uuidString,
-                                       forKey: self.savedDeviceKey)
+            self.pairing.remember(id: peripheral.identifier, name: name)
+            BLEDiag.log("CONNECTED id=\(peripheral.identifier) name=\(name)")
             self.reconnectDelay = 2.0   // successful connection resets backoff
             self.discoveryRetryCount = 0
             self.recentConnectFailures.removeAll()
-            self.state = .connected(name: peripheral.name ?? "Polar H10")
+            self.state = .connected(name: name)
             self.discoverServices()
             self.startWatchdog()
         }
@@ -1371,6 +1540,10 @@ extension BLEService: CBCentralManagerDelegate {
         print("❌ BLE: failed to connect — \(error?.localizedDescription ?? "unknown")"
               + (nsError.map { " (\($0.domain) \($0.code))" } ?? ""))
         Task { @MainActor in
+            guard self.canceledPeripheralIDs.remove(peripheral.identifier) == nil,
+                  self.peripheral?.identifier == peripheral.identifier,
+                  self.supportedName(peripheral) != nil,
+                  !self.userDisconnected else { return }
             self.connectionTimeoutTask?.cancel()
             self.clearCharacteristics()   // keep the peripheral for a re-arm
 
@@ -1394,7 +1567,7 @@ extension BLEService: CBCentralManagerDelegate {
             // For a paired strap, re-arm the persistent pending connect instead of
             // giving up to a scan — stays seamless. Only scan if nothing is saved.
             if !self.userDisconnected,
-               UserDefaults.standard.string(forKey: self.savedDeviceKey) != nil {
+               self.pairing.savedID == peripheral.identifier {
                 self.armPendingConnect(peripheral)
             } else {
                 self.clearConnectionState()
@@ -1408,17 +1581,17 @@ extension BLEService: CBCentralManagerDelegate {
                                     error: Error?) {
         print("⚠️ BLE: disconnected — \(error?.localizedDescription ?? "clean")")
         Task { @MainActor in
-            // If we triggered this disconnect ourselves (intentional or timeout fallback),
-            // the caller already handled state/cleanup — just reset the flag and return.
-            if self.suppressNextDisconnect {
-                self.suppressNextDisconnect = false
-                // Off-body standby: now that the cancel has completed, arm the
-                // low-power pending reconnect that fulfils on strap-on.
-                if self.inStandby {
+            if self.canceledPeripheralIDs.remove(peripheral.identifier) != nil {
+                // A fresh request may already target this same H10 after Scan.
+                // Re-arm only that active request, never a canceled old device.
+                if self.peripheral?.identifier == peripheral.identifier,
+                   peripheral.state == .disconnected, !self.userDisconnected {
                     self.armPendingConnect(peripheral)
                 }
                 return
             }
+            guard self.peripheral?.identifier == peripheral.identifier,
+                  self.supportedName(peripheral) != nil else { return }
             // Unexpected drop — reconnect directly without scanning.
             self.handleUnexpectedDisconnect(peripheral, error: error)
         }
@@ -1433,6 +1606,8 @@ extension BLEService: CBPeripheralDelegate {
                                 didDiscoverServices error: Error?) {
         if let error { print("❌ BLE: service discovery error — \(error)") }
         Task { @MainActor in
+            guard self.peripheral?.identifier == peripheral.identifier,
+                  self.supportedName(peripheral) != nil else { return }
             guard error == nil, let services = peripheral.services else {
                 self.retryOrGiveUpOnDiscoveryFailure(peripheral)
                 return
@@ -1457,6 +1632,8 @@ extension BLEService: CBPeripheralDelegate {
                                 error: Error?) {
         if let error { print("❌ BLE: char discovery error — \(error)") }
         Task { @MainActor in
+            guard self.peripheral?.identifier == peripheral.identifier,
+                  self.supportedName(peripheral) != nil else { return }
             guard error == nil, let chars = service.characteristics else {
                 self.retryOrGiveUpOnDiscoveryFailure(peripheral)
                 return
@@ -1516,6 +1693,8 @@ extension BLEService: CBPeripheralDelegate {
                                         valid: parsed != nil, at: receivedAt)
             }
             Task { @MainActor in
+                guard self.peripheral?.identifier == peripheral.identifier,
+                      self.supportedName(peripheral) != nil, !self.userDisconnected else { return }
                 if sealed { self.rawChunkReadySubject.send(()) }
                 if let ecg = parsed as? ECGFrame {
                     self.lastECGSampleAt = Date()
@@ -1545,6 +1724,8 @@ extension BLEService: CBPeripheralDelegate {
                     let tag = parsed.measType == PolarH10Profile.typeECGMeas ? "ECG" : "ACC"
                     print("✅ BLE: \(tag) settings received")
                     Task { @MainActor in
+                        guard self.peripheral?.identifier == peripheral.identifier,
+                              self.supportedName(peripheral) != nil, !self.userDisconnected else { return }
                         if parsed.measType == PolarH10Profile.typeECGMeas {
                             self.ecgSettings = parsed.settings
                             // Chain: query ACC settings next
@@ -1570,6 +1751,8 @@ extension BLEService: CBPeripheralDelegate {
                     // Device doesn't support the settings query — fall back to hardcoded defaults
                     print("⚠️ BLE: GET_SETTINGS not supported (status=0x\(String(status, radix:16))) — using defaults")
                     Task { @MainActor in
+                        guard self.peripheral?.identifier == peripheral.identifier,
+                              self.supportedName(peripheral) != nil, !self.userDisconnected else { return }
                         self.settingsQueryTask?.cancel()
                         self.launchStreams(ecg: PolarH10Profile.cmdECGStart,
                                            acc: PolarH10Profile.cmdACCStart)
@@ -1586,6 +1769,8 @@ extension BLEService: CBPeripheralDelegate {
                     print("❌ BLE: stream start type=0x\(mt) failed status=0x\(st)")
                     BLEDiag.log("START RESULT type=0x\(mt) FAILED status=0x\(st)")
                     Task { @MainActor in
+                        guard self.peripheral?.identifier == peripheral.identifier,
+                              self.supportedName(peripheral) != nil, !self.userDisconnected else { return }
                         self.lastError = "PMD start error type=0x\(mt) status=0x\(st)"
                     }
                 }
@@ -1604,8 +1789,9 @@ extension BLEService: CBPeripheralDelegate {
             captureAudit?.recordBLE(.hr, rrCount: frame?.rrIntervalsMs.count ?? 0,
                                     valid: frame != nil, at: receivedAt)
             if let frame {
-                let name = peripheral.name ?? "Polar H10"
                 Task { @MainActor in
+                    guard self.peripheral?.identifier == peripheral.identifier,
+                          let name = self.supportedName(peripheral), !self.userDisconnected else { return }
                     // RR liveness for the PMD watchdog: this characteristic is
                     // independent of both PMD streams, so it can prove the
                     // link is alive while ECG and ACC are both stalled.
@@ -1661,6 +1847,8 @@ extension BLEService: CBPeripheralDelegate {
         case PolarH10Profile.batteryLevel:
             let level = Int(data[0])
             Task { @MainActor in
+                guard self.peripheral?.identifier == peripheral.identifier,
+                      self.supportedName(peripheral) != nil, !self.userDisconnected else { return }
                 self.batteryLevel = level
                 self.alertIfBatteryCritical(level)
             }

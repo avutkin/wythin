@@ -5,6 +5,164 @@ import UIKit
 /// BLE packet parser tests — run on simulator or device.
 final class BLETests: XCTestCase {
 
+    @MainActor
+    func testManualConnectionRejectsWatchBeforeBluetoothLookup() {
+        let ble = BLEService()
+        ble.connectToDevice(BLEDevice(id: UUID(), name: "VUPU", rssi: -30))
+        XCTAssertEqual(ble.lastError, "Only Polar H10 is supported.")
+        XCTAssertEqual(ble.state, .idle)
+    }
+
+    @MainActor
+    func testExplicitH10SelectionResumesAfterUserDisconnect() {
+        let ble = BLEService()
+        ble.disconnect()
+        XCTAssertTrue(ble.userDisconnected)
+        ble.connectToDevice(BLEDevice(id: UUID(), name: "VUPU", rssi: -30))
+        XCTAssertTrue(ble.userDisconnected, "An unsupported device cannot resume automatic connection")
+        ble.connectToDevice(BLEDevice(id: UUID(), name: "Polar H10 ABC123", rssi: -60))
+        XCTAssertFalse(ble.userDisconnected, "Explicit H10 selection supersedes the disconnect")
+    }
+
+    func testH10IdentityRequiresExactBrandAndModel() {
+        for name in ["VUPU", "WHOOP", "Polar H9 123", "Polar Verity Sense 123",
+                     "H10", "Polar", "Polar H100 123", "My Polar H10", "", "Heart Rate"] {
+            XCTAssertNil(PolarH10ConnectionPolicy.name(peripheralName: name), name)
+        }
+        for name in ["Polar H10", "Polar H10 1234ABCD", " polar h10 1234abcd "] {
+            XCTAssertNotNil(PolarH10ConnectionPolicy.name(peripheralName: name), name)
+        }
+        XCTAssertNil(PolarH10ConnectionPolicy.name(peripheralName: nil))
+    }
+
+    func testFreshAdvertisementOverridesCachedName() {
+        XCTAssertEqual(PolarH10ConnectionPolicy.name(peripheralName: "Old sensor",
+                       advertisedName: "Polar H10 ABC123"), "Polar H10 ABC123")
+        XCTAssertNil(PolarH10ConnectionPolicy.name(peripheralName: "Polar H10 ABC123",
+                     advertisedName: "VUPU"))
+        XCTAssertEqual(PolarH10ConnectionPolicy.name(peripheralName: "Polar H10 ABC123",
+                       advertisedName: ""), "Polar H10 ABC123")
+    }
+
+    func testOSConnectedWatchDoesNotWinOverH10() {
+        let watch = BLEDevice(id: UUID(), name: "VUPU", rssi: -20)
+        let strap = BLEDevice(id: UUID(), name: "Polar H10 ABC123", rssi: -65)
+        XCTAssertEqual(PolarH10ConnectionPolicy.preferredDevice(in: [watch, strap],
+                       savedID: strap.id)?.id, strap.id)
+        XCTAssertNil(PolarH10ConnectionPolicy.preferredDevice(in: [watch], savedID: watch.id))
+    }
+
+    func testAnUnpairedH10IsVisibleButNeverAutomaticallySelected() {
+        let strap = BLEDevice(id: UUID(), name: "Polar H10 ABC123", rssi: -65)
+        XCTAssertNil(PolarH10ConnectionPolicy.preferredDevice(in: [strap], savedID: nil))
+    }
+
+    @MainActor
+    func testScanAfterFailedConnectionDoesNotKeepAnOrphanedConnectingState() {
+        let ble = BLEService()
+        // Failure/timeout clears the peripheral before starting recovery scan.
+        ble.state = .connecting(name: "Polar H10 AAA")
+        ble.startScanning(resumeAutoConnect: false)
+        XCTAssertEqual(ble.state, .scanning)
+        XCTAssertTrue(ble.isScanning)
+        ble.stopScanning()
+        XCTAssertEqual(ble.state, .idle)
+        XCTAssertFalse(ble.isScanning)
+    }
+
+    func testDiscoveryKeepsEveryH10AfterSavedStrapConnects() {
+        var discovery = BLEDiscoverySession()
+        let mine = BLEDevice(id: UUID(), name: "Polar H10 AAA", rssi: -70)
+        let other = BLEDevice(id: UUID(), name: "Polar H10 BBB", rssi: -30)
+        let third = BLEDevice(id: UUID(), name: "Polar H10 CCC", rssi: -50)
+        discovery.start(devices: [])
+        XCTAssertEqual(discovery.receive(mine, connectionState: .scanning, savedID: mine.id), mine)
+        XCTAssertNil(discovery.receive(other, connectionState: .connecting(name: mine.name), savedID: mine.id))
+        XCTAssertNil(discovery.receive(third, connectionState: .connected(name: mine.name), savedID: mine.id))
+        XCTAssertEqual(Set(discovery.devices.map(\.id)), Set([mine.id, other.id, third.id]))
+        XCTAssertTrue(discovery.isScanning)
+        discovery.stop()
+        XCTAssertFalse(discovery.isScanning)
+        XCTAssertEqual(discovery.devices.count, 3, "Stopping the radio scan keeps the picker results")
+    }
+
+    func testDiscoveryDoesNotSwitchBackAfterManualSelectionOfAnotherH10() {
+        var discovery = BLEDiscoverySession()
+        let previous = BLEDevice(id: UUID(), name: "Polar H10 AAA", rssi: -30)
+        discovery.start(devices: [])
+        XCTAssertNil(discovery.receive(previous, connectionState: .connecting(name: "Polar H10 BBB"),
+                                       savedID: previous.id))
+        XCTAssertEqual(discovery.devices.map(\.id), [previous.id])
+    }
+
+    func testDiscoveryRejectsWHOOPAndLateAdvertisementsAfterStop() {
+        var discovery = BLEDiscoverySession()
+        let watch = BLEDevice(id: UUID(), name: "WHOOP", rssi: -20)
+        discovery.start(devices: [watch])
+        XCTAssertTrue(discovery.devices.isEmpty)
+        XCTAssertNil(discovery.receive(watch, connectionState: .scanning, savedID: watch.id))
+        discovery.stop()
+        let strap = BLEDevice(id: UUID(), name: "Polar H10 AAA", rssi: -60)
+        XCTAssertNil(discovery.receive(strap, connectionState: .idle, savedID: strap.id))
+        XCTAssertTrue(discovery.devices.isEmpty)
+    }
+
+    func testMostRecentlyConnectedH10BecomesTheOnlyAutomaticChoice() throws {
+        let suite = "BLETests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let pairing = PolarH10Pairing(defaults: defaults)
+        let first = BLEDevice(id: UUID(), name: "Polar H10 AAA", rssi: -30)
+        let last = BLEDevice(id: UUID(), name: "Polar H10 BBB", rssi: -70)
+        pairing.remember(id: first.id, name: first.name)
+        pairing.remember(id: last.id, name: last.name)
+        let reopened = PolarH10Pairing(defaults: defaults)
+        XCTAssertEqual(PolarH10ConnectionPolicy.preferredDevice(in: [first, last],
+                       savedID: reopened.savedID)?.id, last.id)
+        XCTAssertNil(PolarH10ConnectionPolicy.preferredDevice(in: [first], savedID: reopened.savedID))
+    }
+
+    func testSavedStrapWinsAndOtherStrapsAreNeverChosenArbitrarily() {
+        let mine = BLEDevice(id: UUID(), name: "Polar H10 AAA", rssi: -70)
+        let other = BLEDevice(id: UUID(), name: "Polar H10 BBB", rssi: -30)
+        XCTAssertEqual(PolarH10ConnectionPolicy.preferredDevice(in: [other, mine],
+                       savedID: mine.id)?.id, mine.id)
+        XCTAssertNil(PolarH10ConnectionPolicy.preferredDevice(in: [other], savedID: mine.id))
+        XCTAssertNil(PolarH10ConnectionPolicy.preferredDevice(in: [other, mine], savedID: nil))
+    }
+
+    func testLegacyWatchPairingIsClearedButUnnamedLegacyStrapWaitsForDiscovery() throws {
+        let suite = "BLETests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let pairing = PolarH10Pairing(defaults: defaults)
+        let oldID = UUID()
+        defaults.set(oldID.uuidString, forKey: "wythin.polar.uuid")
+        XCTAssertNil(pairing.name(for: oldID, peripheralName: nil))
+        pairing.discardIfUnsupported(id: oldID, name: nil)
+        XCTAssertEqual(pairing.savedID, oldID)
+        pairing.discardIfUnsupported(id: oldID, name: "VUPU")
+        XCTAssertNil(pairing.savedID)
+    }
+
+    func testVerifiedPairingSurvivesRelaunchWithoutTrustingAnotherDevice() throws {
+        let suite = "BLETests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let pairing = PolarH10Pairing(defaults: defaults)
+        let id = UUID()
+        XCTAssertTrue(pairing.remember(id: id, name: "Polar H10 ABC123"))
+        XCTAssertFalse(pairing.remember(id: UUID(), name: "VUPU"))
+        let reopened = PolarH10Pairing(defaults: defaults)
+        XCTAssertEqual(reopened.savedID, id)
+        XCTAssertEqual(reopened.name(for: id, peripheralName: nil), "Polar H10 ABC123")
+        XCTAssertNil(reopened.name(for: UUID(), peripheralName: nil))
+        XCTAssertNil(reopened.name(for: id, peripheralName: "VUPU"))
+        reopened.forget()
+        XCTAssertNil(reopened.name(for: id, peripheralName: nil))
+        XCTAssertNil(reopened.savedID)
+    }
+
     func testCaptureAuditSurvivesRestartAndSeparatesPacketsFromSavedMetrics() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

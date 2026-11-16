@@ -621,6 +621,7 @@ struct BLEConnectionSheet: View {
     let quality: CombinedSignalQuality?
     let motion:  Float?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var scope: StreamScope? = nil
 
     private static let eventTime: DateFormatter = {
@@ -668,6 +669,12 @@ struct BLEConnectionSheet: View {
                         .foregroundStyle(Theme.accent)
                 }
             }
+        }
+        .onAppear { ble.startScanning(resumeAutoConnect: false) }
+        .onDisappear { ble.stopScanning() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { ble.startScanning(resumeAutoConnect: false) }
+            else { ble.stopScanning() }
         }
     }
 
@@ -781,9 +788,8 @@ struct BLEConnectionSheet: View {
     private var actionSection: some View {
         if case .connected(let name) = ble.state {
             connectedCard(name: name)
-        } else {
-            deviceScanSection
         }
+        deviceScanSection
     }
 
     private func connectedCard(name: String) -> some View {
@@ -922,11 +928,11 @@ struct BLEConnectionSheet: View {
     private var deviceScanSection: some View {
         VStack(spacing: 12) {
             Button {
-                if case .scanning = ble.state { ble.stopScanning() }
+                if ble.isScanning { ble.stopScanning() }
                 else { ble.startScanning() }
             } label: {
                 HStack(spacing: 10) {
-                    if case .scanning = ble.state {
+                    if ble.isScanning {
                         ProgressView()
                             .progressViewStyle(.circular)
                             .tint(Theme.accent)
@@ -976,7 +982,7 @@ struct BLEConnectionSheet: View {
                     RoundedRectangle(cornerRadius: Theme.cardRadius)
                         .strokeBorder(Theme.border, lineWidth: 0.5)
                 )
-            } else if case .scanning = ble.state {
+            } else if ble.isScanning {
                 Text("Looking for Polar H10…")
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
@@ -986,8 +992,7 @@ struct BLEConnectionSheet: View {
 
             if UserDefaults.standard.string(forKey: "wythin.polar.uuid") != nil {
                 Button {
-                    UserDefaults.standard.removeObject(forKey: "wythin.polar.uuid")
-                    ble.disconnect()
+                    ble.forgetSavedDevice()
                 } label: {
                     Text("Forget saved device")
                         .font(Theme.monoLabel)
