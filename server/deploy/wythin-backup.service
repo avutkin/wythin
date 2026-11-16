@@ -21,4 +21,3 @@ ReadWritePaths=/var/lib/wythin-backup /mnt/wythin-backup
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
-
