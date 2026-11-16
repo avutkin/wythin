@@ -83,6 +83,7 @@ enum SleepRecorder {
         // Leaving it would show numbers from an algorithm that no longer exists,
         // with every field the old version never wrote rendering as a dash.
         let sleepLogs = existing.filter { $0.activityType == ActivityType.sleep.rawValue }
+        enrichRecordingZones(sleepLogs, context: context)
         var purged = 0
         for stale in sleepLogs
         where (stale.sleepAlgorithmVersion ?? 0) < SleepThresholds.algorithmVersion {
@@ -129,14 +130,6 @@ enum SleepRecorder {
             ($0.sleepAlgorithmVersion ?? 0) >= SleepThresholds.algorithmVersion
                 && !rebuilt.contains(ObjectIdentifier($0))
         }
-        // A verified cloud repair can add zones to old measurements while the
-        // already-recorded night still has none. Use evidence at its onset,
-        // never the phone's present zone, and keep any saved correction key.
-        for log in current where log.timezone == nil {
-            if let point = points.first(where: {
-                $0.timestamp >= log.startedAt && $0.timestamp.timeIntervalSince(log.startedAt) < 60
-            }) { log.timezone = point.timezone }
-        }
         // Every unrecorded night in the window, not just the most recent.
         //
         // Regularity is a comparison between days and needs at least two, so
@@ -182,6 +175,45 @@ enum SleepRecorder {
         }
         commit(context)
         return written.count
+    }
+
+    /// Associate an existing correction before changing a legacy night's clock.
+    /// A saved sleepDay is identity evidence; without it, only matching corrected
+    /// UTC boundaries can identify the override. The phone's current day cannot.
+    /// Runs before either purge so an algorithm rebuild retains the association.
+    private static func enrichRecordingZones(_ nights: [ActivityLog], context: ModelContext) {
+        guard let overrides = try? context.fetch(FetchDescriptor<SleepWindowOverride>()) else { return }
+        for log in nights {
+            var recordedZone = log.timezone
+            if recordedZone == nil {
+                let onset = log.sleepDetectedStart ?? log.startedAt
+                let limit = onset.addingTimeInterval(60)
+                var query = FetchDescriptor<HRVSample>(
+                    predicate: #Predicate { $0.timestamp >= onset && $0.timestamp < limit },
+                    sortBy: [SortDescriptor(\.timestamp)])
+                query.fetchLimit = 1
+                recordedZone = (try? context.fetch(query))?.first?.timezone
+            }
+            guard let zone = recordedZone, TimeZone(identifier: zone) != nil,
+                  let wake = log.sleepDetectedEnd ?? log.endedAt else { continue }
+            let day = RecordingTimeZone.calendar(for: zone).startOfDay(for: wake)
+            guard log.timezone != zone || log.sleepDay != day else { continue }
+            let associated = overrides.filter { row in
+                if let day = log.sleepDay, row.day == day { return true }
+                guard row.startedAt != nil || row.endedAt != nil else { return false }
+                let sameStart = row.startedAt.map { abs($0.timeIntervalSince(log.startedAt)) < 60 } ?? true
+                let sameEnd = row.endedAt.map { wanted in
+                    log.endedAt.map { abs(wanted.timeIntervalSince($0)) < 60 } ?? false
+                } ?? true
+                return sameStart && sameEnd
+            }
+            // The detector's original wake instant owns the key, even when a
+            // correction shortened the night across midnight into another day.
+            for row in associated { row.day = day }
+            log.sleepDay = day
+            if log.timezone != zone { ActivityUploadWatermark.rewind(before: log.endedAt ?? wake) }
+            log.timezone = zone
+        }
     }
 
     /// Deletes stored nights whose window the detector now finds to be

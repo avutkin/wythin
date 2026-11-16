@@ -595,10 +595,9 @@ final class AppEnvironment {
     /// finished rollups are published back to the main actor, via
     /// `TrackCache.mergeComputed` (see `trackCache`'s doc for why that method
     /// exists instead of `refresh`).
-    /// After a cloud restore: every derived verdict in the rollup cache was
-    /// reached against the wiped store — including the sticky `noDataDays`
-    /// brand on days that now hold restored samples — so drop them all and
-    /// run the launch warm-up again as if this were a fresh start. The
+    /// After a cloud restore or timezone change, derived daily verdicts may
+    /// describe a wiped store or the previous local-day boundaries. Drop them
+    /// and run the launch warm-up again as if this were a fresh start. The
     /// `historyRevision` bump tells open views their fetches are stale.
     func rewarmAfterRestore() {
         trackCache.resetDerived()
@@ -612,6 +611,7 @@ final class AppEnvironment {
         didWarmLiveBaseline = true
 
         let cal      = Calendar.current
+        let warmTimezone = cal.timeZone.identifier
         let today    = cal.startOfDay(for: Date())
         let warmDays = 14
         guard let windowStart = cal.date(byAdding: .day, value: -warmDays, to: today) else { return }
@@ -653,6 +653,9 @@ final class AppEnvironment {
                     return ((try? ctx.fetch(desc)) ?? []).map { MetricsHistoryPoint(from: $0) }
                 }
             }.value
+            // A flight can change the day boundaries while this fetch runs.
+            // Do not reintroduce the old zone's rollups after invalidation.
+            guard TimeZone.autoupdatingCurrent.identifier == warmTimezone else { return }
             self.trackCache.mergeComputed(rollups: rollups, emptyDays: emptyDays)
         }
     }
@@ -812,7 +815,13 @@ final class AppEnvironment {
         lifecycleObservers.append(center.addObserver(
             forName: NSNotification.Name.NSSystemTimeZoneDidChange,
             object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in await self?.metricSync.syncIfEnabled() }
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.rewarmAfterRestore()
+                    self.nudgeBaseline = nil
+                    self.nudgeBaselineAt = nil
+                    await self.metricSync.syncIfEnabled()
+                }
             })
         lifecycleObservers.append(center.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
