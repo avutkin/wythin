@@ -443,7 +443,41 @@ struct APIClient {
 
     // MARK: Continuous metric sync
 
-    func rawChunkRequest(_ file: URL, userID: String) throws -> URLRequest {
+    struct ArchiveConsentState: Codable {
+        let enabled: Bool
+        let revision: Int
+        let consent_version: String?
+        let token: String?
+    }
+
+    func archiveConsent(userID: String) async throws -> ArchiveConsentState {
+        var req = request(path: "/v1/raw/consent", method: "GET")
+        req.setValue(userID, forHTTPHeaderField: "X-User-ID")
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(ArchiveConsentState.self, from: data)
+    }
+
+    func changeArchiveConsent(enabled: Bool, revision: Int, userID: String) async throws -> ArchiveConsentState {
+        struct Change: Encodable {
+            let enabled: Bool
+            let expected_revision: Int
+            let consent_version: String
+        }
+        var req = request(path: "/v1/raw/consent", method: "PUT")
+        req.setValue(userID, forHTTPHeaderField: "X-User-ID")
+        req.httpBody = try JSONEncoder().encode(Change(enabled: enabled,
+            expected_revision: revision, consent_version: RawArchiveConsent.version))
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(ArchiveConsentState.self, from: data)
+    }
+
+    func rawChunkRequest(_ file: URL, userID: String, consentToken: String) throws -> URLRequest {
         let bytes = try Data(contentsOf: file)
         let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
         let id = file.deletingPathExtension().lastPathComponent
@@ -451,6 +485,7 @@ struct APIClient {
         req.setValue("application/x-ndjson", forHTTPHeaderField: "Content-Type")
         req.setValue(userID, forHTTPHeaderField: "X-User-ID")
         req.setValue(digest, forHTTPHeaderField: "X-Chunk-SHA256")
+        req.setValue(consentToken, forHTTPHeaderField: "X-Archive-Consent-Token")
         req.timeoutInterval = 120
         return req
     }
@@ -630,33 +665,53 @@ final class RawChunkSyncService: NSObject, URLSessionTaskDelegate {
 
     func syncIfEnabled() async {
         pendingCount = (try? journal.pendingChunks().count) ?? 0
-        guard !isSyncing else { return }
-        guard (UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true),
-              UserDefaults.standard.bool(forKey: "rawCloudSyncEnabled") else {
+        let desired = RawArchiveConsent.mayCapture()
+        let decision = RawArchiveConsent.revision()
+        // Cancel even while another sync is suspended on a network request.
+        if !desired {
             for task in await currentTasks() { task.cancel() }
-            lastError = nil
-            return
         }
+        guard !isSyncing else { return }
         isSyncing = true
-        defer { isSyncing = false }
+        defer {
+            isSyncing = false
+            if decision != RawArchiveConsent.revision() || desired != RawArchiveConsent.mayCapture() {
+                Task { await self.syncIfEnabled() }
+            }
+        }
         do {
+            var consent = try await client.archiveConsent(userID: userID)
+            guard decision == RawArchiveConsent.revision(), desired == RawArchiveConsent.mayCapture() else { return }
+            let syncedKey = "rawArchiveSyncedDecision-\(userID)"
+            if consent.enabled != desired || (desired && UserDefaults.standard.integer(forKey: syncedKey) != decision) {
+                consent = try await client.changeArchiveConsent(enabled: desired, revision: consent.revision, userID: userID)
+            }
+            guard decision == RawArchiveConsent.revision(), desired == RawArchiveConsent.mayCapture() else { return }
+            UserDefaults.standard.set(decision, forKey: syncedKey)
+            lastError = nil
+            guard desired, let token = consent.token else { return }
             try journal.seal()
-            let tasks = await currentTasks()
+            var tasks = await currentTasks()
+            // An old acceptance must never authorize a new upload cycle.
+            for task in tasks where task.originalRequest?.value(forHTTPHeaderField: "X-Archive-Consent-Token") != token {
+                task.cancel()
+            }
+            tasks = tasks.filter { $0.originalRequest?.value(forHTTPHeaderField: "X-Archive-Consent-Token") == token }
             let inFlight = Set(tasks.compactMap { $0.originalRequest?.url?.lastPathComponent.lowercased() })
             let available = max(0, 4 - tasks.count)
             var scheduled = 0
             let chunks = try journal.pendingChunks()
             pendingCount = chunks.count
             for file in chunks where scheduled < available {
+                guard decision == RawArchiveConsent.revision(), RawArchiveConsent.mayCapture() else { return }
                 let id = file.deletingPathExtension().lastPathComponent.lowercased()
                 guard !inFlight.contains(id) else { continue }
-                let request = try client.rawChunkRequest(file, userID: userID)
-                let task = session.uploadTask(with: request, fromFile: file)
-                task.resume()
+                let request = try client.rawChunkRequest(file, userID: userID, consentToken: token)
+                session.uploadTask(with: request, fromFile: file).resume()
                 scheduled += 1
             }
         } catch {
-            lastError = error.localizedDescription
+            lastError = desired ? error.localizedDescription : "Uploads stopped on this device. Connect to the internet to confirm the server pause."
             pendingCount = (try? journal.pendingChunks().count) ?? pendingCount
         }
     }
@@ -682,8 +737,7 @@ final class RawChunkSyncService: NSObject, URLSessionTaskDelegate {
 
     private func finish(_ task: URLSessionTask, error: Error?) async {
         if let error {
-            let enabled = (UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true)
-                && UserDefaults.standard.bool(forKey: "rawCloudSyncEnabled")
+            let enabled = RawArchiveConsent.mayCapture()
             if !enabled { return }
             lastError = error.localizedDescription
             return

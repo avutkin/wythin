@@ -274,10 +274,7 @@ struct OnboardingContactScreen: View {
             question: "Tell us a bit more about you",
             subtitle: "So your coach knows who they're working with.",
             canContinue: canContinue,
-            // Last step since the permissions screen was removed, so the button
-            // has to say so — "Continue" here promises a screen that no longer
-            // exists.
-            continueTitle: "Finish",
+            continueTitle: RawArchiveFeature.isAvailable ? "Continue" : "Finish",
             onBack: onBack,
             onContinue: onContinue
         ) {

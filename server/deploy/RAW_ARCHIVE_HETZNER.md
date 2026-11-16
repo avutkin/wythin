@@ -1,72 +1,179 @@
-# Raw Polar archive: Hetzner Volume rollout
+# Full Polar archive: protocol and Hetzner rollout
 
-Prepared on 2026-11-02. This runbook does **not** create or attach a billable resource. It describes the reviewed change to make after the volume size, monthly cost, and backup destination are approved.
+Updated 2026-11-15. **Prepared, not activated.** No storage has been purchased
+by this change. `RawArchiveFeature.isAvailable` remains false until the live
+storage, backup restore and physical recording checks below pass.
 
-The current iOS rollout keeps `RawArchiveFeature.isAvailable = false`: it does
-not create a raw packet journal, show the raw upload switch, or queue full ECG
-and ACC. It still saves calculated metrics locally about every two seconds and
-syncs them to the existing PostgreSQL server. Enable raw capture only after the
-Volume, independent backup, and an overnight device test are ready.
+## Target and budget
 
-## Verified production target
+Production: `pulsar-api`, Hetzner server ID `154618769`, Helsinki `hel1-dc2`,
+SSH `root@77.42.73.250`, service `pulsar-api.service`, user `pulsar`, checkout
+`/opt/pulsar`, environment `/opt/pulsar/server/deploy/.env`.
+Live preflight 2026-11-15: 2 vCPU, about 4 GB RAM, 38 GB system disk with 30 GB
+free; no archive configuration. Do not place the archive on this system disk.
 
-- Hetzner Cloud server: `pulsar-api`, instance ID `154618769`, location `hel1-dc2` (Helsinki).
-- API service: `pulsar-api.service`, user `pulsar`, working directory `/opt/pulsar`, environment file `/opt/pulsar/server/deploy/.env`.
-- Only the 38.1 GB system disk is attached; no archive volume exists. The system disk had about 31 GB free at preflight.
-- 210 registered accounts; 6 distinct users sent metric data in the previous 30 days, 2 in the previous 7 days. These counts are a sizing signal, not an estimate of future consent or wear time.
+For up to 100 continuously recording participants, provision a **private Object
+Storage bucket in HEL1**, suggested name `wythin-raw-154618769-hel1`, after
+checking for an existing resource in the correct project. Use an **unversioned
+bucket with no object lock**: the current deletion implementation removes live
+objects; it is not a version-history purger. No public ACL or public URL.
 
-## Proposed initial size and cost gate
+Public prices checked 2026-11-15, excluding VAT, processing and overages:
 
-Create **one 500 GB ext4 Volume** in the same Hetzner project and location as server `154618769`, named `wythin-raw-hel1`, with deletion protection. Hetzner allows online growth but no shrinking, so measure real compressed ingest before increasing it. At 100–200 MB of raw sensor data per active wearer per day, six continuous wearers would produce about 18–36 GB/month before compression and file overhead. A 500 GB starting volume provides room to measure the actual rate and respond to alerts; it is not an indefinite capacity guarantee.
+| Resource | Monthly estimate | Purpose |
+|---|---:|---|
+| Object Storage base, including 1 TB | EUR 6.49 | Primary exact archive |
+| BX11 Storage Box, 1 TB | EUR 3.20 | Independent encrypted backup |
+| Combined base | EUR 9.69 | Whole cohort, not per participant |
 
-Hetzner bills Volumes hourly with a monthly cap, based on provisioned GB and location. A recent public price listing reports **€0.0572/GB-month**, making 500 GB roughly **€28.60/month before VAT**; confirm the live quote in the Hetzner Console before approving creation. This does not include the independent backup required below. See [Hetzner Volume overview](https://docs.hetzner.com/cloud/volumes/overview/) and [price listing](https://cloudtally.eu/hetzner-cloud-prices).
+Confirm the authenticated quote before purchase. A 1 TB block Volume at about
+EUR 57.20/month is **not** the budget-equivalent replacement. Primary object
+storage grows beyond the included TB with usage charges; the 1 TB backup does
+not have unlimited room. At the conservative 10 GB/person/month estimate,
+100 people fill 1 TB with no reserve. Alert at 70%, act before 85%, and revise
+from real overnight recordings before admitting 100 continuous wearers.
 
-## Creation step — only after cost approval
+Sources: [Object Storage pricing](https://www.hetzner.com/storage/object-storage/),
+[Storage Box pricing](https://www.hetzner.com/storage/storage-box/),
+[Volume overview](https://docs.hetzner.com/cloud/volumes/overview/).
 
-In the Hetzner Console, select the project containing server ID `154618769`, then create a 500 GB Volume named `wythin-raw-hel1`, attach it to `pulsar-api`, choose **automatic ext4 formatting and mounting**, and enable deletion protection. Record the new Volume ID. The equivalent official CLI command is:
+## What is stored
 
-```bash
-hcloud volume create --name wythin-raw-hel1 --size 500 \
-  --server 154618769 --format ext4 --automount \
-  --enable-protection delete
-```
+- Exact Polar H10 notifications: ECG, ACC XYZ, Heart Rate and original RR ticks.
+- One JSONL record per notification: UUID, stream, receipt time (Apple reference
+  epoch, seconds since 2001-01-01 UTC), optional device nanosecond timestamp,
+  base64 notification payload. The phone does not filter raw packets.
+- A chunk is sealed after approximately 60 seconds or 1 MB. Server maximum is
+  1,500,000 uncompressed bytes. Lossless gzip only; SHA-256 covers the original
+  JSONL bytes. ACK includes SHA-256 and byte count; only verified ACK permits
+  removal from the phone's pending queue.
+- PostgreSQL `raw_chunks` is the owner-scoped integrity manifest. It records the
+  storage backend so existing filesystem chunks remain readable after changing
+  the active upload backend. Never remove an old backend before migration and
+  integrity verification.
+- S3 keys are `raw/v1/<user UUID>/<chunk UUID>/<SHA-256>.jsonl.gz`.
+  Content addressing prevents a retried request overwriting different bytes.
+  Per-user database locks serialize ingest, deletion, consent and processing.
+- No GPS. ACC retains the signal needed to examine motion and orientation. A
+  direction in sensor coordinates is not a calibrated body-position label.
 
-The automatic mount path is `/mnt/HC_Volume_<VOLUME_ID>`. Use that path directly for `RAW_ARCHIVE_ROOT`: the server rejects an ordinary directory when a Volume is absent. Do not copy archive files to `/mnt/wythin-raw` on the system disk. Hetzner documents the [mount path](https://docs.hetzner.com/cloud/volumes/overview/) and [CLI flags](https://github.com/hetznercloud/cli/blob/main/docs/reference/manual/hcloud_volume_create.md).
+## Encryption and configuration
 
-## Activation step — after the Volume is mounted and backed up
+Hetzner Object Storage has no default at-rest encryption. This adapter requires
+SSE-C with a 32-byte key and HTTPS; no unencrypted fallback. Keep encryption and
+access keys in protected server configuration, and keep a separate recovery
+copy of the encryption key. Losing it loses the archive. Key rotation requires
+an explicit migration; simply replacing the key makes old objects unreadable.
+See [Hetzner supported actions](https://docs.hetzner.com/storage/object-storage/supported-actions/)
+and [encryption FAQ](https://docs.hetzner.com/storage/object-storage/faq/general/).
 
-Run these checks on `pulsar-api` before setting the environment variable. Set `VOLUME_ID` to the ID returned by Hetzner:
-
-```bash
-set -euo pipefail
-VOLUME_ID=REPLACE_WITH_ACTUAL_ID
-ARCHIVE_ROOT="/mnt/HC_Volume_${VOLUME_ID}"
-findmnt --mountpoint "$ARCHIVE_ROOT"
-lsblk -o NAME,SIZE,FSTYPE,TYPE,MOUNTPOINTS,MODEL,SERIAL
-df -h "$ARCHIVE_ROOT"
-sudo chown pulsar:pulsar "$ARCHIVE_ROOT"
-sudo chmod 750 "$ARCHIVE_ROOT"
-sudo -u pulsar test -w "$ARCHIVE_ROOT"
-```
-
-After the raw archive server code is deployed, add the following to `/opt/pulsar/server/deploy/.env` (mode 600, owner `pulsar`), then restart `pulsar-api.service`:
+Configure these variables through the operator's secret-management flow; do not
+paste credentials in chat or commit them:
 
 ```text
-RAW_ARCHIVE_ROOT=/mnt/HC_Volume_REPLACE_WITH_ACTUAL_ID
-RAW_ARCHIVE_REQUIRE_MOUNT=1
+RAW_ARCHIVE_BACKEND=s3
+RAW_S3_ENDPOINT=https://hel1.your-objectstorage.com
+RAW_S3_REGION=hel1
+RAW_S3_BUCKET=<verified private bucket>
+RAW_S3_ACCESS_KEY=<project credential>
+RAW_S3_SECRET_KEY=<project credential>
+RAW_S3_ENCRYPTION_KEY=<base64 of 32 random bytes>
 ```
 
-Verify that `findmnt --mountpoint "$ARCHIVE_ROOT"` still succeeds after a reboot, then send a small authenticated test chunk and download it with its owner's bearer token. The server must preserve exact bytes and SHA-256, reject a different user's download, and return 503 when the Volume is unmounted. An upload rejected because the Volume is unavailable stays in the phone's local queue.
+For a filesystem archive, keep `RAW_ARCHIVE_BACKEND=filesystem`, configure an
+existing `RAW_ARCHIVE_ROOT` mount, and retain `RAW_ARCHIVE_REQUIRE_MOUNT=1`.
+`RAW_ARCHIVE_REQUIRE_MOUNT=0` is for isolated tests, not production.
 
-After those checks and the backup restore test, set
-`RawArchiveFeature.isAvailable = true` in the iOS app, build a new release,
-and obtain each participant's separate raw archive consent. This change should
-be paired with a physical overnight Polar H10 test before a wider rollout.
+## Acceptance and withdrawal
 
-## Backup and capacity gates
+New raw capture requires the explicit disclosure `raw-v1-2026-11-15`; a missing
+answer or a historical toggle is not acceptance. All three streams become
+active together after acceptance. New programme onboarding cannot finish when
+raw acceptance is declined (once rollout is enabled). Existing participants
+receive a separate notice and retain their previous opt-outs.
 
-**Hetzner server Backups and Snapshots exclude attached Volumes; Hetzner does not provide Volume Backups or Snapshots.** Triple replication is not a recoverable backup against accidental deletion or application errors. Arrange an independent encrypted backup of both the Volume files and PostgreSQL `raw_chunks` metadata, test a restore, and monitor backup success before enabling participant raw upload. [Hetzner documentation](https://docs.hetzner.com/cloud/volumes/overview/).
+`GET/PUT /v1/raw/consent` uses a revision comparison. Every change creates an
+append-only event and a new upload token. Uploads carry
+`X-Archive-Consent-Token`; disabled or stale tokens are rejected. The settings
+switch stops new raw capture and cancels queued URLSession tasks locally; the
+server pause takes effect after the revocation request reaches it. When offline,
+the UI reports that confirmation is pending. An old background upload cannot
+silently re-enable a later refusal. Existing local chunks are retained until
+acknowledged or deliberately erased; turning transmission off is not deletion.
 
-The proposed backup target is a separate **BX11 Storage Box (1 TB) in HEL1**, with encrypted Borg backups and a daily PostgreSQL manifest dump. Hetzner documents [BX11 capacity](https://www.hetzner.com/es/storage/storage-box/bx11/) and [Borg access](https://docs.hetzner.com/storage/storage-box/access/access-ssh-rsync-borg/). This is an additional resource and cost, requires its own approval, and needs a successful test restore. Increase backup capacity as the archive grows. Storage Box snapshots can help with accidental changes but are [not full backups](https://docs.hetzner.com/storage/storage-box/snapshots/).
+Team access and external-AI sharing are separate existing settings. Their final
+onboarding requirements are pending the product owner's answer; **this rollout
+must not silently turn those flags on, or claim new team-access enforcement**.
+The archive worker sends no signals to OpenAI or any other LLM. The owner's
+bearer-scoped export remains separate from team-sharing preferences.
 
-Alert at **70% capacity** and expand before **85%**. The ingest API already refuses new chunks when less than 1 GB remains, so a full or missing Volume does not silently fill the system disk; clients retain their local queues. Review the actual per-user compressed GB/day after the first week, then revise capacity and price. Hetzner Volumes top out at 10 TB, so an indefinite archive with a larger cohort will eventually need object-storage tiering or another expandable backend. [Hetzner Volume limits](https://docs.hetzner.com/cloud/volumes/faq/).
+## Daily processing
+
+Install the prepared units after code/schema deployment, dependency install,
+and successful storage verification:
+
+```sh
+sudo install -m 644 server/deploy/wythin-raw-analysis.service /etc/systemd/system/
+sudo install -m 644 server/deploy/wythin-raw-analysis.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now wythin-raw-analysis.timer
+```
+
+The timer runs daily at 03:00 UTC with up to 15 minutes jitter and catches up
+missed runs. It invokes `python -m server.raw_worker`. The worker processes new
+chunks, including late uploads, in batches of 200, with a six-hour time budget.
+Results are idempotent by owner/chunk/algorithm version and reference the source
+SHA-256. It does not process owners who have withdrawn archive consent. Failed
+chunks retain an error code and retry after one day; corruption is never marked
+successful. Monitor a failed service or `time_budget_reached` as actionable.
+
+`signal-audit-v1` records exact RR ticks with packet receipt times, contact and
+invalid-interval counts, descriptive RR statistics, ECG count/range/constant
+packets, ACC axis means/scatter/gravity direction. It breaks successive-RR
+calculations across receipt gaps, off-body intervals and implausible values.
+These are per-chunk descriptive results, not validated NN/arrhythmia analysis,
+not clinical autonomic diagnoses and not attention/mood/cognition scores.
+
+Owner access: `GET /v1/me/raw/chunks`, exact chunk download, and
+`GET /v1/me/raw/chunks/{id}/analysis`, all with the owner's bearer token.
+A future algorithm can replay exact sources. Algorithm versions must change
+when semantics change. Do not average per-chunk RMSSD into a daily RMSSD.
+
+A local synthetic one-minute benchmark took about 0.017 CPU seconds, excluding
+network/DB. This is **not** a production capacity guarantee. Measure actual
+recording size, worker runtime and API latency on the 2-vCPU server. Start with
+one worker; keep it at low scheduling priority and scale only from measurement.
+
+## Backup, retention and release checklist
+
+1. Purchase and verify the private bucket and independent Storage Box in the
+   authenticated account. Configure an encrypted backup of raw objects **and**
+   PostgreSQL (including RR results, manifests, consent events and context).
+   The backup transfer/schedule is not configured by this commit. Keep recovery
+   keys separate. Primary replication is not a recoverable independent backup.
+2. Upload a synthetic ECG/ACC/HR chunk; download with the owner's bearer token
+   and verify exact SHA-256. A different owner must receive 404. Verify private
+   ACL, SSE-C, unversioned bucket, unavailable-storage rejection, revoked-token
+   rejection and retry after a timed-out upload.
+3. Restore the synthetic object and its manifest from the independent backup;
+   verify original SHA-256. Record backup destination, restore evidence and
+   operator alert destination before enabling capture.
+4. Full streams target a 30-day working window. **Age-based deletion is not
+   enabled.** First prove preservation and restore of exact RR, quality/context,
+   minute/day summaries and selected raw segments (including random controls,
+   not just positive responses). Only then implement/activate compaction. Until
+   then the archive keeps growing and must be budgeted accordingly.
+5. Verify withdrawal and owner deletion in primary storage; define and implement
+   deletion/expiry in backups before promising a retention deadline to people.
+6. Run all server tests and full WythinTests. Resolve team/AI onboarding wording.
+   Set the release availability flag only after the infrastructure checks;
+   merge through the normal review flow and ship only via `tools/ship.sh`.
+7. Do a physical overnight H10 recording: background/screen lock, interruptions,
+   reconnection, byte-complete upload, no doubled intervals, battery, storage and
+   queue recovery. A simulator test cannot substitute for this. Start a limited
+   pilot, then widen to 100 after capacity and backup evidence.
+
+Current blockers: authenticated Hetzner console is at its login screen;
+no new bucket/backup/keys exist, no live restore or overnight test has run, and
+the team/AI onboarding choice is unanswered. No billable resource or production
+configuration was changed during preparation.

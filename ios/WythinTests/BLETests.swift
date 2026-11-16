@@ -5,6 +5,26 @@ import UIKit
 /// BLE packet parser tests — run on simulator or device.
 final class BLETests: XCTestCase {
 
+    func testRawCaptureRequiresVersionedAcceptanceAndHonoursRevocation() {
+        let suite = "RawConsent-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertFalse(RawArchiveConsent.mayCapture(in: defaults, available: true))
+        defaults.set(true, forKey: "rawCloudSyncEnabled")
+        XCTAssertFalse(RawArchiveConsent.mayCapture(in: defaults, available: true),
+                       "an old toggle alone is not acceptance of the new disclosure")
+        RawArchiveConsent.accept(in: defaults)
+        XCTAssertTrue(RawArchiveConsent.mayCapture(in: defaults, available: true))
+        XCTAssertFalse(RawArchiveConsent.mayCapture(in: defaults, available: false))
+        defaults.set(false, forKey: "cloudSyncEnabled")
+        XCTAssertFalse(RawArchiveConsent.mayCapture(in: defaults, available: true))
+        defaults.set(true, forKey: "cloudSyncEnabled")
+        let before = RawArchiveConsent.revision(in: defaults)
+        RawArchiveConsent.revoke(in: defaults)
+        XCTAssertGreaterThan(RawArchiveConsent.revision(in: defaults), before)
+        XCTAssertFalse(RawArchiveConsent.mayCapture(in: defaults, available: true))
+    }
+
     func testCaptureAuditSurvivesRestartAndSeparatesPacketsFromSavedMetrics() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -82,11 +102,12 @@ final class BLETests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: file) }
         try Data("abc\n".utf8).write(to: file)
         let request = try APIClient(baseURL: URL(string: "https://example.test")!)
-            .rawChunkRequest(file, userID: "device-1")
+            .rawChunkRequest(file, userID: "device-1", consentToken: "accepted-token")
         XCTAssertEqual(request.url?.path, "/v1/raw/chunks/\(id.uuidString)")
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-User-ID"), "device-1")
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-Chunk-SHA256"),
                        "edeaaff3f1774ad2888673770c6d64097e391bc362d7d6fb34982ddf0efd18cb")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Archive-Consent-Token"), "accepted-token")
         XCTAssertNil(request.httpBody)
     }
 

@@ -536,7 +536,7 @@ final class BLEService: NSObject {
     /// unstarted Task with the only copy of a delivered notification.
     nonisolated private func recordRaw(_ stream: RawPacketRecord.Stream, data: Data,
                                        receivedAt: Date, deviceTimestampNs: UInt64?) -> Bool {
-        guard RawArchiveFeature.isAvailable else { return false }
+        guard RawArchiveConsent.mayCapture() else { return false }
         do {
             guard let rawJournal else { throw CocoaError(.fileWriteUnknown) }
             return try rawJournal.append(stream: stream, payload: data,

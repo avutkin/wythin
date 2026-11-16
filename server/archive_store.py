@@ -8,6 +8,7 @@ import io
 import os
 import shutil
 import uuid
+import zlib
 from pathlib import Path
 from fastapi import HTTPException
 
@@ -21,7 +22,7 @@ def unpack(compressed: bytes) -> bytes:
         if len(data) > MAX_BYTES:
             raise ValueError('expanded archive exceeds limit')
         return data
-    except (OSError, EOFError, ValueError) as exc:
+    except (OSError, EOFError, ValueError, zlib.error) as exc:
         raise HTTPException(503, 'archived chunk is corrupt') from exc
 
 

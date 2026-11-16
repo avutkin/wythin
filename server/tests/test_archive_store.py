@@ -79,3 +79,10 @@ def test_s3_delete_failure_is_not_reported_as_success():
     with pytest.raises(HTTPException) as error:
         store.delete_user(user)
     assert error.value.status_code == 503
+
+
+def test_invalid_deflate_stream_becomes_archive_error():
+    # Valid gzip header followed by an invalid DEFLATE block.
+    with pytest.raises(HTTPException) as error:
+        unpack(bytes.fromhex('1f8b0800000000000003') + b'\xff' * 16)
+    assert error.value.status_code == 503

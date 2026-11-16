@@ -12,8 +12,11 @@ from server.raw_worker import process_chunk
 async def test_worker_replay_and_corrupt_source_never_marks_success(tmp_path, monkeypatch):
     monkeypatch.setenv('RAW_ARCHIVE_ROOT', str(tmp_path))
     monkeypatch.setenv('RAW_ARCHIVE_REQUIRE_MOUNT', '0')
-    async with client():
-        user = await db.get_or_create_user(f'worker-{uuid.uuid4()}')
+    async with client() as c:
+        from server.tests.test_raw_consent import grant
+        owner = f'worker-{uuid.uuid4()}'
+        await grant(c,owner)
+        user = await db.get_or_create_user(owner)
         chunk = uuid.uuid4()
         payload = packet('hr', b'\x10\x3c\x00\x04').encode()
         digest = hashlib.sha256(payload).hexdigest()

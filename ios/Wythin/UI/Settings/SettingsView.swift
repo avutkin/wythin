@@ -261,6 +261,7 @@ struct SettingsView: View {
                         }
                         .tint(Theme.accent)
                         .onChange(of: cloudSyncEnabled) { _, enabled in
+                            RawArchiveConsent.noteChange()
                             if enabled { env.checkIns.requestSync() }
                             Task { await env.rawSync?.syncIfEnabled() }
                             Task { await env.metricSync.syncIfEnabled() }
@@ -278,13 +279,14 @@ struct SettingsView: View {
                             Toggle(isOn: $rawCloudSyncEnabled) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Archive full Polar signal").font(Theme.monoBody).foregroundStyle(Theme.text)
-                                    Text("Upload every ECG, motion and heart-rate packet to your private cloud archive. Requires cloud sync; recordings stay on this device until uploaded.")
+                                    Text("I agree to store ECG, RR intervals and three-axis movement in my encrypted Hetzner archive for daily analysis. No GPS. Off stops new recording and uploads; uploaded data stays until deleted.")
                                         .font(Theme.monoLabel).foregroundStyle(Theme.dim)
                                 }
                             }
                             .tint(Theme.accent)
                             .disabled(!cloudSyncEnabled)
-                            .onChange(of: rawCloudSyncEnabled) { _, _ in
+                            .onChange(of: rawCloudSyncEnabled) { _, enabled in
+                                if enabled { RawArchiveConsent.accept() } else { RawArchiveConsent.revoke() }
                                 Task { await env.rawSync?.syncIfEnabled() }
                             }
 

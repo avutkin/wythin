@@ -5,6 +5,7 @@ import json
 import uuid
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import Response
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from ..auth_user import current_user_id
 from ..db import get_or_create_user, get_pool
@@ -30,7 +31,8 @@ def _ack(chunk_id, digest, size):
 @router.post("/v1/raw/chunks/{chunk_id}")
 async def upload_chunk(chunk_id: uuid.UUID, request: Request,
                        x_user_id: str = Header(..., alias="X-User-ID"),
-                       x_chunk_sha256: str = Header(..., alias="X-Chunk-SHA256")):
+                       x_chunk_sha256: str = Header(..., alias="X-Chunk-SHA256"),
+                       x_archive_consent_token: str | None = Header(None, alias="X-Archive-Consent-Token")):
     archive = archive_store.get_archive()
     payload_buffer = bytearray()
     async for part in request.stream():
@@ -46,6 +48,9 @@ async def upload_chunk(chunk_id: uuid.UUID, request: Request,
     user_id = await get_or_create_user(x_user_id)
     async with get_pool().acquire() as conn, conn.transaction():
         await lock_archive_user(conn, user_id)
+        consent = await conn.fetchrow("SELECT enabled,upload_token FROM raw_consents WHERE user_id=$1", user_id)
+        if not consent or not consent['enabled'] or str(consent['upload_token']) != x_archive_consent_token:
+            raise HTTPException(403, "current archive consent is required")
         existing = await conn.fetchrow(
             "SELECT sha256, byte_count, storage_backend FROM raw_chunks WHERE user_id=$1 AND chunk_id=$2",
             user_id, chunk_id)
@@ -89,3 +94,63 @@ async def download_chunk(chunk_id: uuid.UUID, user_id: str = Depends(current_use
         archive = archive_store.get_archive(row["storage_backend"])
         data = await run_in_threadpool(archive.get, user_id, chunk_id, row["sha256"])
     return Response(data, media_type="application/x-ndjson")
+
+
+CONSENT_VERSION = "raw-v1-2026-11-15"
+
+
+class ArchiveConsentChange(BaseModel):
+    enabled: bool
+    expected_revision: int = Field(ge=0)
+    consent_version: str
+
+
+def consent_response(row):
+    if row is None:
+        return {"enabled":False,"revision":0,"consent_version":None,"token":None}
+    return {"enabled":row['enabled'],"revision":row['revision'],
+            "consent_version":row['consent_version'],
+            "token":str(row['upload_token']) if row['enabled'] else None}
+
+
+@router.get("/v1/raw/consent")
+async def read_archive_consent(x_user_id: str = Header(...,alias="X-User-ID")):
+    user = await get_or_create_user(x_user_id)
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM raw_consents WHERE user_id=$1",user)
+    return consent_response(row)
+
+
+@router.put("/v1/raw/consent")
+async def change_archive_consent(body: ArchiveConsentChange,
+                                 x_user_id: str = Header(...,alias="X-User-ID")):
+    if body.enabled and body.consent_version != CONSENT_VERSION:
+        raise HTTPException(422, "current archive disclosure must be accepted")
+    user = await get_or_create_user(x_user_id)
+    async with get_pool().acquire() as conn, conn.transaction():
+        await lock_archive_user(conn,user)
+        old = await conn.fetchrow("SELECT * FROM raw_consents WHERE user_id=$1",user)
+        revision = old['revision'] if old else 0
+        if body.expected_revision != revision:
+            raise HTTPException(409, "archive consent changed; refresh before retrying")
+        revision += 1
+        row = await conn.fetchrow('''INSERT INTO raw_consents (user_id,enabled,revision,consent_version,upload_token)
+            VALUES ($1,$2,$3,$4,$5) ON CONFLICT (user_id) DO UPDATE SET
+            enabled=EXCLUDED.enabled,revision=EXCLUDED.revision,consent_version=EXCLUDED.consent_version,
+            upload_token=EXCLUDED.upload_token,updated_at=NOW() RETURNING *''',
+            user,body.enabled,revision,body.consent_version,uuid.uuid4())
+        await conn.execute("INSERT INTO raw_consent_events (user_id,revision,enabled,consent_version) VALUES ($1,$2,$3,$4)",
+                           user,revision,body.enabled,body.consent_version)
+    return consent_response(row)
+
+
+@router.get("/v1/me/raw/chunks/{chunk_id}/analysis")
+async def read_raw_analysis(chunk_id: uuid.UUID,user_id: str = Depends(current_user_id)):
+    from ..raw_analysis import VERSION
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow("SELECT result,error_code,algorithm_version,source_sha256,processed_at FROM raw_analysis WHERE user_id=$1 AND chunk_id=$2 AND algorithm_version=$3",user_id,chunk_id,VERSION)
+    if row is None:
+        raise HTTPException(404,"analysis not available")
+    return {"result":json.loads(row['result']) if row['result'] else None,
+            "error_code":row['error_code'],"algorithm_version":row['algorithm_version'],
+            "source_sha256":row['source_sha256'],"processed_at":row['processed_at'].isoformat()}

@@ -8,6 +8,41 @@ enum RawArchiveFeature {
     static let isAvailable = false
 }
 
+/// A proposed default is not acceptance. Existing false values remain false;
+/// the disclosure must be accepted before any raw notification is journaled.
+enum RawArchiveConsent {
+    static let version = "raw-v1-2026-11-15"
+    static let versionKey = "rawArchiveConsentVersion"
+    static let revisionKey = "rawArchiveConsentLocalRevision"
+
+    static func revision(in defaults: UserDefaults = .standard) -> Int {
+        defaults.integer(forKey: revisionKey)
+    }
+
+    static func noteChange(in defaults: UserDefaults = .standard) {
+        defaults.set(revision(in: defaults) + 1, forKey: revisionKey)
+    }
+
+    static func accept(in defaults: UserDefaults = .standard) {
+        defaults.set(version, forKey: versionKey)
+        defaults.set(Date(), forKey: "rawArchiveAcceptedAt")
+        defaults.set(true, forKey: "rawCloudSyncEnabled")
+        noteChange(in: defaults)
+    }
+
+    static func revoke(in defaults: UserDefaults = .standard) {
+        defaults.set(false, forKey: "rawCloudSyncEnabled")
+        noteChange(in: defaults)
+    }
+
+    static func mayCapture(in defaults: UserDefaults = .standard,
+                           available: Bool = RawArchiveFeature.isAvailable) -> Bool {
+        available && defaults.string(forKey: versionKey) == version
+            && defaults.bool(forKey: "rawCloudSyncEnabled")
+            && (defaults.object(forKey: "cloudSyncEnabled") as? Bool ?? true)
+    }
+}
+
 /// Small, bounded forensic record independent of metric computation and the
 /// deferred raw archive. The Bluetooth delegate records packet counts before
 /// handing work to the main actor; comparing these counts with saved metrics

@@ -21,6 +21,9 @@ log = logging.getLogger(__name__)
 async def process_chunk(user, chunk):
     async with db.get_pool().acquire() as conn, conn.transaction():
         await lock_archive_user(conn, user)
+        consent = await conn.fetchval('SELECT enabled FROM raw_consents WHERE user_id=$1',user)
+        if consent is not True:
+            return 'not_consented'
         source = await conn.fetchrow('SELECT sha256,storage_backend FROM raw_chunks WHERE user_id=$1 AND chunk_id=$2',user,chunk)
         if source is None:
             return 'deleted'
@@ -51,6 +54,7 @@ async def run_daily(max_seconds=21600):
     while time.monotonic() - started < max_seconds:
         async with db.get_pool().acquire() as conn:
             rows = await conn.fetch('''SELECT c.user_id,c.chunk_id FROM raw_chunks c
+                JOIN raw_consents consent ON consent.user_id=c.user_id AND consent.enabled
                 LEFT JOIN raw_analysis a ON a.user_id=c.user_id AND a.chunk_id=c.chunk_id AND a.algorithm_version=$1
                 WHERE a.chunk_id IS NULL OR a.source_sha256<>c.sha256
                    OR (a.result IS NULL AND a.retry_after<=NOW())

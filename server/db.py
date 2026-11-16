@@ -188,6 +188,24 @@ CREATE TABLE IF NOT EXISTS raw_chunks (
 CREATE INDEX IF NOT EXISTS raw_chunks_user_created ON raw_chunks(user_id, created_at, chunk_id);
 ALTER TABLE raw_chunks ADD COLUMN IF NOT EXISTS storage_backend TEXT NOT NULL DEFAULT 'filesystem';
 
+-- Archive acceptance is independent of optional team/AI profile flags.
+CREATE TABLE IF NOT EXISTS raw_consents (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    enabled BOOLEAN NOT NULL,
+    revision BIGINT NOT NULL,
+    consent_version TEXT NOT NULL,
+    upload_token UUID NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS raw_consent_events (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    revision BIGINT NOT NULL,
+    enabled BOOLEAN NOT NULL,
+    consent_version TEXT NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, revision)
+);
+
 -- Versioned, replayable per-chunk analysis. Exact RR lives in result; source
 -- provenance and failures remain inspectable. Never delete raw on age alone.
 CREATE TABLE IF NOT EXISTS raw_analysis (
