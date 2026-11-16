@@ -34,6 +34,9 @@ explicitly enable cloud for their upload/retry scenarios.
 - Local HTML links/anchors and absent automatic external resource loads checked;
   Xcode bundles the same three files used by GitHub Pages, with no second copy.
 - `git diff --check` passed.
+- Following the successful live synthetic archive verification, the two privacy
+  drafts were updated to match that limited result; all 26 ClientProfileTests
+  passed again (`/tmp/wythin-storage-legal-bundle.log`).
 - After the final legal-text update, all 26 `ClientProfileTests` passed again
   with the freshly bundled documents (`/tmp/wythin-legal-bundle-retry.log`). An
   earlier attempt failed to launch the simulator, before any test ran; booting

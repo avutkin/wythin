@@ -1,19 +1,26 @@
 # Full Polar archive: protocol and Hetzner rollout
 
-Updated 2026-11-15. **Primary bucket purchased, capture not activated.** The
+Updated 2026-11-15. **Primary storage verified; capture not activated.** The
 private, object-lock-disabled `wythin-raw-154618769-hel1` bucket was created in
 Helsinki. The authenticated console quoted USD 7.99/month base with 1 TB included;
 over-quota storage is USD 0.0123/TB-hour and egress USD 1.20/TB. The console
 also reports partial degradation of HEL Object Storage. The bucket is empty.
-The operator explicitly approved a project-wide S3 credential, which has been
-generated. Its secret has not yet been transferred to the server; encryption
-verification remains pending. A BX11 1 TB backup
-was prepared in Falkenstein at an authenticated quote of USD 4.00/month; it has
-not been purchased. Total quoted base cost is USD 11.99/month, before overages
-and applicable taxes. SSH Support with External Reachability off (Hetzner
-network only) was blocked by automatic approval review; explicit protocol/scope
-approval has been requested. Existing owner SSH key is selected in the draft
-order; no new key was created.
+The explicitly approved project-wide S3 credential is now staged on the server
+in a root-owned mode-0600 file, outside the repository and active API environment.
+The operator approved temporary local staging for SSH transfer; that file and
+its private directory were deleted immediately after verified server storage.
+A fresh 32-byte SSE-C key was generated on the server. The live synthetic test
+passed private ACL, anonymous denial, AES256, exact round-trip, missing-key
+denial and cleanup checks. No actual user recordings were transferred.
+
+The authenticated console now also shows the BX11 1 TB Storage Box
+`wythin-archive-backup` (#701861), username `u720120`, in Falkenstein. It appeared
+between turns; this continuation did not submit a second purchase. The earlier
+authenticated quote was USD 4.00/month, making the quoted combined base
+USD 11.99/month before overages and applicable taxes. SSH Support, SMB, WebDAV
+and External Reachability are all off. Internal-only SSH enablement still awaits
+the previously requested explicit approval. No backup transfer, schedule or
+independent recovery-key copy is configured.
 `RawArchiveFeature.isAvailable` remains false until the live
 storage, backup restore and physical recording checks below pass.
 
@@ -95,10 +102,10 @@ RAW_S3_SECRET_KEY=<project credential>
 RAW_S3_ENCRYPTION_KEY=<base64 of 32 random bytes>
 ```
 
-An isolated verification environment is prepared at
+An isolated verification environment is installed at
 `/opt/wythin-archive-preflight`; it does not load production configuration or
-connect to PostgreSQL. Once credentials have been securely staged in a
-root-owned mode-0600 `/etc/wythin/archive-staged.env`, run:
+connect to PostgreSQL. Credentials are securely staged in the root-owned
+mode-0600 `/etc/wythin/archive-staged.env`. The verification command is:
 
 ```sh
 cd /opt/wythin-archive-preflight
@@ -110,8 +117,11 @@ listing, exact synthetic payload round-trip, SHA-256 metadata and SSE-C AES256.
 It also checks that a read without the encryption key fails, then deletes only
 its freshly generated synthetic prefix and verifies that prefix is empty.
 It never reads a patient record or changes production capture settings.
-The modules compile on the server; **the live storage check has not run**.
-Passing it is not a substitute for API authorization, independent backup/restore,
+The live check passed on 2026-11-15: a 175-byte synthetic payload returned
+unchanged, with SHA-256
+`53fc1167de8c637aae3dab8426d25cf5ce491f2a7ff82c4be27d041ae872de0e`.
+The disposable prefix was empty after cleanup. This is not a backup restore.
+Passing this check is not a substitute for API authorization, independent backup/restore,
 encryption-key recovery or the other release checks below.
 
 For a filesystem archive, keep `RAW_ARCHIVE_BACKEND=filesystem`, configure an
@@ -235,15 +245,13 @@ one worker; keep it at low scheduling priority and scale only from measurement.
    queue recovery. A simulator test cannot substitute for this. Start a limited
    pilot, then widen to 100 after capacity and backup evidence.
 
-Current blockers: the primary bucket and explicitly approved project-wide S3
-credential exist. Automatic approval review requires separate permission to
-temporarily stage the secret in a mode-0600 local file for SSH transfer; that
-permission is pending. A direct browser-runtime SSH transfer was unavailable,
-so no secret has been saved locally or on the server. Enabling internal-only
-SSH on the proposed Storage Box also awaits explicit approval. No independent
-backup is configured, no live restore or overnight test has run, and
+Current blockers: primary storage has passed the isolated synthetic check and
+the credentials are staged on the server; temporary local transfer files have
+been removed. Enabling internal-only SSH on the existing Storage Box still
+awaits explicit approval. No independent backup or recovery-key copy is
+configured, no independent backup restore or overnight test has run, and
 the legal/security release requirements above are incomplete. The operator
 confirmed he acts as an individual, with public postal contact 77 Bruton St.,
 San Francisco, and an 18+ audience. Address reproduced as supplied, not
 independently validated for delivery.
-The primary bucket is billable; production app/API configuration remains unchanged.
+Both storage resources exist; production app/API configuration remains unchanged.
