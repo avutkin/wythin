@@ -188,6 +188,21 @@ CREATE TABLE IF NOT EXISTS raw_chunks (
 CREATE INDEX IF NOT EXISTS raw_chunks_user_created ON raw_chunks(user_id, created_at, chunk_id);
 ALTER TABLE raw_chunks ADD COLUMN IF NOT EXISTS storage_backend TEXT NOT NULL DEFAULT 'filesystem';
 
+-- Versioned, replayable per-chunk analysis. Exact RR lives in result; source
+-- provenance and failures remain inspectable. Never delete raw on age alone.
+CREATE TABLE IF NOT EXISTS raw_analysis (
+    user_id UUID NOT NULL,
+    chunk_id UUID NOT NULL,
+    algorithm_version TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    result JSONB,
+    error_code TEXT,
+    retry_after TIMESTAMPTZ,
+    processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, chunk_id, algorithm_version),
+    FOREIGN KEY (user_id, chunk_id) REFERENCES raw_chunks(user_id, chunk_id) ON DELETE CASCADE
+);
+
 -- Additive migrations. SCHEMA_SQL runs on every boot, and each statement here
 -- is idempotent, so this block is safe to re-run and safe to grow. Columns
 -- added to a CREATE TABLE body above only reach a database that does not yet
