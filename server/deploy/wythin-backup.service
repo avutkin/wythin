@@ -1,0 +1,24 @@
+[Unit]
+Description=Wythin encrypted database and signal archive backup
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+WorkingDirectory=/opt/wythin-backup
+ExecStart=/opt/wythin-backup/.venv/bin/python -m server.backup backup
+ExecStopPost=-/usr/bin/fusermount3 -u /mnt/wythin-backup/archive
+TimeoutStartSec=7h
+TimeoutStopSec=30s
+Nice=15
+IOSchedulingClass=idle
+CPUQuota=100%
+MemoryMax=2G
+ProtectSystem=strict
+ReadWritePaths=/var/lib/wythin-backup /mnt/wythin-backup
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+

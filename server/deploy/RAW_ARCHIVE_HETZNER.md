@@ -1,6 +1,6 @@
 # Full Polar archive: protocol and Hetzner rollout
 
-Updated 2026-11-15. **Primary storage verified; capture not activated.** The
+Updated 2026-11-16 UTC. **Primary storage and independent backup verified; capture not activated.** The
 private, object-lock-disabled `wythin-raw-154618769-hel1` bucket was created in
 Helsinki. The authenticated console quoted USD 7.99/month base with 1 TB included;
 over-quota storage is USD 0.0123/TB-hour and egress USD 1.20/TB. The console
@@ -17,10 +17,14 @@ The authenticated console now also shows the BX11 1 TB Storage Box
 `wythin-archive-backup` (#701861), username `u720120`, in Falkenstein. It appeared
 between turns; this continuation did not submit a second purchase. The earlier
 authenticated quote was USD 4.00/month, making the quoted combined base
-USD 11.99/month before overages and applicable taxes. SSH Support, SMB, WebDAV
-and External Reachability are all off. Internal-only SSH enablement still awaits
-the previously requested explicit approval. No backup transfer, schedule or
-independent recovery-key copy is configured.
+USD 11.99/month before overages and applicable taxes. After explicit operator
+approval, SSH Support is enabled; External Reachability, SMB and WebDAV remain
+off. A dedicated IP-restricted server key and pinned host identity protect
+unattended SFTP access. Encrypted restic backup is configured; a synthetic signal
+and the production database have been restored from the independent copy.
+The recovery bundle was also decrypted successfully using the owner's local
+key without creating a plaintext file. See [backup and recovery operations](BACKUP_RECOVERY.md)
+for the daily schedule, verification evidence, retention limits and recovery steps.
 `RawArchiveFeature.isAvailable` remains false until the live
 storage, backup restore and physical recording checks below pass.
 
@@ -47,7 +51,8 @@ Public prices checked 2026-11-15, excluding VAT, processing and overages:
 | Combined base | EUR 9.69 | Whole cohort, not per participant |
 
 The authenticated primary quote above supersedes the public EUR estimate for
-this account's billing currency. Confirm the backup quote before purchase.
+this account's billing currency. Both storage resources are already provisioned;
+the authenticated USD quotes above are the account-specific planning figures.
 A 1 TB block Volume at about
 EUR 57.20/month is **not** the budget-equivalent replacement. Primary object
 storage grows beyond the included TB with usage charges; the 1 TB backup does
@@ -209,11 +214,12 @@ one worker; keep it at low scheduling priority and scale only from measurement.
 
 ## Backup, retention and release checklist
 
-1. Purchase and verify the private bucket and independent Storage Box in the
-   authenticated account. Configure an encrypted backup of raw objects **and**
-   PostgreSQL (including RR results, manifests, consent events and context).
-   The backup transfer/schedule is not configured by this commit. Keep recovery
-   keys separate. Primary replication is not a recoverable independent backup.
+1. The private bucket and independent Storage Box are provisioned. Encrypted
+   backup covers raw objects **and** PostgreSQL, including the records currently
+   present for RR results, manifests, consent events and context. The separate
+   [backup service and recovery protocol](BACKUP_RECOVERY.md) have passed a
+   live production-dump restore and synthetic raw-data restore. Keep the owner's
+   recovery key separate and re-test after credential/configuration changes.
 2. Review user authentication before enabling sensitive raw archives: app-side
    writes and token issuance still inherit the existing shared API key plus
    caller-supplied device ID. The bearer export isolation test does not prove
@@ -222,9 +228,10 @@ one worker; keep it at low scheduling priority and scale only from measurement.
    and verify exact SHA-256. A different owner must receive 404. Verify private
    ACL, SSE-C, unversioned bucket, unavailable-storage rejection, revoked-token
    rejection and retry after a timed-out upload.
-4. Restore the synthetic object and its manifest from the independent backup;
-   verify original SHA-256. Record backup destination, restore evidence and
-   operator alert destination before enabling capture.
+4. Independent restore is verified, including exact synthetic SHA-256, a real
+   database import, full repository integrity read and rejection of a corrupt
+   synthetic source. An operator failure/capacity alert destination and measured
+   overnight volume/runtime remain required before unattended cohort rollout.
 5. Full streams target a 30-day working window. **Age-based deletion is not
    enabled.** First prove preservation and restore of exact RR, quality/context,
    minute/day summaries and selected raw segments (including random controls,
@@ -245,12 +252,12 @@ one worker; keep it at low scheduling priority and scale only from measurement.
    queue recovery. A simulator test cannot substitute for this. Start a limited
    pilot, then widen to 100 after capacity and backup evidence.
 
-Current blockers: primary storage has passed the isolated synthetic check and
-the credentials are staged on the server; temporary local transfer files have
-been removed. Enabling internal-only SSH on the existing Storage Box still
-awaits explicit approval. No independent backup or recovery-key copy is
-configured, no independent backup restore or overnight test has run, and
-the legal/security release requirements above are incomplete. The operator
+Current blockers: primary storage, independent backup, production-database
+restore, synthetic-signal restore and recovery-key retrieval are verified.
+Temporary local credential-transfer files and synthetic source records have
+been removed. The overnight device test, operational alerts, identity/permission
+enforcement, retention/deletion reconciliation and legal/security release
+requirements above remain incomplete. The operator
 confirmed he acts as an individual, with public postal contact 77 Bruton St.,
 San Francisco, and an 18+ audience. Address reproduced as supplied, not
 independently validated for delivery.
