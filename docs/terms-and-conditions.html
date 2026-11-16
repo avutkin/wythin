@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Wythin — Terms &amp; Conditions — Draft</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #1a1a1c; --dim: #5f5f68;
+    --border: #e3e3e7; --surface: #f6f6f8; --accent: #3a3a40;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121214; --text: #ededf0; --dim: #9a9aa4;
+      --border: #2a2a30; --surface: #1c1c20; --accent: #c9c9d2;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 3rem 1.25rem 5rem;
+    background: var(--bg); color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 44rem; margin: 0 auto; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .35rem; letter-spacing: -.02em; }
+  h2 {
+    font-size: 1.1rem; margin: 2.75rem 0 .75rem; letter-spacing: -.01em;
+    padding-bottom: .4rem; border-bottom: 1px solid var(--border);
+  }
+  .meta { color: var(--dim); font-size: .9rem; margin: 0 0 2rem; }
+  .summary {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1.1rem 1.25rem; margin: 0 0 1rem;
+  }
+  .summary p { margin: 0; }
+  ul { padding-left: 1.25rem; }
+  li { margin: .4rem 0; }
+  code {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: .1em .35em; font-size: .88em;
+  }
+  a { color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; margin: .5rem 0; font-size: .95rem; }
+  th, td { text-align: left; padding: .55rem .6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; }
+  .wrap { overflow-x: auto; }
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border); color: var(--dim); font-size: .9rem; }
+
+  nav { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin: 1.25rem 0 2rem; }
+  .draft { border: 2px solid currentColor; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 2rem; }
+  .draft p { margin: .4rem 0; }
+  :focus-visible { outline: 3px solid currentColor; outline-offset: 4px; }
+  @media print { body { padding: 0; } a { color: inherit; } }
+</style>
+</head>
+<body><main>
+<h1>Terms &amp; Conditions</h1>
+<p class="meta">Wythin · Draft prepared 15 November 2026 · Version <code>terms-v1-2026-11-15</code></p>
+<div class="draft" role="note"><strong>DRAFT FOR REVIEW — NOT EFFECTIVE</strong>
+<p>This is a proposed document, not the policy currently in force and not an authorization to collect or share data. Do not use it to enroll users until the release checks and legal review are complete. No effective date has been set.</p>
+<p>The operator is Alex Utkin, an individual, at 77 Bruton St., San Francisco, California, USA. Wythin is for adults aged 18 or older. The described practices and release controls still require verification. Unavailable features and unfinished controls must be completed or removed from the release.</p></div>
+<nav aria-label="Legal documents"><a href="terms-and-conditions.html">Terms &amp; Conditions</a><a href="privacy-policy.html">Privacy Policy</a><a href="consumer-health-privacy.html">Consumer Health Data Privacy Policy</a></nav>
+
+<div class="summary"><p>These proposed Terms govern use of Wythin. Accepting the contract is required to enter the app, but <strong>accepting Terms is not permission for every use of health data</strong>. Separate permissions control collection, cloud archiving, coaching and external AI where required. You can read all legal documents before making a choice.</p></div>
+<h2 id="operator">1. Who provides Wythin</h2>
+<p>Wythin is operated by Alex Utkin as an individual developer. In these Terms, “Wythin,” “we” and “us” mean Alex Utkin as the service operator, not Apple, Hetzner or OpenAI. Postal contact: 77 Bruton St., San Francisco, California, USA. You can send service or privacy questions to <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a>.</p>
+<h2 id="agreement">2. Accepting this agreement and eligibility</h2>
+<p>The service is for adults aged 18 or older. You must confirm that you are at least 18 when accepting these Terms. A required, initially unchecked control asks you to agree to the identified version of these Terms. You can open and read them first. If you do not accept, onboarding does not continue and you cannot use the service. Merely opening a link, installing the app or reading this document does not express agreement.</p>
+<p>We record the version, a fingerprint of the displayed Terms, Privacy Policy and Consumer Health Data Privacy Policy and the acceptance time. A server copy, when transmitted, also records when it was received. This receipt is evidence of the contract action; it is not proof that you separately authorized any health-data use. Updated Terms do not reverse a previous privacy choice.</p>
+<h2 id="wellness">3. What the service does</h2>
+<p>Wythin supports personal wellness practices and review of measurements from compatible sensors. Features can include breathing exercises, session and activity histories, self-reported wellbeing, trends, and requested guidance. A connected sensor can supply ECG, beat-to-beat RR intervals and three-axis movement. Movement can support estimates of activity or body orientation; it is not GPS location.</p>
+<p>The proposed full-signal archive preserves supported sensor packets for later processing. Its initial daily processing checks signal quality and calculates descriptive statistics. It does not establish a comprehensive assessment of your nervous system, mood, attention, memory or cognitive ability. A feature described in this draft is not a promise that it is already available.</p>
+<h2 id="health-limits">4. Health and safety limits</h2>
+<p>Wythin is intended for general wellness, not diagnosis, treatment, emergency response or continuous medical surveillance. It does not replace a qualified clinician or professional assessment. Measurements, inferred states and AI-generated explanations can be incomplete or wrong. Sensor contact, movement, timing, missing recordings and other conditions affect results. A score does not establish a disease, a psychological condition or the cause of a change.</p>
+<p>Use exercises within your comfort and capabilities. Stop if an exercise causes discomfort, dizziness, pain or unusual symptoms. Seek appropriate medical care for health concerns. Do not delay necessary care or change prescribed treatment because of an app result. Do not perform attention-demanding or breath-holding exercises while driving or in another unsafe situation. These statements do not remove any legal duties we owe you.</p>
+<h2 id="data-permissions">5. Your information and separate permissions</h2>
+<p>The <a href="privacy-policy.html#notice-at-collection">Notice at Collection</a> explains the information requested and its purposes. The <a href="privacy-policy.html">Privacy Policy</a> explains broader practices, and the separate <a href="consumer-health-privacy.html">Consumer Health Data Privacy Policy</a> covers health information. These notices describe processing; they do not turn this contract into blanket health-data consent.</p>
+<p>Where permission is required, we must request it before the relevant collection or disclosure, with a clear explanation of the data, purpose, recipient and how to withdraw. A later opt-out does not substitute for required prior consent. A feature that depends on certain information may be unavailable when you decline that specific processing. We must not label unrelated processing “necessary” merely to make it mandatory.</p>
+<p>Optional cloud archiving, coaching access and OpenAI guidance must use their applicable controls. Refusing an optional purpose should disable the corresponding optional feature, not remove unrelated service access or your statutory rights. Existing refusals remain in force unless you affirmatively change them. Any new research, model-training or unrelated secondary purpose requires a separate assessment and any additional notice or authorization required by law.</p>
+<h2 id="providers">6. Cloud services, coaching, AI and integrations</h2>
+<p>Cloud features use Wythin-operated services hosted on Hetzner infrastructure. The current server is in Finland. A private Object Storage bucket has been provisioned in Helsinki. It is empty and is not yet connected to production recording; independent backup and verified recovery are not yet in place. Provisioning alone must not be described as active protection. Data sent from the United States can be processed outside your state or country; final locations, provider terms and safeguards must be confirmed before enabling a new transfer.</p>
+<p>If you request and authorize external AI guidance, numerical measurements and relevant summaries are sent to OpenAI to generate text. The current insight payload excludes your contact details and raw ECG. Removing a name does not make a time series anonymous. AI output can be inaccurate and should not be treated as professional advice. Provider retention and other permitted uses must be disclosed and contractually verified before activation.</p>
+<p>If you authorize coaching access, designated Wythin personnel or contracted coaches can receive the information described in that feature's permission request. Permission is not a commitment to continuous monitoring, a response time, or a medical relationship. Connecting an assistant through a personal access token can expose the data within that token's scope to the assistant you choose. Review its terms before connecting it and revoke the token when access is no longer wanted.</p>
+<h2 id="choices">7. Changing choices, stopping use and deletion</h2>
+<p>Use Settings to manage available data controls and token access. Disabling future transfer is different from deleting data already received. A completed disclosure cannot be undone by switching a control off; applicable deletion requests must also reach the relevant providers. Changes can affect the features that depend on the selected data.</p>
+<p>You may stop using the service at any time. Uninstalling the app does not request deletion of server copies. The current “Delete my cloud data” operation removes specified uploaded datasets; it is not a completed account-erasure process. A minimal disabled-consent marker can remain to prevent stale uploads from re-enabling recording. User and token records can also remain. Contact us to request broader erasure, access, correction or an explanation of remaining records. The final release must establish and test the full request process, including recipients and backups.</p>
+<p>No automatic 30-day raw-signal deletion or compaction is currently implemented. A retention schedule must be finalized before the proposed archive is enabled. Neither lossless compression nor a user-linked summary makes retained health information anonymous or removes privacy obligations.</p>
+<h2 id="use">8. Your responsibilities and permitted use</h2>
+<p>Provide information you are entitled to provide, use only your own account or authorized access, and protect access tokens and devices. Do not upload another person's health information without appropriate authority. Do not use the service to unlawfully monitor people, interfere with its operation, bypass access controls, distribute malware, or exploit private data. Nothing here restricts lawful security reporting, legal rights, or activities that applicable law protects.</p>
+<p>You retain your rights in the information you supply. You permit only the use needed to provide the features you request, within the notices, permissions and legal limits that apply. This is not a sale of your data, a transfer of ownership, or an unrestricted license to train models or conduct future research. Wythin retains rights in its software, designs and original service materials, subject to applicable licenses and your statutory rights.</p>
+<h2 id="availability">9. Availability, changes and ending access</h2>
+<p>Features depend on compatible hardware, connectivity and service availability. Recordings or transfers can fail, and the service is not an emergency system. We can maintain, correct or change features, with appropriate notice of material changes. Do not rely on Wythin as your only copy of information you need to preserve.</p>
+<p>We may restrict access when reasonably needed to address misuse, security, a material breach of these Terms or a legal requirement. Where appropriate, we will explain the restriction and how to contact us about it. Suspending service does not cancel privacy rights or lawful data requests. These Terms introduce no subscription, automatic renewal, cancellation charge or new fee. Any future paid offer must disclose its price and terms separately before purchase.</p>
+<h2 id="legal-rights">10. Apple and your legal rights</h2>
+<p>For copies obtained through Apple's App Store, the <a href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/">Apple Standard Licensed Application End User License Agreement</a> governs the app license where applicable. These Terms supplement that license for the Wythin service and are not a replacement custom EULA. Apple does not operate Wythin's cloud analysis or coaching service. Applicable App Store terms continue to apply.</p>
+<p>Nothing in these Terms waives rights or remedies that applicable consumer, privacy, health-data or other law makes nonwaivable. No provision authorizes otherwise unlawful processing. We do not exclude liability where exclusion is prohibited, or promise that a contractual disclaimer changes the regulatory status of actual product functions. This draft contains no mandatory arbitration agreement, class-action waiver or exclusive forum clause.</p>
+<h2 id="changes">11. Changes and contact</h2>
+<p>We will identify the effective version and make its text accessible in the app. Material contract changes will be presented with appropriate notice and renewed acceptance where needed. A change in collection, purpose or recipient must also undergo its own privacy review and any required new permission; continued use alone is not a substitute. If you do not accept a required contract update, you may stop using the service and exercise your applicable data rights.</p>
+<p>For questions, requests or concerns, contact <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a>. The effective date and release review must be completed before this draft can govern any user relationship.</p>
+
+<footer>Operator: Alex Utkin, individual developer.<br>Privacy and service contact: <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a>.<br>Postal contact: 77 Bruton St., San Francisco, California, USA.</footer>
+</main></body></html>

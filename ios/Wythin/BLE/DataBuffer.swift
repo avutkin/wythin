@@ -46,7 +46,7 @@ enum RawArchiveConsent {
         defaults.set(revision(in: defaults) + 1, forKey: revisionKey)
         if defaults.string(forKey: versionKey) == version,
            defaults.bool(forKey: "rawCloudSyncEnabled"),
-           defaults.object(forKey: "cloudSyncEnabled") as? Bool ?? true {
+           CloudDataConsent.isEnabled(in: defaults) {
             defaults.set(defaults.integer(forKey: serverRevisionKey), forKey: expectedRevisionKey)
         }
     }
@@ -68,7 +68,7 @@ enum RawArchiveConsent {
                            available: Bool = RawArchiveFeature.isAvailable) -> Bool {
         available && defaults.string(forKey: versionKey) == version
             && defaults.bool(forKey: "rawCloudSyncEnabled")
-            && (defaults.object(forKey: "cloudSyncEnabled") as? Bool ?? true)
+            && CloudDataConsent.isEnabled(in: defaults)
     }
 }
 

@@ -1,7 +1,12 @@
 # Full Polar archive: protocol and Hetzner rollout
 
-Updated 2026-11-15. **Prepared, not activated.** No storage has been purchased
-by this change. `RawArchiveFeature.isAvailable` remains false until the live
+Updated 2026-11-15. **Primary bucket purchased, capture not activated.** The
+private, object-lock-disabled `wythin-raw-154618769-hel1` bucket was created in
+Helsinki. The authenticated console quoted USD 7.99/month base with 1 TB included;
+over-quota storage is USD 0.0123/TB-hour and egress USD 1.20/TB. The console
+also reports partial degradation of HEL Object Storage. The bucket is empty.
+S3 credentials, encryption verification and independent backup remain pending.
+`RawArchiveFeature.isAvailable` remains false until the live
 storage, backup restore and physical recording checks below pass.
 
 ## Target and budget
@@ -26,7 +31,9 @@ Public prices checked 2026-11-15, excluding VAT, processing and overages:
 | BX11 Storage Box, 1 TB | EUR 3.20 | Independent encrypted backup |
 | Combined base | EUR 9.69 | Whole cohort, not per participant |
 
-Confirm the authenticated quote before purchase. A 1 TB block Volume at about
+The authenticated primary quote above supersedes the public EUR estimate for
+this account's billing currency. Confirm the backup quote before purchase.
+A 1 TB block Volume at about
 EUR 57.20/month is **not** the budget-equivalent replacement. Primary object
 storage grows beyond the included TB with usage charges; the 1 TB backup does
 not have unlimited room. At the conservative 10 GB/person/month estimate,
@@ -88,9 +95,9 @@ existing `RAW_ARCHIVE_ROOT` mount, and retain `RAW_ARCHIVE_REQUIRE_MOUNT=1`.
 
 New raw capture requires the explicit disclosure `raw-v1-2026-11-15`; a missing
 answer or a historical toggle is not acceptance. All three streams become
-active together after acceptance. New programme onboarding cannot finish when
-raw acceptance is declined (once rollout is enabled). Existing participants
-receive a separate notice and retain their previous opt-outs.
+active together after specific archive acceptance in Settings (once rollout is
+enabled). The mandatory onboarding gate is the service contract, not a bundled
+archive/team/AI consent. Existing participants retain their previous choices.
 
 `GET/PUT /v1/raw/consent` uses a revision comparison. Every change creates an
 append-only event and a new upload token. Uploads carry
@@ -105,9 +112,22 @@ requires a new explicit choice. A failed deletion is reported as a failure.
 Existing local chunks are retained until
 acknowledged or deliberately erased; turning transmission off is not deletion.
 
-Team access and external-AI sharing are separate existing settings. Their final
-onboarding requirements are pending the product owner's answer; **this rollout
+The product owner requested a single mandatory Terms checkbox. The prepared
+contract gate runs before AppEnvironment starts, with offline-readable Terms,
+Privacy Policy and a distinct Consumer Health Data Privacy Policy. Contract
+acceptance records the version, fingerprint of all three documents and client
+time; profile sync records an append-only server receipt. This is not data
+permission or proof of identity. A legacy upload cannot erase the receipt.
+
+General Terms cannot replace legally required specific health-data permissions.
+New missing cloud/raw/team/AI preferences remain off, and existing explicit
+choices are preserved. Archive acceptance is a separate Settings action.
+Team access and external-AI sharing remain separate controls; **this rollout
 must not silently turn those flags on, or claim new team-access enforcement**.
+Local AI opt-out now blocks all five insight request paths before transport;
+server-side consent/identity/race handling still needs release verification.
+See `docs/superpowers/plans/2026-11-15-terms-and-privacy.md` and the legal
+research report. All three legal documents remain **draft / not effective**.
 The archive worker sends no signals to OpenAI or any other LLM. The owner's
 bearer-scoped export remains separate from team-sharing preferences.
 
@@ -175,7 +195,12 @@ one worker; keep it at low scheduling priority and scale only from measurement.
    then the archive keeps growing and must be budgeted accordingly.
 6. Verify withdrawal and owner deletion in primary storage; define and implement
    deletion/expiry in backups before promising a retention deadline to people.
-7. Run all server tests and full WythinTests. Resolve team/AI onboarding wording.
+7. Run all server tests and full WythinTests. Finalize the legal documents and
+   actual notice/permission flows with US consumer-health privacy counsel.
+   Verify the supplied postal contact for publication; operator identity and
+   18+ eligibility have been confirmed. Enforce coach
+   purpose/role restrictions and revocation server-side; verify provider
+   agreements, retention, incident response and full account/backup erasure.
    Set the release availability flag only after the infrastructure checks;
    merge through the normal review flow and ship only via `tools/ship.sh`.
 8. Do a physical overnight H10 recording: background/screen lock, interruptions,
@@ -183,7 +208,12 @@ one worker; keep it at low scheduling priority and scale only from measurement.
    queue recovery. A simulator test cannot substitute for this. Start a limited
    pilot, then widen to 100 after capacity and backup evidence.
 
-Current blockers: authenticated Hetzner console is at its login screen;
-no new bucket/backup/keys exist, no live restore or overnight test has run, and
-the team/AI onboarding choice is unanswered. No billable resource or production
-configuration was changed during preparation.
+Current blockers: primary bucket exists, but S3 credential generation was blocked
+by automatic approval review because a key covers all project buckets. Explicit
+approval for that scope has been requested. No new key or independent backup is
+configured, no live restore or overnight test has run, and
+the legal/security release requirements above are incomplete. The operator
+confirmed he acts as an individual, with public postal contact 77 Bruton St.,
+San Francisco, and an 18+ audience. Address reproduced as supplied, not
+independently validated for delivery.
+The primary bucket is billable; production app/API configuration remains unchanged.

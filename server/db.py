@@ -149,6 +149,19 @@ CREATE TABLE IF NOT EXISTS profiles (
 );
 
 CREATE INDEX IF NOT EXISTS hrv_samples_session_ts ON hrv_samples(session_id, ts);
+
+-- Separate from data consents. Client time is a claim; recorded_at is our
+-- receipt time. Retry or an old client must never rewrite existing evidence.
+CREATE TABLE IF NOT EXISTS terms_acceptances (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    version TEXT NOT NULL,
+    document_sha256 TEXT NOT NULL,
+    accepted_at TIMESTAMPTZ NOT NULL,
+    client_clock_suspect BOOLEAN NOT NULL DEFAULT FALSE,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, version, document_sha256)
+);
+ALTER TABLE terms_acceptances ADD COLUMN IF NOT EXISTS client_clock_suspect BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS sessions_user_started   ON sessions(user_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS activities_user_started ON activities(user_id, started_at DESC);
 

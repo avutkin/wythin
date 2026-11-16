@@ -15,14 +15,17 @@ final class UsageUploader {
 
     private let client: UsageAPIClient
     private let userID: String
+    private let defaults: UserDefaults
 
-    init(client: UsageAPIClient, userID: String) {
+    init(client: UsageAPIClient, userID: String, defaults: UserDefaults = .standard) {
         self.client = client
         self.userID = userID
+        self.defaults = defaults
     }
 
     /// Flush all unsynced usage events from the local store in one batch.
     func flushPending(context: ModelContext) async {
+        guard CloudDataConsent.isEnabled(in: defaults) else { return }
         let descriptor = FetchDescriptor<UsageEventLog>(
             predicate: #Predicate { !$0.syncedToServer }
         )

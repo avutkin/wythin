@@ -76,7 +76,7 @@ final class FeltStateLogUploader {
     }
 
     private var isEnabled: Bool {
-        defaults.object(forKey: "cloudSyncEnabled") as? Bool ?? true
+        CloudDataConsent.isEnabled(in: defaults)
     }
 
     func flushPending(context: ModelContext) async {

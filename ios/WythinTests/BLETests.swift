@@ -13,6 +13,7 @@ final class BLETests: XCTestCase {
         defaults.set(true, forKey: "rawCloudSyncEnabled")
         XCTAssertFalse(RawArchiveConsent.mayCapture(in: defaults, available: true),
                        "an old toggle alone is not acceptance of the new disclosure")
+        defaults.set(true, forKey: "cloudSyncEnabled")
         RawArchiveConsent.accept(in: defaults)
         XCTAssertTrue(RawArchiveConsent.mayCapture(in: defaults, available: true))
         XCTAssertFalse(RawArchiveConsent.mayCapture(in: defaults, available: false))
@@ -86,6 +87,38 @@ final class BLETests: XCTestCase {
             try await client.deleteMyData(token: "synthetic-owner-token")
             XCTFail("a rejected erasure must remain a visible failure")
         } catch { }
+    }
+
+    func testOnlyConfirmedErasureInvalidatesTheProfileReceiptCache() async throws {
+        let suite = "Erasure-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RawConsentTestURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        defaults.set("uploaded-profile-and-terms", forKey: "profileLastSynced")
+        let failed = APIClient(baseURL: URL(string: "https://erase-failed.raw-consent-test.invalid")!,
+                               session: session, defaults: defaults)
+        do { try await failed.deleteMyData(token: "synthetic-owner-token") } catch { }
+        XCTAssertEqual(defaults.string(forKey: "profileLastSynced"), "uploaded-profile-and-terms")
+        let successful = APIClient(baseURL: URL(string: "https://erase-ok.raw-consent-test.invalid")!,
+                                   session: session, defaults: defaults)
+        try await successful.deleteMyData(token: "synthetic-owner-token")
+        XCTAssertNil(defaults.object(forKey: "profileLastSynced"),
+                     "re-enabling cloud must re-send the profile and Terms receipt")
+    }
+
+    func testLiveStreamingDoesNotStartWithoutCloudPermission() {
+        let suite = "StreamConsent-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let sync = SyncService(serverURL: URL(string: "https://test.invalid")!, defaults: defaults)
+        sync.beginSession(userID: "synthetic-user")
+        XCTAssertFalse(sync.isConnected)
+        defaults.set(false, forKey: "cloudSyncEnabled")
+        sync.beginSession(userID: "synthetic-user")
+        XCTAssertFalse(sync.isConnected)
     }
 
     func testCaptureAuditSurvivesRestartAndSeparatesPacketsFromSavedMetrics() throws {
@@ -900,7 +933,7 @@ private final class RawConsentTestURLProtocol: URLProtocol {
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        let code = request.httpMethod == "DELETE" ? 503 : 200
+        let code = request.url?.host?.hasPrefix("erase-failed.") == true ? 503 : 200
         let revision = request.httpMethod == "PUT" ? 1 : 0
         let body = "{\"enabled\":false,\"revision\":\(revision),\"consent_version\":null,\"token\":null}"
         let response = HTTPURLResponse(url: request.url!, statusCode: code,

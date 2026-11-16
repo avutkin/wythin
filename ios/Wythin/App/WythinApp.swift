@@ -11,7 +11,9 @@ struct WythinApp: App {
     @UIApplicationDelegateAdaptor(WythinAppDelegate.self) private var appDelegate
 
     @Environment(\.scenePhase) private var scenePhase
-    @State private var env: AppEnvironment
+    // Constructing AppEnvironment starts Bluetooth and background services.
+    // The contract gate must run before construction, not as a late sheet.
+    @State private var env: AppEnvironment?
     @State private var showSplash = true
 
     init() {
@@ -41,16 +43,24 @@ struct WythinApp: App {
             c = try! ModelContainer(for: schema, configurations: [config])
         }
         container = c
-        _env = State(initialValue: AppEnvironment(modelContainer: c))
+        _env = State(initialValue: TermsAcceptance.hasAccepted(documentSHA256: AppTerms.documentSHA256)
+                     ? AppEnvironment(modelContainer: c) : nil)
     }
 
     var body: some Scene {
         WindowGroup {
             ZStack {
-                ContentView()
-                    .environment(env)
-                    .modelContainer(container)
-                    .preferredColorScheme(.dark)
+                if let env {
+                    ContentView()
+                        .environment(env)
+                        .modelContainer(container)
+                        .preferredColorScheme(.dark)
+                } else {
+                    TermsAcceptanceView {
+                        guard TermsAcceptance.hasAccepted(documentSHA256: AppTerms.documentSHA256) else { return }
+                        env = AppEnvironment(modelContainer: container)
+                    }
+                }
 
                 if showSplash {
                     SplashView {
@@ -63,6 +73,7 @@ struct WythinApp: App {
             .preferredColorScheme(.dark)
         }
         .onChange(of: scenePhase) { _, newPhase in
+            guard let env else { return }
             env.isInForeground = (newPhase == .active)
             // An after-window closes ten minutes after its session, long after
             // the code that stored the session has finished. Coming back to the
@@ -102,14 +113,7 @@ struct ContentView: View {
     // than reset so the gate opens once and the function's own version counter
     // becomes the single source of truth from here on.
     @AppStorage("didRunActivityBackfill") private var didRunActivityBackfill = false
-    // One-time cloud-sync disclosure (sync is on by default; the notice gives an
-    // explicit, informed choice on first launch after onboarding).
-    @AppStorage("didShowCloudSyncNotice") private var didShowCloudSyncNotice = false
-    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
-    @AppStorage("rawCloudSyncEnabled") private var rawCloudSyncEnabled = false
-    @AppStorage("didShowRawArchiveNotice") private var didShowRawArchiveNotice = false
-    @State private var showCloudNotice = false
-    @State private var showRawNotice = false
+    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = false
     @State private var nudgePractice: NudgePractice?
 
     var body: some View {
@@ -149,12 +153,11 @@ struct ContentView: View {
         }
         // ── Self check-ins ─────────────────────────────────────────────────
         // On its own node, not on the tab view that already presents the
-        // cloud notice and the nudge cover: two sheets on one view fail
-        // silently. `canPresent` keeps it behind onboarding and the notice.
+        // nudge cover: two sheets on one view fail silently.
+        // `canPresent` keeps it behind onboarding.
         .task { env.checkIns.appDidBecomeActive() }
-        .onAppear { env.checkIns.canPresent = hasCompletedOnboarding && didShowCloudSyncNotice }
+        .onAppear { env.checkIns.canPresent = hasCompletedOnboarding }
         .onChange(of: hasCompletedOnboarding) { _, _ in refreshCheckInGate() }
-        .onChange(of: didShowCloudSyncNotice) { _, _ in refreshCheckInGate() }
         .sheet(item: Binding(get: { env.checkIns.presented },
                              set: { if $0 == nil { env.checkIns.skipPresented() } })) { prompt in
             CheckInSheet(prompt: prompt,
@@ -166,10 +169,9 @@ struct ContentView: View {
         }
     }
 
-    /// The gate opens a beat after the cloud notice closes, so the check-in
-    /// sheet is not presented while that one is still animating away.
+    /// Let the onboarding transition finish before presenting a check-in.
     private func refreshCheckInGate() {
-        let open = hasCompletedOnboarding && didShowCloudSyncNotice
+        let open = hasCompletedOnboarding
         if open {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { env.checkIns.canPresent = true }
         } else {
@@ -208,49 +210,6 @@ struct ContentView: View {
             guard let tab = newValue else { return }
             selectedTab = tab
             env.pendingTabRequest = nil
-        }
-        .onAppear {
-            if !didShowCloudSyncNotice {
-                showCloudNotice = true
-            } else if RawArchiveFeature.isAvailable && !didShowRawArchiveNotice {
-                showRawNotice = true
-            }
-        }
-        .sheet(isPresented: $showCloudNotice, onDismiss: {
-            if didShowCloudSyncNotice && RawArchiveFeature.isAvailable && !didShowRawArchiveNotice {
-                showRawNotice = true
-            }
-        }) {
-            CloudSyncNoticeView(
-                onKeepOn:  {
-                    cloudSyncEnabled = true
-                    env.checkIns.requestSync()
-                    didShowCloudSyncNotice = true
-                    showCloudNotice = false
-                    Task { await env.metricSync.syncIfEnabled() }
-                },
-                onTurnOff: { cloudSyncEnabled = false; didShowCloudSyncNotice = true; showCloudNotice = false }
-            )
-            .interactiveDismissDisabled()
-        }
-        .sheet(isPresented: $showRawNotice) {
-            RawArchiveNoticeView(
-                onEnable: {
-                    cloudSyncEnabled = true
-                    RawArchiveConsent.accept()
-                    rawCloudSyncEnabled = true
-                    env.checkIns.requestSync()
-                    didShowRawArchiveNotice = true
-                    showRawNotice = false
-                    Task { await env.rawSync?.syncIfEnabled() }
-                },
-                onLocalOnly: {
-                    RawArchiveConsent.revoke()
-                    rawCloudSyncEnabled = false
-                    didShowRawArchiveNotice = true
-                    showRawNotice = false
-                })
-            .interactiveDismissDisabled()
         }
         // ── Nudges ────────────────────────────────────────────────────────
         .overlay(alignment: .top) {
@@ -311,104 +270,6 @@ struct ContentView: View {
                                       client: env.sync.client)
             selectedTab = .activities
         }
-    }
-}
-
-struct RawArchiveNoticeView: View {
-    var requiredForOnboarding = false
-    let onEnable: () -> Void
-    let onLocalOnly: () -> Void
-
-    var body: some View {
-        VStack(spacing: 22) {
-            Spacer()
-            Image(systemName: "waveform.path.ecg.rectangle")
-                .font(.system(size: 44, weight: .semibold))
-                .foregroundStyle(Theme.accent)
-            Text("Archive the full Polar signal?")
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(Theme.text)
-                .multilineTextAlignment(.center)
-            VStack(spacing: 12) {
-                Text("With your agreement, Wythin stores every ECG, RR interval and three-axis motion packet delivered by your strap in an encrypted Hetzner archive and analyses new recordings once daily. No GPS is collected.")
-                Text("Full signals currently remain until you delete your cloud data. Recording may use hundreds of MB per day. Turn this off in Settings to stop new raw recording and uploads. No raw signal is archived before you agree.")
-                if requiredForOnboarding {
-                    Text("This archive and daily analysis are required to join the cloud programme. If you decline, onboarding will not finish. You can withdraw later in Settings; future raw recording and uploads will stop.")
-                }
-            }
-            .font(.system(size: 14))
-            .foregroundStyle(Theme.dim)
-            .multilineTextAlignment(.center)
-            .lineSpacing(4)
-            .padding(.horizontal, 28)
-            Spacer()
-            VStack(spacing: 10) {
-                Button(action: onEnable) {
-                    Text("I agree — enable full archive")
-                        .font(Theme.monoBody).foregroundStyle(Theme.bg)
-                        .frame(maxWidth: .infinity).padding(.vertical, 14)
-                        .background(Theme.accent).clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-                Button(action: onLocalOnly) {
-                    Text(requiredForOnboarding ? "I decline — go back" : "Do not enable the archive")
-                        .font(Theme.monoBody).foregroundStyle(Theme.dim)
-                        .frame(maxWidth: .infinity).padding(.vertical, 14)
-                        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 24)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.bg)
-    }
-}
-
-// MARK: - Cloud Sync Notice (one-time consent)
-
-private struct CloudSyncNoticeView: View {
-    let onKeepOn:  () -> Void
-    let onTurnOff: () -> Void
-
-    var body: some View {
-        VStack(spacing: 22) {
-            Spacer()
-            Image(systemName: "icloud.and.arrow.up")
-                .font(.system(size: 44, weight: .semibold))
-                .foregroundStyle(Theme.accent)
-            Text("Your data syncs to the cloud")
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(Theme.text)
-                .multilineTextAlignment(.center)
-            VStack(spacing: 12) {
-                Text("Wythin syncs your metrics — heart rate, Inner Noise, and the rest — to your private account so you can explore them from Claude Code.")
-                Text("Your data is tied to your account and only reachable with your personal token. You can turn this off anytime in Settings — then everything stays on this device.")
-            }
-            .font(.system(size: 14))
-            .foregroundStyle(Theme.dim)
-            .multilineTextAlignment(.center)
-            .lineSpacing(4)
-            .padding(.horizontal, 28)
-            Spacer()
-            VStack(spacing: 10) {
-                Button(action: onKeepOn) {
-                    Text("Keep sync on")
-                        .font(Theme.monoBody).foregroundStyle(Theme.bg)
-                        .frame(maxWidth: .infinity).padding(.vertical, 14)
-                        .background(Theme.accent).clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-                Button(action: onTurnOff) {
-                    Text("Keep my data on this device only")
-                        .font(Theme.monoBody).foregroundStyle(Theme.dim)
-                        .frame(maxWidth: .infinity).padding(.vertical, 14)
-                        .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 24)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.bg)
     }
 }
 

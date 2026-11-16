@@ -628,6 +628,11 @@ struct OnboardingConnectScreen: View {
                         .foregroundStyle(Theme.dim)
                         .multilineTextAlignment(.center)
 
+                    Text("Connecting asks Wythin to read your ECG, heartbeat intervals and movement for live wellness readings. This is not GPS. Cloud storage and sharing require their own choices in Settings. Disconnect the sensor to stop receiving readings.")
+                        .font(Theme.monoLabel)
+                        .foregroundStyle(Theme.dim)
+                        .multilineTextAlignment(.center)
+
                     Button(action: onOpenBLE) {
                         HStack(spacing: 8) {
                             if isBusy {

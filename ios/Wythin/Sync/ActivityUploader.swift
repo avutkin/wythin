@@ -292,6 +292,7 @@ final class ActivityUploader {
     }
 
     func flushPending(context: ModelContext) async {
+        guard CloudDataConsent.isEnabled() else { return }
         let since = ActivityUploadWatermark.value
 
         // Fetch all and filter in Swift — keeps the SwiftData predicate simple
@@ -305,6 +306,7 @@ final class ActivityUploader {
 
         var maxEnded = since
         for entry in pending {
+            guard CloudDataConsent.isEnabled() else { break }
             do {
                 _ = try await client.uploadActivity(ActivityUploadPayload(from: entry), userID: userID)
                 if let e = entry.endedAt, e > maxEnded { maxEnded = e }

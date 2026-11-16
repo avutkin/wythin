@@ -15,19 +15,23 @@ final class SyncService {
     private let maxDelay:       TimeInterval = 60
     private var userID:         String?
     private var streamActive    = false
+    private var reconnectTask: Task<Void, Never>?
+    private let defaults: UserDefaults
 
     let client: APIClient
     private let urlSession = URLSession(configuration: .default)
 
-    init(serverURL: URL) {
+    init(serverURL: URL, defaults: UserDefaults = .standard) {
         self.serverURL = serverURL
-        self.client    = APIClient(baseURL: serverURL)
+        self.defaults = defaults
+        self.client    = APIClient(baseURL: serverURL, defaults: defaults)
     }
 
     // MARK: WebSocket — live streaming
 
     func beginSession(userID: String) {
         self.userID   = userID
+        guard CloudDataConsent.isEnabled(in: defaults) else { endStream(); return }
         streamActive  = true
         reconnectDelay = 2
         connect(userID: userID)
@@ -35,12 +39,15 @@ final class SyncService {
 
     func endStream() {
         streamActive = false
+        reconnectTask?.cancel()
+        reconnectTask = nil
         wsTask?.cancel(with: .goingAway, reason: nil)
         wsTask    = nil
         isConnected = false
     }
 
     func sendTick(_ tick: MetricsTick, userID: String) {
+        guard CloudDataConsent.isEnabled(in: defaults) else { endStream(); return }
         guard isConnected, let ws = wsTask else { return }
         let payload = TickPayload(from: tick, userID: userID)
         guard let data = try? JSONEncoder().encode(payload) else { return }
@@ -57,6 +64,7 @@ final class SyncService {
     // MARK: Private — WebSocket lifecycle
 
     private func connect(userID: String) {
+        guard streamActive, CloudDataConsent.isEnabled(in: defaults) else { endStream(); return }
         let wsURL = serverURL
             .deletingPathExtension()
             .appendingPathComponent("stream")
@@ -88,11 +96,13 @@ final class SyncService {
     }
 
     private func scheduleReconnect() {
-        guard streamActive, let uid = userID else { return }
+        guard streamActive, CloudDataConsent.isEnabled(in: defaults), let uid = userID else { return }
         let delay = reconnectDelay
         reconnectDelay = min(reconnectDelay * 2, maxDelay)
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(delay))
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            guard !Task.isCancelled else { return }
             self?.connect(userID: uid)
         }
     }

@@ -3,10 +3,10 @@ Pydantic request/response schemas.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, Field, field_validator
 import uuid
 
 
@@ -115,6 +115,24 @@ class MetricsUpload(BaseModel):
     samples: list[MetricSample]
 
 
+class TermsReceipt(BaseModel):
+    """Client-reported contract acceptance, never a health-data permission.
+
+    Authentication hardening is a release gate: this receipt does not prove the
+    real-world identity of a caller presenting the current shared app key.
+    """
+    version: str = Field(pattern=r"^terms-v[1-9][0-9]*-\d{4}-\d{2}-\d{2}$", max_length=64)
+    document_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    accepted_at: AwareDatetime
+
+    @property
+    def client_clock_suspect(self) -> bool:
+        # Preserve the claim and mark skew; do not make every later profile or
+        # permission update fail because of an immutable, wrong device clock.
+        return (self.accepted_at > datetime.now(timezone.utc) + timedelta(minutes=5)
+                or self.accepted_at < datetime(2026, 11, 15, tzinfo=timezone.utc))
+
+
 class ProfileUpload(BaseModel):
     first_name: Optional[str] = None
     last_name:  Optional[str] = None
@@ -142,6 +160,9 @@ class ProfileUpload(BaseModel):
     # The phone's current IANA zone — the clock the dashboard shows this
     # person's day in.
     timezone:            Optional[str] = None
+    # Legacy uploads omit this. Omission is not acceptance or withdrawal and
+    # must not erase a previously received record.
+    terms_receipt: Optional[TermsReceipt] = None
 
     _zone = field_validator("timezone")(lambda cls, v: zone_or_none(v))
 

@@ -4,6 +4,56 @@ import SwiftData
 
 final class InsightGeneratorTests: XCTestCase {
 
+    @MainActor
+    func testCloudOptOutBlocksSessionActivityAndUsageBeforeTransport() async {
+        let defaults = UserDefaults.standard
+        let old = defaults.object(forKey: "cloudSyncEnabled")
+        defaults.set(false, forKey: "cloudSyncEnabled")
+        defer { defaults.set(old, forKey: "cloudSyncEnabled") }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ConsentProbeURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let client = APIClient(baseURL: URL(string: "https://test.invalid")!, session: session)
+        let activity = ActivityLog(activityType: "Walk", startedAt: .now, endedAt: .now, isManual: true)
+        let operations: [() async throws -> Void] = [
+            { _ = try await client.uploadSession(SessionPayload(from: HRVSession()), userID: "test") },
+            { _ = try await client.uploadActivity(ActivityUploadPayload(from: activity), userID: "test") },
+            { try await client.uploadUsage(UsageUploadPayload(events: []), userID: "test") },
+        ]
+        for operation in operations {
+            do { try await operation(); XCTFail("Cloud request succeeded without permission") }
+            catch { XCTAssertEqual((error as? URLError)?.code, .dataNotAllowed) }
+        }
+    }
+
+    @MainActor
+    func testAIOptOutBlocksBeforeAnyNetworkRequest() async {
+        let defaults = UserDefaults.standard
+        let key = OnboardingConsent.aiInsightsKey
+        let old = defaults.object(forKey: key)
+        let oldCloud = defaults.object(forKey: "cloudSyncEnabled")
+        defaults.set(true, forKey: "cloudSyncEnabled")
+        defer {
+            if let old { defaults.set(old, forKey: key) } else { defaults.removeObject(forKey: key) }
+            defaults.set(oldCloud, forKey: "cloudSyncEnabled")
+        }
+        defaults.set(false, forKey: key)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ConsentProbeURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let client = APIClient(baseURL: URL(string: "https://test.invalid")!, session: session)
+        let entry = ActivityLog(activityType: "Walk", startedAt: .now, endedAt: .now, isManual: true)
+        do {
+            _ = try await client.generateInsight(InsightPayload(from: entry))
+            XCTFail("AI request unexpectedly succeeded without permission")
+        } catch {
+            XCTAssertEqual((error as? URLError)?.code, .dataNotAllowed,
+                           "permission must stop the request before the transport is called")
+        }
+    }
+
     private func makeContext() -> ModelContext {
         let schema = Schema([ActivityLog.self])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
@@ -225,4 +275,13 @@ final class InsightGeneratorTests: XCTestCase {
 
         XCTAssertEqual(night.sleepReadText, "already read")
     }
+}
+
+private final class ConsentProbeURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
+    }
+    override func stopLoading() {}
 }

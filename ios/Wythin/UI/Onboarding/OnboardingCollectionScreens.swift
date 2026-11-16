@@ -274,7 +274,7 @@ struct OnboardingContactScreen: View {
             question: "Tell us a bit more about you",
             subtitle: "So your coach knows who they're working with.",
             canContinue: canContinue,
-            continueTitle: RawArchiveFeature.isAvailable ? "Continue" : "Finish",
+            continueTitle: "Finish",
             onBack: onBack,
             onContinue: onContinue
         ) {
@@ -358,15 +358,15 @@ struct DataSharingDetailSheet: View {
 
                     section(
                         title: "What is never sent to \(AIProvider.name)",
-                        body: "Your name, phone number and email address. Your raw ECG. Anything from a session you deleted.")
+                        body: "The insight request does not include your name, phone number, email address or raw ECG. Previously delivered requests cannot be recalled by deleting a local session.")
 
                     section(
-                        title: "Why these aren't optional",
-                        body: "Wythin is a coached programme, not a solo tracker. Without your sessions reaching a coach, and without the guidance that's written from them, there is no programme to give you — so we ask you to agree rather than pretend it's a preference.")
+                        title: "Your choice",
+                        body: "These permissions are separate from accepting the Terms & Conditions. New installs start with sharing off. You can request coaching or AI guidance in Settings; accepting the contract does not enable either.")
 
                     section(
                         title: "Changing your mind",
-                        body: "Both switches stay in Settings. Turning one off stops future sharing immediately, and ask us and we'll delete what was already sent — but it also turns off the coaching those switches pay for.")
+                        body: "Both switches stay in Settings. Turning AI guidance off prevents new AI requests from this device. Turning a switch off does not delete previously uploaded data. See the Consumer Health Data Privacy Policy for withdrawal and deletion requests, including data held by providers.")
                 }
                 .padding(.top, 22)
                 .padding(.bottom, 24)

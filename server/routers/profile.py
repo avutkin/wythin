@@ -14,7 +14,7 @@ router = APIRouter(prefix="/v1/profile", tags=["profile"])
 @router.post("")
 async def save_profile(body: ProfileUpload, x_user_id: str = Header(..., alias="X-User-ID")):
     user_id = await get_or_create_user(x_user_id)
-    async with get_pool().acquire() as conn:
+    async with get_pool().acquire() as conn, conn.transaction():
         await conn.execute(
             "INSERT INTO profiles "
             "(user_id, first_name, last_name, phone, email, age_range, gender, "
@@ -43,4 +43,11 @@ async def save_profile(body: ProfileUpload, x_user_id: str = Header(..., alias="
             body.state_sleep_quality, body.state_stress,
             body.consent_share_team, body.consent_ai_insights, body.timezone,
         )
-    return {"status": "saved"}
+        if body.terms_receipt is not None:
+            receipt = body.terms_receipt
+            await conn.execute("""INSERT INTO terms_acceptances
+                (user_id,version,document_sha256,accepted_at,client_clock_suspect)
+                VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING""",
+                user_id, receipt.version, receipt.document_sha256, receipt.accepted_at,
+                receipt.client_clock_suspect)
+    return {"status": "saved", "terms_receipt_saved": body.terms_receipt is not None}

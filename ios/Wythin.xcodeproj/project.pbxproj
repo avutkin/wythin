@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		ALEGAL1 /* TermsGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = FLEGAL1 /* TermsGate.swift */; };
+		ALEGAL2 /* terms-and-conditions.html in Resources */ = {isa = PBXBuildFile; fileRef = FLEGAL2; };
+		ALEGAL3 /* privacy-policy.html in Resources */ = {isa = PBXBuildFile; fileRef = FLEGAL3; };
+		ALEGAL4 /* consumer-health-privacy.html in Resources */ = {isa = PBXBuildFile; fileRef = FLEGAL4; };
 		43A37C75E1DB1B68CE8566C1 /* ActivityTypeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */; };
 		0B1BBEB3233955BB0B6A1F00 /* LiveSessionUpdatePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 876CEF480CFB7EAD339CF1FF /* LiveSessionUpdatePolicyTests.swift */; };
 		4032933228B56FA9C4A74EC4 /* ActivityTimeMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CDB84720371C4A5F65C58A2 /* ActivityTimeMathTests.swift */; };
@@ -323,6 +327,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		FLEGAL1 /* TermsGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TermsGate.swift; sourceTree = "<group>"; };
+		FLEGAL2 /* terms-and-conditions.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "../docs/terms-and-conditions.html"; sourceTree = SOURCE_ROOT; };
+		FLEGAL3 /* privacy-policy.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "../docs/privacy-policy.html"; sourceTree = SOURCE_ROOT; };
+		FLEGAL4 /* consumer-health-privacy.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "../docs/consumer-health-privacy.html"; sourceTree = SOURCE_ROOT; };
 		12BB690F25F54B750AA42F4A /* ActivityTypeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTypeTests.swift; sourceTree = "<group>"; };
 		876CEF480CFB7EAD339CF1FF /* LiveSessionUpdatePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveSessionUpdatePolicyTests.swift; sourceTree = "<group>"; };
 		7CDB84720371C4A5F65C58A2 /* ActivityTimeMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityTimeMathTests.swift; sourceTree = "<group>"; };
@@ -660,6 +668,9 @@
 				GAPP_UI /* UI */,
 				FRES1 /* Assets.xcassets */,
 				FRES2 /* PrivacyInfo.xcprivacy */,
+				FLEGAL2 /* terms-and-conditions.html */,
+				FLEGAL3 /* privacy-policy.html */,
+				FLEGAL4 /* consumer-health-privacy.html */,
 				FINFO /* Info.plist */,
 			);
 			path = Wythin;
@@ -704,6 +715,7 @@
 			isa = PBXGroup;
 			children = (
 				F101 /* WythinApp.swift */,
+				FLEGAL1 /* TermsGate.swift */,
 				E02F045E1EC55D2E98AF5D68 /* LiveSessionController.swift */,
 				F102 /* AppEnvironment.swift */,
 				F247 /* NudgeRouting.swift */,
@@ -1195,6 +1207,9 @@
 			files = (
 				ARES1 /* Assets.xcassets in Resources */,
 				ARES2 /* PrivacyInfo.xcprivacy in Resources */,
+				ALEGAL2 /* terms-and-conditions.html in Resources */,
+				ALEGAL3 /* privacy-policy.html in Resources */,
+				ALEGAL4 /* consumer-health-privacy.html in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1205,6 +1220,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				ALEGAL1 /* TermsGate.swift in Sources */,
 				A800 /* SleepStageDetail.swift in Sources */,
 				A777 /* SleepBreathing.swift in Sources */,
 				A776 /* SleepDetailView.swift in Sources */,

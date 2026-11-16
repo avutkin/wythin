@@ -102,8 +102,8 @@ enum OnboardingConsent {
     static let aiInsightsKey    = "aiInsightsEnabled"
 
     /// Change these to flip what a fresh install starts with. Nothing else.
-    static let shareWithTeamDefault = true
-    static let aiInsightsDefault    = true
+    static let shareWithTeamDefault = false
+    static let aiInsightsDefault    = false
 
     static func value(forKey key: String, default fallback: Bool,
                       in defaults: UserDefaults = .standard) -> Bool {
@@ -118,6 +118,13 @@ enum OnboardingConsent {
         value(forKey: aiInsightsKey, default: aiInsightsDefault, in: defaults)
     }
 
+}
+
+enum CloudDataConsent {
+    static let key = "cloudSyncEnabled"
+    static func isEnabled(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: key) // missing is never permission
+    }
 }
 
 // MARK: - Units

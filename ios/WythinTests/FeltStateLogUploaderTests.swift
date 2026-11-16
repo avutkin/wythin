@@ -13,6 +13,7 @@ final class FeltStateLogUploaderTests: XCTestCase {
         super.setUp()
         defaults = UserDefaults(suiteName: defaultsSuite)!
         defaults.removePersistentDomain(forName: defaultsSuite)
+        defaults.set(true, forKey: "cloudSyncEnabled")
         UserDefaults.standard.removeObject(forKey: watermarkKey)
     }
 
@@ -254,13 +255,13 @@ final class FeltStateLogUploaderTests: XCTestCase {
         defer { session.invalidateAndCancel() }
         let payload = FeltStateUploadPayload(from: log(at: .now))
         for scenario in ["empty", "html", "missing-id", "zero-id", "wrong-type", "server-error", "conflict"] {
-            let client = APIClient(baseURL: URL(string: "https://\(scenario).checkin-test.invalid")!, session: session)
+            let client = APIClient(baseURL: URL(string: "https://\(scenario).checkin-test.invalid")!, session: session, defaults: defaults)
             do {
                 try await client.uploadFeltStateLog(payload, userID: "u")
                 XCTFail("\(scenario) must remain pending")
             } catch { /* no server acknowledgement */ }
         }
-        let client = APIClient(baseURL: URL(string: "https://valid.checkin-test.invalid")!, session: session)
+        let client = APIClient(baseURL: URL(string: "https://valid.checkin-test.invalid")!, session: session, defaults: defaults)
         try await client.uploadFeltStateLog(payload, userID: "u")
     }
 

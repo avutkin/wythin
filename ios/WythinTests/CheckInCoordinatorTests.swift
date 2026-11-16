@@ -70,6 +70,8 @@ final class CheckInCoordinatorTests: XCTestCase {
         clock = Clock(at(2026, 9, 14, 8, 2))
         defaults = UserDefaults(suiteName: "CheckInCoordinatorTests")!
         defaults.removePersistentDomain(forName: "CheckInCoordinatorTests")
+        // Upload/retry scenarios model an explicitly enabled cloud feature.
+        defaults.set(true, forKey: "cloudSyncEnabled")
         UserDefaults.standard.removeObject(forKey: watermarkKey)
     }
 

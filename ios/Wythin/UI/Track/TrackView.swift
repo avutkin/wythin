@@ -190,7 +190,7 @@ struct TrackView: View {
         macroText = nil
         // Same consent gate the uploaders read (AppEnvironment.swift:291);
         // defaults to on when the key was never written.
-        guard UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true else { return }
+        guard CloudDataConsent.isEnabled() else { return }
         macroLoading = true
         let text = await macroRead(for: period, range: range, series: seriesList,
                                    cache: cache,

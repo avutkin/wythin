@@ -826,7 +826,7 @@ final class AppEnvironment {
     /// Buffer a usage event (foreground interval / ECG-recording wear) locally
     /// and kick an upload. No-op when cloud sync is off or the interval is empty.
     func logUsageEvent(type: String, start: Date) {
-        let syncOn = UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true
+        let syncOn = CloudDataConsent.isEnabled()
         guard syncOn else { return }
         let durationMs = Int(Date().timeIntervalSince(start) * 1000)
         guard durationMs > 0 else { return }

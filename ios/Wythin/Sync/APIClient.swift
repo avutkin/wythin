@@ -348,6 +348,7 @@ struct ProfilePayload: Codable {
     /// their own clock. Travels with the profile because the profile is the one
     /// thing re-sent whenever it changes — a new zone is a changed profile.
     let timezone:            String
+    var terms_receipt: TermsReceipt? = nil
 }
 
 struct ServerSession: Codable {
@@ -367,16 +368,23 @@ struct UploadResponse: Codable {
 struct APIClient {
     let baseURL: URL
     private let session: URLSession
+    private let defaults: UserDefaults
     private let iso = ISO8601DateFormatter()
 
-    init(baseURL: URL, session: URLSession = .shared) {
+    init(baseURL: URL, session: URLSession = .shared, defaults: UserDefaults = .standard) {
         self.baseURL = baseURL
         self.session = session
+        self.defaults = defaults
+    }
+
+    private func requireCloudConsent() throws {
+        guard CloudDataConsent.isEnabled(in: defaults) else { throw URLError(.dataNotAllowed) }
     }
 
     // MARK: Sessions
 
     func uploadSession(_ payload: SessionPayload, userID: String) async throws -> UploadResponse {
+        try requireCloudConsent()
         var req = request(path: "/sessions", method: "POST")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
@@ -387,6 +395,7 @@ struct APIClient {
     // MARK: Activities
 
     func uploadActivity(_ payload: ActivityUploadPayload, userID: String) async throws -> UploadResponse {
+        try requireCloudConsent()
         var req = request(path: "/activities", method: "POST")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
@@ -397,6 +406,7 @@ struct APIClient {
     // MARK: Felt-state check-ins
 
     func uploadFeltStateLog(_ payload: FeltStateUploadPayload, userID: String) async throws {
+        try requireCloudConsent()
         var req = request(path: "/felt-state-logs", method: "POST")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
@@ -494,6 +504,7 @@ struct APIClient {
     }
 
     func uploadMetrics(_ payload: MetricsUploadPayload, userID: String) async throws -> MetricsUploadResponse {
+        try requireCloudConsent()
         var req = request(path: "/v1/metrics", method: "POST")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
@@ -506,6 +517,7 @@ struct APIClient {
     }
 
     func uploadUsage(_ payload: UsageUploadPayload, userID: String) async throws {
+        try requireCloudConsent()
         var req = request(path: "/v1/usage", method: "POST")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
@@ -522,9 +534,13 @@ struct APIClient {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
+        // Re-enabling cloud must republish the local profile/Terms receipt.
+        // A failed deletion must not invalidate the last successful upload.
+        defaults.removeObject(forKey: "profileLastSynced")
     }
 
     func uploadProfile(_ payload: ProfilePayload, userID: String) async throws {
+        try requireCloudConsent()
         var req = request(path: "/v1/profile", method: "POST")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
@@ -540,7 +556,16 @@ struct APIClient {
 
     // MARK: Insights
 
+    private func requireAIConsent() throws {
+        // The server also checks consent, but it may still hold an older
+        // profile while offline/retrying. Do not transmit this device's next
+        // AI payload after the local permission is withdrawn.
+        try requireCloudConsent()
+        guard OnboardingConsent.aiInsights(in: defaults) else { throw URLError(.dataNotAllowed) }
+    }
+
     func generateInsight(_ payload: InsightPayload) async throws -> InsightResponse {
+        try requireAIConsent()
         var req = request(path: "/insights", method: "POST")
         req.addValue(DeviceIdentity.current, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
@@ -549,6 +574,7 @@ struct APIClient {
     }
 
     func generateDayPotentialInsight(_ payload: DayPotentialPayload) async throws -> InsightResponse {
+        try requireAIConsent()
         var req = request(path: "/insights", method: "POST")
         req.addValue(DeviceIdentity.current, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
@@ -557,6 +583,7 @@ struct APIClient {
     }
 
     func generateLiveStateInsight(_ payload: LiveStateInsightPayload) async throws -> InsightResponse {
+        try requireAIConsent()
         var req = request(path: "/insights", method: "POST")
         req.addValue(DeviceIdentity.current, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
@@ -565,6 +592,7 @@ struct APIClient {
     }
 
     func generateSleepInsight(_ payload: SleepInsightPayload) async throws -> InsightResponse {
+        try requireAIConsent()
         var req = request(path: "/insights", method: "POST")
         // Without this header the server cannot check consent, and a request
         // whose consent cannot be checked is refused rather than waved through.
@@ -575,6 +603,7 @@ struct APIClient {
     }
 
     func generateMacroTrendInsight(_ payload: MacroTrendPayload) async throws -> InsightResponse {
+        try requireAIConsent()
         var req = request(path: "/insights", method: "POST")
         req.addValue(DeviceIdentity.current, forHTTPHeaderField: "X-User-ID")
         req.httpBody = try JSONEncoder().encode(payload)
@@ -823,7 +852,7 @@ final class MetricSyncService {
     private let client: APIClient
     private let userID: String
     private let container: ModelContainer
-    @ObservationIgnored @AppStorage("cloudSyncEnabled") private var enabled = true
+    @ObservationIgnored @AppStorage("cloudSyncEnabled") private var enabled = false
     @ObservationIgnored @AppStorage("metricsLastSyncedAt") private var lastSyncedISO = ""
     // Date's full precision is needed for the SwiftData cursor. The older ISO
     // watermark remains for migration from already installed app versions.
@@ -887,7 +916,8 @@ final class MetricSyncService {
             state_stress: p.state.stress,
             consent_share_team: OnboardingConsent.shareWithTeam(),
             consent_ai_insights: OnboardingConsent.aiInsights(),
-            timezone: TimeZone.current.identifier)
+            timezone: TimeZone.current.identifier,
+            terms_receipt: TermsAcceptance.receipt())
         if let encoded = try? Self.profileEncoder.encode(profile) {
             let canonical = String(decoding: encoded, as: UTF8.self)
             if canonical != syncedProfile,

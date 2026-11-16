@@ -22,12 +22,16 @@ onboarding and the data protocol. Position means body orientation from ACC, not 
 ## Consent and rollout
 
 No historical refusal becomes consent. Capture and upload require an explicit,
-versioned archive acceptance. Declining the core archive onboarding may stop the
-cloud programme; it cannot prevent an App Store download. Settings can stop new
+versioned archive acceptance. Mandatory contract acceptance gates onboarding;
+it does not grant archive/team/AI permissions or prevent an App Store download.
+Specific archive permission is requested in Settings. Settings can stop new
 collection and transmission. Existing pending uploads must respect revocation.
-Team access and external AI are separately described purposes; the product choice
-about making them optional is awaiting the user's answer. Do not deploy a
-contradictory or undisclosed consent flow in the meantime.
+Team access and external AI are separately described purposes. The requested
+single Terms checkbox cannot replace specific sensitive-data permission where
+law requires it. The legal follow-up implements a contract gate with separate
+data controls and default-off missing choices; see the terms-and-privacy plan.
+Do not deploy until legal, authentication and server permission enforcement
+requirements are verified against the actual release.
 
 ## Capacity and retention
 

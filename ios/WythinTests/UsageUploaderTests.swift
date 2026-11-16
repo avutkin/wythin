@@ -7,6 +7,36 @@ import SwiftData
 /// touched on the main actor — passing it somewhere that hops off main is a
 /// crash waiting for a race to lose.
 final class UsageUploaderTests: XCTestCase {
+    private let suite = "UsageUploaderTests-\(UUID().uuidString)"
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        super.setUp()
+        defaults = UserDefaults(suiteName: suite)!
+        defaults.set(true, forKey: "cloudSyncEnabled")
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suite)
+        super.tearDown()
+    }
+
+    @MainActor
+    func testCloudOffKeepsUsagePendingUntilExplicitEnable() async {
+        let context = makeContext()
+        let event = UsageEventLog(eventType: "ecg_recording", ts: .now, durationMs: 5_000)
+        context.insert(event)
+        let client = ThreadRecordingClient()
+        let uploader = UsageUploader(client: client, userID: "u", defaults: defaults)
+        defaults.set(false, forKey: "cloudSyncEnabled")
+        await uploader.flushPending(context: context)
+        XCTAssertEqual(client.uploadCount, 0)
+        XCTAssertFalse(event.syncedToServer)
+        defaults.set(true, forKey: "cloudSyncEnabled")
+        await uploader.flushPending(context: context)
+        XCTAssertEqual(client.uploadCount, 1)
+        XCTAssertTrue(event.syncedToServer)
+    }
 
     private func makeContext() -> ModelContext {
         let schema = Schema([UsageEventLog.self])
@@ -45,7 +75,7 @@ final class UsageUploaderTests: XCTestCase {
         let event = UsageEventLog(eventType: "ecg_recording", ts: .now, durationMs: 5_000)
         context.insert(event)
 
-        await UsageUploader(client: ThreadRecordingClient(), userID: "u")
+        await UsageUploader(client: ThreadRecordingClient(), userID: "u", defaults: defaults)
             .flushPending(context: context)
 
         XCTAssertTrue(event.syncedToServer)
@@ -58,7 +88,7 @@ final class UsageUploaderTests: XCTestCase {
         let event = UsageEventLog(eventType: "foreground", ts: .now, durationMs: 1_000)
         context.insert(event)
 
-        await UsageUploader(client: FailingClient(), userID: "u").flushPending(context: context)
+        await UsageUploader(client: FailingClient(), userID: "u", defaults: defaults).flushPending(context: context)
 
         XCTAssertFalse(event.syncedToServer)
     }
@@ -66,7 +96,7 @@ final class UsageUploaderTests: XCTestCase {
     @MainActor
     func testNothingIsUploadedWhenThereIsNothingPending() async {
         let client = ThreadRecordingClient()
-        await UsageUploader(client: client, userID: "u").flushPending(context: makeContext())
+        await UsageUploader(client: client, userID: "u", defaults: defaults).flushPending(context: makeContext())
         XCTAssertEqual(client.uploadCount, 0)
     }
 
@@ -78,7 +108,7 @@ final class UsageUploaderTests: XCTestCase {
         context.insert(event)
 
         let client = ThreadRecordingClient()
-        await UsageUploader(client: client, userID: "u").flushPending(context: context)
+        await UsageUploader(client: client, userID: "u", defaults: defaults).flushPending(context: context)
 
         XCTAssertEqual(client.uploadCount, 0)
     }

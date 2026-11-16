@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Wythin — Privacy Policy</title>
+<meta name="robots" content="noindex">
+<title>Wythin — Privacy Policy — Draft</title>
 <style>
   :root {
     --bg: #ffffff; --text: #1a1a1c; --dim: #5f5f68;
@@ -46,113 +47,65 @@
   th { color: var(--dim); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; }
   .wrap { overflow-x: auto; }
   footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border); color: var(--dim); font-size: .9rem; }
+
+  nav { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin: 1.25rem 0 2rem; }
+  .draft { border: 2px solid currentColor; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 2rem; }
+  .draft p { margin: .4rem 0; }
+  :focus-visible { outline: 3px solid currentColor; outline-offset: 4px; }
+  @media print { body { padding: 0; } a { color: inherit; } }
 </style>
 </head>
-<body>
-<main>
+<body><main>
+<h1>Privacy Policy</h1>
+<p class="meta">Wythin · Draft prepared 15 November 2026 · Version <code>privacy-v1-2026-11-15</code></p>
+<div class="draft" role="note"><strong>DRAFT FOR REVIEW — NOT EFFECTIVE</strong>
+<p>This is a proposed document, not the policy currently in force and not an authorization to collect or share data. Do not use it to enroll users until the release checks and legal review are complete. No effective date has been set.</p>
+<p>The operator is Alex Utkin, an individual, at 77 Bruton St., San Francisco, California, USA. Wythin is for adults aged 18 or older. The described practices and release controls still require verification. Unavailable features and unfinished controls must be completed or removed from the release.</p></div>
+<nav aria-label="Legal documents"><a href="terms-and-conditions.html">Terms &amp; Conditions</a><a href="privacy-policy.html">Privacy Policy</a><a href="consumer-health-privacy.html">Consumer Health Data Privacy Policy</a></nav>
 
-  <h1>Wythin — Privacy Policy</h1>
-  <p class="meta">Last updated 29 July 2026</p>
+<div class="summary"><p>This draft explains Wythin's proposed release and identifies material pilot limitations. It does not authorize processing. <strong>General Terms acceptance does not enable optional cloud, coaching or AI permissions.</strong> Health-data details are available in the separate <a href="consumer-health-privacy.html">Consumer Health Data Privacy Policy</a>.</p></div>
+<h2 id="operator">Who is responsible</h2>
+<p>The operator is Alex Utkin, an individual developer. Postal contact: 77 Bruton St., San Francisco, California, USA. Privacy questions and requests can be sent to <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a>. This draft must not replace the effective policy until the described controls and required details are verified.</p>
+<h2 id="notice-at-collection">Notice at Collection</h2>
+<p>Wythin processes the categories below when you provide them, connect a sensor or use the relevant feature. Information that can be linked to you remains personal information even when your name is removed. ECG, RR, health-related self-reports and inferred physical or mental states are treated as sensitive health information. Collection and disclosure require the appropriate notice and permission, or a documented legal exception, before they occur.</p>
+<div class="wrap"><table>
+<thead><tr><th scope="col">Information and source</th><th scope="col">Purpose and choice</th><th scope="col">Retention criteria</th></tr></thead>
+<tbody>
+<tr><td>Name and email supplied during onboarding; optional phone number.</td><td>The current onboarding requires first name, last name and email. Phone is optional. They identify your profile and support contact. Necessity of each required field must be reviewed before release.</td><td>Stored with the profile until deleted or no longer needed for the documented purpose, subject to limited legal retention.</td></tr>
+<tr><td>Age range, gender, goals, practices, devices, baseline self-ratings, and optional height and weight supplied by you.</td><td>Personalize the wellness experience and compare your own reported state with sessions. Current onboarding requires age range, gender and baseline input; height and weight are optional.</td><td>Stored with your profile or history under the same deletion and purpose criteria.</td></tr>
+<tr><td>ECG waveform, RR intervals, three-axis acceleration, sensor metadata and timestamps from a connected compatible sensor.</td><td>Display and calculate readings. Full-signal archiving is a separate, currently disabled rollout. Accelerometer-derived orientation is not geographic location.</td><td>Live processing uses temporary buffers. The proposed raw archive has no automatic 30-day deletion; its final retention schedule is a release prerequisite.</td></tr>
+<tr><td>Calculated heart-rate, variability, breathing, quality and movement measurements; session/activity history and associated times.</td><td>Personal trends, requested session review, and applicable optional cloud or guidance features.</td><td>Current stored history remains until deleted; the release must define a proportionate schedule and exceptions.</td></tr>
+<tr><td>Self-reported focus, mood, stress, energy, anxiety and sleep; check-ins and goals.</td><td>Show your responses and contextualize your experience. These are reports and estimates, not diagnoses.</td><td>Stored in your history until deletion or the end of the defined purpose.</td></tr>
+<tr><td>App/user identifiers, device and time-zone information, settings, usage times and durations, diagnostic and service records.</td><td>Operate sync, identify data ownership, troubleshoot and maintain the service. These records can remain linked to you.</td><td>Only for the operational purpose and required period; detailed diagnostic retention must be finalized before release.</td></tr>
+<tr><td>Terms and permission versions, timestamps, and revocation records.</td><td>Record choices, apply access controls and prevent stale requests from reversing withdrawal.</td><td>A limited record may remain after content deletion where needed for that purpose or legal obligations; a final schedule and request response must explain it.</td></tr>
+</tbody></table></div>
+<p>Wythin does not propose selling personal information, disclosing it for cross-context behavioral advertising, or using it for targeted advertising. Ordinary service disclosures to hosting, requested coaches or AI providers are described below; they must not be concealed behind a broad “no sharing” statement.</p>
+<h2 id="purposes">Purposes and permissions</h2>
+<p>Local sensor processing, cloud history, full raw archiving, coaching access and external AI are different purposes. The proposed release must explain and obtain each required permission before the relevant operation. A required contract checkbox is not a universal privacy permission. Required processing must be necessary to the specific service you request; unrelated research or future analytical flexibility must not silently inherit that justification.</p>
+<p>We do not authorize new research, model training, advertising or unrelated secondary use through this notice. If a new purpose is proposed, it requires assessment, appropriate notice and any legally required separate consent. An inferred state or summary is still health information when linked to a person.</p>
+<h2 id="recipients">Recipients and processing locations</h2>
+<p><strong>Hetzner:</strong> Wythin's current cloud server is hosted in Finland. Data uploaded for cloud features includes the records needed for those features and is transmitted over HTTPS. A private Object Storage bucket has been provisioned in Helsinki, but is not connected to production recording. Archive encryption, independent backup and recovery still require configuration and verification. Final provider contracts, locations, access restrictions, retention and deletion arrangements must be verified before activation.</p>
+<p><strong>OpenAI:</strong> when you request and specifically permit external AI guidance, relevant numerical measurements and summaries are sent to OpenAI to generate text. The current insight payload does not include name, email, phone number or raw ECG. It can still be sensitive or identifiable. The applicable provider retention, permitted uses and subprocessors must be established before release; this draft does not promise zero retention or training exclusions that have not been verified.</p>
+<p><strong>Coaches and service personnel:</strong> a permitted coaching feature can disclose identified profile, session and measurement information to designated Wythin personnel or contracted coaches. The intended permission boundary must be enforced on the server before this feature is offered under this policy. Service administration must also be purpose-limited; it is not unrestricted permission for personal analysis.</p>
+<p><strong>Your selected integrations:</strong> a personal API or MCP access token authorizes the scope available to its holder. If you connect an assistant or another service, that recipient can process what you choose to make accessible under its own terms. Revoke tokens when no longer needed. Apple separately processes App Store or TestFlight information under its own notices.</p>
+<p>We may disclose information where legally required, to address a valid legal request, or to protect rights and security within applicable law. A corporate transaction or additional recipient would require its own assessment and appropriate notice; it would not erase existing purpose and permission restrictions. No specific affiliated recipient has been established for this draft.</p>
+<h2 id="retention">Storage, retention and deletion</h2>
+<p>Measurements and history can be stored on your device and, when the relevant cloud feature is enabled, on Wythin's server. Current stored records are retained until deletion. This is not a justification for indefinite retention: the proposed release must set and apply periods or objective criteria for each purpose. There is no implemented rule that deletes or compacts raw recordings after 30 days. Compression does not remove personal-data obligations.</p>
+<p>Turning a transfer control off stops the associated future operation only once that control is implemented and enforced; it does not itself erase past copies. The current cloud-data deletion operation removes specified uploaded datasets, but user/token records and a minimal disabled-consent marker can remain. Uninstalling the app does not delete cloud records. Full account erasure, recipient notification, backup expiry and restoration-safe deletion remain release requirements, so this draft does not claim they are complete.</p>
+<p>For an access, correction, deletion, withdrawal or account-erasure request, contact us using the route below. We must explain any legally justified retention, its purpose and duration. Any exception is limited to what the law permits. Data in backups must be handled within applicable deadlines and protected from returning to active use after deletion.</p>
+<h2 id="rights">Your choices, requests and appeals</h2>
+<p>Use available Settings controls for cloud, raw recording, sharing, AI and token access. Contact <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a> with “Privacy request” to seek confirmation, access, a copy, correction, deletion, withdrawal, a recipient list or account erasure. You do not need to send identification documents, credentials or additional health details in your first email. We must use a proportionate, secure method to verify the request and any authorized agent.</p>
+<p>Your statutory rights depend on applicable law and its scope. They can include knowing or accessing data, portability, correction, deletion, withdrawing consent, limiting specified sensitive-data uses, opting out of sale, targeted advertising or certain profiling, and appealing a refusal. Wythin must not penalize you unlawfully for exercising them. A data-dependent feature may be unavailable when you decline the information it genuinely requires.</p>
+<p>We must respond within the deadline required by the applicable law, explain permitted extensions or denials, and provide a way to appeal. Send “Privacy appeal” to the same contact if you disagree with a response. Where required, an appeal denial must include the relevant regulator complaint route. Health-data procedures and certain state timelines are described in the <a href="consumer-health-privacy.html#rights">health policy</a>. These rights cannot be waived through Terms.</p>
+<h2 id="california">California and tracking choices</h2>
+<p>The privacy notice is available regardless of whether Wythin meets CCPA business thresholds. If CCPA applies, California users retain its applicable access, correction, deletion, opt-out, sensitive-information and non-discrimination rights, subject to statutory exceptions. This draft does not claim that pilot size alone determines coverage.</p>
+<p>Wythin does not propose cross-site behavioral tracking, sale or cross-context advertising sharing. It therefore does not use browser Do Not Track signals to change such practices. The release must recognize legally required opt-out preference signals if applicable processing is introduced; this notice is not permission to introduce it. This legal-document site uses no advertising scripts, tracking pixels or third-party fonts.</p>
+<h2 id="security">Security and incidents</h2>
+<p>HTTPS protects current server transfers in transit. The proposed raw archive includes encryption controls, but no whole-service security certification is claimed. Before expanding collection, Wythin must verify user authentication, purpose-limited access, provider contracts, key management, deletion and incident response. No system can eliminate all risk; this statement does not reduce our legal security obligations.</p>
+<p>We must assess suspected unauthorized access or disclosure and give affected individuals and authorities the notices required by applicable law. This can include health-data disclosure without valid authorization, not only a computer intrusion. A wellness label does not remove privacy or breach obligations.</p>
+<h2 id="children">Age, changes and contact</h2>
+<p>Wythin is for adults 18 and older. You must confirm that you are at least 18 before continuing onboarding. If information about a minor is identified, contact us so eligibility, lawful handling and deletion can be assessed. An age statement alone does not resolve children's privacy duties.</p>
+<p>Before this draft becomes effective, its date, operator details and practices must be finalized. Material future changes will be identified in the app or through an appropriate direct notice. New permissions must be requested when required; publishing a revised policy does not silently expand an old consent. Contact <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a> with questions.</p>
 
-  <div class="summary">
-    <p>Wythin is an independent app built by one developer. It has no advertising, no
-    analytics, no tracking, and no third-party SDKs of any kind. Your readings are
-    stored on your device and, if you enable sync, on a private server run by the
-    developer. You can delete everything from inside the app at any time.</p>
-  </div>
-
-  <h2>Who is responsible</h2>
-  <p>Wythin is developed and operated by Alex Utkin as an independent developer.
-  Contact for any privacy question or request: <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a>.</p>
-
-  <h2>What the app collects</h2>
-  <p>All of the following is optional. Every onboarding question, including the
-  contact ones, can be skipped, and the app remains usable if you skip all of them.</p>
-  <div class="wrap">
-  <table>
-    <tr><th>Data</th><th>Why</th><th>Required?</th></tr>
-    <tr><td>Phone number</td><td>So a coach can reach you, if you want that</td><td>No — skippable</td></tr>
-    <tr><td>Email address</td><td>To send you results and updates</td><td>No — skippable</td></tr>
-    <tr><td>Age range and gender</td><td>To tailor guidance</td><td>No — skippable</td></tr>
-    <tr><td>Goals, practices, tools you use</td><td>To tailor guidance</td><td>No — skippable</td></tr>
-    <tr><td>Heart rate, heart-rate variability and ECG-derived measurements</td><td>The core function of the app</td><td>Only if you connect a chest strap</td></tr>
-    <tr><td>Activity and session records you create</td><td>To show your history and trends</td><td>Only what you record</td></tr>
-    <tr><td>App settings and preferences</td><td>To remember how you configured the app</td><td>Stored on device</td></tr>
-  </table>
-  </div>
-
-  <h2>Heart-rate sensors and Bluetooth</h2>
-  <p>Wythin uses Bluetooth solely to connect to a compatible heart-rate chest strap
-  (such as a Polar H10) and read measurements from it. Bluetooth is never used to
-  detect your location, to identify nearby people or devices for any other purpose,
-  or to build a profile of you. If you never connect a strap, the app collects no
-  physiological data at all.</p>
-
-  <h2>Where your data goes</h2>
-  <p>Measurements are held on your device. If you enable sync, they are also sent
-  over an encrypted HTTPS connection to a private server operated by the developer
-  on Hetzner Cloud infrastructure. That server is not shared with other products and
-  your data is not sold, rented, or disclosed to advertisers or data brokers.</p>
-
-  <h2>Third-party processing</h2>
-  <p>When the app generates a written interpretation of your readings, the relevant
-  numbers are sent to <strong>OpenAI</strong> (model <code>gpt-4o-mini</code>) to
-  produce that text. This is the only third party that ever receives any of your
-  data.</p>
-  <p>What is sent is limited to the measurements and summaries needed for the
-  interpretation — for example activity type, duration, and heart-rate or
-  variability values and their trends. <strong>Your name, email address, and phone
-  number are never sent to OpenAI.</strong></p>
-
-  <h2>What Wythin does not do</h2>
-  <ul>
-    <li>No advertising and no ad identifiers.</li>
-    <li>No analytics or crash-reporting SDKs.</li>
-    <li>No tracking across other apps or websites, and no data shared for tracking. The app links no third-party libraries whatsoever.</li>
-    <li>No selling or sharing of personal information.</li>
-    <li>No access to your Apple Health data. The app does not use HealthKit.</li>
-    <li>No location collection.</li>
-  </ul>
-
-  <h2>Your control over your data</h2>
-  <p>You can delete your data at any time from <strong>Settings</strong> inside the
-  app. This permanently removes your synced measurements, sessions, activities, and
-  profile from the server. Deleting the app from your device removes the copy held
-  on the device.</p>
-  <p>To ask what is stored about you, or to have it removed by hand, email
-  <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a>.</p>
-
-  <h2>Retention</h2>
-  <p>Synced data is kept until you delete it, either from within the app or by
-  asking. There is no fixed expiry, because the value of the app comes from
-  comparing today against your own history.</p>
-
-  <h2>Security</h2>
-  <p>All traffic between the app and the server is encrypted in transit using TLS.
-  Access to your records requires a personal access token issued to you. As with any
-  service, no method of transmission or storage can be guaranteed absolutely secure.</p>
-
-  <h2>Children</h2>
-  <p>Wythin is not directed to children and should not be used by anyone under 13.</p>
-
-  <h2>Beta testing</h2>
-  <p>While Wythin is distributed for testing through Apple TestFlight, Apple
-  additionally collects information about your use of the beta, such as installation
-  and crash data, under
-  <a href="https://www.apple.com/legal/privacy/">Apple's own privacy policy</a>.
-  Feedback you submit through TestFlight, including screenshots, is visible to the
-  developer.</p>
-
-  <h2>Changes</h2>
-  <p>If this policy changes in a way that affects how your data is handled, the date
-  at the top of this page will be updated. Material changes will be noted in the app
-  or by email if you have provided one.</p>
-
-  <footer>
-    Wythin · independent app by Alex Utkin ·
-    <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a>
-  </footer>
-
-</main>
-</body>
-</html>
+<footer>Operator: Alex Utkin, individual developer.<br>Privacy and service contact: <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a>.<br>Postal contact: 77 Bruton St., San Francisco, California, USA.</footer>
+</main></body></html>

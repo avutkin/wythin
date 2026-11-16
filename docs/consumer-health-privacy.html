@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Wythin — Consumer Health Data Privacy Policy — Draft</title>
+<style>
+  :root {
+    --bg: #ffffff; --text: #1a1a1c; --dim: #5f5f68;
+    --border: #e3e3e7; --surface: #f6f6f8; --accent: #3a3a40;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121214; --text: #ededf0; --dim: #9a9aa4;
+      --border: #2a2a30; --surface: #1c1c20; --accent: #c9c9d2;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 3rem 1.25rem 5rem;
+    background: var(--bg); color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 44rem; margin: 0 auto; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .35rem; letter-spacing: -.02em; }
+  h2 {
+    font-size: 1.1rem; margin: 2.75rem 0 .75rem; letter-spacing: -.01em;
+    padding-bottom: .4rem; border-bottom: 1px solid var(--border);
+  }
+  .meta { color: var(--dim); font-size: .9rem; margin: 0 0 2rem; }
+  .summary {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1.1rem 1.25rem; margin: 0 0 1rem;
+  }
+  .summary p { margin: 0; }
+  ul { padding-left: 1.25rem; }
+  li { margin: .4rem 0; }
+  code {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 4px; padding: .1em .35em; font-size: .88em;
+  }
+  a { color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; margin: .5rem 0; font-size: .95rem; }
+  th, td { text-align: left; padding: .55rem .6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; }
+  .wrap { overflow-x: auto; }
+  footer { margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border); color: var(--dim); font-size: .9rem; }
+
+  nav { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; margin: 1.25rem 0 2rem; }
+  .draft { border: 2px solid currentColor; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 2rem; }
+  .draft p { margin: .4rem 0; }
+  :focus-visible { outline: 3px solid currentColor; outline-offset: 4px; }
+  @media print { body { padding: 0; } a { color: inherit; } }
+</style>
+</head>
+<body><main>
+<h1>Consumer Health Data Privacy Policy</h1>
+<p class="meta">Wythin · Draft prepared 15 November 2026 · Version <code>health-privacy-v1-2026-11-15</code></p>
+<div class="draft" role="note"><strong>DRAFT FOR REVIEW — NOT EFFECTIVE</strong>
+<p>This is a proposed document, not the policy currently in force and not an authorization to collect or share data. Do not use it to enroll users until the release checks and legal review are complete. No effective date has been set.</p>
+<p>The operator is Alex Utkin, an individual, at 77 Bruton St., San Francisco, California, USA. Wythin is for adults aged 18 or older. The described practices and release controls still require verification. Unavailable features and unfinished controls must be completed or removed from the release.</p></div>
+<nav aria-label="Legal documents"><a href="terms-and-conditions.html">Terms &amp; Conditions</a><a href="privacy-policy.html">Privacy Policy</a><a href="consumer-health-privacy.html">Consumer Health Data Privacy Policy</a></nav>
+
+<div class="summary"><p>This separate draft covers Wythin's consumer health information. It is not a medical-record authorization or a blanket consent. <strong>Accepting Terms does not authorize all health-data collection, sharing, research or AI use.</strong> Practices and controls must be verified before this policy becomes effective.</p></div>
+<h2 id="operator">Who handles health information</h2>
+<p>The operator is Alex Utkin, an individual developer. Postal contact: 77 Bruton St., San Francisco, California, USA. Health-data requests can be sent to <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a>. No specific affiliated recipient has been established for this draft. Applicable consumer health laws can protect data outside HIPAA and can apply to a small service.</p>
+<h2 id="categories">Health information and its sources</h2>
+<p>From a connected compatible sensor, Wythin receives ECG waveforms, RR intervals between heartbeats, three-axis acceleration, timestamps and related sensor-quality information. From these it calculates measurements such as heart rate, variability, breathing estimates, quality, movement and body-orientation estimates. Body orientation is not GPS or precise geographic location.</p>
+<p>From you, Wythin receives wellness goals, practices, activity/session information, sleep-related information and self-reported focus, mood, stress, anxiety and energy. Age range, gender and optional height or weight can provide context. Contact details, app identifiers, time-zone information and usage times can connect these records to you. Inferences and summaries remain health information when identifiable, including when names have been removed.</p>
+<p>Other sources are only those you expressly connect or provide through a supported feature. Merely listing Oura Ring or Apple Watch in an onboarding questionnaire does not mean Wythin has accessed those devices' health records. New source categories require an updated disclosure and any required permission before collection.</p>
+<h2 id="uses">Why information is used</h2>
+<p>The proposed purposes are displaying your readings, supporting wellness practices, recording requested sessions, comparing your history and self-reports, providing requested cloud access, evaluating signal quality and generating specifically requested guidance. The initial proposed daily raw-signal processing produces descriptive statistics and quality checks; it is not a validated diagnosis or complete assessment of cognition or the nervous system.</p>
+<p>Full raw archiving is a separate feature whose infrastructure is not yet enabled. It can preserve ECG, RR and movement for later processing within the authorized purpose. Storing data for unspecified future research, training models or new unrelated analysis is not authorized by this policy. Each new purpose requires its own legal assessment and any necessary new permission.</p>
+<h2 id="consent">Consent and requested services</h2>
+<p>Before collecting or sharing health data where consent is required, the feature must explain the categories, specific purpose, recipients and withdrawal method and obtain the required affirmative choice. Collection and sharing permissions must be distinct where the law requires. An initially enabled setting or acceptance of broad Terms does not supply that permission.</p>
+<p>Some processing can be necessary to a service you specifically request under applicable law. That necessity must be documented for the actual data and feature; it cannot be created merely by calling all data uses mandatory. Declining an optional purpose should only affect the relevant optional feature. Withdrawal must be as accessible as giving permission, and existing refusals must not be overwritten by new Terms.</p>
+<h2 id="sharing">What is shared and with whom</h2>
+<p><strong>Hetzner infrastructure:</strong> cloud features can store uploaded health records on Wythin's current server in Finland. A private Object Storage bucket has been provisioned in Helsinki but is not connected to production recording. Encryption, independent backup, contracts, safeguards and retention require configuration or confirmation before activation. Provider status alone does not establish an exception to every state's sharing rules.</p>
+<p><strong>OpenAI:</strong> specifically requested and permitted AI guidance sends relevant numerical measurements and summaries to OpenAI. The current insight payload excludes name, email, phone and raw ECG, but can still be identifiable health information. Provider retention, permitted uses and any subprocessors must be verified and disclosed before the feature is activated under this policy.</p>
+<p><strong>Designated Wythin personnel or coaches:</strong> an authorized coaching feature can disclose identified profiles, sessions and related measurements for the disclosed coaching purpose. Server access and revocation must be enforced before this feature is offered under this policy. Operational access must also be limited to a justified service purpose.</p>
+<p><strong>Recipients you select:</strong> a personal API/MCP token can provide its holder access within its scope. A connected assistant or service then handles that data under its own terms. Sharing required by law is limited to the lawful request or obligation. Wythin does not propose selling consumer health data or using it for advertising; this policy contains no sale authorization.</p>
+<h2 id="retention">Retention, withdrawal and deletion</h2>
+<p>Current stored health history remains until deletion; a proportionate retention schedule must be finalized for release. Full raw archiving does not currently implement automatic deletion after 30 days. Summaries, compressed signals and “effect traces” remain protected health data when linkable to you.</p>
+<p>Turning a setting off is different from deleting earlier copies. The current cloud-data deletion operation removes specified uploaded data, but user/token records and a minimal disabled-consent marker can remain. Full account erasure, recipient deletion and backup-safe removal have not yet been verified. These are release prerequisites, not guarantees this draft makes about the existing pilot. Contact us to request a complete explanation and exercise applicable deletion rights.</p>
+<h2 id="rights">Requests and appeals</h2>
+<p>Send “Health data request” to <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a> to request confirmation, access, a copy, a recipient list and contact mechanism, correction where applicable, withdrawal or deletion. State what you want to do without including passwords, access tokens or unnecessary health details. We must authenticate requests proportionately and securely, support authorized agents where required, and avoid requiring a new account just to make a request.</p>
+<p>Applicable law determines deadlines and exceptions. Washington generally requires a response within 45 days of receipt, with a justified extension when permitted; deletion reaches recipients and backups, with its permitted backup delay capped at six months. Nevada generally requires health-data deletion within 30 days after authentication, with separate rules for other requests, recipients and limited backup delay. Wythin must apply the relevant deadline rather than assume one universal period.</p>
+<p>Send “Health data appeal” to the same contact to challenge a denial. We must explain the outcome and provide the required regulator complaint mechanism; applicable Washington and Nevada appeal periods are generally 45 days. You may also contact your state attorney general, including the <a href="https://www.atg.wa.gov/file-complaint">Washington Attorney General</a> or <a href="https://ag.nv.gov/Complaints/CSU_Complaints___FAQ/">Nevada Attorney General</a>. We must not unlawfully discriminate against you for exercising rights.</p>
+<h2 id="changes">Changes to this policy</h2>
+<p>Any effective version must identify its date and complete operator contact details. A change to categories, purpose or recipients must be disclosed before the new activity and obtain new permission where required. Updating a linked page or a Terms receipt does not by itself broaden health-data consent. This draft remains subject to legal and implementation review and does not certify nationwide compliance.</p>
+
+<footer>Operator: Alex Utkin, individual developer.<br>Privacy and service contact: <a href="mailto:alexey.ytkin@gmail.com">alexey.ytkin@gmail.com</a>.<br>Postal contact: 77 Bruton St., San Francisco, California, USA.</footer>
+</main></body></html>

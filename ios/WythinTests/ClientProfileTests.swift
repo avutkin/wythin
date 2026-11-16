@@ -100,6 +100,12 @@ final class ClientProfileTests: XCTestCase {
     // the key, so a plain UserDefaults.bool read returns false for a switch the
     // user saw as on. The UI and the sync payload must agree.
 
+    func testNewInstallDoesNotDefaultToTeamOrAISharing() {
+        let defaults = makeDefaults()
+        XCTAssertFalse(OnboardingConsent.shareWithTeam(in: defaults))
+        XCTAssertFalse(OnboardingConsent.aiInsights(in: defaults))
+    }
+
     func testConsentReadsDefaultWhenKeyWasNeverWritten() {
         let defaults = makeDefaults()
         XCTAssertNil(defaults.object(forKey: OnboardingConsent.shareWithTeamKey))
@@ -120,6 +126,65 @@ final class ClientProfileTests: XCTestCase {
         let defaults = makeDefaults()
         defaults.set(true, forKey: OnboardingConsent.shareWithTeamKey)
         XCTAssertTrue(OnboardingConsent.shareWithTeam(in: defaults))
+    }
+
+    // MARK: Unit conversion
+
+    func testTermsRequireAffirmativeChoiceAndReadableDocuments() {
+        let defaults = makeDefaults()
+        let digest = String(repeating: "a", count: 64)
+        XCTAssertFalse(TermsAcceptance.hasAccepted(documentSHA256: digest, in: defaults))
+        XCTAssertFalse(TermsAcceptance.accept(checked: false, documentSHA256: digest, in: defaults))
+        XCTAssertFalse(TermsAcceptance.accept(checked: true, documentSHA256: nil, in: defaults))
+        XCTAssertNil(TermsAcceptance.receipt(in: defaults))
+        XCTAssertTrue(TermsAcceptance.accept(checked: true, documentSHA256: digest, in: defaults))
+        XCTAssertTrue(TermsAcceptance.hasAccepted(documentSHA256: digest, in: defaults))
+        XCTAssertFalse(TermsAcceptance.hasAccepted(documentSHA256: nil, in: defaults))
+        XCTAssertFalse(TermsAcceptance.hasAccepted(documentSHA256: String(repeating: "b", count: 64), in: defaults))
+    }
+
+    func testTermsAcceptanceDoesNotGrantDataPermissionsOrRewriteReceipt() {
+        let defaults = makeDefaults()
+        let digest = String(repeating: "a", count: 64)
+        let first = Date(timeIntervalSince1970: 1_795_000_000)
+        XCTAssertTrue(TermsAcceptance.accept(checked: true, documentSHA256: digest, in: defaults, now: first))
+        let receipt = TermsAcceptance.receipt(in: defaults)
+        XCTAssertFalse(defaults.bool(forKey: "cloudSyncEnabled"))
+        XCTAssertFalse(defaults.bool(forKey: "rawCloudSyncEnabled"))
+        XCTAssertFalse(OnboardingConsent.shareWithTeam(in: defaults))
+        XCTAssertFalse(OnboardingConsent.aiInsights(in: defaults))
+        XCTAssertFalse(RawArchiveConsent.mayCapture(in: defaults, available: true))
+        XCTAssertTrue(TermsAcceptance.accept(checked: true, documentSHA256: digest,
+                                            in: defaults, now: first.addingTimeInterval(3600)))
+        XCTAssertEqual(TermsAcceptance.receipt(in: defaults), receipt)
+    }
+
+    func testTermsUpdatePreservesExistingChoicesAndRejectsOldVersion() throws {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: "cloudSyncEnabled")
+        defaults.set(false, forKey: "rawCloudSyncEnabled")
+        defaults.set(false, forKey: OnboardingConsent.shareWithTeamKey)
+        defaults.set(true, forKey: OnboardingConsent.aiInsightsKey)
+        let digest = String(repeating: "a", count: 64)
+        let old = TermsReceipt(version: "terms-v0-2026-01-01", document_sha256: digest,
+                               accepted_at: "2026-01-01T00:00:00Z")
+        defaults.set(try JSONEncoder().encode(old), forKey: TermsAcceptance.receiptKey)
+        XCTAssertFalse(TermsAcceptance.hasAccepted(documentSHA256: digest, in: defaults))
+        XCTAssertTrue(TermsAcceptance.accept(checked: true, documentSHA256: digest, in: defaults))
+        XCTAssertFalse(defaults.bool(forKey: "cloudSyncEnabled"))
+        XCTAssertFalse(defaults.bool(forKey: "rawCloudSyncEnabled"))
+        XCTAssertFalse(OnboardingConsent.shareWithTeam(in: defaults))
+        XCTAssertTrue(OnboardingConsent.aiInsights(in: defaults))
+    }
+
+    func testAllLegalDocumentsAreBundledAndReadableBeforeAcceptance() {
+        for document in LegalDocument.allCases {
+            let url = document.localURL
+            XCTAssertNotNil(url, "Missing legal document: \(document.rawValue)")
+            let text = url.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+            XCTAssertTrue(text?.contains("<html") == true)
+        }
+        XCTAssertEqual(AppTerms.documentSHA256?.count, 64)
     }
 
     // MARK: Unit conversion

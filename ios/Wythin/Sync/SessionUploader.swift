@@ -19,12 +19,14 @@ final class SessionUploader {
 
     /// Flush all unsynced sessions from the local SwiftData store.
     func flushPending(context: ModelContext) async {
+        guard CloudDataConsent.isEnabled() else { return }
         let descriptor = FetchDescriptor<HRVSession>(
             predicate: #Predicate { !$0.syncedToServer && $0.endedAt != nil }
         )
         guard let pending = try? context.fetch(descriptor), !pending.isEmpty else { return }
 
         for session in pending {
+            guard CloudDataConsent.isEnabled() else { break }
             do {
                 let payload  = SessionPayload(from: session)
                 let response = try await client.uploadSession(payload, userID: userID)

@@ -10,13 +10,14 @@ struct SettingsView: View {
     @State private var isWorking = false
     @State private var accessError: String?
 
-    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = true
+    @AppStorage("cloudSyncEnabled") private var cloudSyncEnabled = false
     @AppStorage("rawCloudSyncEnabled") private var rawCloudSyncEnabled = false
     @AppStorage(OnboardingConsent.shareWithTeamKey)
     private var shareWithTeam = OnboardingConsent.shareWithTeamDefault
     @AppStorage(OnboardingConsent.aiInsightsKey)
     private var aiInsightsEnabled = OnboardingConsent.aiInsightsDefault
     @State private var showDataDetail = false
+    @State private var legalDocument: LegalDocument?
     @State private var isDeletingCloudData = false
     @State private var notificationsAuthorized: Bool?
     /// Re-read on appear rather than held live: the file changes from a
@@ -255,13 +256,14 @@ struct SettingsView: View {
                         Toggle(isOn: $cloudSyncEnabled) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Sync my data to the cloud").font(Theme.monoBody).foregroundStyle(Theme.text)
-                                Text("Lets Claude Code read your continuous metrics. Off = data stays on this device.")
+                                Text("Upload my profile, wellness measurements, self-reports and activity history to Wythin on Hetzner in Europe for cloud history and analysis. Off stops new sync from this device; it does not delete previous uploads.")
                                     .font(Theme.monoLabel).foregroundStyle(Theme.dim)
                             }
                         }
                         .tint(Theme.accent)
                         .onChange(of: cloudSyncEnabled) { _, enabled in
                             RawArchiveConsent.noteChange()
+                            if !enabled { env.sync.endStream() }
                             if enabled { env.checkIns.requestSync() }
                             Task { await env.rawSync?.syncIfEnabled() }
                             Task { await env.metricSync.syncIfEnabled() }
@@ -284,7 +286,7 @@ struct SettingsView: View {
                                 }
                             }
                             .tint(Theme.accent)
-                            .disabled(!cloudSyncEnabled)
+                            .disabled(!cloudSyncEnabled && !rawCloudSyncEnabled)
                             .onChange(of: rawCloudSyncEnabled) { _, enabled in
                                 if enabled { RawArchiveConsent.accept() } else { RawArchiveConsent.revoke() }
                                 Task { await env.rawSync?.syncIfEnabled() }
@@ -319,12 +321,12 @@ struct SettingsView: View {
 
                     // ── Data sharing ──────────────────────────────────
                     //
-                    // Onboarding deliberately doesn't ask about these, so this
-                    // section is the only place they are ever presented. That
-                    // makes the "What's shared" link load-bearing rather than
-                    // decorative: without it nothing in the app ever states
-                    // where the data goes.
+                    // Specific permissions remain separate from the contract.
                     Section("DATA SHARING") {
+                        if !cloudSyncEnabled {
+                            Text("Enable cloud sync above before requesting coaching or AI guidance. These permissions do not enable cloud sync automatically.")
+                                .font(Theme.monoLabel).foregroundStyle(Theme.dim)
+                        }
                         Toggle(isOn: $shareWithTeam) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Share with the Wythin team").font(Theme.monoBody).foregroundStyle(Theme.text)
@@ -333,6 +335,10 @@ struct SettingsView: View {
                             }
                         }
                         .tint(Theme.accent)
+                        .onChange(of: shareWithTeam) { _, _ in
+                            Task { await env.metricSync.syncIfEnabled() }
+                        }
+                        .disabled(!cloudSyncEnabled && !shareWithTeam)
 
                         Toggle(isOn: $aiInsightsEnabled) {
                             VStack(alignment: .leading, spacing: 2) {
@@ -342,6 +348,10 @@ struct SettingsView: View {
                             }
                         }
                         .tint(Theme.accent)
+                        .onChange(of: aiInsightsEnabled) { _, _ in
+                            Task { await env.metricSync.syncIfEnabled() }
+                        }
+                        .disabled(!cloudSyncEnabled && !aiInsightsEnabled)
 
                         Button { showDataDetail = true } label: {
                             Text("What's shared?")
@@ -427,6 +437,14 @@ struct SettingsView: View {
                     .listRowBackground(Theme.card)
 
                     // ── About ─────────────────────────────────────────
+                    Section("LEGAL & PRIVACY") {
+                        ForEach(LegalDocument.allCases) { document in
+                            Button(document.title) { legalDocument = document }
+                                .font(Theme.monoBody)
+                        }
+                    }
+                    .listRowBackground(Theme.card)
+
                     Section("ABOUT") {
                         HStack {
                             Text("Version")
@@ -466,6 +484,7 @@ struct SettingsView: View {
             .sheet(isPresented: $showDataDetail) {
                 DataSharingDetailSheet(onDone: { showDataDetail = false })
             }
+            .sheet(item: $legalDocument) { LegalDocumentSheet(document: $0) }
             .task { await loadTokens() }
             .task { await refreshAuthorization() }
         }

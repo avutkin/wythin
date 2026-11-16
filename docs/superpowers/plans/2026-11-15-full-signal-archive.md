@@ -12,7 +12,7 @@ Spec: ../specs/2026-11-15-full-signal-archive.md
 
 Global constraints: preserve unrelated work; keep existing opt-outs; lossless
 data; no production secrets in logs; no unverified raw deletion; no release
-before infrastructure and tests. Authenticated console and consent choice are
+before infrastructure and tests. Authenticated console and legal/security gates are
 external dependencies, not reasons to stop independent implementation.
 
 ## Task 1: Durable object storage
@@ -34,8 +34,8 @@ Expected: replay does not duplicate output; corrupt input is not marked complete
 ## Task 3: Consent and client rollout
 
 Interfaces: explicit acceptance/version -> local capture + cloud upload gates,
-server consent state/history -> reject revoked upload/processing. Await user
-choice on optional team/AI before dependent UI changes. Test absence, refusal,
+server consent state/history -> reject revoked upload/processing. Follow the
+terms-and-privacy amendment for mandatory contract versus data permissions. Test absence, refusal,
 upgrade, revocation and backlog behaviour. Run full WythinTests and server tests.
 Expected: no automatic conversion of existing refusals; clear onboarding copy.
 

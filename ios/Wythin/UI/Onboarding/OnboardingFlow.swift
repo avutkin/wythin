@@ -20,17 +20,14 @@ struct OnboardingFlow: View {
     @State private var step: Step = .welcome
     @State private var showBLE = false
 
-    @AppStorage("didShowCloudSyncNotice") private var didShowCloudSyncNotice = false
-    @AppStorage("didShowRawArchiveNotice") private var didShowRawArchiveNotice = false
-
     enum Step: Int, CaseIterable {
         // Current state sits directly after goals: having just named what they
         // want to change, rating where they are now reads as the second half of
         // the same question rather than a survey item three screens later.
-        case welcome, goals, currentState, practices, devices, aboutYou, connect, contact, archive
+        case welcome, goals, currentState, practices, devices, aboutYou, connect, contact
 
         /// Interactive steps after welcome, for the progress bar.
-        static var progressTotal: Double { Double(Step.allCases.count - (RawArchiveFeature.isAvailable ? 1 : 2)) }
+        static var progressTotal: Double { Double(Step.allCases.count - 1) }
         var progress: Double {
             guard rawValue >= Step.goals.rawValue else { return 0 }
             return Double(rawValue) / Step.progressTotal
@@ -174,23 +171,9 @@ struct OnboardingFlow: View {
                 onBack: { go(.connect) },
                 onContinue: {
                     persist()
-                    if RawArchiveFeature.isAvailable { go(.archive) } else { finish() }
+                    finish()
                 }
             )
-        case .archive:
-            RawArchiveNoticeView(
-                requiredForOnboarding: true,
-                onEnable: {
-                    UserDefaults.standard.set(true, forKey: "cloudSyncEnabled")
-                    RawArchiveConsent.accept()
-                    didShowRawArchiveNotice = true
-                    finish()
-                    Task { await env.rawSync?.syncIfEnabled() }
-                },
-                onLocalOnly: {
-                    RawArchiveConsent.revoke()
-                    go(.contact)
-                })
         }
     }
 
@@ -213,15 +196,13 @@ struct OnboardingFlow: View {
         store.save(profile)
     }
 
-    /// New programme enrollment requires explicit archive acceptance once the
-    /// infrastructure rollout is enabled; existing users keep their choices.
+    /// The contract is mandatory; optional archive permission is separate.
     private func finish() {
         // The contact screen disables Finish until these look right; this is
         // the same rule enforced where it cannot be bypassed by a screen change.
         guard profile.hasRequiredContact,
-              !RawArchiveFeature.isAvailable || RawArchiveConsent.mayCapture() else { return }
+              TermsAcceptance.hasAccepted(documentSHA256: AppTerms.documentSHA256) else { return }
         persist()
-        didShowCloudSyncNotice = true
         onComplete()
     }
 }

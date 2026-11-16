@@ -29,6 +29,66 @@ _PROFILE = {
     "devices": ["Polar H10"],
 }
 
+_TERMS_RECEIPT = {
+    "version": "terms-v1-2026-11-15",
+    "document_sha256": "a" * 64,
+    "accepted_at": "2026-11-15T12:00:00Z",
+}
+
+
+@pytest.mark.asyncio
+async def test_terms_receipt_is_append_only_and_never_grants_data_consent():
+    from server.db import get_pool, get_or_create_user
+    async with _client() as c:
+        headers = {"X-User-ID": "terms-receipt-test"}
+        uid = await get_or_create_user(headers["X-User-ID"])
+        r = await c.post("/v1/profile", json={**_PROFILE, "terms_receipt": _TERMS_RECEIPT}, headers=headers)
+        assert r.status_code == 200
+        assert r.json()["terms_receipt_saved"] is True
+        async with get_pool().acquire() as conn:
+            first = await conn.fetchrow("SELECT * FROM terms_acceptances WHERE user_id=$1", uid)
+            assert first["document_sha256"] == _TERMS_RECEIPT["document_sha256"]
+            assert not await conn.fetchval("SELECT consent_ai_insights FROM profiles WHERE user_id=$1", uid)
+            assert not await conn.fetchval("SELECT consent_share_team FROM profiles WHERE user_id=$1", uid)
+        # A retry cannot rewrite the timestamp. Old clients cannot erase it.
+        await c.post("/v1/profile", json={**_PROFILE, "terms_receipt": {
+            **_TERMS_RECEIPT, "accepted_at": "2026-11-15T13:00:00Z"}}, headers=headers)
+        await c.post("/v1/profile", json=_PROFILE, headers=headers)
+        async with get_pool().acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM terms_acceptances WHERE user_id=$1", uid)
+            assert len(rows) == 1
+            assert rows[0]["accepted_at"] == first["accepted_at"]
+            assert rows[0]["recorded_at"] == first["recorded_at"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", [
+    {"document_sha256": "not-a-hash"}, {"version": ""},
+    {"accepted_at": "not-a-date"}, {"accepted_at": "2026-11-15T12:00:00"},
+])
+async def test_profile_rejects_invalid_terms_receipt(change):
+    async with _client() as c:
+        r = await c.post("/v1/profile", json={**_PROFILE,
+            "terms_receipt": {**_TERMS_RECEIPT, **change}}, headers={"X-User-ID": "terms-invalid"})
+        assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("client_time", ["2099-01-01T00:00:00Z", "2020-01-01T00:00:00Z"])
+async def test_skewed_client_clock_does_not_block_profile_or_permission_changes(client_time):
+    from server.db import get_pool, get_or_create_user
+    async with _client() as c:
+        headers = {"X-User-ID": "terms-clock-" + client_time[:4]}
+        r = await c.post("/v1/profile", json={**_PROFILE, "consent_ai_insights": False,
+            "terms_receipt": {**_TERMS_RECEIPT, "accepted_at": client_time}}, headers=headers)
+        assert r.status_code == 200
+        uid = await get_or_create_user(headers["X-User-ID"])
+        async with get_pool().acquire() as conn:
+            receipt = await conn.fetchrow("SELECT * FROM terms_acceptances WHERE user_id=$1", uid)
+            assert receipt["client_clock_suspect"] is True
+            assert receipt["recorded_at"] != receipt["accepted_at"]
+            assert not await conn.fetchval("SELECT consent_ai_insights FROM profiles WHERE user_id=$1", uid)
+
 
 @pytest.mark.asyncio
 async def test_profile_upsert_scoped_and_readable():

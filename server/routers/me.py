@@ -56,6 +56,7 @@ async def delete_my_data(user_id: str = Depends(current_user_id)):
             "sessions":       await _del("sessions"),
             "activities":     await _del("activities"),
             "profiles":       await _del("profiles"),
+            "terms_acceptances": await _del("terms_acceptances"),
             "raw_collection_paused": True,
             "raw_consent_events": await _del("raw_consent_events"),
             "raw_chunks":     await _del("raw_chunks"),
