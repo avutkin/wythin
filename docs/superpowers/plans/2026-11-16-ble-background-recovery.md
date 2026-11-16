@@ -38,6 +38,8 @@ Use the project's shipping path after integration; do not install an isolated fe
 3. With the actual H10, remove it until standby, then put it back on. Confirm STANDBY resume or pending reconnect and new persisted samples. Also power the H10 off/on or take it out of range and back while the phone stays locked.
 4. Exercise OS restoration separately: pending connection/subscription must restore in the background. A user force-quit is not a restoration test.
 5. Explicitly disconnect, then allow delayed notification/disconnect events: verify there is no unsolicited restart.
+6. Record for at least 48 hours with the app backgrounded and the screen locked. Check persisted timestamps without foregrounding Wythin; distinguish a local recording gap from a delayed upload. Repeat an out-of-range/return transition after the first 24 hours.
+7. With H10 A saved, select H10 B and temporarily make B unavailable or occupied by another Polar client. Release that connection while Wythin remains backgrounded. Verify retries keep targeting B, B resumes recording, and late A/old-attempt events do not clear B. Do not expect Wythin to evict another client from a fully occupied sensor.
 
 Initial ruling before the later release authorization: implementation stayed in this isolated worktree; no merge, push or device installation had been requested. The physical checks remain open, not reported as passed.
 
@@ -58,9 +60,15 @@ User approved publication and requested a recovery cycle for recordings lasting 
 - [x] Add eight tests: OS-owned auto-retry/delay options, unbounded capped backoff, lost-pending-request repair, OS reconnect ownership, foreign/manual-disconnect guards, late disconnects, virtual 48h recording, repeated outages.
 - [x] Observe failing build because BLEConnectionRecovery is absent, then implement the state and wire it into every connection path and the timestamped disconnect callback.
 - [x] Pass focused BLE tests, independent review, then full WythinTests.
-- [ ] Commit, integrate as a fast-forward to origin/main (never force-push), and run tools/ship.sh testflight with its mandatory full suite.
-- [ ] Confirm the new ASC build is VALID and record actual distribution status. Do not claim physical multi-day verification.
+- [x] Commit, integrate as a fast-forward to origin/main (never force-push), and run tools/ship.sh testflight with its mandatory full suite.
+- [x] Confirm the new ASC build is VALID and record actual distribution status. Do not claim physical multi-day verification.
 
 Implementation choice: use CoreBluetooth auto-reconnect and its start-delay option, plus opportunistic 8-second maintenance. Do not reset a healthy stream or cancel a legitimate pending connect on an hourly/daily schedule; that would create avoidable recording gaps. Source: Apple CoreBluetooth headers shipped with Xcode and the linked documentation in the design.
 
 Final long-running recovery verification: added three review regression tests for late failures after a successful/new connection, sustained retries of the newly selected H10, and manual disconnect. Removed the foreground/inactive 15-second connection timeout so explicit selection uses the same persistent OS request as automatic recovery. Final full suite on November 16 at 14:20 PST: **1757 tests passed, zero failures**; independent review found no remaining blocker and `git diff --check` passed. Eleven new tests cover this follow-up. No physical background or multi-day test has been performed.
+
+## Release outcome
+
+On November 16, the user explicitly authorized releasing this update for the existing users reporting the problem. Integrated commits `d4dac23`, `66d82d8` and `65c88fd` by fast-forward push to origin/main. Ran only `tools/ship.sh testflight` for publishing; its mandatory full suite passed all **1757 tests**. The script recorded build **148**, version **1.1**, at release commit `e8d91b3`, archived and uploaded successfully, confirmed VALID, and set export compliance. The archived app retains `UIBackgroundModes = [bluetooth-central]`.
+
+Build ID `80f37416-3e5e-437c-bade-b3cdc2c5a149`: saved English and Russian What to Test notes, submitted Beta App Review, and assigned the same existing External Testers group that receives 147. The tester roster and public-link settings were not changed. Both internal and external build states report IN_BETA_TESTING. Physical background recording, actual CoreBluetooth contention, and multi-day hardware validation remain open; the automated 48-hour scenario verifies the recovery policy, not iOS execution on a locked device.
