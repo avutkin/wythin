@@ -237,6 +237,7 @@ struct ContentView: View {
             RawArchiveNoticeView(
                 onEnable: {
                     cloudSyncEnabled = true
+                    RawArchiveConsent.accept()
                     rawCloudSyncEnabled = true
                     env.checkIns.requestSync()
                     didShowRawArchiveNotice = true
@@ -244,6 +245,7 @@ struct ContentView: View {
                     Task { await env.rawSync?.syncIfEnabled() }
                 },
                 onLocalOnly: {
+                    RawArchiveConsent.revoke()
                     rawCloudSyncEnabled = false
                     didShowRawArchiveNotice = true
                     showRawNotice = false
@@ -312,7 +314,8 @@ struct ContentView: View {
     }
 }
 
-private struct RawArchiveNoticeView: View {
+struct RawArchiveNoticeView: View {
+    var requiredForOnboarding = false
     let onEnable: () -> Void
     let onLocalOnly: () -> Void
 
@@ -327,8 +330,11 @@ private struct RawArchiveNoticeView: View {
                 .foregroundStyle(Theme.text)
                 .multilineTextAlignment(.center)
             VStack(spacing: 12) {
-                Text("Wythin records every ECG, motion and heart-rate packet delivered by your strap. The full signal can be uploaded to your private cloud archive without reducing its resolution.")
-                Text("The archive has no automatic expiry and may use hundreds of MB per day. You can stop uploads or delete your cloud data in Settings. Until you choose, raw recordings stay on this device.")
+                Text("With your agreement, Wythin stores every ECG, RR interval and three-axis motion packet delivered by your strap in an encrypted Hetzner archive and analyses new recordings once daily. No GPS is collected.")
+                Text("Full signals currently remain until you delete your cloud data. Recording may use hundreds of MB per day. Turn this off in Settings to stop new raw recording and uploads. No raw signal is archived before you agree.")
+                if requiredForOnboarding {
+                    Text("This archive and daily analysis are required to join the cloud programme. If you decline, onboarding will not finish. You can withdraw later in Settings; future raw recording and uploads will stop.")
+                }
             }
             .font(.system(size: 14))
             .foregroundStyle(Theme.dim)
@@ -338,13 +344,13 @@ private struct RawArchiveNoticeView: View {
             Spacer()
             VStack(spacing: 10) {
                 Button(action: onEnable) {
-                    Text("Archive full signal in cloud")
+                    Text("I agree — enable full archive")
                         .font(Theme.monoBody).foregroundStyle(Theme.bg)
                         .frame(maxWidth: .infinity).padding(.vertical, 14)
                         .background(Theme.accent).clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 Button(action: onLocalOnly) {
-                    Text("Keep raw signal on this device")
+                    Text(requiredForOnboarding ? "I decline — go back" : "Do not enable the archive")
                         .font(Theme.monoBody).foregroundStyle(Theme.dim)
                         .frame(maxWidth: .infinity).padding(.vertical, 14)
                         .background(Theme.card).clipShape(RoundedRectangle(cornerRadius: 12))

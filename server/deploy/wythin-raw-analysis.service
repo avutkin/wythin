@@ -1,0 +1,17 @@
+[Unit]
+Description=Wythin daily full signal analysis
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pulsar
+WorkingDirectory=/opt/pulsar
+EnvironmentFile=/opt/pulsar/server/deploy/.env
+ExecStart=/opt/pulsar/.venv/bin/python -m server.raw_worker
+TimeoutStartSec=7h
+Nice=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

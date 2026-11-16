@@ -1,116 +1,69 @@
-"""Bounded, idempotent archive of exact Polar notification bytes.
-
-RAW_ARCHIVE_ROOT must be an existing directory on separate durable storage.
-The API refuses uploads when it is unset, to avoid silently filling the system disk.
-"""
+"""Bounded, idempotent archive of exact Polar notification bytes."""
 from __future__ import annotations
-
 import hashlib
-import gzip
 import json
-import os
-import shutil
 import uuid
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import Response
-
+from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 from ..auth_user import current_user_id
 from ..db import get_or_create_user, get_pool
+from .. import archive_store
 
 router = APIRouter(tags=["raw"])
-MAX_CHUNK_BYTES = 1_500_000
+MAX_CHUNK_BYTES = archive_store.MAX_BYTES
+_root = archive_store.archive_root  # legacy filesystem integration
 
 
-def _root() -> Path:
-    configured = os.getenv("RAW_ARCHIVE_ROOT")
-    if not configured:
-        raise HTTPException(status_code=503, detail="raw archive is not configured")
-    root = Path(configured)
-    if not root.is_dir():
-        raise HTTPException(status_code=503, detail="raw archive is unavailable")
-    if os.getenv("RAW_ARCHIVE_REQUIRE_MOUNT", "1") != "0" and not os.path.ismount(root):
-        raise HTTPException(status_code=503, detail="raw archive volume is not mounted")
-    return root
+async def lock_archive_user(conn, user_id):
+    # Shared by ingest, processing, consent and deletion. Transaction-scoped,
+    # so a crash cannot leave an advisory lock behind.
+    await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", str(user_id))
 
 
-def _path(root: Path, user_id: str, chunk_id: uuid.UUID) -> Path:
-    return root / user_id / f"{chunk_id}.jsonl.gz"
-
-
-def _read_payload(path: Path) -> bytes:
-    try:
-        return gzip.decompress(path.read_bytes())
-    except (OSError, EOFError) as exc:
-        raise HTTPException(status_code=503, detail="archived chunk is corrupt") from exc
-
-
-def _ack(chunk_id: uuid.UUID, digest: str, size: int) -> Response:
-    body = json.dumps({"chunk_id": str(chunk_id), "sha256": digest, "byte_count": size})
-    return Response(body, media_type="application/json",
+def _ack(chunk_id, digest, size):
+    return Response(json.dumps({"chunk_id": str(chunk_id), "sha256": digest, "byte_count": size}),
+                    media_type="application/json",
                     headers={"X-Chunk-SHA256": digest, "X-Chunk-Bytes": str(size)})
 
 
 @router.post("/v1/raw/chunks/{chunk_id}")
 async def upload_chunk(chunk_id: uuid.UUID, request: Request,
                        x_user_id: str = Header(..., alias="X-User-ID"),
-                       x_chunk_sha256: str = Header(..., alias="X-Chunk-SHA256")):
-    root = _root()
+                       x_chunk_sha256: str = Header(..., alias="X-Chunk-SHA256"),
+                       x_archive_consent_token: str | None = Header(None, alias="X-Archive-Consent-Token")):
+    archive = archive_store.get_archive()
     payload_buffer = bytearray()
     async for part in request.stream():
         payload_buffer.extend(part)
         if len(payload_buffer) > MAX_CHUNK_BYTES:
-            raise HTTPException(status_code=413, detail="raw chunk too large")
+            raise HTTPException(413, "raw chunk too large")
     payload = bytes(payload_buffer)
-    if not payload or len(payload) > MAX_CHUNK_BYTES:
-        raise HTTPException(status_code=413, detail="raw chunk must be 1–1,500,000 bytes")
+    if not payload:
+        raise HTTPException(413, "raw chunk must be 1–1,500,000 bytes")
     digest = hashlib.sha256(payload).hexdigest()
     if digest != x_chunk_sha256.lower():
-        raise HTTPException(status_code=422, detail="raw chunk hash mismatch")
+        raise HTTPException(422, "raw chunk hash mismatch")
     user_id = await get_or_create_user(x_user_id)
-    path = _path(root, user_id, chunk_id)
-    async with get_pool().acquire() as conn:
+    async with get_pool().acquire() as conn, conn.transaction():
+        await lock_archive_user(conn, user_id)
+        consent = await conn.fetchrow("SELECT enabled,upload_token FROM raw_consents WHERE user_id=$1", user_id)
+        if not consent or not consent['enabled'] or str(consent['upload_token']) != x_archive_consent_token:
+            raise HTTPException(403, "current archive consent is required")
         existing = await conn.fetchrow(
-            "SELECT sha256, byte_count FROM raw_chunks WHERE user_id = $1 AND chunk_id = $2",
+            "SELECT sha256, byte_count, storage_backend FROM raw_chunks WHERE user_id=$1 AND chunk_id=$2",
             user_id, chunk_id)
         if existing:
             if existing["sha256"] != digest or existing["byte_count"] != len(payload):
-                raise HTTPException(status_code=409, detail="chunk id already has different bytes")
-            if not path.is_file() or hashlib.sha256(_read_payload(path)).hexdigest() != digest:
-                raise HTTPException(status_code=503, detail="archived chunk is unavailable")
-            return _ack(chunk_id, digest, len(payload))
-        if shutil.disk_usage(root).free < len(payload) + 1_000_000_000:
-            raise HTTPException(status_code=507, detail="raw archive volume is nearly full")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_name(f".{chunk_id}.{uuid.uuid4()}.tmp")
-        try:
-            with temporary.open("xb") as output:
-                output.write(gzip.compress(payload, compresslevel=6, mtime=0))
-                output.flush()
-                os.fsync(output.fileno())
-            try:
-                os.link(temporary, path)
-            except FileExistsError:
-                if hashlib.sha256(_read_payload(path)).hexdigest() != digest:
-                    raise HTTPException(status_code=409, detail="chunk id already has different bytes")
-            dir_fd = os.open(path.parent, os.O_DIRECTORY)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-            inserted = await conn.fetchrow(
-                "INSERT INTO raw_chunks (user_id, chunk_id, sha256, byte_count) "
-                "VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING RETURNING sha256",
-                user_id, chunk_id, digest, len(payload))
-            if inserted is None:
-                winner = await conn.fetchrow(
-                    "SELECT sha256 FROM raw_chunks WHERE user_id = $1 AND chunk_id = $2",
-                    user_id, chunk_id)
-                if winner is None or winner["sha256"] != digest:
-                    raise HTTPException(status_code=409, detail="chunk id already has different bytes")
-        finally:
-            temporary.unlink(missing_ok=True)
+                raise HTTPException(409, "chunk id already has different bytes")
+            archive = archive_store.get_archive(existing["storage_backend"])
+            await run_in_threadpool(archive.get, user_id, chunk_id, digest)
+        else:
+            await run_in_threadpool(archive.put, user_id, chunk_id, digest, payload)
+            await conn.execute(
+                "INSERT INTO raw_chunks (user_id,chunk_id,sha256,byte_count,storage_backend) "
+                "VALUES ($1,$2,$3,$4,$5)", user_id, chunk_id, digest, len(payload), archive.backend)
     return _ack(chunk_id, digest, len(payload))
 
 
@@ -131,17 +84,73 @@ async def list_chunks(user_id: str = Depends(current_user_id), limit: int = 1000
 
 @router.get("/v1/me/raw/chunks/{chunk_id}")
 async def download_chunk(chunk_id: uuid.UUID, user_id: str = Depends(current_user_id)):
-    root = _root()
-    async with get_pool().acquire() as conn:
+    async with get_pool().acquire() as conn, conn.transaction():
+        await lock_archive_user(conn, user_id)
         row = await conn.fetchrow(
-            "SELECT sha256 FROM raw_chunks WHERE user_id = $1 AND chunk_id = $2",
+            "SELECT sha256, storage_backend FROM raw_chunks WHERE user_id=$1 AND chunk_id=$2",
             user_id, chunk_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="chunk not found")
-    path = _path(root, user_id, chunk_id)
-    if not path.is_file():
-        raise HTTPException(status_code=503, detail="archived chunk is unavailable")
-    data = _read_payload(path)
-    if hashlib.sha256(data).hexdigest() != row["sha256"]:
-        raise HTTPException(status_code=503, detail="archived chunk is corrupt")
+        if row is None:
+            raise HTTPException(404, "chunk not found")
+        archive = archive_store.get_archive(row["storage_backend"])
+        data = await run_in_threadpool(archive.get, user_id, chunk_id, row["sha256"])
     return Response(data, media_type="application/x-ndjson")
+
+
+CONSENT_VERSION = "raw-v1-2026-11-15"
+
+
+class ArchiveConsentChange(BaseModel):
+    enabled: bool
+    expected_revision: int = Field(ge=0)
+    consent_version: str
+
+
+def consent_response(row):
+    if row is None:
+        return {"enabled":False,"revision":0,"consent_version":None,"token":None}
+    return {"enabled":row['enabled'],"revision":row['revision'],
+            "consent_version":row['consent_version'],
+            "token":str(row['upload_token']) if row['enabled'] else None}
+
+
+@router.get("/v1/raw/consent")
+async def read_archive_consent(x_user_id: str = Header(...,alias="X-User-ID")):
+    user = await get_or_create_user(x_user_id)
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM raw_consents WHERE user_id=$1",user)
+    return consent_response(row)
+
+
+@router.put("/v1/raw/consent")
+async def change_archive_consent(body: ArchiveConsentChange,
+                                 x_user_id: str = Header(...,alias="X-User-ID")):
+    if body.enabled and body.consent_version != CONSENT_VERSION:
+        raise HTTPException(422, "current archive disclosure must be accepted")
+    user = await get_or_create_user(x_user_id)
+    async with get_pool().acquire() as conn, conn.transaction():
+        await lock_archive_user(conn,user)
+        old = await conn.fetchrow("SELECT * FROM raw_consents WHERE user_id=$1",user)
+        revision = old['revision'] if old else 0
+        if body.expected_revision != revision:
+            raise HTTPException(409, "archive consent changed; refresh before retrying")
+        revision += 1
+        row = await conn.fetchrow('''INSERT INTO raw_consents (user_id,enabled,revision,consent_version,upload_token)
+            VALUES ($1,$2,$3,$4,$5) ON CONFLICT (user_id) DO UPDATE SET
+            enabled=EXCLUDED.enabled,revision=EXCLUDED.revision,consent_version=EXCLUDED.consent_version,
+            upload_token=EXCLUDED.upload_token,updated_at=NOW() RETURNING *''',
+            user,body.enabled,revision,body.consent_version,uuid.uuid4())
+        await conn.execute("INSERT INTO raw_consent_events (user_id,revision,enabled,consent_version) VALUES ($1,$2,$3,$4)",
+                           user,revision,body.enabled,body.consent_version)
+    return consent_response(row)
+
+
+@router.get("/v1/me/raw/chunks/{chunk_id}/analysis")
+async def read_raw_analysis(chunk_id: uuid.UUID,user_id: str = Depends(current_user_id)):
+    from ..raw_analysis import VERSION
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow("SELECT result,error_code,algorithm_version,source_sha256,processed_at FROM raw_analysis WHERE user_id=$1 AND chunk_id=$2 AND algorithm_version=$3",user_id,chunk_id,VERSION)
+    if row is None:
+        raise HTTPException(404,"analysis not available")
+    return {"result":json.loads(row['result']) if row['result'] else None,
+            "error_code":row['error_code'],"algorithm_version":row['algorithm_version'],
+            "source_sha256":row['source_sha256'],"processed_at":row['processed_at'].isoformat()}

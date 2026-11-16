@@ -33,6 +33,8 @@ async def test_raw_chunk_round_trip_retry_and_user_scope(tmp_path, monkeypatch):
     payload = b'{"stream":"ecg","payload":"AP+BSg=="}\n'
     headers = {"X-User-ID": owner, "X-Chunk-SHA256": hashlib.sha256(payload).hexdigest()}
     async with client() as c:
+        from server.tests.test_raw_consent import grant
+        headers['X-Archive-Consent-Token'] = (await grant(c,owner))['token']
         first = await c.post(f"/v1/raw/chunks/{chunk_id}", content=payload, headers=headers)
         assert first.status_code == 200, first.text
         assert first.headers["X-Chunk-SHA256"] == headers["X-Chunk-SHA256"]
@@ -58,7 +60,8 @@ async def test_raw_chunk_round_trip_retry_and_user_scope(tmp_path, monkeypatch):
 
         changed = await c.post(f"/v1/raw/chunks/{chunk_id}", content=b"different\n",
                                headers={"X-User-ID": owner,
-                                        "X-Chunk-SHA256": hashlib.sha256(b"different\n").hexdigest()})
+                                        "X-Chunk-SHA256": hashlib.sha256(b"different\n").hexdigest(),
+                                        "X-Archive-Consent-Token": headers["X-Archive-Consent-Token"]})
         assert changed.status_code == 409
         still_original = await c.get(f"/v1/me/raw/chunks/{chunk_id}",
                                      headers={"Authorization": f"Bearer {owner_token}"})
@@ -99,9 +102,12 @@ async def test_raw_export_detects_archive_corruption(tmp_path, monkeypatch):
     chunk_id = uuid.uuid4()
     payload = b"exact notification bytes\n"
     async with client() as c:
+        from server.tests.test_raw_consent import grant
+        consent = await grant(c,owner)
         uploaded = await c.post(f"/v1/raw/chunks/{chunk_id}", content=payload,
                                 headers={"X-User-ID": owner,
-                                         "X-Chunk-SHA256": hashlib.sha256(payload).hexdigest()})
+                                         "X-Chunk-SHA256": hashlib.sha256(payload).hexdigest(),
+                                         "X-Archive-Consent-Token": consent["token"]})
         assert uploaded.status_code == 200
         token = (await c.post("/v1/tokens", json={"name": "raw-owner"},
                               headers={"X-User-ID": owner})).json()["token"]
@@ -110,3 +116,30 @@ async def test_raw_export_detects_archive_corruption(tmp_path, monkeypatch):
         restored = await c.get(f"/v1/me/raw/chunks/{chunk_id}",
                                headers={"Authorization": f"Bearer {token}"})
         assert restored.status_code == 503
+
+@pytest.mark.asyncio
+async def test_object_storage_roundtrip_failure_retry_and_delete(monkeypatch):
+    from server import archive_store
+    from server.tests.test_archive_store import MemoryS3
+    storage = MemoryS3()
+    archive = archive_store.S3Archive(storage, 'private-test', b'x' * 32)
+    monkeypatch.setenv('RAW_ARCHIVE_BACKEND', 's3')
+    monkeypatch.setattr(archive_store, 'get_archive', lambda backend=None: archive)
+    owner, chunk = f'raw-{uuid.uuid4()}', uuid.uuid4()
+    payload = b'exact full packet\n'
+    headers = {'X-User-ID': owner, 'X-Chunk-SHA256': hashlib.sha256(payload).hexdigest()}
+    async with client() as c:
+        from server.tests.test_raw_consent import grant
+        headers['X-Archive-Consent-Token'] = (await grant(c,owner))['token']
+        uploaded = await c.post(f'/v1/raw/chunks/{chunk}', content=payload, headers=headers)
+        assert uploaded.status_code == 200, uploaded.text
+        assert len(storage.objects) == 1
+        token = (await c.post('/v1/tokens', json={'name': 'owner'}, headers={'X-User-ID': owner})).json()['token']
+        auth = {'Authorization': f'Bearer {token}'}
+        restored = await c.get(f'/v1/me/raw/chunks/{chunk}', headers=auth)
+        assert restored.content == payload
+        retry = await c.post(f'/v1/raw/chunks/{chunk}', content=payload, headers=headers)
+        assert retry.status_code == 200
+        erased = await c.delete('/v1/me/data', headers=auth)
+        assert erased.status_code == 200, erased.text
+        assert not storage.objects
