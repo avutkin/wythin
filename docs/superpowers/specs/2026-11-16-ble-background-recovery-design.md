@@ -15,3 +15,11 @@ The first accepted HR refresh clears buffered signals through connectionGapSubje
 Verify deterministic event sequences without foreground/timer ticks, existing standby/gap behavior, cooldown, stale timestamps, connection lifecycle resets, and command sequencing. Simulator tests cannot establish real H10 radio behavior, delegate delivery or iOS wake delivery; those need a locked physical iPhone and H10.
 
 Platform references: [Apple background processing guide](https://developer.apple.com/library/archive/documentation/NetworkingInternetWeb/Conceptual/CoreBluetooth_concepts/CoreBluetoothBackgroundProcessingForIOSApps/PerformingTasksWhileYourAppIsInTheBackground.html), [Bluetooth state restoration rules](https://developer.apple.com/documentation/technotes/tn3115-bluetooth-state-restoration-app-relaunch-rules).
+
+## Long-running connection maintenance (user requested before release)
+
+Enable CoreBluetooth's iOS 17 automatic reconnect option on every connection. Handle the timestamped disconnect callback: retain an OS-owned reconnect, explicitly rearm if none exists, and ignore another peripheral's or an older connection's events. Keep the 8-second maintenance loop armed while connecting; if the peripheral is actually disconnected after the requested delay plus 8 seconds, register a fresh persistent request. Never cancel a healthy connection or an existing pending request because of its age.
+
+Repeated connect failures register a new OS-delayed request immediately, with delays 2, 4, 8, 16, 32, then 60 seconds indefinitely. This uses the system's start-delay option rather than relying on a suspended app timer. Success resets the backoff. Manual disconnect remains authoritative. Another app occupying the H10 may prevent success until it releases the device; we keep retrying the user's selected H10, not switch to an unrelated Polar.
+
+Test a virtual 48-hour healthy stream followed by a stall, 288 repeated outages, 3000 failed connects, OS retry ownership, pending request repair, manual disconnect and old/foreign callbacks. Virtual time verifies state logic, not two days of physical radio operation. User approved publishing the update on November 16.

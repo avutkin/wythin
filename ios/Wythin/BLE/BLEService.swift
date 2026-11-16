@@ -211,6 +211,66 @@ enum BLEDiag {
     }
 }
 
+// MARK: - Persistent connection recovery
+
+struct BLEConnectionRecovery {
+    enum DisconnectAction { case ignore, waitForSystem, reconnect }
+    private var nextRetryDelay: TimeInterval = 2
+    private var pendingCheckAfter: Date?
+    private var requestedAt: Date?
+
+    static func options(delay: TimeInterval = 0) -> [String: Any] {
+        [CBConnectPeripheralOptionNotifyOnDisconnectionKey: true,
+         CBConnectPeripheralOptionEnableAutoReconnect: true,
+         CBConnectPeripheralOptionStartDelayKey: delay]
+    }
+
+    mutating func requested(at now: Date, delay: TimeInterval = 0) {
+        requestedAt = now
+        pendingCheckAfter = now.addingTimeInterval(delay + 8)
+    }
+
+    mutating func clearPendingRequest() {
+        requestedAt = nil
+        pendingCheckAfter = nil
+    }
+    mutating func connectionSucceeded() { self = Self() }
+
+    mutating func failedAttemptDelay() -> TimeInterval {
+        let delay = nextRetryDelay
+        nextRetryDelay = min(60, delay * 2)
+        return delay
+    }
+
+    func shouldRearm(linkState: CBPeripheralState, at now: Date) -> Bool {
+        guard linkState == .disconnected, let pendingCheckAfter else { return false }
+        return now >= pendingCheckAfter
+    }
+
+    func acceptsFailure(targetID: UUID?, failedID: UUID, userDisconnected: Bool,
+                        linkState: CBPeripheralState, at failedAt: Date,
+                        connectedAt: Date?) -> Bool {
+        guard targetID == failedID, !userDisconnected,
+              linkState != .connected, linkState != .disconnecting else { return false }
+        if let connectedAt, failedAt < connectedAt { return false }
+        if let requestedAt, failedAt < requestedAt { return false }
+        return true
+    }
+
+    static func disconnectAction(isCurrent: Bool, userDisconnected: Bool,
+                                 wasCanceled: Bool, linkState: CBPeripheralState,
+                                 systemIsReconnecting: Bool, disconnectedAt: Date?,
+                                 connectedAt: Date?) -> DisconnectAction {
+        guard isCurrent, !userDisconnected else { return .ignore }
+        if let disconnectedAt, let connectedAt, disconnectedAt < connectedAt { return .ignore }
+        // OS reconnect can finish before the delayed disconnect callback is
+        // handled. didConnect resets the stream state for the new connection.
+        if linkState == .connected { return .ignore }
+        if wasCanceled && linkState != .disconnected { return .ignore }
+        return systemIsReconnecting || linkState == .connecting ? .waitForSystem : .reconnect
+    }
+}
+
 // MARK: - RR stream recovery
 
 /// Bluetooth events drive this state machine even when the app is in the
@@ -747,7 +807,6 @@ final class BLEService: NSObject {
     private var peripheralMap:         [UUID: CBPeripheral] = [:]
     private var advertisedNames:       [UUID: String] = [:]
     private var restoredPeripherals:   [CBPeripheral] = []
-    private var connectionTimeoutTask: Task<Void, Never>?
     private var scanTimeoutTask:       Task<Void, Never>?
     private var settingsQueryTask:     Task<Void, Never>?
     private var reconnectTask:         Task<Void, Never>?  // cancellable, replaces asyncAfter
@@ -858,8 +917,8 @@ final class BLEService: NSObject {
     private let pairing = PolarH10Pairing(defaults: .standard)
     private var pmdStreamsStarted = false
 
-    // Backoff state — grows 2s → 4s → 8s → 16s → 30s on repeated unexpected disconnects.
-    private var reconnectDelay: TimeInterval = 2.0
+    private var connectionRecovery = BLEConnectionRecovery()
+    private var connectionEstablishedAt: Date?
 
     // Cancellations belong to a particular peripheral, not the next callback
     // from any device (a rejected watch can finish disconnecting after H10).
@@ -1051,6 +1110,9 @@ final class BLEService: NSObject {
         }
         inStandby = false
         BLEDiag.log("SELECT manual id=\(p.identifier) name=\(device.name)")
+        // An explicit selection supersedes the previous strap immediately,
+        // including restoration/retries before its first successful connect.
+        if let name = supportedName(p) { pairing.remember(id: p.identifier, name: name) }
         doConnect(p)
     }
 
@@ -1064,7 +1126,6 @@ final class BLEService: NSObject {
         print("🔵 BLE: user disconnect")
         userDisconnected = true
         inStandby = false
-        connectionTimeoutTask?.cancel()
         scanTimeoutTask?.cancel()
         reconnectTask?.cancel()
         settingsQueryTask?.cancel()
@@ -1075,7 +1136,7 @@ final class BLEService: NSObject {
         }
         clearConnectionState()
         rrRecovery = RRStreamRecovery()
-        reconnectDelay = 2.0
+        connectionRecovery = BLEConnectionRecovery()
         state = .idle
     }
 
@@ -1094,7 +1155,6 @@ final class BLEService: NSObject {
         inStandby = true
         resumeGate = StandbyResumeGate()   // fresh run for the wake decision
         standbyEnteredAt = Date()          // starts the resume grace window
-        connectionTimeoutTask?.cancel()
         reconnectTask?.cancel()
         // Keep monitoring the HR link that is responsible for standby resume.
         accWatchdogTask?.cancel()
@@ -1188,12 +1248,17 @@ final class BLEService: NSObject {
         p.delegate = self
         BLEDiag.log("SELECT restore id=\(device.id) name=\(device.name) state=\(p.state.rawValue)")
         if p.state == .connected {
+            clearCharacteristics()
             pairing.remember(id: device.id, name: device.name)
             pmdStreamsStarted = false
             discoveryRetryCount = 0
             state = .connected(name: device.name)
-            rrRecovery.beginConnection(at: Date())
+            let connectedAt = Date()
+            connectionEstablishedAt = connectedAt
+            connectionRecovery.connectionSucceeded()
+            rrRecovery.beginConnection(at: connectedAt)
             recoveryCommands.beginConnection()
+            centralManager.connect(p, options: BLEConnectionRecovery.options())
             discoverServices()
             startWatchdog()
         } else {
@@ -1201,15 +1266,14 @@ final class BLEService: NSObject {
         }
     }
 
-    /// Register a no-timeout pending connection: unlike `doConnect`, no 15 s
-    /// timeout is armed, so iOS keeps the request queued indefinitely and
+    /// Register a no-timeout pending connection. iOS keeps it queued indefinitely and
     /// connects when the peripheral next advertises (strap put back on).
-    private func armPendingConnect(_ p: CBPeripheral) {
+    private func armPendingConnect(_ p: CBPeripheral, delay: TimeInterval = 0) {
         guard let name = supportedName(p) else {
             rejectPeripheral(p, source: "pending-connect")
             return
         }
-        BLEDiag.log("CONNECT pending id=\(p.identifier) name=\(name)")
+        BLEDiag.log("CONNECT pending id=\(p.identifier) name=\(name) delay=\(delay)s")
         state = .connecting(name: name)
         print("🌙 BLE: armed pending reconnect (no timeout) — waiting for strap-on")
         peripheral = p
@@ -1217,9 +1281,9 @@ final class BLEService: NSObject {
         pmdStreamsStarted = false
         ecgSettings = nil
         accSettings = nil
-        centralManager.connect(p, options: [
-            CBConnectPeripheralOptionNotifyOnDisconnectionKey: true
-        ])
+        connectionRecovery.requested(at: Date(), delay: delay)
+        centralManager.connect(p, options: BLEConnectionRecovery.options(delay: delay))
+        startWatchdog()
     }
 
     private func doConnect(_ p: CBPeripheral) {
@@ -1228,54 +1292,10 @@ final class BLEService: NSObject {
             lastError = "Only Polar H10 is supported."
             return
         }
-        state = .connecting(name: name)
         BLEDiag.log("CONNECT id=\(p.identifier) name=\(name)")
-        print("🔵 BLE: doConnect — '\(p.name ?? "?")'  p.state=\(p.state.rawValue)")
-        peripheral = p
-        p.delegate = self
-        // Reset stream state so startPMDStreams runs fresh after this connection.
-        pmdStreamsStarted = false
-        ecgSettings = nil
-        accSettings = nil
-        // NotifyOnDisconnection ensures the app receives didDisconnectPeripheral
-        // even when suspended — critical for detecting drops caused by other BT
-        // devices connecting to the iPhone.
-        centralManager.connect(p, options: [
-            CBConnectPeripheralOptionNotifyOnDisconnectionKey: true
-        ])
-
-        connectionTimeoutTask?.cancel()
-        connectionTimeoutTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(15))
-            guard !Task.isCancelled else { return }
-            guard case .connecting = self.state else { return }
-
-            // In the background a scan is useless — iOS starves filterless
-            // background scans, so the old scan fallback burned its 30 s,
-            // wrote "No Polar H10 found", went idle, and NOTHING was left
-            // armed: the strap could come back all morning and the app never
-            // noticed until foregrounded. Keep the no-timeout pending connect
-            // instead — iOS fulfils it the instant the strap advertises.
-            if UIApplication.shared.applicationState == .background,
-               let p = self.peripheral, !self.userDisconnected {
-                print("⏱️ BLE: connect pending in background — staying armed")
-                BLEDiag.log("CONNECT TIMEOUT bg — pending connect stays armed")
-                self.connectionTimeoutTask = nil
-                self.armPendingConnect(p)
-                return
-            }
-
-            print("⏱️ BLE: connection timed out — falling back to scan")
-            // Cancel the pending connect without triggering auto-reconnect.
-            if let p = self.peripheral {
-                self.cancelConnection(p)
-            }
-            self.clearConnectionState()
-            self.reconnectDelay = 2.0   // timeout ≠ dropped connection; reset backoff
-            self.lastError = "H10 not responding. Is it powered on and in range?"
-            // Restart scan so the device list becomes visible for manual retry.
-            self.startScanning()
-        }
+        // Explicit selection and automatic recovery share the same persistent
+        // request. A foreground/inactive transition must never expire it.
+        armPendingConnect(p)
     }
 
     /// Acts on `DiscoveryRetryPolicy`'s decision for a failed discovery
@@ -1359,7 +1379,7 @@ final class BLEService: NSObject {
         p.setNotifyValue(false, for: data)
     }
 
-    /// Zero out all connection-specific state. Does NOT touch `state`, `reconnectDelay`,
+    /// Zero out all connection-specific state. Does NOT touch `state`, retry backoff,
     /// or `userDisconnected` — those are managed by the callers.
     /// Clears only GATT state (characteristics, stream flags). Keeps `peripheral` alive
     /// so the caller can attempt a direct reconnect without scanning.
@@ -1389,6 +1409,8 @@ final class BLEService: NSObject {
         standbyEnteredAt = nil
         recoveryCommands.endConnection()
         rrRecovery.endConnection()
+        connectionEstablishedAt = nil
+        connectionRecovery.clearPendingRequest()
     }
 
     /// Full reset including the peripheral reference. Used for intentional
@@ -1421,6 +1443,14 @@ final class BLEService: NSObject {
               centralManager.state == .poweredOn, let p = peripheral else { return }
         switch state {
         case .connected, .standby: break
+        case .connecting:
+            // A legitimate pending connect has no expiry, even after days.
+            // Only repair the case where the OS no longer has one armed.
+            if connectionRecovery.shouldRearm(linkState: p.state, at: Date()) {
+                BLEDiag.log("CONNECT maintenance — rearming lost pending request")
+                armPendingConnect(p)
+            }
+            return
         default: return
         }
         if p.state == .disconnected {
@@ -1596,9 +1626,9 @@ final class BLEService: NSObject {
     /// Shared logic for both watchdog-detected and delegate-reported unexpected drops.
     /// Keeps the peripheral reference and attempts a direct reconnect (no scan needed —
     /// iOS will reconnect to the known peripheral as soon as it's available).
-    private func handleUnexpectedDisconnect(_ p: CBPeripheral, error: Error?) {
+    private func handleUnexpectedDisconnect(_ p: CBPeripheral, error: Error?,
+                                            systemIsReconnecting: Bool = false) {
         BLEDiag.log("DISCONNECT unexpected: \(error?.localizedDescription ?? "no error")")
-        connectionTimeoutTask?.cancel()
         reconnectTask?.cancel()
         clearCharacteristics()          // keep `peripheral` for the pending reconnect
         connectionGapSubject.send()
@@ -1609,7 +1639,14 @@ final class BLEService: NSObject {
         // range). This is what makes reconnection seamless: the app is always
         // ready and never needs a manual scan.
         guard !userDisconnected else { return }
-        armPendingConnect(p)
+        if systemIsReconnecting {
+            BLEDiag.log("CONNECT system auto-reconnect pending id=\(p.identifier)")
+            state = .connecting(name: supportedName(p) ?? "Polar H10")
+            connectionRecovery.requested(at: Date())
+            startWatchdog()
+        } else {
+            armPendingConnect(p)
+        }
     }
 }
 
@@ -1642,7 +1679,6 @@ extension BLEService: CBCentralManagerDelegate {
                 self.state = .unsupported
             case .poweredOff, .resetting:
                 // BT went away — cancel timers, clean up, wait for poweredOn
-                self.connectionTimeoutTask?.cancel()
                 self.scanTimeoutTask?.cancel()
                 self.discovery.stop()
                 self.reconnectTask?.cancel()
@@ -1706,6 +1742,7 @@ extension BLEService: CBCentralManagerDelegate {
     nonisolated func centralManager(_ central: CBCentralManager,
                                     didConnect peripheral: CBPeripheral) {
         print("✅ BLE: connected to '\(peripheral.name ?? "?")'")
+        let connectedAt = Date()
         Task { @MainActor in
             guard !self.userDisconnected,
                   self.peripheral?.identifier == peripheral.identifier,
@@ -1713,7 +1750,11 @@ extension BLEService: CBCentralManagerDelegate {
                 self.rejectPeripheral(peripheral, source: "didConnect")
                 return
             }
-            self.connectionTimeoutTask?.cancel()
+            guard peripheral.state == .connected else { return }
+            // Auto-reconnect may have completed before its delayed disconnect
+            // event. Always initialize the new connection independently.
+            self.clearCharacteristics()
+            self.connectionGapSubject.send()
             // A live connection outdates any earlier failure — most visibly the
             // "No Polar H10 found (30 s)" scan timeout, which otherwise stays
             // on screen under a green connected card.
@@ -1721,11 +1762,12 @@ extension BLEService: CBCentralManagerDelegate {
             self.inStandby = false      // worn again — leaving off-body standby
             self.pairing.remember(id: peripheral.identifier, name: name)
             BLEDiag.log("CONNECTED id=\(peripheral.identifier) name=\(name)")
-            self.reconnectDelay = 2.0   // successful connection resets backoff
+            self.connectionRecovery.connectionSucceeded()
+            self.connectionEstablishedAt = connectedAt
             self.discoveryRetryCount = 0
             self.recentConnectFailures.removeAll()
             self.state = .connected(name: name)
-            self.rrRecovery.beginConnection(at: Date())
+            self.rrRecovery.beginConnection(at: connectedAt)
             self.recoveryCommands.beginConnection()
             self.discoverServices()
             self.startWatchdog()
@@ -1735,15 +1777,17 @@ extension BLEService: CBCentralManagerDelegate {
     nonisolated func centralManager(_ central: CBCentralManager,
                                     didFailToConnect peripheral: CBPeripheral,
                                     error: Error?) {
+        let failedAt = Date()
         let nsError = error as NSError?
         print("❌ BLE: failed to connect — \(error?.localizedDescription ?? "unknown")"
               + (nsError.map { " (\($0.domain) \($0.code))" } ?? ""))
         Task { @MainActor in
             guard self.canceledPeripheralIDs.remove(peripheral.identifier) == nil,
-                  self.peripheral?.identifier == peripheral.identifier,
                   self.supportedName(peripheral) != nil,
-                  !self.userDisconnected else { return }
-            self.connectionTimeoutTask?.cancel()
+                  self.connectionRecovery.acceptsFailure(
+                    targetID: self.peripheral?.identifier, failedID: peripheral.identifier,
+                    userDisconnected: self.userDisconnected, linkState: peripheral.state,
+                    at: failedAt, connectedAt: self.connectionEstablishedAt) else { return }
             self.clearCharacteristics()   // keep the peripheral for a re-arm
 
             let now = Date()
@@ -1763,36 +1807,49 @@ extension BLEService: CBCentralManagerDelegate {
                 message += " — if another app (e.g. the Polar app) is also connected to this sensor, close it fully and try again."
             }
             self.lastError = message
-            // For a paired strap, re-arm the persistent pending connect instead of
-            // giving up to a scan — stays seamless. Only scan if nothing is saved.
-            if !self.userDisconnected,
-               self.pairing.savedID == peripheral.identifier {
-                self.armPendingConnect(peripheral)
-            } else {
-                self.clearConnectionState()
-                self.startScanning()
-            }
+            // Keep the current selected H10, including a first connection.
+            // A scan fallback could otherwise switch back to the old strap.
+            let delay = self.connectionRecovery.failedAttemptDelay()
+            // Register the retry now. CoreBluetooth owns the delay even
+            // if iOS suspends the app before another timer can fire.
+            self.armPendingConnect(peripheral, delay: delay)
         }
     }
 
     nonisolated func centralManager(_ central: CBCentralManager,
                                     didDisconnectPeripheral peripheral: CBPeripheral,
                                     error: Error?) {
-        print("⚠️ BLE: disconnected — \(error?.localizedDescription ?? "clean")")
         Task { @MainActor in
-            if self.canceledPeripheralIDs.remove(peripheral.identifier) != nil {
-                // A fresh request may already target this same H10 after Scan.
-                // Re-arm only that active request, never a canceled old device.
-                if self.peripheral?.identifier == peripheral.identifier,
-                   peripheral.state == .disconnected, !self.userDisconnected {
-                    self.armPendingConnect(peripheral)
-                }
-                return
-            }
-            guard self.peripheral?.identifier == peripheral.identifier,
-                  self.supportedName(peripheral) != nil else { return }
-            // Unexpected drop — reconnect directly without scanning.
-            self.handleUnexpectedDisconnect(peripheral, error: error)
+            self.handleDisconnectEvent(peripheral, disconnectedAt: nil,
+                                       systemIsReconnecting: false, error: error)
+        }
+    }
+
+    nonisolated func centralManager(_ central: CBCentralManager,
+                                    didDisconnectPeripheral peripheral: CBPeripheral,
+                                    timestamp: CFAbsoluteTime, isReconnecting: Bool,
+                                    error: Error?) {
+        let disconnectedAt = Date(timeIntervalSinceReferenceDate: timestamp)
+        Task { @MainActor in
+            self.handleDisconnectEvent(peripheral, disconnectedAt: disconnectedAt,
+                                       systemIsReconnecting: isReconnecting, error: error)
+        }
+    }
+
+    private func handleDisconnectEvent(_ p: CBPeripheral, disconnectedAt: Date?,
+                                       systemIsReconnecting: Bool, error: Error?) {
+        let wasCanceled = canceledPeripheralIDs.remove(p.identifier) != nil
+        let action = BLEConnectionRecovery.disconnectAction(
+            isCurrent: peripheral?.identifier == p.identifier && supportedName(p) != nil,
+            userDisconnected: userDisconnected, wasCanceled: wasCanceled,
+            linkState: p.state, systemIsReconnecting: systemIsReconnecting,
+            disconnectedAt: disconnectedAt, connectedAt: connectionEstablishedAt)
+        switch action {
+        case .ignore: return
+        case .waitForSystem:
+            handleUnexpectedDisconnect(p, error: error, systemIsReconnecting: true)
+        case .reconnect:
+            handleUnexpectedDisconnect(p, error: error)
         }
     }
 }

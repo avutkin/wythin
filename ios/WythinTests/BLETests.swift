@@ -1,11 +1,134 @@
 import XCTest
 import UIKit
+import CoreBluetooth
 @testable import Wythin
 
 /// BLE packet parser tests — run on simulator or device.
 final class BLETests: XCTestCase {
 
     private let recoveryStart = Date(timeIntervalSince1970: 10_000)
+
+    func testPersistentConnectionsDelegateRetryAndBackoffToIOS() {
+        let options = BLEConnectionRecovery.options(delay: 60)
+        XCTAssertEqual(options[CBConnectPeripheralOptionEnableAutoReconnect] as? Bool, true)
+        XCTAssertEqual(options[CBConnectPeripheralOptionStartDelayKey] as? Double, 60)
+        XCTAssertEqual(options[CBConnectPeripheralOptionNotifyOnDisconnectionKey] as? Bool, true)
+    }
+
+    func testRepeatedConnectionFailuresBackOffForeverAndSuccessResetsDelay() {
+        var recovery = BLEConnectionRecovery()
+        XCTAssertEqual((0..<7).map { _ in recovery.failedAttemptDelay() }, [2, 4, 8, 16, 32, 60, 60])
+        for _ in 0..<3000 { XCTAssertEqual(recovery.failedAttemptDelay(), 60) }
+        recovery.connectionSucceeded()
+        XCTAssertEqual(recovery.failedAttemptDelay(), 2)
+    }
+
+    func testPendingConnectionSurvivesDaysAndRepairsOnlyAnUnarmedRequest() {
+        var recovery = BLEConnectionRecovery()
+        recovery.requested(at: recoveryStart, delay: 60)
+        XCTAssertFalse(recovery.shouldRearm(linkState: .disconnected, at: recoveryStart.addingTimeInterval(67)))
+        XCTAssertTrue(recovery.shouldRearm(linkState: .disconnected, at: recoveryStart.addingTimeInterval(68)))
+        for state in [CBPeripheralState.connecting, .connected, .disconnecting] {
+            XCTAssertFalse(recovery.shouldRearm(linkState: state, at: recoveryStart.addingTimeInterval(172_800)))
+        }
+        XCTAssertTrue(recovery.shouldRearm(linkState: .disconnected, at: recoveryStart.addingTimeInterval(172_800)))
+        recovery.clearPendingRequest()
+        XCTAssertFalse(recovery.shouldRearm(linkState: .disconnected, at: recoveryStart.addingTimeInterval(172_801)))
+    }
+
+    func testSystemReconnectIsRetainedAndMissingSystemRequestIsRearmed() {
+        XCTAssertEqual(BLEConnectionRecovery.disconnectAction(isCurrent: true, userDisconnected: false,
+            wasCanceled: false, linkState: .connecting, systemIsReconnecting: true,
+            disconnectedAt: nil, connectedAt: nil), .waitForSystem)
+        XCTAssertEqual(BLEConnectionRecovery.disconnectAction(isCurrent: true, userDisconnected: false,
+            wasCanceled: false, linkState: .disconnected, systemIsReconnecting: false,
+            disconnectedAt: nil, connectedAt: nil), .reconnect)
+    }
+
+    func testAnotherPolarAndManualDisconnectCannotRestartTheSelectedStrap() {
+        XCTAssertEqual(BLEConnectionRecovery.disconnectAction(isCurrent: false, userDisconnected: false,
+            wasCanceled: false, linkState: .disconnected, systemIsReconnecting: true,
+            disconnectedAt: nil, connectedAt: nil), .ignore)
+        XCTAssertEqual(BLEConnectionRecovery.disconnectAction(isCurrent: true, userDisconnected: true,
+            wasCanceled: true, linkState: .disconnected, systemIsReconnecting: false,
+            disconnectedAt: nil, connectedAt: nil), .ignore)
+    }
+
+    func testDelayedDisconnectCannotEraseANewerConnection() {
+        XCTAssertEqual(BLEConnectionRecovery.disconnectAction(isCurrent: true, userDisconnected: false,
+            wasCanceled: false, linkState: .connecting, systemIsReconnecting: true,
+            disconnectedAt: recoveryStart, connectedAt: recoveryStart.addingTimeInterval(2)), .ignore)
+        XCTAssertEqual(BLEConnectionRecovery.disconnectAction(isCurrent: true, userDisconnected: false,
+            wasCanceled: true, linkState: .connecting, systemIsReconnecting: false,
+            disconnectedAt: nil, connectedAt: nil), .ignore)
+    }
+
+    func testLateConnectionFailureCannotEraseSuccessOrANewerRequest() {
+        var recovery = BLEConnectionRecovery()
+        let selected = UUID()
+        recovery.requested(at: recoveryStart)
+        XCTAssertFalse(recovery.acceptsFailure(targetID: selected, failedID: selected,
+            userDisconnected: false, linkState: .connected, at: recoveryStart.addingTimeInterval(1),
+            connectedAt: recoveryStart.addingTimeInterval(2)))
+        XCTAssertFalse(recovery.acceptsFailure(targetID: selected, failedID: selected,
+            userDisconnected: false, linkState: .disconnected, at: recoveryStart.addingTimeInterval(1),
+            connectedAt: recoveryStart.addingTimeInterval(2)))
+        recovery.requested(at: recoveryStart.addingTimeInterval(3))
+        XCTAssertFalse(recovery.acceptsFailure(targetID: selected, failedID: selected,
+            userDisconnected: false, linkState: .disconnected, at: recoveryStart.addingTimeInterval(2),
+            connectedAt: nil))
+    }
+
+    func testNewlySelectedH10KeepsRetryingInsteadOfReturningToPreviousH10() {
+        var recovery = BLEConnectionRecovery()
+        let previousH10 = UUID(), selectedH10 = UUID()
+        for attempt in 0..<20 {
+            let now = recoveryStart.addingTimeInterval(Double(attempt) * 120)
+            recovery.requested(at: now)
+            XCTAssertTrue(recovery.acceptsFailure(targetID: selectedH10, failedID: selectedH10,
+                userDisconnected: false, linkState: .disconnected, at: now.addingTimeInterval(1),
+                connectedAt: nil), "Retry the selected H10 even before its first successful connection")
+            XCTAssertFalse(recovery.acceptsFailure(targetID: selectedH10, failedID: previousH10,
+                userDisconnected: false, linkState: .disconnected, at: now.addingTimeInterval(1),
+                connectedAt: nil))
+            XCTAssertLessThanOrEqual(recovery.failedAttemptDelay(), 60)
+        }
+    }
+
+    func testFailureAfterManualDisconnectDoesNotRearmConnection() {
+        let selected = UUID()
+        XCTAssertFalse(BLEConnectionRecovery().acceptsFailure(targetID: selected, failedID: selected,
+            userDisconnected: true, linkState: .disconnected, at: recoveryStart, connectedAt: nil))
+        XCTAssertFalse(BLEConnectionRecovery().acceptsFailure(targetID: nil, failedID: selected,
+            userDisconnected: false, linkState: .disconnected, at: recoveryStart, connectedAt: nil))
+    }
+
+    func testHealthy48HourRecordingIsNotInterruptedForConnectionAge() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        let frame = HRFrame(bpm: 60, rrIntervalsMs: [1000], contact: true)
+        for second in 0...172_800 {
+            XCTAssertEqual(recovery.receivedHeartRate(frame,
+                at: recoveryStart.addingTimeInterval(Double(second)),
+                inStandby: false, ecgLive: true), .wait)
+        }
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(172_815)), .refreshHeartRate)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(172_825)), .reconnect)
+    }
+
+    func testRepeatedRRStallsContinueRecoveringAcross48Hours() {
+        var recovery = RRStreamRecovery()
+        let frame = HRFrame(bpm: 60, rrIntervalsMs: [1000], contact: true)
+        for cycle in 0..<288 {
+            let start = recoveryStart.addingTimeInterval(Double(cycle) * 600)
+            recovery.beginConnection(at: start)
+            XCTAssertEqual(recovery.receivedHeartRate(frame, at: start,
+                inStandby: false, ecgLive: true), .wait)
+            XCTAssertEqual(recovery.receivedPacket(at: start.addingTimeInterval(15)), .refreshHeartRate)
+            XCTAssertEqual(recovery.receivedPacket(at: start.addingTimeInterval(25)), .reconnect)
+            recovery.endConnection()
+        }
+    }
 
     func testHRRefreshDisablesThenEnablesFromAcknowledgement() {
         var commands = RRRecoveryCommands()
