@@ -186,6 +186,7 @@ CREATE TABLE IF NOT EXISTS raw_chunks (
     PRIMARY KEY (user_id, chunk_id)
 );
 CREATE INDEX IF NOT EXISTS raw_chunks_user_created ON raw_chunks(user_id, created_at, chunk_id);
+ALTER TABLE raw_chunks ADD COLUMN IF NOT EXISTS storage_backend TEXT NOT NULL DEFAULT 'filesystem';
 
 -- Additive migrations. SCHEMA_SQL runs on every boot, and each statement here
 -- is idempotent, so this block is safe to re-run and safe to grow. Columns

@@ -5,3 +5,4 @@ pydantic>=2.7.0
 python-multipart>=0.0.9
 openai>=1.35.0
 mcp>=1.12,<2  # 2.0 moved fastmcp out of the package
+boto3>=1.35,<2
