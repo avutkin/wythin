@@ -810,6 +810,11 @@ final class AppEnvironment {
     private func observeLifecycleForDiagnostics() {
         let center = NotificationCenter.default
         lifecycleObservers.append(center.addObserver(
+            forName: NSNotification.Name.NSSystemTimeZoneDidChange,
+            object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in await self?.metricSync.syncIfEnabled() }
+            })
+        lifecycleObservers.append(center.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil, queue: .main) { _ in
                 BLEDiag.log("MEMORY WARNING")
@@ -991,7 +996,8 @@ final class AppEnvironment {
                 // Keep the chart history current in BOTH foreground and background
                 // so the charts are already up-to-date the instant the app is
                 // opened — no post-foreground fetch/refill delay.
-                let point = MetricsHistoryPoint(from: tick)
+                let recordingTimezone = TimeZone.autoupdatingCurrent.identifier
+                let point = MetricsHistoryPoint(from: tick, timezone: recordingTimezone)
                 self.tickHistory.append(point)
                 if self.tickHistory.count > self.maxTickHistory + self.trimBatch {
                     self.tickHistory.removeFirst(self.trimBatch)
@@ -1044,7 +1050,7 @@ final class AppEnvironment {
                 // A suspended or terminated process must not lose up to a
                 // minute of metrics that were already computed from RR frames.
                 do {
-                    try MetricSampleStore.persist(HRVSample(from: tick),
+                    try MetricSampleStore.persist(HRVSample(from: tick, timezone: recordingTimezone),
                                                   session: self.currentSession,
                                                   context: context)
                     self.ble.captureAudit?.recordMetricSave(success: true)

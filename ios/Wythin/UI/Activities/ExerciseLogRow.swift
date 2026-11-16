@@ -15,6 +15,7 @@ struct ExerciseLogRow: View {
 
     private var timeStr: String {
         let fmt = DateFormatter()
+        fmt.timeZone = entry.recordedCalendar.timeZone
         fmt.dateFormat = "HH:mm"
         let start = fmt.string(from: entry.startedAt)
         if let end = entry.endedAt {

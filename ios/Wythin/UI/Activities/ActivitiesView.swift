@@ -33,20 +33,25 @@ struct ActivitiesView: View {
     @State private var activeSheet:  ActivitySheet?   = nil
 
     private struct DayGroup: Identifiable {
-        let id:      Date
+        let id:      String
         let label:   String
         let entries: [ActivityLog]
     }
 
     private var dayGroups: [DayGroup] {
-        let cal = Calendar.current
         // A running session is listed like any other — as the row it will
         // become, wrapped in a live frame — rather than as a separate banner
         // with three pills. The banner showed a clock and no verdict, and the
         // verdict then appeared fully formed the moment the session stopped.
-        let grouped = Dictionary(grouping: allEntries) { cal.startOfDay(for: $0.startedAt) }
+        let grouped = Dictionary(grouping: allEntries) { entry in
+            let parts = entry.recordedCalendar.dateComponents([.year, .month, .day], from: entry.startedAt)
+            return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+        }
 
-        return grouped.keys.sorted(by: >).map { day in
+        return grouped.keys.sorted(by: >).map { key in
+            let entries = (grouped[key] ?? []).sorted { $0.startedAt > $1.startedAt }
+            let cal = entries[0].recordedCalendar
+            let day = cal.startOfDay(for: entries[0].startedAt)
             let label: String
             if cal.isDateInToday(day) {
                 label = "TODAY"
@@ -54,11 +59,11 @@ struct ActivitiesView: View {
                 label = "YESTERDAY"
             } else {
                 let fmt = DateFormatter()
+                fmt.timeZone = cal.timeZone
                 fmt.dateFormat = "MMM d"
                 label = fmt.string(from: day).uppercased()
             }
-            let entries = (grouped[day] ?? []).sorted { $0.startedAt > $1.startedAt }
-            return DayGroup(id: day, label: label, entries: entries)
+            return DayGroup(id: key, label: label, entries: entries)
         }
     }
 

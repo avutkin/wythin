@@ -305,13 +305,16 @@ enum SleepThresholds {
 struct SleepWindow: Equatable {
     let startedAt: Date
     let endedAt:   Date
+    var timezone: String? = nil
+    var dayOverride: Date? = nil
 
+    var calendar: Calendar { RecordingTimeZone.calendar(for: timezone) }
     var durationSec: Double { endedAt.timeIntervalSince(startedAt) }
 
     /// The night of the 20th–21st is the **21st's** night. Filing it under the
     /// start date puts every normal night on the previous day and makes a
     /// "nights this week" count off by one at both ends.
-    var day: Date { Calendar.current.startOfDay(for: endedAt) }
+    var day: Date { dayOverride ?? calendar.startOfDay(for: endedAt) }
 }
 
 // MARK: - Detector
@@ -378,24 +381,41 @@ enum SleepDetector {
     /// about eighteen hours of data.
     static func detectAll(_ points: [MetricsHistoryPoint]) -> [SleepWindow] {
         let all = points.sorted { $0.timestamp < $1.timestamp }
-        guard let first = all.first, let last = all.last else { return [] }
+        guard !all.isEmpty else { return [] }
 
-        let cal = Calendar.current
+        // Build civil-day slices using the zones carried by the measurements.
+        // A flight can change zones inside a recording; adjacent slices overlap
+        // so that transition does not cut a real night in two.
+        var slices: [Date: Date] = [:]
+        var calendars: [String: Calendar] = [:]
+        var lastDays: [String: DateInterval] = [:]
+        for point in all {
+            let key = point.timezone ?? ""
+            if let range = lastDays[key], point.timestamp >= range.start, point.timestamp < range.end { continue }
+            let cal = calendars[key] ?? RecordingTimeZone.calendar(for: point.timezone)
+            calendars[key] = cal
+            guard let range = cal.dateInterval(of: .day, for: point.timestamp) else { continue }
+            lastDays[key] = range
+            let day = range.start
+            for offset in [-1, 0] {
+                guard let evening = cal.date(byAdding: .day, value: offset, to: day),
+                      let next = cal.date(byAdding: .day, value: 1, to: evening),
+                      let from = cal.date(bySettingHour: Int(SleepThresholds.nightSliceFromHour), minute: 0, second: 0, of: evening),
+                      let to = cal.date(bySettingHour: Int(SleepThresholds.nightSliceToHour), minute: 0, second: 0, of: next) else { continue }
+                slices[from] = max(slices[from] ?? to, to)
+            }
+        }
         var found: [SleepWindow] = []
-        var dayStart = cal.startOfDay(for: first.timestamp)
-
-        while dayStart <= last.timestamp {
-            // Evening through to the following midday: wide enough for a late
-            // night and a long lie-in, narrow enough to hold exactly one.
-            let from = dayStart.addingTimeInterval(SleepThresholds.nightSliceFromHour * 3600)
-            let to = dayStart.addingTimeInterval((24 + SleepThresholds.nightSliceToHour) * 3600)
+        for from in slices.keys.sorted() {
+            let to = slices[from]!
             let slice = all.filter { $0.timestamp >= from && $0.timestamp <= to }
             if slice.count > 20, let night = detect(slice), spansTheCircadianTrough(night) {
-                // The slices overlap by design, so the same night can surface
-                // twice; keep one per wake date.
-                if !found.contains(where: { $0.day == night.day }) { found.append(night) }
+                if let index = found.firstIndex(where: {
+                    $0.day == night.day || min($0.endedAt, night.endedAt) > max($0.startedAt, night.startedAt)
+                }) {
+                    if night.durationSec > found[index].durationSec { found[index] = night }
+                } else { found.append(night) }
             }
-            dayStart = cal.date(byAdding: .day, value: 1, to: dayStart) ?? last.timestamp.addingTimeInterval(1)
         }
         return found
     }
@@ -410,10 +430,10 @@ enum SleepDetector {
     /// circadian trough; something that misses 01:00–05:00 entirely is a rest,
     /// and rests belong to the anchor, not here.
     static func spansTheCircadianTrough(_ window: SleepWindow) -> Bool {
-        let cal = Calendar.current
+        let cal = window.calendar
         let day = cal.startOfDay(for: window.endedAt)
-        let troughStart = day.addingTimeInterval(SleepThresholds.troughFromHour * 3600)
-        let troughEnd = day.addingTimeInterval(SleepThresholds.troughToHour * 3600)
+        guard let troughStart = cal.date(bySettingHour: Int(SleepThresholds.troughFromHour), minute: 0, second: 0, of: day),
+              let troughEnd = cal.date(bySettingHour: Int(SleepThresholds.troughToHour), minute: 0, second: 0, of: day) else { return false }
         let overlap = min(window.endedAt, troughEnd).timeIntervalSince(max(window.startedAt, troughStart))
         return overlap >= SleepThresholds.minTroughOverlapSec
     }
@@ -434,7 +454,7 @@ enum SleepDetector {
         // the tick-credit rule keeps a hole from ever being scored as sleep.
         guard let first = candidates[anchorIndex].first,
               let last = candidates[candidates.count - 1].last else { return nil }
-        let night = SleepWindow(startedAt: first.timestamp, endedAt: last.timestamp)
+        let night = SleepWindow(startedAt: first.timestamp, endedAt: last.timestamp, timezone: first.timezone)
         guard night.durationSec >= SleepThresholds.minNightSec else { return nil }
         return night
     }

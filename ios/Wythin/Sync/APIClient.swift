@@ -296,6 +296,7 @@ struct MetricSamplePayload: Codable {
     let signal_quality: Float?
     let rr_invalid_rate: Float?
     let ecg_quality_tier: Int?
+    var timezone: String? = nil
 }
 struct MetricsUploadPayload: Codable { let samples: [MetricSamplePayload] }
 
@@ -312,6 +313,7 @@ struct MetricExportSample: Codable {
     let signal_quality: Float?
     let rr_invalid_rate: Float?
     let ecg_quality_tier: Int?
+    var timezone: String? = nil
 }
 
 struct MetricExportPage: Codable {
@@ -802,7 +804,7 @@ final class MetricSyncService {
             state_stress: p.state.stress,
             consent_share_team: OnboardingConsent.shareWithTeam(),
             consent_ai_insights: OnboardingConsent.aiInsights(),
-            timezone: TimeZone.current.identifier)
+            timezone: TimeZone.autoupdatingCurrent.identifier)
         if let encoded = try? Self.profileEncoder.encode(profile) {
             let canonical = String(decoding: encoded, as: UTF8.self)
             if canonical != syncedProfile,
@@ -840,7 +842,7 @@ final class MetricSyncService {
                     breath_bpm: s.breathBPM, dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip,
                     dc: s.dc, vti: s.vti, motion: s.motion,
                     signal_quality: s.signalQuality, rr_invalid_rate: s.rrInvalidRate,
-                    ecg_quality_tier: s.ecgQualityTier) })
+                    ecg_quality_tier: s.ecgQualityTier, timezone: s.timezone) })
             do {
                 _ = try await client.uploadMetrics(payload, userID: userID)
             } catch {

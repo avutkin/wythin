@@ -13,6 +13,28 @@ final class BedtimeConsistencyTests: XCTestCase {
         return SleepWindow(startedAt: start, endedAt: start.addingTimeInterval(hours * 3600))
     }
 
+    func testSameLocalBedtimeAcrossDubaiMoscowAndLondonIsConsistent() throws {
+        let nights = try [("2026-11-10T19:00:00Z", "Asia/Dubai"),
+                          ("2026-11-11T20:00:00Z", "Europe/Moscow"),
+                          ("2026-11-12T23:00:00Z", "Europe/London")].map { date, zone in
+            let start = try XCTUnwrap(CloudRestoreService.date(date))
+            return SleepWindow(startedAt: start, endedAt: start.addingTimeInterval(8 * 3600), timezone: zone)
+        }
+        XCTAssertEqual(try XCTUnwrap(BedtimeConsistency.onsetSDMinutes(of: nights)), 0, accuracy: 0.001)
+    }
+
+    func testDSTNightKeepsItsCivilDayAndElapsedDuration() throws {
+        let start = try XCTUnwrap(CloudRestoreService.date("2026-11-01T03:10:00Z"))
+        let end = start.addingTimeInterval(8.5 * 3600)
+        let night = SleepWindow(startedAt: start, endedAt: end, timezone: "America/New_York")
+        XCTAssertEqual(night.day, CloudRestoreService.date("2026-11-01T04:00:00Z"))
+        XCTAssertEqual(night.durationSec, 8.5 * 3600)
+        XCTAssertTrue(SleepDetector.spansTheCircadianTrough(night))
+        let corrected = SleepWindowOverride(day: night.day, endedAt: end.addingTimeInterval(24 * 3600)).applied(to: night)
+        XCTAssertEqual(corrected.day, night.day, "a boundary edit must retain the original correction key")
+        XCTAssertEqual(corrected.timezone, night.timezone)
+    }
+
     // MARK: - The measurement
 
     func testIdenticalBedtimesHaveNoSpread() {

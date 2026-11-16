@@ -112,7 +112,10 @@ enum ActivityLogging {
             customName:      customName,
             startedAt:       start,
             endedAt:         end,
-            isManual:        true
+            isManual:        true,
+            // The date picker supplies UTC instants, not evidence of the zone
+            // the phone was in at that past time.
+            timezone:        nil
         )
         context.insert(entry)
         entry.computeHRVWindows(context: context)

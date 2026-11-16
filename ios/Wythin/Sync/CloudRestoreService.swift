@@ -127,30 +127,34 @@ final class CloudRestoreService {
         let upper = last.addingTimeInterval(1)
         let desc = FetchDescriptor<HRVSample>(
             predicate: #Predicate { $0.timestamp >= lower && $0.timestamp <= upper })
-        var existingBySecond: [Int64: [Date]] = [:]
+        var existingBySecond: [Int64: [HRVSample]] = [:]
         for row in (try? context.fetch(desc)) ?? [] {
             let second = Int64(floor(row.timestamp.timeIntervalSince1970))
-            existingBySecond[second, default: []].append(row.timestamp)
+            existingBySecond[second, default: []].append(row)
         }
 
         var inserted = 0
         for (ts, s) in dated {
             let second = Int64(floor(ts.timeIntervalSince1970))
-            let alreadyStored = (second - 1 ... second + 1).contains { candidate in
-                existingBySecond[candidate]?.contains {
-                    abs($0.timeIntervalSince(ts)) < 1
-                } ?? false
+            let existing = (second - 1 ... second + 1)
+                .flatMap { existingBySecond[$0] ?? [] }
+                .first { abs($0.timestamp.timeIntervalSince(ts)) < 1 }
+            if let existing {
+                // A verified server correction may fill missing metadata on
+                // this device. Never replace a known recording zone or its UTC instant.
+                if existing.timezone == nil { existing.timezone = s.timezone }
+                continue
             }
-            if alreadyStored { continue }
-            context.insert(HRVSample(
+            let sample = HRVSample(
                 cloudTs: ts,
                 meanBPM: s.mean_bpm, rmssd: s.rmssd, sdnn: s.sdnn, pnn50: s.pnn50,
                 lfHF: s.lf_hf, rsaMs: s.rsa_ms, coherence: s.coherence, cbi: s.cbi,
                 breathBPM: s.breath_bpm, dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip,
                 dc: s.dc, vti: s.vti, motion: s.motion,
                 signalQuality: s.signal_quality, rrInvalidRate: s.rr_invalid_rate,
-                ecgQualityTier: s.ecg_quality_tier))
-            existingBySecond[second, default: []].append(ts)
+                ecgQualityTier: s.ecg_quality_tier, timezone: s.timezone)
+            context.insert(sample)
+            existingBySecond[second, default: []].append(sample)
             inserted += 1
         }
         return inserted
@@ -160,12 +164,17 @@ final class CloudRestoreService {
     /// UUID the phone originally assigned); returns how many were new.
     nonisolated static func insert(_ payloads: [ActivityUploadPayload],
                                    into context: ModelContext) -> Int {
-        let existing = Set(((try? context.fetch(FetchDescriptor<ActivityLog>())) ?? []).map(\.id))
+        var existing = Dictionary(((try? context.fetch(FetchDescriptor<ActivityLog>())) ?? []).map { ($0.id, $0) },
+                                  uniquingKeysWith: { first, _ in first })
 
         var inserted = 0
         for p in payloads {
-            guard let id = UUID(uuidString: p.id), !existing.contains(id),
-                  let started = date(p.startedAt) else { continue }
+            guard let id = UUID(uuidString: p.id) else { continue }
+            if let log = existing[id] {
+                if log.timezone == nil { log.timezone = p.timezone }
+                continue
+            }
+            guard let started = date(p.startedAt) else { continue }
             let ended = p.endedAt.flatMap(date)
             // An unended, non-manual row would come back as "recording now"
             // and pin a live banner to a session that ended weeks ago.
@@ -176,7 +185,7 @@ final class CloudRestoreService {
                                   customName: p.customName,
                                   startedAt: started,
                                   endedAt: ended,
-                                  isManual: p.isManual)
+                                  isManual: p.isManual, timezone: p.timezone)
             log.id    = id
             log.notes = p.notes
             log.beforeHR    = p.beforeHR;    log.duringHR    = p.duringHR;    log.afterHR    = p.afterHR
@@ -191,7 +200,9 @@ final class CloudRestoreService {
             log.beforeDC    = p.beforeDC;    log.duringDC    = p.duringDC;    log.afterDC    = p.afterDC
             log.beforeDFA1  = p.beforeDFA1;  log.duringDFA1  = p.duringDFA1;  log.afterDFA1  = p.afterDFA1
             log.beforeBreath = p.beforeBreath; log.duringBreath = p.duringBreath; log.afterBreath = p.afterBreath
+            p.sleep?.apply(to: log)
             context.insert(log)
+            existing[id] = log
             inserted += 1
         }
         return inserted

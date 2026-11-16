@@ -129,6 +129,14 @@ enum SleepRecorder {
             ($0.sleepAlgorithmVersion ?? 0) >= SleepThresholds.algorithmVersion
                 && !rebuilt.contains(ObjectIdentifier($0))
         }
+        // A verified cloud repair can add zones to old measurements while the
+        // already-recorded night still has none. Use evidence at its onset,
+        // never the phone's present zone, and keep any saved correction key.
+        for log in current where log.timezone == nil {
+            if let point = points.first(where: {
+                $0.timestamp >= log.startedAt && $0.timestamp.timeIntervalSince(log.startedAt) < 60
+            }) { log.timezone = point.timezone }
+        }
         // Every unrecorded night in the window, not just the most recent.
         //
         // Regularity is a comparison between days and needs at least two, so
@@ -156,12 +164,15 @@ enum SleepRecorder {
                                            corrections: overrides, context: context)
         let standing = current.filter { !outgrown.contains(ObjectIdentifier($0)) }
         let recordedDays = Set(
-            standing.compactMap { $0.endedAt.map { Calendar.current.startOfDay(for: $0) } }
+            standing.map(\.recordedSleepDay)
         )
 
         var written: [ActivityLog] = []
         for detected in settled
         where !recordedDays.contains(detected.day)
+            && !standing.contains(where: {
+                $0.startedAt < detected.endedAt && ($0.endedAt ?? .distantPast) > detected.startedAt
+            })
             && written.count < SleepThresholds.maxNightsPerPass {
             let correction = overrides[detected.day]
             let night = correction?.applied(to: detected) ?? detected
@@ -190,7 +201,7 @@ enum SleepRecorder {
         var removed: Set<ObjectIdentifier> = []
         for log in nights {
             guard let end = log.endedAt else { continue }
-            let day = Calendar.current.startOfDay(for: end)
+            let day = log.recordedSleepDay
             guard corrections[day] == nil, let found = byDay[day] else { continue }
             let endsLater = found.endedAt.timeIntervalSince(end) >= 60
             let startsEarlier = log.startedAt.timeIntervalSince(found.startedAt) >= 60
@@ -246,13 +257,12 @@ enum SleepRecorder {
                                              _ corrections: [Date: SleepWindowOverride],
                                              context: ModelContext) -> Set<ObjectIdentifier> {
         guard !corrections.isEmpty else { return [] }
-        let cal = Calendar.current
         var removed: Set<ObjectIdentifier> = []
         for log in nights {
             guard let end = log.endedAt else { continue }
-            let day = cal.startOfDay(for: end)
+            let day = log.recordedSleepDay
             guard let want = corrections[day] else { continue }
-            let corrected = want.applied(to: SleepWindow(startedAt: log.startedAt, endedAt: end))
+            let corrected = want.applied(to: SleepWindow(startedAt: log.startedAt, endedAt: end, timezone: log.timezone, dayOverride: log.recordedSleepDay))
             let sameStart = abs(corrected.startedAt.timeIntervalSince(log.startedAt)) < 60
             let sameEnd = abs(corrected.endedAt.timeIntervalSince(end)) < 60
             guard !(sameStart && sameEnd) else { continue }
@@ -305,7 +315,8 @@ enum SleepRecorder {
         }
 
         let log = ActivityLog(activityType: ActivityType.sleep.rawValue,
-                              startedAt: night.startedAt)
+                              startedAt: night.startedAt, timezone: night.timezone)
+        log.sleepDay = night.day
         log.endedAt = night.endedAt
         log.isManual = false
         log.sleepAlgorithmVersion = SleepThresholds.algorithmVersion
@@ -350,7 +361,7 @@ enum SleepRecorder {
     private static func priorWindows(_ existing: [ActivityLog]) -> [SleepWindow] {
         existing
             .filter { $0.activityType == ActivityType.sleep.rawValue }
-            .compactMap { log in log.endedAt.map { SleepWindow(startedAt: log.startedAt, endedAt: $0) } }
+            .compactMap { log in log.endedAt.map { SleepWindow(startedAt: log.startedAt, endedAt: $0, timezone: log.timezone, dayOverride: log.recordedSleepDay) } }
     }
 
     /// Elapsed seconds covered by the ticks where `mask` is true.
@@ -513,11 +524,11 @@ enum SleepRecorder {
         // Regularity over this night plus the nights already recorded.
         let priorWindows: [SleepWindow] = existing
             .filter { $0.activityType == ActivityType.sleep.rawValue }
-            .compactMap { log in log.endedAt.map { SleepWindow(startedAt: log.startedAt, endedAt: $0) } }
+            .compactMap { log in log.endedAt.map { SleepWindow(startedAt: log.startedAt, endedAt: $0, timezone: log.timezone, dayOverride: log.recordedSleepDay) } }
 
         let input = SleepScoreInput(
             bedtimeSDMin: BedtimeConsistency.onsetSDMinutes(of: priorWindows + [night]),
-            bedtimeOutsideMin: BedtimePlacement.minutesOutside(night.startedAt),
+            bedtimeOutsideMin: BedtimePlacement.minutesOutside(night.startedAt, calendar: night.calendar),
             asleepSec: asleepSec,
             needSec: SleepThresholds.defaultNeedSec,
             wakeBouts: bouts,

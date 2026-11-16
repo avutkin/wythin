@@ -61,7 +61,7 @@ enum ActivityRestore {
                                 customName: p.customName,
                                 startedAt: started,
                                 endedAt: p.endedAt.flatMap(iso),
-                                isManual: p.isManual)
+                                isManual: p.isManual, timezone: p.timezone)
         // The server key is the client id it was uploaded with, so a restored
         // row keeps its identity and a later re-upload upserts rather than
         // duplicating.

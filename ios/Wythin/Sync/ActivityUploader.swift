@@ -74,7 +74,7 @@ struct ActivityUploadPayload: Codable {
         impactDeltaPct  = e.impactDeltaPct.map(Float.init)
         notes           = e.notes
         sleep           = SleepUploadPayload(from: e)
-        timezone        = TimeZone.current.identifier
+        timezone        = e.timezone
         beforeHR = e.beforeHR;         duringHR = e.duringHR;         afterHR = e.afterHR
         beforeRMSSD = e.beforeRMSSD;   duringRMSSD = e.duringRMSSD;   afterRMSSD = e.afterRMSSD
         beforeSDNN = e.beforeSDNN;     duringSDNN = e.duringSDNN;     afterSDNN = e.afterSDNN

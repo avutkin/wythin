@@ -21,6 +21,21 @@ final class ActivityRestoreTests: XCTestCase {
                                          from: Data(json.utf8))
     }
 
+    func testRestoreAndDelayedUploadPreserveRecordedZoneAndUTC() throws {
+        let wire = Data(#"{"id":"A","activity_type":"Meditation","started_at":"2026-11-11T19:30:00Z","ended_at":"2026-11-11T20:00:00Z","is_manual":false,"timezone":"Asia/Dubai"}"#.utf8)
+        let payload = try JSONDecoder().decode(ActivityUploadPayload.self, from: wire)
+        let restored = try XCTUnwrap(ActivityRestore.make(from: payload))
+        let uploaded = ActivityUploadPayload(from: restored)
+        XCTAssertEqual(uploaded.timezone, "Asia/Dubai")
+        XCTAssertEqual(ActivityRestore.iso(uploaded.startedAt), ActivityRestore.iso(payload.startedAt))
+        XCTAssertEqual(restored.duration, 1800)
+    }
+
+    func testLegacyRestoreDoesNotInventHistoricalZone() throws {
+        let restored = try XCTUnwrap(ActivityRestore.make(from: payload()))
+        XCTAssertNil(ActivityUploadPayload(from: restored).timezone)
+    }
+
     func testAServerRowComesBackAsAnEntry() {
         let entry = ActivityRestore.make(from: payload())
         XCTAssertEqual(entry?.activityType, "Exercise")

@@ -21,6 +21,8 @@ enum MetricSampleStore {
 /// One metrics tick (~2 s snapshot) within a session.
 @Model
 final class HRVSample {
+    /// Phone zone at capture; nil means historical location is unknown.
+    var timezone:       String?
     var timestamp:      Date
     var meanBPM:        Float?
     var rmssd:          Float?
@@ -73,7 +75,8 @@ final class HRVSample {
     /// synced to the server yet; can be added later without a migration.
     var breathSourceRaw: Int?
 
-    init(from tick: MetricsTick) {
+    init(from tick: MetricsTick, timezone: String? = TimeZone.autoupdatingCurrent.identifier) {
+        self.timezone = timezone
         self.timestamp  = tick.timestamp
         self.meanBPM    = tick.meanBPM
         self.rmssd      = tick.rmssd
@@ -125,7 +128,8 @@ final class HRVSample {
          lfHF: Float?, rsaMs: Float?, coherence: Float?, cbi: Float?,
          breathBPM: Float?, dfa1: Float?, rcmse: Float?, pip: Float?,
          dc: Float?, vti: Float?, motion: Float? = nil,
-         signalQuality: Float? = nil, rrInvalidRate: Float? = nil, ecgQualityTier: Int? = nil) {
+         signalQuality: Float? = nil, rrInvalidRate: Float? = nil, ecgQualityTier: Int? = nil, timezone: String? = nil) {
+        self.timezone = timezone
         self.timestamp = cloudTs
         self.meanBPM   = meanBPM
         self.rmssd     = rmssd
@@ -173,8 +177,10 @@ final class HRVSample {
         motion: Float? = nil,
         signalQuality: Float? = nil,
         rrInvalidRate: Float? = nil,
-        ecgQualityTier: Int? = nil
+        ecgQualityTier: Int? = nil,
+        timezone: String? = nil
     ) {
+        self.timezone = timezone
         self.timestamp = anchorTestTimestamp
         self.meanBPM   = meanBPM
         self.vti       = vti

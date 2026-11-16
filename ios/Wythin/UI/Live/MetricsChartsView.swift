@@ -219,6 +219,7 @@ struct MetricInfoSheet: View {
 ///   shares one clock with the hypnogram above it.
 
 struct MetricChartCard: View {
+    @Environment(\.timeZone) private var timeZone
     /// Plot height. Defaults to the Live screen's 130, where one chart is the
     /// subject of the screen. The sleep sections pass something shorter: four
     /// traces stacked under one heading is a different reading task, and at
@@ -461,6 +462,7 @@ struct MetricChartCard: View {
     private var windowLabel: String {
         if night != nil {
             let fmt = DateFormatter()
+            fmt.timeZone = timeZone
             fmt.dateFormat = "HH:mm"
             let mins = Int(bucketSeconds / 60)
             let grain = mins < 1 ? "\(Int(bucketSeconds))s avg" : "\(mins) min avg"
@@ -469,6 +471,7 @@ struct MetricChartCard: View {
         // Panned back from the newest edge → show the window's start time.
         if panOffset < -1 {
             let fmt = DateFormatter()
+            fmt.timeZone = timeZone
             fmt.dateFormat = "HH:mm"
             return "\(fmt.string(from: windowDates.start))  ·  \(win.bucketLabel)"
         }
@@ -773,9 +776,13 @@ struct MetricChartCard: View {
             .onChange(of: selectedX) { _, sel in edgePanIfNeeded(sel) }
             .chartOverlay { proxy in chartOverlay(pts: pts, proxy: proxy) }
             .chartXAxis {
-                AxisMarks(values: .automatic(desiredCount: 4)) {
+                AxisMarks(values: .automatic(desiredCount: 4)) { value in
                     AxisGridLine().foregroundStyle(Theme.border)
-                    AxisValueLabel(format: .dateTime.hour().minute())
+                    AxisValueLabel {
+                        if let date = value.as(Date.self) {
+                            Text(date, format: Date.FormatStyle(date: .omitted, time: .shortened, timeZone: timeZone))
+                        }
+                    }
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(Theme.dim)
                 }
@@ -854,6 +861,7 @@ struct MetricChartCard: View {
 
     private func selectionBubble(_ pt: ChartPoint) -> some View {
         let fmt = DateFormatter()
+        fmt.timeZone = timeZone
         fmt.dateFormat = "HH:mm"
         return HStack(spacing: 5) {
             Text(fmt.string(from: pt.date)).foregroundStyle(Theme.dim)

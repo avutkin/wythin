@@ -32,6 +32,7 @@ struct ExerciseDetailView: View {
 
     private var timeStr: String {
         let fmt = DateFormatter()
+        fmt.timeZone = entry.recordedCalendar.timeZone
         fmt.dateStyle = .medium
         fmt.timeStyle = .short
         return fmt.string(from: entry.startedAt)
@@ -135,6 +136,7 @@ struct ExerciseDetailView: View {
                 .padding(.bottom, 30)
             }
             .background(Theme.bg)
+            .environment(\.timeZone, entry.recordedCalendar.timeZone)
             .navigationTitle(entry.displayName.uppercased())
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bg, for: .navigationBar)

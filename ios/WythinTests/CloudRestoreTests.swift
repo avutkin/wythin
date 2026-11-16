@@ -54,6 +54,64 @@ final class CloudRestoreTests: XCTestCase {
         XCTAssertNil(page.samples[1].ecg_quality_tier, "a page written before quality was carried still decodes")
     }
 
+    func testCloudActivityRestorePreservesRecordedZoneAndLegacyUnknown() throws {
+        let ctx = try freshContext()
+        let json = """
+        [{"id":"00000000-0000-4000-8000-000000000001","activity_type":"Walk","started_at":"2026-11-11T19:30:00Z","ended_at":"2026-11-11T20:00:00Z","is_manual":false,"timezone":"Asia/Dubai"},
+         {"id":"00000000-0000-4000-8000-000000000002","activity_type":"Walk","started_at":"2026-11-12T19:30:00Z","ended_at":"2026-11-12T20:00:00Z","is_manual":false}]
+        """
+        let rows = try JSONDecoder().decode([ActivityUploadPayload].self, from: Data(json.utf8))
+        XCTAssertEqual(CloudRestoreService.insert(rows, into: ctx), 2)
+        let logs = try ctx.fetch(FetchDescriptor<ActivityLog>(sortBy: [SortDescriptor(\.startedAt)]))
+        XCTAssertEqual(ActivityUploadPayload(from: logs[0]).timezone, "Asia/Dubai")
+        XCTAssertNil(ActivityUploadPayload(from: logs[1]).timezone)
+    }
+
+    func testMetricExportRoundTripKeepsRecordedZone() throws {
+        let wire = Data(#"{"ts":"2026-11-11T19:30:00Z","timezone":"Asia/Dubai"}"#.utf8)
+        let row = try JSONDecoder().decode(MetricExportSample.self, from: wire)
+        let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(row)) as? [String: Any])
+        XCTAssertEqual(decoded["timezone"] as? String, "Asia/Dubai")
+        let context = try freshContext()
+        XCTAssertEqual(CloudRestoreService.insert([row, sample("2026-11-11T19:31:00Z")], into: context), 2)
+        let stored = try context.fetch(FetchDescriptor<HRVSample>(sortBy: [SortDescriptor(\.timestamp)]))
+        XCTAssertEqual(stored[0].timezone, "Asia/Dubai")
+        XCTAssertEqual(MetricsHistoryPoint(from: stored[0]).timezone, "Asia/Dubai")
+        XCTAssertNil(stored[1].timezone)
+        XCTAssertNil(MetricsHistoryPoint(from: stored[1]).timezone)
+    }
+
+    func testRestoreCanFillVerifiedZoneOnExistingUnknownSampleWithoutOverwritingKnownZone() throws {
+        let context = try freshContext()
+        let timestamp = try XCTUnwrap(CloudRestoreService.date("2026-11-11T19:30:00Z"))
+        context.insert(HRVSample(anchorTestTimestamp: timestamp, meanBPM: 62))
+        try context.save()
+        func wire(_ zone: String?) throws -> MetricExportSample {
+            let data = try JSONSerialization.data(withJSONObject: ["ts": "2026-11-11T19:30:00Z", "timezone": zone as Any? ?? NSNull()])
+            return try JSONDecoder().decode(MetricExportSample.self, from: data)
+        }
+        XCTAssertEqual(CloudRestoreService.insert([try wire("Asia/Dubai")], into: context), 0)
+        let stored = try XCTUnwrap(context.fetch(FetchDescriptor<HRVSample>()).first)
+        XCTAssertEqual(stored.timezone, "Asia/Dubai")
+        XCTAssertEqual(CloudRestoreService.insert([try wire(nil), try wire("Europe/Moscow")], into: context), 0)
+        XCTAssertEqual(stored.timezone, "Asia/Dubai")
+        XCTAssertEqual(stored.timestamp, timestamp)
+    }
+
+    func testRestoreFillsOnlyMissingZoneOnExistingActivity() throws {
+        let context = try freshContext()
+        let log = ActivityLog(activityType: "Walk", startedAt: .now, timezone: nil)
+        log.endedAt = .now
+        context.insert(log)
+        try context.save()
+        let data = try JSONSerialization.data(withJSONObject: ["id": log.id.uuidString, "activity_type": "Walk", "started_at": "2026-11-11T19:30:00Z", "ended_at": "2026-11-11T20:00:00Z", "is_manual": false, "timezone": "Asia/Dubai"])
+        let row = try JSONDecoder().decode(ActivityUploadPayload.self, from: data)
+        XCTAssertEqual(CloudRestoreService.insert([row], into: context), 0)
+        XCTAssertEqual(log.timezone, "Asia/Dubai")
+        XCTAssertEqual(CloudRestoreService.insert([activity(id: log.id.uuidString, endedAt: "2026-11-11T20:00:00Z")], into: context), 0)
+        XCTAssertEqual(log.timezone, "Asia/Dubai")
+    }
+
     // MARK: Timestamp parsing
 
     /// Server pages come back as isoformat with a numeric offset (with or
@@ -156,16 +214,37 @@ private final class MetricSyncURLProtocol: URLProtocol {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var calls = 0
     nonisolated(unsafe) private static var failFirst = true
+    nonisolated(unsafe) private static var payloads: [Data] = []
 
     static func reset() {
         lock.lock(); defer { lock.unlock() }
         calls = 0
         failFirst = true
+        payloads = []
     }
 
     static func metricCalls() -> Int {
         lock.lock(); defer { lock.unlock() }
         return calls
+    }
+
+    static func metricPayloads() throws -> [MetricsUploadPayload] {
+        lock.lock(); defer { lock.unlock() }
+        return try payloads.map { try JSONDecoder().decode(MetricsUploadPayload.self, from: $0) }
+    }
+
+    private func requestBody() -> Data {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open(); defer { stream.close() }
+        var body = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let n = stream.read(&buffer, maxLength: buffer.count)
+            guard n > 0 else { break }
+            body.append(contentsOf: buffer.prefix(n))
+        }
+        return body
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -178,6 +257,7 @@ private final class MetricSyncURLProtocol: URLProtocol {
         var shouldFail = false
         if isMetrics {
             Self.lock.lock()
+            Self.payloads.append(requestBody())
             Self.calls += 1
             shouldFail = Self.failFirst
             Self.failFirst = false
@@ -216,9 +296,10 @@ final class MetricSyncBacklogTests: XCTestCase {
             configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let context = ModelContext(container)
         let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let zones: [String?] = ["Asia/Dubai", "Asia/Dubai", "Europe/Moscow", "Europe/Moscow", nil]
         for i in 0..<5 {
             context.insert(HRVSample(anchorTestTimestamp: start.addingTimeInterval(Double(i * 2)),
-                                     meanBPM: 65))
+                                     meanBPM: 65, timezone: zones[i]))
         }
         try context.save()
 
@@ -237,6 +318,10 @@ final class MetricSyncBacklogTests: XCTestCase {
                        "a rejected batch must not advance the cursor")
 
         await service.syncIfEnabled()
+        let sent = try MetricSyncURLProtocol.metricPayloads()
+        XCTAssertEqual(sent[0].samples.map(\.timezone), ["Asia/Dubai", "Asia/Dubai"], "retry keeps the capture zone")
+        XCTAssertEqual(sent.dropFirst().flatMap(\.samples).map(\.timezone), zones, "upload never stamps the current zone on stored samples")
+        XCTAssertEqual(sent[0].samples.first?.ts, "2027-01-15T08:00:00.000Z")
         XCTAssertEqual(MetricSyncURLProtocol.metricCalls(), 4,
                        "five samples in batches of two need three successful requests")
         XCTAssertEqual(defaults.double(forKey: "metricsLastSyncedEpoch"),
@@ -246,6 +331,28 @@ final class MetricSyncBacklogTests: XCTestCase {
 
 @MainActor
 final class MetricCapturePersistenceTests: XCTestCase {
+    func testLiveTickSharesOneRecordedZoneBetweenHistoryAndPersistence() throws {
+        let instant = Date(timeIntervalSince1970: 1_800_000_000)
+        let tick = MetricsTick(timestamp: instant,
+            meanBPM: nil, sdnn: nil, rmssd: nil, pnn50: nil, vti: nil,
+            ulfPower: nil, vlfPower: nil, lfPower: nil, hfPower: nil, lfHF: nil,
+            rsaMs: nil, rsaIdx: nil, breathBPM: nil, breathHz: nil, regularity: nil,
+            coherenceScore: nil, cbi: nil, dfa1: nil, signalQuality: nil, ecgQuality: nil,
+            rcmse: nil, pip: nil, ials: nil, dc: nil, breathPhases: nil,
+            psdFreqs: nil, psdValues: nil, coherenceFreqs: nil, coherenceValues: nil)
+        for zone in ["Asia/Dubai", "Europe/Moscow"] {
+            let sample = HRVSample(from: tick, timezone: zone)
+            let point = MetricsHistoryPoint(from: tick, timezone: zone)
+            XCTAssertEqual(sample.timezone, zone)
+            XCTAssertEqual(point.timezone, sample.timezone)
+            XCTAssertEqual(MetricsHistoryPoint(from: sample).timezone, point.timezone)
+            XCTAssertEqual(sample.timestamp, instant)
+            XCTAssertEqual(point.timestamp, instant)
+        }
+        XCTAssertEqual(HRVSample(from: tick).timezone, TimeZone.autoupdatingCurrent.identifier)
+        XCTAssertEqual(MetricsHistoryPoint(from: tick).timezone, TimeZone.autoupdatingCurrent.identifier)
+    }
+
     func testAutomaticCapturePersistsWithoutAnUnboundedSessionRelationship() throws {
         let container = try ModelContainer(for: HRVSession.self, HRVSample.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true))

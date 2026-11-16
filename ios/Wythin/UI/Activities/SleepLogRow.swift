@@ -32,6 +32,7 @@ struct SleepLogRow: View {
 
     private var window: String {
         let f = DateFormatter()
+        f.timeZone = entry.recordedCalendar.timeZone
         f.dateFormat = "HH:mm"
         guard let end = entry.endedAt else { return f.string(from: entry.startedAt) }
         return "\(f.string(from: entry.startedAt)) → \(f.string(from: end))"

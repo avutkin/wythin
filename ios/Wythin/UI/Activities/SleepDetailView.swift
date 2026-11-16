@@ -45,6 +45,7 @@ struct SleepDetailView: View {
 
     private var window: String {
         let f = DateFormatter()
+        f.timeZone = entry.recordedCalendar.timeZone
         f.dateFormat = "HH:mm"
         guard let end = entry.endedAt else { return f.string(from: entry.startedAt) }
         return "\(f.string(from: entry.startedAt)) → \(f.string(from: end))"
@@ -76,7 +77,7 @@ struct SleepDetailView: View {
                                           startedAt: entry.startedAt,
                                           endedAt: end,
                                           selectedX: $selectedX,
-                                          showsMetrics: false)
+                                          showsMetrics: false, timezone: entry.timezone, correctionDay: entry.recordedSleepDay)
                     }
                     stageCaveat
                     ForEach(SleepSection.allCases, id: \.self) { section in
@@ -106,6 +107,7 @@ struct SleepDetailView: View {
             }
             .padding(18)
         }
+        .environment(\.timeZone, entry.recordedCalendar.timeZone)
         .background(Theme.bg.ignoresSafeArea())
         .task {
             guard night == nil, let end = entry.endedAt else { return }
