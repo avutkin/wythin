@@ -200,6 +200,10 @@ final class ActiveActivityTests: XCTestCase {
         let point = MetricsHistoryPoint(timestamp: now, meanBPM: 166, rmssd: 18, sdnn: 22)
         XCTAssertEqual(LiveActivityPresentation.currentPoint(point, startedAt: began,
             now: now, signalAvailable: true)?.meanBPM, 166)
+        let betweenClockTicks = MetricsHistoryPoint(timestamp: now.addingTimeInterval(0.4), meanBPM: 167)
+        XCTAssertEqual(LiveActivityPresentation.currentPoint(betweenClockTicks, startedAt: began,
+            now: now.addingTimeInterval(0.5), signalAvailable: true)?.meanBPM, 167,
+            "New readings are evaluated at wall time, independently of the one-second display clock")
         XCTAssertNil(LiveActivityPresentation.currentPoint(point, startedAt: began,
             now: now.addingTimeInterval(7), signalAvailable: true), "A stopped stream is not live")
         XCTAssertNil(LiveActivityPresentation.currentPoint(point, startedAt: began,

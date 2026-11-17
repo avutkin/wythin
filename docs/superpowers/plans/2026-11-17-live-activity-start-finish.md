@@ -23,3 +23,11 @@ The repeated-Finish regression failed before the implementation (`/private/tmp/w
 The Mac was locked when attempting the interactive simulator walkthrough; the user was asked to unlock it while implementation continued. Static renders and tests are not a tap-through verification of Start Now → picker → live session → Finish. Full-suite and delivery results will be recorded below.
 
 Final full suite: **1,891 tests, 1 opt-in background transport test skipped, zero failures**, exit 0 (`/private/tmp/wythin-activity-live-full.xcresult`). This includes the current Apple Health tests. `git diff --check` passed. No server changes are required for this activity flow.
+
+## Review and release follow-up
+
+Independent review found that a sensor update arriving between one-second display updates could be compared with an older `TimelineView.Context.date` and briefly be hidden as a future reading. The freshness check now uses wall time; the elapsed display still follows its one-second schedule. Coverage includes a reading arriving between clock ticks. Apple defines [the timeline context date as the scheduled update date](https://developer.apple.com/documentation/swiftui/timelineview/context/date), rather than the time of each observed-data redraw. No other important introduced issues were found in review.
+
+The first release attempt reserved build 153 but failed before upload because the cached signing profile did not include the new HealthKit capabilities from main. `ship.sh` supplied the existing App Store Connect key to export but not archive; the archive command now receives the same authentication arguments so automatic provisioning can refresh the profile. The retry reached compilation with provisioning resolved. Build 154 was stopped before upload to include the review correction above. Neither 153 nor 154 was released to testers.
+
+After the review correction, the full suite passed again: **1,891 tests, 1 opt-in skip, zero failures**, exit 0 (`/private/tmp/wythin-activity-live-reviewed.xcresult`). The reviewer confirmed the timing finding resolved with no further blocking findings. A second simulator access attempt still reported the Mac locked; interactive tap-through remains unverified.

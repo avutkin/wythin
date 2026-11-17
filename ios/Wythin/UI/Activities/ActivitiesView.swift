@@ -162,7 +162,9 @@ struct ActivitiesView: View {
                             LiveActivityCard(entry: entry, now: timeline.date,
                                 point: LiveActivityPresentation.currentPoint(
                                     env.latestTick.map { MetricsHistoryPoint(from: $0) },
-                                    startedAt: entry.startedAt, now: timeline.date,
+                                    // A measurement can arrive after the last clock
+                                    // tick. Judge freshness against wall time.
+                                    startedAt: entry.startedAt, now: .now,
                                     signalAvailable: env.ble.rrIntervalsLive),
                                 onFinish: { endActivity(entry) })
                         }
