@@ -42,6 +42,7 @@ struct WythinApp: App {
         }
         container = c
         _env = State(initialValue: AppEnvironment(modelContainer: c))
+        HealthSyncCoordinator.shared.attach(container: c)
     }
 
     var body: some Scene {
@@ -64,6 +65,8 @@ struct WythinApp: App {
         }
         .onChange(of: scenePhase) { _, newPhase in
             env.isInForeground = (newPhase == .active)
+            HealthSyncCoordinator.shared.isInForeground = (newPhase == .active)
+            if newPhase == .active { Task { await HealthSyncCoordinator.shared.synchronize() } }
             // An after-window closes ten minutes after its session, long after
             // the code that stored the session has finished. Coming back to the
             // app is when we can finally fill it in.

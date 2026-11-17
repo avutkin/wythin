@@ -15,6 +15,7 @@ from .db import init_pool, close_pool, create_schema
 from .auth import key_ok
 from .auth_user import resolve_bearer, AuthError
 from .mcp_server import mcp
+from .health.router import router as health_router
 from .routers import sessions, stream, admin, insights, tokens, me, activities, metrics, profile, usage, raw, felt_state
 
 
@@ -44,9 +45,10 @@ app.add_middleware(
 # dashboard is a data-free HTML shell that then fetches /admin/stats WITH the
 # key, so serving the shell openly leaks nothing.
 _OPEN_PATHS = {"/health", "/admin/dashboard"}
-# Per-user routes authenticate via Bearer token inside the route, so they
-# bypass the shared X-API-Key gate. (/v1/tokens stays gated — app-only.)
-_BEARER_PREFIXES = ("/v1/me",)
+# Per-user routes and the independent Health installation namespace authenticate
+# inside their routers. Health never accepts the legacy PAT. Enrollment alone
+# creates a new empty namespace. (/v1/tokens stays gated — app-only.)
+_BEARER_PREFIXES = ("/v1/me", "/v1/health")
 
 
 def _bearer_exempt(path: str) -> bool:
@@ -76,7 +78,7 @@ async def api_key_gate(request: Request, call_next):
         except AuthError as e:
             return JSONResponse({"detail": e.detail}, status_code=e.status)
         return await call_next(request)
-    # /v1/me authenticates inside the route.
+    # /v1/me and /v1/health enforce their distinct credentials in the route.
     if _bearer_exempt(path):
         return await call_next(request)
     # Everything else needs the shared key (only enforced when API_KEY is
@@ -104,6 +106,7 @@ app.include_router(profile.router)
 app.include_router(usage.router)
 app.include_router(raw.router)
 app.include_router(felt_state.router)
+app.include_router(health_router)
 
 app.mount("/mcp", mcp.streamable_http_app())
 

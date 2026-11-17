@@ -265,8 +265,10 @@ CREATE INDEX IF NOT EXISTS felt_state_logs_user_ts ON felt_state_logs(user_id, t
 
 
 async def create_schema() -> None:
+    from .health.schema import SCHEMA_SQL as HEALTH_SCHEMA_SQL
     async with get_pool().acquire() as conn:
         await conn.execute(SCHEMA_SQL)
+        await conn.execute(HEALTH_SCHEMA_SQL)
 
 
 async def has_ai_insights_consent(device_id: str) -> bool:

@@ -310,6 +310,27 @@
 		A776 /* SleepDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F776 /* SleepDetailView.swift */; };
 		A777 /* SleepBreathing.swift in Sources */ = {isa = PBXBuildFile; fileRef = F777 /* SleepBreathing.swift */; };
 		A800 /* SleepStageDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = F800 /* SleepStageDetail.swift */; };
+		8F6DFCA50C11D3887A26DB98 /* HealthTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC835EB222A4E5D158C79D18 /* HealthTypes.swift */; };
+		F3F0192CA172F54B3C0BC430 /* HealthAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AAD1B358011E67B3538669D /* HealthAnalysis.swift */; };
+		EED0A472EA708DB7776CEF19 /* HealthAnalysisTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94916E7EE2BF52126BD5C56F /* HealthAnalysisTests.swift */; };
+		7AAB9813C2ACAF0B3A68503D /* HealthRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 415E5D25D919C582AABD9128 /* HealthRepositoryTests.swift */; };
+		A929F858F965D9ED9D6C909E /* HealthRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85F3CD6D5646EECFFC9EE475 /* HealthRepository.swift */; };
+		9B0B564833B47B55E8FA5937 /* HealthSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8F7089D199D44E4FE9DDCE4 /* HealthSyncCoordinator.swift */; };
+		DF863A536BBD96199079B014 /* HealthSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC16C0E9C3DAA3273F24747E /* HealthSettingsView.swift */; };
+		40804A41DEB073277F811AFA /* HealthActivityDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACD04F21BE11DD265A39E022 /* HealthActivityDetailView.swift */; };
+		4802B750A7B2175A0AFC3D3C /* HealthIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6A39F1C49924C6813C8F17E /* HealthIsolationTests.swift */; };
+		21958D7B8B3F3587D57C2A3F /* HealthKitSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CC9E1862D9C79899F82FCD1 /* HealthKitSource.swift */; };
+		1F2CD2D78A9B31240242E406 /* HealthWorkoutMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C3CFF5E0347607D4E53E9D5 /* HealthWorkoutMapping.swift */; };
+		023B1CACD688732F49DEE6E1 /* HealthCloudClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ECF918C12EE2E8FDBBD2AF1 /* HealthCloudClient.swift */; };
+		5205294C78B56A7D2420F138 /* HealthCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 053E33DAC5CD135CC6A0E01B /* HealthCredentialStore.swift */; };
+		A08B792902773714C58840EC /* HealthMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50E86070FB58C3FFD995CEB /* HealthMappingTests.swift */; };
+		8CEEC8A6E241A2D80A05A1D9 /* HealthCloudClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA8FBE580B3E96193FA3BF00 /* HealthCloudClientTests.swift */; };
+		270957C8FD822098114CD29D /* HealthActivityProjector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E5F3222F10E6AF438B38FD2 /* HealthActivityProjector.swift */; };
+		6235F9647A476B2F3C631E88 /* HealthSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717508D9ACCAC73476DB4807 /* HealthSyncTests.swift */; };
+		A12BF8BDFF2C64A82EB7FB10 /* HealthActivityLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4335CBFA1173DCBFD1BAF0E /* HealthActivityLinks.swift */; };
+		786FABF6A91F3DF5BAFA9353 /* HealthActivityLinksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C814504E68F7601239F31120 /* HealthActivityLinksTests.swift */; };
+		805E0334466C7ECC2A552B7D /* HealthMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 241E1B78D03FC34E50A4DAF3 /* HealthMigrationTests.swift */; };
+		3D6E40F2CC0785CCC97FEA9C /* HealthCloudConsentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 581EB9EEC8D683B9FEA1B0DA /* HealthCloudConsentTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -629,6 +650,27 @@
 		F776 /* SleepDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepDetailView.swift; sourceTree = "<group>"; };
 		F777 /* SleepBreathing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepBreathing.swift; sourceTree = "<group>"; };
 		F800 /* SleepStageDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepStageDetail.swift; sourceTree = "<group>"; };
+		EC835EB222A4E5D158C79D18 /* HealthTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Health/HealthTypes.swift"; sourceTree = "<group>"; };
+		8AAD1B358011E67B3538669D /* HealthAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Health/HealthAnalysis.swift"; sourceTree = "<group>"; };
+		94916E7EE2BF52126BD5C56F /* HealthAnalysisTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthAnalysisTests.swift"; sourceTree = "<group>"; };
+		415E5D25D919C582AABD9128 /* HealthRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthRepositoryTests.swift"; sourceTree = "<group>"; };
+		85F3CD6D5646EECFFC9EE475 /* HealthRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Health/HealthRepository.swift"; sourceTree = "<group>"; };
+		D8F7089D199D44E4FE9DDCE4 /* HealthSyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Health/HealthSyncCoordinator.swift"; sourceTree = "<group>"; };
+		CC16C0E9C3DAA3273F24747E /* HealthSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Health/HealthSettingsView.swift"; sourceTree = "<group>"; };
+		ACD04F21BE11DD265A39E022 /* HealthActivityDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Health/HealthActivityDetailView.swift"; sourceTree = "<group>"; };
+		E6A39F1C49924C6813C8F17E /* HealthIsolationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthIsolationTests.swift"; sourceTree = "<group>"; };
+		4CC9E1862D9C79899F82FCD1 /* HealthKitSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Health/HealthKitSource.swift"; sourceTree = "<group>"; };
+		3C3CFF5E0347607D4E53E9D5 /* HealthWorkoutMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Health/HealthWorkoutMapping.swift"; sourceTree = "<group>"; };
+		7ECF918C12EE2E8FDBBD2AF1 /* HealthCloudClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Health/HealthCloudClient.swift"; sourceTree = "<group>"; };
+		053E33DAC5CD135CC6A0E01B /* HealthCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Health/HealthCredentialStore.swift"; sourceTree = "<group>"; };
+		C50E86070FB58C3FFD995CEB /* HealthMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthMappingTests.swift"; sourceTree = "<group>"; };
+		CA8FBE580B3E96193FA3BF00 /* HealthCloudClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthCloudClientTests.swift"; sourceTree = "<group>"; };
+		2E5F3222F10E6AF438B38FD2 /* HealthActivityProjector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Health/HealthActivityProjector.swift"; sourceTree = "<group>"; };
+		717508D9ACCAC73476DB4807 /* HealthSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthSyncTests.swift"; sourceTree = "<group>"; };
+		E4335CBFA1173DCBFD1BAF0E /* HealthActivityLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Health/HealthActivityLinks.swift"; sourceTree = "<group>"; };
+		C814504E68F7601239F31120 /* HealthActivityLinksTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthActivityLinksTests.swift"; sourceTree = "<group>"; };
+		241E1B78D03FC34E50A4DAF3 /* HealthMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthMigrationTests.swift"; sourceTree = "<group>"; };
+		581EB9EEC8D683B9FEA1B0DA /* HealthCloudConsentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthCloudConsentTests.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -652,6 +694,18 @@
 		GAPP /* Wythin */ = {
 			isa = PBXGroup;
 			children = (
+				E4335CBFA1173DCBFD1BAF0E /* HealthActivityLinks.swift */,
+				2E5F3222F10E6AF438B38FD2 /* HealthActivityProjector.swift */,
+				053E33DAC5CD135CC6A0E01B /* HealthCredentialStore.swift */,
+				7ECF918C12EE2E8FDBBD2AF1 /* HealthCloudClient.swift */,
+				3C3CFF5E0347607D4E53E9D5 /* HealthWorkoutMapping.swift */,
+				4CC9E1862D9C79899F82FCD1 /* HealthKitSource.swift */,
+				ACD04F21BE11DD265A39E022 /* HealthActivityDetailView.swift */,
+				CC16C0E9C3DAA3273F24747E /* HealthSettingsView.swift */,
+				D8F7089D199D44E4FE9DDCE4 /* HealthSyncCoordinator.swift */,
+				85F3CD6D5646EECFFC9EE475 /* HealthRepository.swift */,
+				8AAD1B358011E67B3538669D /* HealthAnalysis.swift */,
+				EC835EB222A4E5D158C79D18 /* HealthTypes.swift */,
 				GAPP_APP /* App */,
 				GAPP_BLE /* BLE */,
 				GAPP_MET /* Metrics */,
@@ -995,6 +1049,15 @@
 		GTESTS /* WythinTests */ = {
 			isa = PBXGroup;
 			children = (
+				581EB9EEC8D683B9FEA1B0DA /* HealthCloudConsentTests.swift */,
+				241E1B78D03FC34E50A4DAF3 /* HealthMigrationTests.swift */,
+				C814504E68F7601239F31120 /* HealthActivityLinksTests.swift */,
+				717508D9ACCAC73476DB4807 /* HealthSyncTests.swift */,
+				CA8FBE580B3E96193FA3BF00 /* HealthCloudClientTests.swift */,
+				C50E86070FB58C3FFD995CEB /* HealthMappingTests.swift */,
+				E6A39F1C49924C6813C8F17E /* HealthIsolationTests.swift */,
+				415E5D25D919C582AABD9128 /* HealthRepositoryTests.swift */,
+				94916E7EE2BF52126BD5C56F /* HealthAnalysisTests.swift */,
 				F774 /* RealNightTests.swift */,
 				F773 /* RealNightFixture.swift */,
 				F770 /* SleepRecorderTests.swift */,
@@ -1205,6 +1268,18 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A12BF8BDFF2C64A82EB7FB10 /* HealthActivityLinks.swift in Sources */,
+				270957C8FD822098114CD29D /* HealthActivityProjector.swift in Sources */,
+				5205294C78B56A7D2420F138 /* HealthCredentialStore.swift in Sources */,
+				023B1CACD688732F49DEE6E1 /* HealthCloudClient.swift in Sources */,
+				1F2CD2D78A9B31240242E406 /* HealthWorkoutMapping.swift in Sources */,
+				21958D7B8B3F3587D57C2A3F /* HealthKitSource.swift in Sources */,
+				40804A41DEB073277F811AFA /* HealthActivityDetailView.swift in Sources */,
+				DF863A536BBD96199079B014 /* HealthSettingsView.swift in Sources */,
+				9B0B564833B47B55E8FA5937 /* HealthSyncCoordinator.swift in Sources */,
+				A929F858F965D9ED9D6C909E /* HealthRepository.swift in Sources */,
+				F3F0192CA172F54B3C0BC430 /* HealthAnalysis.swift in Sources */,
+				8F6DFCA50C11D3887A26DB98 /* HealthTypes.swift in Sources */,
 				A800 /* SleepStageDetail.swift in Sources */,
 				A777 /* SleepBreathing.swift in Sources */,
 				A776 /* SleepDetailView.swift in Sources */,
@@ -1399,6 +1474,15 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3D6E40F2CC0785CCC97FEA9C /* HealthCloudConsentTests.swift in Sources */,
+				805E0334466C7ECC2A552B7D /* HealthMigrationTests.swift in Sources */,
+				786FABF6A91F3DF5BAFA9353 /* HealthActivityLinksTests.swift in Sources */,
+				6235F9647A476B2F3C631E88 /* HealthSyncTests.swift in Sources */,
+				8CEEC8A6E241A2D80A05A1D9 /* HealthCloudClientTests.swift in Sources */,
+				A08B792902773714C58840EC /* HealthMappingTests.swift in Sources */,
+				4802B750A7B2175A0AFC3D3C /* HealthIsolationTests.swift in Sources */,
+				7AAB9813C2ACAF0B3A68503D /* HealthRepositoryTests.swift in Sources */,
+				EED0A472EA708DB7776CEF19 /* HealthAnalysisTests.swift in Sources */,
 				A774 /* RealNightTests.swift in Sources */,
 				A773 /* RealNightFixture.swift in Sources */,
 				A770 /* SleepRecorderTests.swift in Sources */,
@@ -1536,6 +1620,7 @@
 				DEVELOPMENT_TEAM = FHUVQ8JNXD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = Wythin/Wythin.entitlements;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Wythin needs Bluetooth to connect to your Polar H10 heart rate monitor.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -1644,6 +1729,7 @@
 				DEVELOPMENT_TEAM = FHUVQ8JNXD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = Wythin/Wythin.entitlements;
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Wythin needs Bluetooth to connect to your Polar H10 heart rate monitor.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

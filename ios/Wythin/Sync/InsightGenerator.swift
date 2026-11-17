@@ -22,6 +22,9 @@ final class InsightGenerator {
     /// `entry.insightText` nil on any failure — picked up by the next
     /// `flushPending` call on foreground.
     func generate(for entry: ActivityLog, context: ModelContext) async {
+        // Health data has its own explicit cloud boundary. The legacy AI route
+        // must not export imported workout metadata during an automatic sweep.
+        guard !entry.isHealthImported else { return }
         let (usual, peers) = Self.recentAverages(for: entry, context: context)
         let payload = InsightPayload(from: entry, usual: usual, peers: peers)
         guard let response = try? await client.generateInsight(payload) else { return }
@@ -75,7 +78,7 @@ final class InsightGenerator {
         }
         let key = entry.scoreGroupKey
         let peers = ((try? context.fetch(FetchDescriptor<ActivityLog>(predicate: predicate))) ?? [])
-            .filter { $0.scoreGroupKey == key }
+            .filter { !$0.isHealthImported && $0.scoreGroupKey == key }
         guard peers.count >= minPeersForComparison else { return ([:], 0) }
 
         var out: [String: Double] = [:]
@@ -108,9 +111,11 @@ final class InsightGenerator {
     /// read by `generate(for:night:context:)`, from the night screen.
     static func pendingActivities(context: ModelContext, limit: Int = 10) -> [ActivityLog] {
         let sleep = ActivityType.sleep.rawValue
+        let healthOrigin = "apple_health"
         var descriptor = FetchDescriptor<ActivityLog>(
-            predicate: #Predicate { $0.endedAt != nil && $0.insightText == nil
-                                    && $0.activityType != sleep },
+            predicate: #Predicate<ActivityLog> { $0.endedAt != nil && $0.insightText == nil
+                                    && $0.activityType != sleep
+                                    && ($0.origin ?? "") != healthOrigin },
             sortBy: [SortDescriptor(\.startedAt, order: .reverse)]
         )
         descriptor.fetchLimit = limit

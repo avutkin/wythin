@@ -18,5 +18,7 @@
 	<string>LaunchScreen</string>
 	<key>UIRequiresFullScreen</key>
 	<true/>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Wythin reads your workouts and available heart rate, HRV, energy, distance and steps to show measurements before, during and after activity.</string>
 </dict>
 </plist>

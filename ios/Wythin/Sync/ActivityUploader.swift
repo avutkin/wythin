@@ -299,7 +299,7 @@ final class ActivityUploader {
         let descriptor = FetchDescriptor<ActivityLog>(sortBy: [SortDescriptor(\.startedAt)])
         guard let all = try? context.fetch(descriptor) else { return }
         let pending = all
-            .filter { ($0.endedAt ?? .distantPast) > since }
+            .filter { !$0.isHealthImported && ($0.endedAt ?? .distantPast) > since }
             .sorted { ($0.endedAt ?? .distantPast) < ($1.endedAt ?? .distantPast) }
         guard !pending.isEmpty else { return }
 

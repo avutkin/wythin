@@ -152,7 +152,9 @@ struct ActivitiesView: View {
                             // Sleep first: it is restorative by class, but the
                             // practice row would score it on a before-window
                             // that does not exist for a night.
-                            if entry.isSleep {
+                            if entry.isHealthImported {
+                                HealthActivityRow(entry: entry)
+                            } else if entry.isSleep {
                                 SleepLogRow(entry: entry,
                                             onEdit: { activeSheet = .edit(entry) },
                                             onDelete: { deleteEntry(entry) })
@@ -176,7 +178,7 @@ struct ActivitiesView: View {
                                     Label("Delete", systemImage: "trash")
                                 }
                                 Button {
-                                    activeSheet = .edit(entry)
+                                    activeSheet = entry.isHealthImported ? .detail(entry) : .edit(entry)
                                 } label: {
                                     Label("Edit", systemImage: "pencil")
                                 }
@@ -219,7 +221,9 @@ struct ActivitiesView: View {
                         start: start, end: end)
             }
         case .detail(let entry):
-            if entry.isSleep {
+            if entry.isHealthImported {
+                HealthActivityDetailView(activity: entry)
+            } else if entry.isSleep {
                 SleepDetailView(entry: entry)
             } else {
                 switch entry.measuredClass {
@@ -250,6 +254,9 @@ struct ActivitiesView: View {
     }
 
     private func deleteEntry(_ entry: ActivityLog) {
+        if entry.isHealthImported, let id = entry.externalWorkoutID.flatMap(UUID.init(uuidString:)) {
+            Task { await HealthSyncCoordinator.shared.hide(id) }; return
+        }
         ctx.delete(entry)
         try? ctx.save()
     }

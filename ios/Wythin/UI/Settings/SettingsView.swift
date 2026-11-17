@@ -94,6 +94,7 @@ struct SettingsView: View {
                 Theme.bg.ignoresSafeArea()
 
                 List {
+                    HealthSettingsSection()
                     // ── Device ────────────────────────────────────────
                     Section("POLAR H10") {
                         HStack {
@@ -533,6 +534,7 @@ struct SettingsView: View {
         isDeletingCloudData = true; accessError = nil
         defer { isDeletingCloudData = false }
         do {
+            try await HealthSyncCoordinator.shared.deleteForGeneralDataRemoval()
             let created = try await env.sync.client.createToken(name: "delete-my-data", userID: env.userID)
             defer {
                 Task { try? await env.sync.client.revokeToken(id: created.id, userID: env.userID) }

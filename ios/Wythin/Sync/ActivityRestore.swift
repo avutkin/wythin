@@ -25,7 +25,7 @@ enum ActivityRestore {
                                userID: String) async {
         guard !UserDefaults.standard.bool(forKey: attemptedKey) else { return }
 
-        let existing = (try? context.fetchCount(FetchDescriptor<ActivityLog>())) ?? 0
+        let existing = ((try? context.fetch(FetchDescriptor<ActivityLog>())) ?? []).filter { !$0.isHealthImported }.count
         guard existing == 0 else {
             // A populated store is the normal case; mark it done so the check
             // costs nothing from here on.

@@ -160,6 +160,9 @@ final class ActivityLog {
     var startedAt:       Date
     var endedAt:         Date?
     var notes:           String?
+    var origin: String?
+    var externalWorkoutID: String?
+    var isHealthImported: Bool { origin == "apple_health" }
     var isManual:        Bool    // true = retrospective entry
 
     /// Optional intended duration for a live activity, in minutes. Drives the

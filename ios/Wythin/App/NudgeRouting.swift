@@ -74,6 +74,7 @@ final class WythinAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
 
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        HealthSyncCoordinator.shared.installObserversAtLaunch()
         UNUserNotificationCenter.current().delegate = self
         return true
     }
