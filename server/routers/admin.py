@@ -11,16 +11,18 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import math
 import json
 import io
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse, HTMLResponse
 from ..db import get_pool
 from ..impact import impact_for
 from .. import zones
-from ..models import AdminUserRow
+from ..models import AdminUserRow, zone_or_none
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -537,39 +539,104 @@ async def user_detail(user_id: str):
 
 
 _METRIC_WINDOWS = {
-    "24h": (timedelta(hours=24), timedelta(minutes=5)),
-    "7d":  (timedelta(days=7),   timedelta(hours=1)),
-    "30d": (timedelta(days=30),  timedelta(hours=4)),
+    "1h":  timedelta(hours=1),
+    "6h":  timedelta(hours=6),
+    "24h": timedelta(hours=24),
+    "7d":  timedelta(days=7),
+    "30d": timedelta(days=30),
 }
 _METRIC_COLS = ("mean_bpm", "rmssd", "sdnn", "pnn50", "lf_hf", "rsa_ms",
-                "coherence", "cbi", "breath_bpm", "dfa1", "rcmse", "pip", "dc", "vti")
+                "coherence", "cbi", "breath_bpm", "dfa1", "rcmse", "pip", "dc", "vti", "stress_balance")
+# Live-chart resolution. A chart shows every stored tick (one every 2–3 s)
+# whenever the window holds few enough of them; past that it takes the
+# finest bucket on this ladder that still fits, so narrowing the window
+# always reveals more — down to the individual tick.
+_METRIC_LADDER_S = (10, 30, 60, 300, 900, 3600, 14400)
+_METRIC_MAX_POINTS = 3000
+_METRIC_MIN_SPAN = timedelta(seconds=30)
+_METRIC_MAX_SPAN = timedelta(days=92)
+
+
+def _parse_instant(s: str | None) -> datetime | None:
+    if not s:
+        return None
+    try:
+        d = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
 @router.get("/users/{user_id}/metrics")
-async def user_metrics(user_id: str, window: str = "24h", offset: int = 0):
-    """Bucketed per-user metric_samples series for the live charts. `window` is
-    one of 24h / 7d / 30d; each column is averaged per time bucket.
-
-    `offset` steps backwards a whole window at a time — offset=1 is the window
-    before the current one — so yesterday is reachable without a date picker."""
+async def user_metrics(user_id: str, window: str = "24h", offset: int = 0,
+                       from_: str | None = Query(None, alias="from"), to: str | None = None):
+    """Per-user metric_samples series for the live charts, at the finest
+    resolution the window allows: every tick when there are at most
+    _METRIC_MAX_POINTS of them, else the smallest bucket that fits. `window`
+    is one of 1h / 6h / 24h / 7d / 30d and `offset` steps back a whole window
+    at a time; `from`/`to` (ISO instants) name an exact span instead — the
+    chart's drag-to-zoom — and win over window/offset when both parse."""
     window = window if window in _METRIC_WINDOWS else "24h"
-    span, bucket = _METRIC_WINDOWS[window]
+    span = _METRIC_WINDOWS[window]
     offset = max(0, min(offset, 3650))
-    end = datetime.now(timezone.utc) - span * offset
-    start = end - span
+    start, end = _parse_instant(from_), _parse_instant(to)
+    if start and end and end > start:
+        if end - start < _METRIC_MIN_SPAN:
+            end = start + _METRIC_MIN_SPAN
+        if end - start > _METRIC_MAX_SPAN:
+            start = end - _METRIC_MAX_SPAN
+    else:
+        end = datetime.now(timezone.utc) - span * offset
+        start = end - span
     avg_cols = ", ".join(f"AVG({c}) AS {c}" for c in _METRIC_COLS)
+    raw_cols = ", ".join(_METRIC_COLS)
+    ladder_cols = ", ".join(
+        f"count(DISTINCT date_bin('{s} seconds', ts, TIMESTAMPTZ 'epoch')) AS b{s}"
+        for s in _METRIC_LADDER_S)
+    ladder_sums = ", ".join(f"COALESCE(sum(b{s}), 0)::bigint AS b{s}" for s in _METRIC_LADDER_S)
     pool = get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
+        counts = await conn.fetchrow(
             f"""
-            SELECT date_bin($2::interval, ts, TIMESTAMPTZ 'epoch') AS bucket, {avg_cols}
-            FROM metric_samples
-            WHERE user_id = $1::uuid AND ts > $3 AND ts <= $4
-            GROUP BY bucket
-            ORDER BY bucket
+            SELECT COALESCE(sum(raw), 0)::bigint AS raw, {ladder_sums}
+            FROM (
+                SELECT count(*) AS raw, {ladder_cols}
+                FROM metric_samples
+                WHERE user_id = $1::uuid AND ts > $2 AND ts <= $3
+                GROUP BY timezone
+            ) AS clocks
             """,
-            user_id, bucket, start, end,
+            user_id, start, end,
         )
+        bucket_s = 0
+        if counts["raw"] > _METRIC_MAX_POINTS:
+            bucket_s = _METRIC_LADDER_S[-1]
+            for s in _METRIC_LADDER_S:
+                if counts[f"b{s}"] <= _METRIC_MAX_POINTS:
+                    bucket_s = s
+                    break
+        if bucket_s == 0:
+            rows = await conn.fetch(
+                f"""
+                SELECT ts AS bucket, ts AS first_ts, timezone, {raw_cols}
+                FROM metric_samples
+                WHERE user_id = $1::uuid AND ts > $2 AND ts <= $3
+                ORDER BY ts
+                """,
+                user_id, start, end,
+            )
+        else:
+            rows = await conn.fetch(
+                f"""
+                SELECT date_bin($2::interval, ts, TIMESTAMPTZ 'epoch') AS bucket,
+                       MIN(ts) AS first_ts, timezone, {avg_cols}
+                FROM metric_samples
+                WHERE user_id = $1::uuid AND ts > $3 AND ts <= $4
+                GROUP BY bucket, timezone
+                ORDER BY first_ts
+                """,
+                user_id, timedelta(seconds=bucket_s), start, end,
+            )
 
     def _f(v):
         return float(v) if v is not None else None
@@ -579,8 +646,12 @@ async def user_metrics(user_id: str, window: str = "24h", offset: int = 0):
         "offset": offset,
         "start":  start.isoformat(),
         "end":    end.isoformat(),
+        # 0 = every stored tick; otherwise the mean over this many seconds.
+        "bucket_seconds": bucket_s,
+        "ticks": counts["raw"],
         "samples": [
-            {"ts": r["bucket"].isoformat(), **{c: _f(r[c]) for c in _METRIC_COLS}}
+            {"ts": r["first_ts"].isoformat(), "timezone": r["timezone"],
+             **{c: _f(r[c]) for c in _METRIC_COLS}}
             for r in rows
         ],
     }
@@ -611,29 +682,91 @@ _TRACK_PERIODS = {
 _TRACK_DIRECTION = {
     "mean_bpm": "lower",  "rmssd": "higher", "rsa_ms": "higher", "vti": "higher",
     "dc": "higher",       "rcmse": "higher", "pip": "lower",     "lf_hf": "lower",
-    "dfa1": "target",     "coherence": "higher",
+    "dfa1": "target",     "coherence": "higher", "stress_balance": "lower",
     "sdnn": None, "pnn50": None, "cbi": None, "breath_bpm": None,
 }
 _TRACK_TARGET = {"dfa1": 1.0}
+
+# ── The four directions: one index per group of signals ──
+#
+# The groups are the ones the First Steps guide teaches (relaxation, energy,
+# adaptivity, focus). An index is 100 at this person's own typical and moves
+# with the geometric mean of the members' benefit-signed ratios to their
+# baselines — 110 means the group sits 10% better than typical, in each
+# member's own direction. One member can swing it by at most a factor of 2.
+# Of the guide's Energy signals only Pulse is stored; LF/HF stands in for the
+# stress balance. Breath rate joins Relaxation as lower-is-calmer.
+_GROUPS = (
+    ("relaxation", "Relaxation", ("dc", "rmssd", "rsa_ms", "breath_bpm")),
+    ("energy",     "Energy",     ("mean_bpm", "lf_hf")),
+    ("adaptivity", "Adaptivity", ("rcmse", "coherence")),
+    ("focus",      "Focus",      ("pip", "dfa1")),
+)
+_GROUP_DIRECTION = {**_TRACK_DIRECTION, "breath_bpm": "lower"}
+_INDEX_CLAMP = math.log(2.0)
+
+
+def _index_term(col: str, v, ref):
+    """One member's contribution: signed log ratio to its baseline, clamped."""
+    if v is None or ref is None or v <= 0 or ref <= 0:
+        return None
+    d = _GROUP_DIRECTION.get(col)
+    if d == "higher":
+        t = math.log(v / ref)
+    elif d == "lower":
+        t = math.log(ref / v)
+    elif d == "target":
+        target = _TRACK_TARGET.get(col, 1.0)
+        t = abs(math.log(ref / target)) - abs(math.log(v / target))
+    else:
+        return None
+    return max(-_INDEX_CLAMP, min(_INDEX_CLAMP, t))
+
+
+def _group_index(cols, values, refs):
+    terms = [t for c in cols for t in [_index_term(c, values.get(c), refs.get(c))] if t is not None]
+    return 100.0 * math.exp(sum(terms) / len(terms)) if terms else None
 
 
 @router.get("/users/{user_id}/track")
 async def user_track(user_id: str, period: str = "week", offset: int = 0,
                      tz_offset: int = 0,
-                     from_: str | None = Query(None, alias="from")):
+                     from_: str | None = Query(None, alias="from"),
+                     zone: str | None = None, clock: str = "recorded"):
     """Per-metric averages per bar over a period, with the baseline and the
     period-over-period delta the app's Track screen shows.
 
     `offset` pages backwards whole periods from today. `from` (a local
     YYYY-MM-DD) anchors the period on that date instead — how a bar opens
     into the period it covers: a week bar as seven days, a day bar as 24
-    hours, a month bar as its calendar month. `tz_offset` is the viewer's JS
-    timezone offset so days break on their midnight, not UTC's."""
+    hours, a month bar as its calendar month. Recorded zones determine each
+    sample's civil day, including travel and DST. `zone` is only a fallback
+    for legacy samples; `tz_offset` supports older dashboards. `clock=utc`
+    explicitly displays all samples in UTC."""
     period = period if period in _TRACK_PERIODS else "week"
     bucket, count = _TRACK_PERIODS[period]
     offset = max(0, min(offset, 120))
     tz_offset = max(-900, min(tz_offset, 900))
     off = timedelta(minutes=tz_offset)
+    if zone is not None and not zone_or_none(zone):
+        raise HTTPException(status_code=422, detail="zone must be an IANA timezone")
+    if clock not in ("recorded", "utc"):
+        raise HTTPException(status_code=422, detail="clock must be recorded or utc")
+    pool = get_pool()
+    fallback_zone = "UTC" if clock == "utc" else zone
+    if not fallback_zone:
+        fallback_zone = zone_or_none(await pool.fetchval(
+            "SELECT timezone FROM profiles WHERE user_id=$1::uuid", user_id))
+    # SQL yields a timestamp WITHOUT timezone: a historical civil date/time,
+    # not an instant to shift again. Bounds are expanded for every IANA offset
+    # then trimmed in civil time, so a 23/25-hour day keeps all its readings.
+    if clock == "utc":
+        local_sql = "ts AT TIME ZONE $2"
+    elif fallback_zone:
+        local_sql = "ts AT TIME ZONE COALESCE(timezone, $2)"
+    else:
+        local_sql = "CASE WHEN timezone IS NOT NULL THEN ts AT TIME ZONE timezone ELSE (ts - $2::interval) AT TIME ZONE 'UTC' END"
+    zone_arg = fallback_zone or off
 
     anchor = None
     if from_:
@@ -642,9 +775,9 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
         except ValueError:
             anchor = None
 
-    # Work in the viewer's local calendar, then shift back to UTC for the query.
-    local_today = (datetime.now(timezone.utc) - off).replace(
-        hour=0, minute=0, second=0, microsecond=0)
+    now = datetime.now(timezone.utc)
+    local_now = now.astimezone(ZoneInfo(fallback_zone)) if fallback_zone else now - off
+    local_today = local_now.replace(tzinfo=timezone.utc, hour=0, minute=0, second=0, microsecond=0)
     if anchor is not None:
         # Anchored: the whole period starts on the bar's own first day. A
         # month opens as its calendar month, not thirty days from the first.
@@ -685,17 +818,25 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
     query_from = min(prior_start_local, baseline_start_local)
 
     avg_cols = ", ".join(f"AVG({c}) AS {c}" for c in _METRIC_COLS)
-    pool = get_pool()
     async with pool.acquire() as conn:
+        # The WHERE bounds retain the user/ts index; the inner civil-time
+        # filter removes the padding without assuming today's UTC offset.
         rows = await conn.fetch(
             f"""
-            SELECT (date_trunc('day', ts - $2::interval))::date AS day, {avg_cols}
-            FROM metric_samples
-            WHERE user_id = $1::uuid AND ts >= $3 AND ts < $4
+            WITH localized AS (
+                SELECT {local_sql} AS local_ts, timezone, {', '.join(_METRIC_COLS)}
+                FROM metric_samples
+                WHERE user_id = $1::uuid AND ts >= $3 AND ts < $4
+            )
+            SELECT local_ts::date AS day, {avg_cols},
+                   array_agg(DISTINCT timezone) FILTER (WHERE timezone IS NOT NULL) AS timezones,
+                   bool_or(timezone IS NULL) AS has_unknown_timezone
+            FROM localized WHERE local_ts >= $5 AND local_ts < $6
             GROUP BY day
             ORDER BY day
             """,
-            user_id, off, query_from + off, end_local + off,
+            user_id, zone_arg, query_from - timedelta(days=1), end_local + timedelta(days=1),
+            query_from.replace(tzinfo=None), end_local.replace(tzinfo=None),
         )
 
         # Hourly bars read their own aggregation: a day's bar is the mean of
@@ -704,13 +845,18 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
         if bucket == "hour":
             hrows = await conn.fetch(
                 f"""
-                SELECT date_trunc('hour', ts - $2::interval) AS hour, {avg_cols}
-                FROM metric_samples
-                WHERE user_id = $1::uuid AND ts >= $3 AND ts < $4
+                WITH localized AS (
+                    SELECT {local_sql} AS local_ts, {', '.join(_METRIC_COLS)}
+                    FROM metric_samples
+                    WHERE user_id = $1::uuid AND ts >= $3 AND ts < $4
+                )
+                SELECT date_trunc('hour', local_ts) AS hour, {avg_cols}
+                FROM localized WHERE local_ts >= $5 AND local_ts < $6
                 GROUP BY hour
                 ORDER BY hour
                 """,
-                user_id, off, prior_start_local + off, end_local + off,
+                user_id, zone_arg, prior_start_local - timedelta(days=1), end_local + timedelta(days=1),
+                prior_start_local.replace(tzinfo=None), end_local.replace(tzinfo=None),
             )
             hourly = {r["hour"].replace(tzinfo=None): r for r in hrows}
 
@@ -727,6 +873,7 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
         return mean([source[k][col] for k in source if b_start <= k < b_end])
 
     metrics = []
+    refs, prior_vals, personal_ref = {}, {}, {}
     for col in _METRIC_COLS:
         bars = [{"label": label, "start": b_start.isoformat(),
                  "value": bucket_value(col, b_start, b_end)}
@@ -761,6 +908,11 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
             reference = (window[mid] if len(window) % 2
                          else (window[mid - 1] + window[mid]) / 2)
             personal = True
+        # The group indexes need a baseline from day one: until there are
+        # enough days for a personal median, the mean of whatever days exist.
+        refs[col] = reference if personal else (sum(window) / len(window) if window else None)
+        personal_ref[col] = personal
+        prior_vals[col] = prior
 
         better = None
         if reference is not None and direction in ("higher", "lower", "target"):
@@ -785,11 +937,49 @@ async def user_track(user_id: str, period: str = "week", offset: int = 0,
             "present_count": len(present),
         })
 
+    groups = []
+    for key, label, cols in _GROUPS:
+        by_col = {c: next(m for m in metrics if m["key"] == c) for c in cols}
+        bars = []
+        for i, (blabel, b_start, _) in enumerate(buckets):
+            vals = {c: by_col[c]["bars"][i]["value"] for c in cols}
+            bars.append({"label": blabel, "start": b_start.isoformat(),
+                         "value": _group_index(cols, vals, refs)})
+        present = [b["value"] for b in bars if b["value"] is not None]
+        average = sum(present) / len(present) if present else None
+        prior = [_group_index(cols, {c: prior_vals[c][i] for c in cols}, refs)
+                 for i in range(len(prior_buckets))]
+        prior_present = [v for v in prior if v is not None]
+        prior_avg = sum(prior_present) / len(prior_present) if prior_present else None
+        delta = (round((average - prior_avg) / prior_avg * 100.0, 1)
+                 if average is not None and prior_avg else None)
+        groups.append({
+            "key": key,
+            "label": label,
+            "members": list(cols),
+            "bars": [{**b, "value": round(b["value"], 1) if b["value"] is not None else None}
+                     for b in bars],
+            "average": round(average, 1) if average is not None else None,
+            "delta_pct": delta,
+            "direction": "higher",
+            "reference": 100.0,
+            "reference_is_personal": all(personal_ref.get(c) for c in cols if refs.get(c) is not None),
+            "better_count": sum(1 for v in present if v > 100.0),
+            "present_count": len(present),
+        })
+
     return {
         "period": period,
+        "clock": clock,
+        "fallback_timezone": fallback_zone,
+        "timezones": sorted({z for r in rows if start_local.date() <= r["day"] < end_local.date()
+                             for z in (r["timezones"] or [])}),
+        "has_unknown_timezone": any(r["has_unknown_timezone"] for r in rows
+                                    if start_local.date() <= r["day"] < end_local.date()),
         "offset": offset,
         "from": start_local.date().isoformat() if anchor is not None else None,
         "bucket": bucket,
+        "groups": groups,
         "start": start_local.isoformat(),
         "end": end_local.isoformat(),
         # Plain local dates, so the page can print the window without
@@ -1063,7 +1253,7 @@ async def export_session_csv(session_id: str):
         rows = await conn.fetch(
             """
             SELECT ts, mean_bpm, rmssd, sdnn, pnn50, lf_hf,
-                   rsa_ms, rsa_idx, coherence, cbi, breath_bpm
+                   rsa_ms, rsa_idx, coherence, cbi, breath_bpm, stress_balance
             FROM hrv_samples
             WHERE session_id = $1::uuid
             ORDER BY ts
@@ -1074,12 +1264,12 @@ async def export_session_csv(session_id: str):
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(["ts", "mean_bpm", "rmssd", "sdnn", "pnn50", "lf_hf",
-                     "rsa_ms", "rsa_idx", "coherence", "cbi", "breath_bpm"])
+                     "rsa_ms", "rsa_idx", "coherence", "cbi", "breath_bpm", "stress_balance"])
     for r in rows:
         writer.writerow([
             r["ts"].isoformat(),
             r["mean_bpm"], r["rmssd"], r["sdnn"], r["pnn50"], r["lf_hf"],
-            r["rsa_ms"], r["rsa_idx"], r["coherence"], r["cbi"], r["breath_bpm"],
+            r["rsa_ms"], r["rsa_idx"], r["coherence"], r["cbi"], r["breath_bpm"], r["stress_balance"],
         ])
 
     buf.seek(0)

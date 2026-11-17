@@ -76,7 +76,7 @@ final class CheckInCoordinator {
     private var notificationTask: Task<Void, Never>?
 
     init(container: ModelContainer, notifier: CheckInNotifying, client: FeltStateAPIClient,
-         userID: String, defaults: UserDefaults = .standard, calendar: Calendar = .current,
+         userID: String, defaults: UserDefaults = .standard, calendar: Calendar = .autoupdatingCurrent,
          saveContext: @escaping (ModelContext) throws -> Void = { try $0.save() },
          clock: @escaping () -> Date = { .now }) {
         self.container = container

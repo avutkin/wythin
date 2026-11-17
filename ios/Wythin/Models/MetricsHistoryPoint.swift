@@ -53,9 +53,19 @@ enum MetricsQualityFilter {
 
 // MARK: - MetricsHistoryPoint
 
+/// A fallback is only a clock for unknown legacy records, never stored evidence.
+enum RecordingTimeZone {
+    static func calendar(for identifier: String?) -> Calendar {
+        var calendar = Calendar.autoupdatingCurrent
+        if let identifier, let zone = TimeZone(identifier: identifier) { calendar.timeZone = zone }
+        return calendar
+    }
+}
+
 /// Lightweight snapshot of scalar metrics from one compute tick (every ~2 s).
 /// Strips array fields (PSD, breathPhases.filtered) so 24 h of history ≈ 4 MB.
 struct MetricsHistoryPoint {
+    let timezone: String?
     let timestamp:  Date
 
     let ieRatio:    Float?   // BreathPhases.meanIE  (exhale/inhale)
@@ -69,6 +79,7 @@ struct MetricsHistoryPoint {
     let lfPower:    Float?   // ms²
     let hfPower:    Float?   // ms²
     let lfHF:       Float?   // ratio
+    var stressBalance: Float? = nil // captured 0–100 dial; legacy rows derive it
     let coherence:  Float?   // 0–1
     let cbi:        Float?   // 0–1
     let breathBPM:  Float?   // br/min
@@ -94,7 +105,8 @@ struct MetricsHistoryPoint {
     /// Defaulted so hand-built fixtures compile unchanged.
     var breathSource:  BreathSource? = nil
 
-    init(from tick: MetricsTick) {
+    init(from tick: MetricsTick, timezone: String? = TimeZone.autoupdatingCurrent.identifier) {
+        self.timezone = timezone
         timestamp  = tick.timestamp
         ieRatio    = tick.breathPhases?.meanIE
         vti        = tick.vti
@@ -107,6 +119,7 @@ struct MetricsHistoryPoint {
         lfPower    = tick.lfPower
         hfPower    = tick.hfPower
         lfHF       = tick.lfHF
+        stressBalance = AutonomicCompute.compute(tick: tick, baseline: nil).map { $0.sns * 100 }
         coherence  = tick.coherenceScore
         cbi        = tick.cbi
         breathBPM  = tick.breathBPM
@@ -130,6 +143,7 @@ struct MetricsHistoryPoint {
     }
 
     init(from sample: HRVSample) {
+        timezone = sample.timezone
         timestamp  = sample.timestamp
         ieRatio    = sample.ieRatio
         vti        = sample.vti
@@ -142,6 +156,7 @@ struct MetricsHistoryPoint {
         lfPower    = sample.lfPower
         hfPower    = sample.hfPower
         lfHF       = sample.lfHF
+        stressBalance = sample.stressBalance
         coherence  = sample.coherence
         cbi        = sample.cbi
         breathBPM  = sample.breathBPM
@@ -188,8 +203,10 @@ struct MetricsHistoryPoint {
         motion:    Float? = nil,
         bodyPosition: BodyPosition? = nil,
         signalQuality:  Float? = nil,
-        ecgQualityTier: Int?   = nil
+        ecgQualityTier: Int?   = nil,
+        timezone: String? = nil
     ) {
+        self.timezone = timezone
         self.timestamp = timestamp
         self.ieRatio = nil
         self.vti = rmssd.map { log($0) }
@@ -239,8 +256,10 @@ struct MetricsHistoryPoint {
         ecgQualityTier: Int? = nil,
         coherence: Float? = nil,
         sdnn: Float? = nil,
-        lfHF: Float? = nil
+        lfHF: Float? = nil,
+        timezone: String? = nil
     ) {
+        self.timezone = timezone
         self.timestamp = anchorTestTimestamp
         self.ieRatio = nil
         self.vti = vti

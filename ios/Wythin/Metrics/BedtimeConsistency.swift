@@ -40,10 +40,9 @@ enum BedtimeConsistency {
     static func onsetSDMinutes(of windows: [SleepWindow]) -> Double? {
         guard windows.count >= minNights else { return nil }
 
-        let cal = Calendar.current
         var sumSin = 0.0, sumCos = 0.0
         for w in windows {
-            let comps = cal.dateComponents([.hour, .minute, .second], from: w.startedAt)
+            let comps = w.calendar.dateComponents([.hour, .minute, .second], from: w.startedAt)
             let hour = comps.hour ?? 0
             let minute = comps.minute ?? 0
             let second = comps.second ?? 0

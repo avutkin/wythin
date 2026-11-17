@@ -20,6 +20,7 @@ struct MontageRuler: Equatable {
 
     let startedAt: Date
     let endedAt: Date
+    var timezone: String? = nil
 
     /// Hour labels nearer than this to either end are dropped: that space
     /// belongs to the ASLEEP and WOKE markers, and a collision there costs the
@@ -58,7 +59,7 @@ struct MontageRuler: Equatable {
     /// Whole hours, strictly inside the window and clear of both end markers.
     var ticks: [Date] {
         guard endedAt > startedAt else { return [] }
-        let cal = Calendar.current
+        let cal = RecordingTimeZone.calendar(for: timezone)
         let step = tickStepHours
         // Matched on minute AND second, so a night that began at 23:04:37 does
         // not produce ticks at 00:00:37 — the gridline would be off the hour by
@@ -118,11 +119,14 @@ struct SleepMontageChart: View {
     /// section each one explains — vagal tone and pulse belong beside the
     /// autonomic score, not in an undifferentiated strip of nine.
     private let showsMetrics: Bool
+    private let correctionDay: Date?
 
     init(night: PreparedNight, startedAt: Date, endedAt: Date,
-         selectedX: Binding<Date?>? = nil, showsMetrics: Bool = true) {
+         selectedX: Binding<Date?>? = nil, showsMetrics: Bool = true,
+         timezone: String? = nil, correctionDay: Date? = nil) {
         self.night = night
-        self.ruler = MontageRuler(startedAt: startedAt, endedAt: endedAt)
+        self.ruler = MontageRuler(startedAt: startedAt, endedAt: endedAt, timezone: timezone ?? night.points.first?.timezone)
+        self.correctionDay = correctionDay
         self.showsMetrics = showsMetrics
         _ownedSelection = State(initialValue: nil)
         self.boundSelection = selectedX
@@ -259,7 +263,9 @@ struct SleepMontageChart: View {
     private func hm(_ m: Int) -> String { "\(m / 60)h \(String(format: "%02d", m % 60))m" }
 
     private func clock(_ d: Date) -> String {
-        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: d)
+        let f = DateFormatter(); f.dateFormat = "HH:mm"
+        f.timeZone = RecordingTimeZone.calendar(for: ruler.timezone).timeZone
+        return f.string(from: d)
     }
 
     // MARK: - Body
@@ -663,9 +669,9 @@ struct SleepMontageChart: View {
     /// overridden by a number nobody chose.
     private func saveCorrection() {
         guard dragStart != nil || dragEnd != nil else { return }
-        let day = Calendar.current.startOfDay(for: shownEnd)
+        let day = correctionDay ?? RecordingTimeZone.calendar(for: ruler.timezone).startOfDay(for: ruler.endedAt)
         let existing = (try? modelContext.fetch(FetchDescriptor<SleepWindowOverride>()))?
-            .filter { Calendar.current.isDate($0.day, inSameDayAs: day) } ?? []
+            .filter { $0.day == day } ?? []
         for row in existing { modelContext.delete(row) }
         modelContext.insert(SleepWindowOverride(day: day,
                                                 startedAt: dragStart,

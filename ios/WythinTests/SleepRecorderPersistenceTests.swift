@@ -43,6 +43,106 @@ final class SleepRecorderPersistenceTests: XCTestCase {
         return all.filter { $0.activityType == ActivityType.sleep.rawValue }
     }
 
+    func testVerifiedSampleZonesEnrichExistingLegacyNightWithoutDuplicatingIt() throws {
+        let context = ModelContext(container)
+        let start = try XCTUnwrap(CloudRestoreService.date("2026-11-11T19:10:00Z"))
+        for i in 0..<900 {
+            context.insert(HRVSample(anchorTestTimestamp: start.addingTimeInterval(Double(i) * 30),
+                meanBPM: 52, vti: 3.9, dc: 8, pip: 45, dfa1: 1, breathBPM: 13,
+                motion: 6, signalQuality: 0.97, timezone: "Asia/Dubai"))
+        }
+        let legacy = ActivityLog(activityType: ActivityType.sleep.rawValue, startedAt: start,
+                                 endedAt: start.addingTimeInterval(899 * 30), timezone: nil)
+        legacy.sleepAlgorithmVersion = SleepThresholds.algorithmVersion
+        context.insert(legacy)
+        try context.save()
+        XCTAssertEqual(SleepRecorder.recordIfDue(context: context, now: start.addingTimeInterval(12 * 3600)), 0)
+        XCTAssertEqual(sleepLogs(in: context).count, 1)
+        XCTAssertEqual(legacy.timezone, "Asia/Dubai")
+        XCTAssertEqual(legacy.startedAt, start)
+    }
+
+    func testZoneEnrichmentMigratesAnEvidencedLegacyCorrectionAndPreservesItOnRebuild() throws {
+        try assertLegacyCorrectionSurvivesZoneEnrichment(knownZone: nil)
+    }
+
+    func testAlreadyRestoredActivityZoneStillMigratesLegacyCorrection() throws {
+        try assertLegacyCorrectionSurvivesZoneEnrichment(knownZone: "Asia/Dubai")
+    }
+
+    private func assertLegacyCorrectionSurvivesZoneEnrichment(knownZone: String?) throws {
+        let context = ModelContext(container)
+        let start = try XCTUnwrap(CloudRestoreService.date("2026-11-11T19:10:00Z"))
+        let detectedEnd = start.addingTimeInterval(899 * 30)
+        let shortenedEnd = start.addingTimeInterval(6 * 3600)
+        let moscowDay = try XCTUnwrap(CloudRestoreService.date("2026-11-11T21:00:00Z"))
+        let dubaiDay = try XCTUnwrap(CloudRestoreService.date("2026-11-11T20:00:00Z"))
+        for i in 0..<900 {
+            context.insert(HRVSample(anchorTestTimestamp: start.addingTimeInterval(Double(i) * 30),
+                meanBPM: 52, vti: 3.9, dc: 8, pip: 45, dfa1: 1, breathBPM: 13,
+                motion: 6, signalQuality: 0.97, timezone: "Asia/Dubai"))
+        }
+        let legacy = ActivityLog(activityType: ActivityType.sleep.rawValue, startedAt: start,
+                                 endedAt: shortenedEnd, timezone: knownZone)
+        legacy.sleepAlgorithmVersion = SleepThresholds.algorithmVersion
+        legacy.sleepDetectedStart = start
+        legacy.sleepDetectedEnd = detectedEnd
+        let correction = SleepWindowOverride(day: moscowDay, endedAt: shortenedEnd)
+        context.insert(legacy)
+        context.insert(correction)
+        try context.save()
+        let now = start.addingTimeInterval(12 * 3600)
+
+        XCTAssertEqual(SleepRecorder.recordIfDue(context: context, now: now), 0)
+        let kept = try XCTUnwrap(sleepLogs(in: context).first)
+        XCTAssertEqual(kept.endedAt, shortenedEnd, "verified zone metadata must not discard the sleeper's correction")
+        XCTAssertEqual(kept.timezone, "Asia/Dubai")
+        XCTAssertEqual(kept.sleepDay, dubaiDay)
+        XCTAssertEqual(correction.day, dubaiDay)
+        XCTAssertEqual(sleepLogs(in: context).count, 1)
+
+        // An algorithm rebuild must still find the correction under the
+        // detector's Dubai day, even after the legacy activity is deleted.
+        kept.sleepAlgorithmVersion = 0
+        try context.save()
+        XCTAssertEqual(SleepRecorder.recordIfDue(context: context, now: now), 1)
+        let rebuilt = try XCTUnwrap(sleepLogs(in: context).first)
+        XCTAssertEqual(rebuilt.endedAt, shortenedEnd)
+        XCTAssertEqual(rebuilt.sleepDay, dubaiDay)
+        XCTAssertEqual(rebuilt.sleepDetectedEnd, detectedEnd)
+        XCTAssertEqual(sleepLogs(in: context).count, 1)
+    }
+
+    func testDubaiNightRebuildUsesRecordedClockAfterTravel() throws {
+        let context = ModelContext(container)
+        let start = try XCTUnwrap(CloudRestoreService.date("2026-11-11T19:10:00Z")) // 23:10 Dubai
+        let iso = ISO8601DateFormatter()
+        let rows = try (0..<900).map { i -> MetricExportSample in
+            let wire = """
+            {"ts":"\(iso.string(from: start.addingTimeInterval(Double(i) * 30)))","mean_bpm":52,"rmssd":49.4,"sdnn":55,"dc":8,"pip":45,"dfa1":1,"breath_bpm":13,"motion":6,"signal_quality":0.97,"timezone":"Asia/Dubai"}
+            """
+            return try JSONDecoder().decode(MetricExportSample.self, from: Data(wire.utf8))
+        }
+        XCTAssertEqual(CloudRestoreService.insert(rows, into: context), 900)
+        try context.save()
+        let now = start.addingTimeInterval(12 * 3600)
+        XCTAssertEqual(SleepRecorder.recordIfDue(context: context, now: now), 1)
+        let night = try XCTUnwrap(sleepLogs(in: context).first)
+        XCTAssertEqual(ActivityUploadPayload(from: night).timezone, "Asia/Dubai")
+        XCTAssertEqual(night.startedAt, start)
+        XCTAssertEqual(night.recordedSleepDay, CloudRestoreService.date("2026-11-11T20:00:00Z"))
+        XCTAssertEqual(SleepRecorder.recordIfDue(context: context, now: now), 0)
+        let originalDay = night.recordedSleepDay
+        context.insert(SleepWindowOverride(day: originalDay, startedAt: start.addingTimeInterval(600)))
+        try context.save()
+        XCTAssertEqual(SleepRecorder.recordIfDue(context: context, now: now), 1)
+        let corrected = try XCTUnwrap(sleepLogs(in: context).first)
+        XCTAssertEqual(corrected.startedAt, start.addingTimeInterval(600))
+        XCTAssertEqual(corrected.timezone, "Asia/Dubai")
+        XCTAssertEqual(corrected.recordedSleepDay, originalDay)
+        XCTAssertEqual(SleepRecorder.recordIfDue(context: context, now: now), 0)
+    }
+
     // MARK: - A night written early grows when the rest of it arrives
 
     /// Samples for a night that resumes after the strap has already seen a

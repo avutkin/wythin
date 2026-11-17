@@ -283,6 +283,6 @@ final class SleepWindowOverride {
         let start = startedAt ?? window.startedAt
         let end = endedAt ?? window.endedAt
         guard end > start else { return window }
-        return SleepWindow(startedAt: start, endedAt: end)
+        return SleepWindow(startedAt: start, endedAt: end, timezone: window.timezone, dayOverride: window.day)
     }
 }

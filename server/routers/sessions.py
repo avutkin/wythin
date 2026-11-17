@@ -51,14 +51,15 @@ async def save_session(
                     '''
                     INSERT INTO hrv_samples
                         (session_id, ts, mean_bpm, rmssd, sdnn, pnn50, lf_hf,
-                         rsa_ms, rsa_idx, coherence, cbi, breath_bpm)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                         rsa_ms, rsa_idx, coherence, cbi, breath_bpm, stress_balance)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                            COALESCE($13::real, wythin_stress_balance($4, $7, $12)))
                     ''',
                     [
                         (
                             db_session_id, _parse_dt(s.ts),
                             s.mean_bpm, s.rmssd, s.sdnn, s.pnn50, s.lf_hf,
-                            s.rsa_ms, s.rsa_idx, s.coherence, s.cbi, s.breath_bpm,
+                            s.rsa_ms, s.rsa_idx, s.coherence, s.cbi, s.breath_bpm, s.stress_balance,
                         )
                         for s in session.samples
                     ],

@@ -33,32 +33,44 @@ struct ActivitiesView: View {
     @State private var activeSheet:  ActivitySheet?   = nil
 
     private struct DayGroup: Identifiable {
-        let id:      Date
+        let id:      String
         let label:   String
         let entries: [ActivityLog]
     }
 
     private var dayGroups: [DayGroup] {
-        let cal = Calendar.current
+        func dayKey(_ date: Date, calendar: Calendar) -> String {
+            let parts = calendar.dateComponents([.year, .month, .day], from: date)
+            return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+        }
+        let currentCalendar = Calendar.autoupdatingCurrent
+        let todayKey = dayKey(.now, calendar: currentCalendar)
+        let yesterdayKey = currentCalendar.date(byAdding: .day, value: -1, to: .now)
+            .map { dayKey($0, calendar: currentCalendar) }
         // A running session is listed like any other — as the row it will
         // become, wrapped in a live frame — rather than as a separate banner
         // with three pills. The banner showed a clock and no verdict, and the
         // verdict then appeared fully formed the moment the session stopped.
-        let grouped = Dictionary(grouping: allEntries) { cal.startOfDay(for: $0.startedAt) }
+        let grouped = Dictionary(grouping: allEntries) { entry in
+            dayKey(entry.startedAt, calendar: entry.recordedCalendar)
+        }
 
-        return grouped.keys.sorted(by: >).map { day in
+        return grouped.keys.sorted(by: >).map { key in
+            let entries = (grouped[key] ?? []).sorted { $0.startedAt > $1.startedAt }
+            let cal = entries[0].recordedCalendar
+            let day = cal.startOfDay(for: entries[0].startedAt)
             let label: String
-            if cal.isDateInToday(day) {
+            if key == todayKey {
                 label = "TODAY"
-            } else if cal.isDateInYesterday(day) {
+            } else if key == yesterdayKey {
                 label = "YESTERDAY"
             } else {
                 let fmt = DateFormatter()
+                fmt.timeZone = cal.timeZone
                 fmt.dateFormat = "MMM d"
                 label = fmt.string(from: day).uppercased()
             }
-            let entries = (grouped[day] ?? []).sorted { $0.startedAt > $1.startedAt }
-            return DayGroup(id: day, label: label, entries: entries)
+            return DayGroup(id: key, label: label, entries: entries)
         }
     }
 

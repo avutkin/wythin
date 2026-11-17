@@ -2,6 +2,7 @@ import Foundation
 import SwiftData
 import SwiftUI
 import CryptoKit
+import UIKit
 
 // MARK: - Wire types (Codable)
 
@@ -13,6 +14,12 @@ struct SessionPayload: Codable {
     let avgCoherence: Float?
     let notes:        String?
     let samples:      [SamplePayload]
+
+    enum CodingKeys: String, CodingKey {
+        case id, notes, samples
+        case startedAt = "started_at", endedAt = "ended_at"
+        case avgRSAms = "avg_rsa_ms", avgCoherence = "avg_coherence"
+    }
 }
 
 struct SamplePayload: Codable {
@@ -27,6 +34,13 @@ struct SamplePayload: Codable {
     let coherence:  Float?
     let cbi:        Float?
     let breathBPM:  Float?
+    var stressBalance: Float? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case ts, rmssd, sdnn, pnn50, coherence, cbi
+        case meanBPM = "mean_bpm", lfHF = "lf_hf", rsaMs = "rsa_ms", rsaIdx = "rsa_idx"
+        case breathBPM = "breath_bpm", stressBalance = "stress_balance"
+    }
 }
 
 struct TickPayload: Codable {
@@ -296,10 +310,19 @@ struct MetricSamplePayload: Codable {
     let signal_quality: Float?
     let rr_invalid_rate: Float?
     let ecg_quality_tier: Int?
+    var timezone: String? = nil
+    var stress_balance: Float? = nil
+}
+extension MetricSamplePayload {
+    var hasStoredValue: Bool {
+        [mean_bpm, rmssd, sdnn, pnn50, lf_hf, rsa_ms, coherence, cbi,
+         breath_bpm, dfa1, rcmse, pip, dc, vti, motion, signal_quality,
+         rr_invalid_rate, stress_balance].contains { $0 != nil } || ecg_quality_tier != nil
+    }
 }
 struct MetricsUploadPayload: Codable { let samples: [MetricSamplePayload] }
 
-// Read-back of the same fourteen columns `/v1/metrics` stores, for restoring
+// Read-back of the scalar columns `/v1/metrics` stores, for restoring
 // a wiped local store from the cloud copy.
 struct MetricExportSample: Codable {
     let ts: String
@@ -312,6 +335,8 @@ struct MetricExportSample: Codable {
     let signal_quality: Float?
     let rr_invalid_rate: Float?
     let ecg_quality_tier: Int?
+    var timezone: String? = nil
+    var stress_balance: Float? = nil
 }
 
 struct MetricExportPage: Codable {
@@ -456,15 +481,23 @@ struct APIClient {
     }
 
     func uploadMetrics(_ payload: MetricsUploadPayload, userID: String) async throws -> MetricsUploadResponse {
-        var req = request(path: "/v1/metrics", method: "POST")
-        req.addValue(userID, forHTTPHeaderField: "X-User-ID")
+        var req = metricUploadRequest(userID: userID)
         req.httpBody = try JSONEncoder().encode(payload)
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
+        let stored = payload.samples.filter(\.hasStoredValue).count
+        try MetricUploadReceipt.validate(data, stored: stored, skipped: payload.samples.count - stored)
         return try JSONDecoder().decode(MetricsUploadResponse.self, from: data)
+    }
+
+    func metricUploadRequest(userID: String) -> URLRequest {
+        var req = request(path: "/v1/metrics", method: "POST")
+        req.setValue(userID, forHTTPHeaderField: "X-User-ID")
+        req.timeoutInterval = 120
+        return req
     }
 
     func uploadUsage(_ payload: UsageUploadPayload, userID: String) async throws {
@@ -726,72 +759,414 @@ final class RawChunkSyncService: NSObject, URLSessionTaskDelegate {
 }
 
 // MARK: - MetricSyncService
-//
-// Opt-in, incremental uploader for continuous HRV metrics. Reads a batch of
-// `HRVSample` rows newer than the last-synced watermark, uploads all pending
-// batches, and only advances the watermark on success. A failed upload is
-// retried on the next call. No-ops while cloud sync is off.
 
+/// Saved rows are the durable pending marker. Bounded immutable batches are
+/// handed to a system background session; neither retry nor the final tail
+/// depends on another measurement. The 30-second coalescing timer is protected
+/// by a finite UIKit allowance and is flushed synchronously on its expiry.
 @MainActor
 @Observable
-final class MetricSyncService {
+final class MetricSyncService: NSObject, URLSessionDataDelegate {
+    static let sessionIdentifier = "com.wythin.metrics-upload"
+    static var active: MetricSyncService?
+    static var pendingBackgroundCompletionHandler: (() -> Void)?
     private let client: APIClient
     private let userID: String
     private let container: ModelContainer
-    @ObservationIgnored @AppStorage("cloudSyncEnabled") private var enabled = true
-    @ObservationIgnored @AppStorage("metricsLastSyncedAt") private var lastSyncedISO = ""
-    // Date's full precision is needed for the SwiftData cursor. The older ISO
-    // watermark remains for migration from already installed app versions.
-    @ObservationIgnored @AppStorage("metricsLastSyncedEpoch") private var lastSyncedEpoch = 0.0
-    /// The profile the server last *accepted*, as canonical JSON. Persisted, so
-    /// a rejected upload is retried on the next sync rather than waiting for a
-    /// relaunch, and an edited profile re-uploads on its own.
-    @ObservationIgnored @AppStorage("profileLastSynced") private var syncedProfile = ""
+    private let batch: Int
+    private let queueDirectory: URL
+    private let now: () -> Date
+    private let coalescingInterval: TimeInterval
+    private let usesBackgroundSession: Bool
+    private var queue: MetricUploadQueue?
+    private var session: URLSession!
+    private var reconciled = false
+    private var isSyncing = false
+    private var syncRequested = false
+    private var profileUploadTask: Task<Bool, Never>?
+    private var blockedForStorage = false
+    private var consentPauseLogged = false
+    private var tasksByBatch: [UUID: URLSessionTask] = [:]
+    private var coalescingTimer: Timer?
+    private var retryTimer: Timer?
+    private var allowance: UIBackgroundTaskIdentifier = .invalid
+    private var unlockObserver: NSObjectProtocol?
+    private var backgroundCompletionHandler: (() -> Void)?
+    nonisolated private let completionGroup = DispatchGroup()
+    nonisolated private let responseBodies = MetricUploadResponseBodies()
+    private(set) var lastUploadedAt: Date?
+    private(set) var lastSavedAt: Date?
+    private(set) var lastError: String?
+    private(set) var pendingCount = 0
+    private var enabled: Bool { UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true }
     private let iso: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
-    private let legacyISO = ISO8601DateFormatter()
-    private let batch: Int
-    private var isSyncing = false
-    private(set) var lastUploadedAt: Date?
-    private(set) var lastError: String?
-
-    /// Sorted keys so the same answers always encode to the same bytes — the
-    /// comparison above is only meaningful if the encoding is stable.
     private static let profileEncoder: JSONEncoder = {
-        let e = JSONEncoder()
-        e.outputFormatting = .sortedKeys
-        return e
+        let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys; return encoder
     }()
 
     init(client: APIClient, userID: String, container: ModelContainer,
-         batchSize: Int = 2000) {
-        self.client = client; self.userID = userID; self.container = container
+         batchSize: Int = 2000, queueDirectory: URL? = nil,
+         sessionConfiguration: URLSessionConfiguration? = nil,
+         sessionFactory: ((URLSessionConfiguration, URLSessionDelegate) -> URLSession)? = nil,
+         coalescingInterval: TimeInterval = 30, now: @escaping () -> Date = Date.init) {
+        self.client = client
+        self.userID = userID
+        self.container = container
         self.batch = min(max(batchSize, 1), 5000)
+        self.now = now
+        self.coalescingInterval = max(0, coalescingInterval)
+        self.usesBackgroundSession = sessionConfiguration == nil
+        let namespace = SHA256.hash(data: Data(userID.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+        self.queueDirectory = queueDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("MetricUploads/\(namespace)", isDirectory: true)
         let uploaded = UserDefaults.standard.double(forKey: "metricsLastUploadAtEpoch")
         self.lastUploadedAt = uploaded > 0 ? Date(timeIntervalSince1970: uploaded) : nil
+        super.init()
+        let configuration = sessionConfiguration ?? Self.backgroundConfiguration()
+        session = sessionFactory?(configuration, self)
+            ?? URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        if usesBackgroundSession {
+            Self.active = self
+            backgroundCompletionHandler = Self.pendingBackgroundCompletionHandler
+            Self.pendingBackgroundCompletionHandler = nil
+        }
     }
 
-    func syncIfEnabled() async {
-        guard enabled else { return }
-        guard !isSyncing else { return }
-        isSyncing = true
-        defer { isSyncing = false }
+    static func backgroundConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.background(withIdentifier: sessionIdentifier)
+        configuration.sessionSendsLaunchEvents = true
+        configuration.isDiscretionary = false
+        // Background sessions always wait for connectivity; their file tasks
+        // also survive suspension and a system-initiated process termination.
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForResource = 7 * 24 * 60 * 60
+        configuration.httpMaximumConnectionsPerHost = 3
+        return configuration
+    }
 
-        // Push the onboarding profile whenever what we hold differs from what the
-        // server last accepted — every sync, not once per launch. Marking it
-        // synced only after a real success means a rejected upload retries on
-        // the next tick (~120 s) instead of needing the app relaunched, which is
-        // how five days of profiles were lost to a 404 nobody noticed.
-        // Gated by the cloud-sync toggle above (it carries PII).
-        // Never a profile without its mandatory fields. The first sync tick
-        // used to send the blank default two seconds after first launch, and
-        // on the dashboard a blank row reads as "onboarded" — which is how a
-        // person nobody could identify came to have an "answered" profile.
+    func start() {
+        if unlockObserver == nil {
+            unlockObserver = NotificationCenter.default.addObserver(
+                forName: UIApplication.protectedDataDidBecomeAvailableNotification,
+                object: nil, queue: .main) { [weak self] _ in
+                    Task { @MainActor in await self?.syncIfEnabled() }
+                }
+        }
+        beginAllowance()
+        Task { await syncIfEnabled() }
+    }
+
+    /// UI consent changes cancel known tasks synchronously, then enumerate
+    /// restored tasks too. Unsent rows and immutable files remain on device.
+    func setEnabled(_ value: Bool) {
+        UserDefaults.standard.set(value, forKey: "cloudSyncEnabled")
+        if value {
+            consentPauseLogged = false
+            BLEDiag.log("METRIC_SYNC consent=on")
+            start()
+        } else {
+            pauseForConsent()
+            Task { await syncIfEnabled() }
+        }
+    }
+
+    /// Call immediately after the SwiftData save succeeds. No asynchronous
+    /// task or per-sample file is necessary to make that pending marker durable.
+    func savedMetricsDidChange() {
+        lastSavedAt = now()
+        guard enabled else { pauseForConsent(); return }
+        consentPauseLogged = false
+        guard coalescingTimer == nil else { return }
+        beginAllowance()
+        if usesBackgroundSession, allowance == .invalid,
+           UIApplication.shared.applicationState != .active {
+            flush()
+            return
+        }
+        coalescingTimer = Timer.scheduledTimer(withTimeInterval: max(0.01, coalescingInterval), repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.flushAndEndAllowance() }
+        }
+    }
+
+    /// Synchronous: file persistence and uploadTask.resume happen before the
+    /// app returns its lifecycle/expiration callback to iOS.
+    func applicationDidEnterBackground() { flushAndEndAllowance() }
+
+    func syncIfEnabled() async {
+        // Even when disabled, enumerate restored system tasks before returning.
+        // Cancelling only the in-memory map would miss uploads across relaunch.
+        if !enabled { pauseForConsent() }
+        guard !isSyncing else { syncRequested = true; return }
+        isSyncing = true
+        syncRequested = false
+        blockedForStorage = false
+        defer {
+            isSyncing = false
+            // Coalesce any number of requests during reconciliation/profile I/O
+            // into one follow-up. Only an external request sets this flag.
+            if syncRequested {
+                syncRequested = false
+                Task { await syncIfEnabled() }
+            }
+        }
+        if !reconciled {
+            let tasks = await withCheckedContinuation { continuation in
+                session.getAllTasks { continuation.resume(returning: $0) }
+            }
+            for task in tasks {
+                guard let description = task.taskDescription, let id = UUID(uuidString: description),
+                      task.state == .running || task.state == .suspended else { task.cancel(); continue }
+                if tasksByBatch[id] != nil { task.cancel() }
+                else { tasksByBatch[id] = task }
+            }
+            reconciled = true
+        }
+        guard enabled else {
+            pauseForConsent()
+            if let queue = try? openQueue() {
+                pendingCount = (try? ModelContext(container).fetchCount(pendingDescriptor(queue.migrationBoundary))) ?? pendingCount
+            }
+            return
+        }
+        flushAndEndAllowance()
+        await syncProfileIfNeeded()
+    }
+
+    private func beginAllowance() {
+        guard usesBackgroundSession, allowance == .invalid else { return }
+        allowance = UIApplication.shared.beginBackgroundTask(withName: "Save metric upload tail") { [weak self] in
+            // UIKit invokes this on the main thread. Do not launch an async
+            // Task here: the handoff must finish before the allowance ends.
+            MainActor.assumeIsolated { self?.flushAndEndAllowance(expiring: true) }
+        }
+    }
+
+    private func flushAndEndAllowance(expiring: Bool = false) {
+        coalescingTimer?.invalidate(); coalescingTimer = nil
+        flush()
+        // A normal lifecycle callback can precede getAllTasks. Keep the finite
+        // allowance through that reconciliation; expiry must still end it.
+        if allowance != .invalid && (reconciled || expiring || !enabled) {
+            UIApplication.shared.endBackgroundTask(allowance)
+            allowance = .invalid
+        }
+    }
+
+    private func pauseForConsent() {
+        coalescingTimer?.invalidate(); coalescingTimer = nil
+        retryTimer?.invalidate(); retryTimer = nil
+        profileUploadTask?.cancel()
+        for task in tasksByBatch.values { task.cancel() }
+        tasksByBatch.removeAll()
+        if allowance != .invalid { UIApplication.shared.endBackgroundTask(allowance); allowance = .invalid }
+        lastError = nil
+        if !consentPauseLogged {
+            BLEDiag.log("METRIC_SYNC consent=off pending=\(pendingCount)")
+            consentPauseLogged = true
+        }
+    }
+
+    private func openQueue() throws -> MetricUploadQueue {
+        if let queue { return queue }
+        let defaults = UserDefaults.standard
+        let epoch = defaults.double(forKey: "metricsLastSyncedEpoch")
+        let legacy = defaults.string(forKey: "metricsLastSyncedAt") ?? ""
+        let boundary = epoch > 0 ? Date(timeIntervalSince1970: epoch)
+            : (iso.date(from: legacy) ?? ISO8601DateFormatter().date(from: legacy) ?? .distantPast)
+        let opened = try MetricUploadQueue(root: queueDirectory, migrationBoundary: boundary)
+        queue = opened
+        return opened
+    }
+
+    private func pendingDescriptor(_ boundary: Date) -> FetchDescriptor<HRVSample> {
+        FetchDescriptor<HRVSample>(predicate: #Predicate {
+            $0.cloudUploadState == 0 || ($0.cloudUploadState == nil && $0.timestamp >= boundary)
+        }, sortBy: [SortDescriptor(\.timestamp)])
+    }
+
+    private func flush() {
+        guard enabled else { pauseForConsent(); return }
+        guard !blockedForStorage else { return }
+        do {
+            let queue = try openQueue()
+            let context = ModelContext(container)
+            try applyReceipts(queue, context: context)
+            // Three immutable files bound disk duplication and keep a backlog
+            // moving in parallel without a new app wake for each individual row.
+            while queue.entries.count < 3 {
+                let represented = Set(queue.entries.flatMap(\.members))
+                var descriptor = pendingDescriptor(queue.migrationBoundary)
+                descriptor.fetchLimit = batch * 4
+                let fetched = try context.fetch(descriptor)
+                let samples = try fetched.filter { !represented.contains(try membership($0.persistentModelID)) }.prefix(batch)
+                guard !samples.isEmpty else { break }
+                let payload = MetricsUploadPayload(samples: samples.map {
+                    MetricSamplePayload(from: $0, timestamp: iso.string(from: $0.timestamp))
+                })
+                let stored = payload.samples.filter(\.hasStoredValue).count
+                let entry = try queue.enqueue(payload: JSONEncoder().encode(payload),
+                    members: samples.map { try membership($0.persistentModelID) },
+                    latestSampleAt: samples.map(\.timestamp).max()!, expectedStored: stored,
+                    expectedSkipped: samples.count - stored, now: now())
+                BLEDiag.log("METRIC_SYNC queued batch=\(entry.id) samples=\(samples.count)")
+            }
+            pendingCount = try context.fetchCount(pendingDescriptor(queue.migrationBoundary))
+            // Startup reconciliation owns the system task inventory. A lifecycle
+            // flush can persist files before it finishes; reconciliation then
+            // schedules those files, without creating duplicate uploads.
+            guard reconciled else { return }
+            let known = Set(queue.entries.map(\.id))
+            for (id, task) in tasksByBatch {
+                if !known.contains(id) {
+                    task.cancel(); tasksByBatch.removeValue(forKey: id)
+                } else if task.state == .suspended {
+                    // A crash can occur after taskDescription is persisted but
+                    // before resume(). Reconcile that real system task instead
+                    // of letting its membership block the queue forever.
+                    task.resume()
+                    BLEDiag.log("METRIC_SYNC resumed batch=\(id) task=\(task.taskIdentifier)")
+                }
+            }
+            for entry in queue.entries where entry.acknowledgedAt == nil && tasksByBatch[entry.id] == nil {
+                guard tasksByBatch.count < 3 else { break }
+                if !usesBackgroundSession && entry.nextAttemptAt > now() { continue }
+                let file = queue.payloadURL(for: entry.id)
+                guard FileManager.default.fileExists(atPath: file.path) else { throw CocoaError(.fileReadNoSuchFile) }
+                let task = session.uploadTask(with: client.metricUploadRequest(userID: userID), fromFile: file)
+                task.taskDescription = entry.id.uuidString
+                task.earliestBeginDate = entry.nextAttemptAt
+                tasksByBatch[entry.id] = task
+                task.resume()
+                BLEDiag.log("METRIC_SYNC scheduled batch=\(entry.id) task=\(task.taskIdentifier) attempt=\(entry.attempts) delay=\(max(0, Int(entry.nextAttemptAt.timeIntervalSince(now()))))")
+            }
+            scheduleForegroundRetry()
+        } catch {
+            lastError = "Cannot prepare saved metrics for upload"
+            BLEDiag.log("METRIC_SYNC queue_error code=\((error as NSError).code)")
+        }
+    }
+
+    private func membership(_ id: PersistentIdentifier) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return try encoder.encode(id)
+    }
+
+    private func applyReceipts(_ queue: MetricUploadQueue, context: ModelContext) throws {
+        for entry in queue.entries where entry.acknowledgedAt != nil {
+            let ids = try entry.members.map { try JSONDecoder().decode(PersistentIdentifier.self, from: $0) }
+            let descriptor = FetchDescriptor<HRVSample>(predicate: #Predicate { ids.contains($0.persistentModelID) })
+            for sample in try context.fetch(descriptor) { sample.cloudUploadState = 1 }
+            try context.save()
+            let defaults = UserDefaults.standard
+            let epoch = max(defaults.double(forKey: "metricsLastSyncedEpoch"), entry.latestSampleAt.timeIntervalSince1970)
+            defaults.set(epoch, forKey: "metricsLastSyncedEpoch")
+            defaults.set(iso.string(from: Date(timeIntervalSince1970: epoch)), forKey: "metricsLastSyncedAt")
+            if let acceptedAt = entry.acknowledgedAt {
+                lastUploadedAt = max(lastUploadedAt ?? .distantPast, acceptedAt)
+                defaults.set(lastUploadedAt!.timeIntervalSince1970, forKey: "metricsLastUploadAtEpoch")
+            }
+            try queue.removeAcknowledged(entry.id)
+        }
+    }
+
+    private func scheduleForegroundRetry() {
+        retryTimer?.invalidate(); retryTimer = nil
+        guard !usesBackgroundSession, enabled,
+              let due = queue?.entries.filter({ $0.acknowledgedAt == nil && tasksByBatch[$0.id] == nil }).map(\.nextAttemptAt).min() else { return }
+        retryTimer = Timer.scheduledTimer(withTimeInterval: max(0.1, due.timeIntervalSince(now())), repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.flush() }
+        }
+    }
+
+    func handleBackgroundEvents(completionHandler: @escaping () -> Void) {
+        backgroundCompletionHandler = completionHandler
+        start()
+    }
+
+    nonisolated func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        responseBodies.append(data, task: dataTask.taskIdentifier)
+    }
+
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        let body = responseBodies.take(task: task.taskIdentifier)
+        completionGroup.enter()
+        Task { @MainActor in
+            self.finish(task, body: body, error: error)
+            self.completionGroup.leave()
+        }
+    }
+
+    private func finish(_ task: URLSessionTask, body: Data, error: Error?) {
+        guard let description = task.taskDescription, let id = UUID(uuidString: description),
+              tasksByBatch[id]?.taskIdentifier == task.taskIdentifier else { return }
+        tasksByBatch.removeValue(forKey: id)
+        guard enabled else { pauseForConsent(); return }
+        do {
+            let queue = try openQueue()
+            guard queue.entries.contains(where: { $0.id == id }) else { return }
+            if error == nil, let response = task.response as? HTTPURLResponse, (200..<300).contains(response.statusCode) {
+                try queue.acknowledge(id, response: body, now: now())
+                try applyReceipts(queue, context: ModelContext(container))
+                lastError = nil
+                BLEDiag.log("METRIC_SYNC acknowledged batch=\(id) task=\(task.taskIdentifier)")
+            } else {
+                throw error ?? URLError(.badServerResponse)
+            }
+        } catch {
+            // If the receipt was saved but SwiftData could not yet be updated,
+            // fail() preserves it; the next flush/relaunch applies that receipt.
+            do { try queue?.fail(id, now: now()) }
+            catch {
+                blockedForStorage = true
+                lastError = "Cannot save metric upload retry"
+                BLEDiag.log("METRIC_SYNC retry_storage_error code=\((error as NSError).code)")
+                return
+            }
+            lastError = "Metric upload waiting to retry"
+            BLEDiag.log("METRIC_SYNC retry batch=\(id) status=\((task.response as? HTTPURLResponse)?.statusCode ?? 0) code=\((error as NSError).code)")
+        }
+        // Background retry tasks carry earliestBeginDate. iOS owns their wait;
+        // a failed callback never immediately sends another network request.
+        flush()
+    }
+
+    nonisolated func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        completionGroup.notify(queue: .main) {
+            Task { @MainActor in
+                self.backgroundCompletionHandler?()
+                self.backgroundCompletionHandler = nil
+            }
+        }
+    }
+
+    var diagnosticsSummary: [String: String] {
+        let entries = queue?.entries ?? []
+        return [
+            "consent": enabled ? "enabled" : "disabled",
+            "pending_samples": String(pendingCount),
+            "queued_batches": String(entries.count),
+            "oldest_queued_at": entries.map(\.createdAt).min().map(iso.string) ?? "none",
+            "latest_queued_sample_at": entries.map(\.latestSampleAt).max().map(iso.string) ?? "none",
+            "storage_retry_blocked": String(blockedForStorage),
+            "queued_samples": String(entries.reduce(0) { $0 + $1.expectedStored + $1.expectedSkipped }),
+            "in_flight": String(tasksByBatch.count),
+            "saved_at": lastSavedAt.map(iso.string) ?? "unknown",
+            "acknowledged_at": lastUploadedAt.map(iso.string) ?? "none",
+            "next_retry_at": entries.filter { $0.attempts > 0 }.map(\.nextAttemptAt).min().map(iso.string) ?? "none",
+            "maximum_attempts": String(entries.map(\.attempts).max() ?? 0),
+            "error": lastError ?? "none"
+        ]
+    }
+
+    private func syncProfileIfNeeded() async {
+        guard enabled else { return }
         let p = ClientProfileStore().load()
-        if p.hasRequiredContact {
+        guard p.hasRequiredContact else { return }
         let profile = ProfilePayload(
             first_name: p.firstName, last_name: p.lastName,
             phone: p.phone, email: p.email, age_range: p.ageRange, gender: p.gender,
@@ -802,65 +1177,36 @@ final class MetricSyncService {
             state_stress: p.state.stress,
             consent_share_team: OnboardingConsent.shareWithTeam(),
             consent_ai_insights: OnboardingConsent.aiInsights(),
-            timezone: TimeZone.current.identifier)
-        if let encoded = try? Self.profileEncoder.encode(profile) {
-            let canonical = String(decoding: encoded, as: UTF8.self)
-            if canonical != syncedProfile,
-               (try? await client.uploadProfile(profile, userID: userID)) != nil {
-                syncedProfile = canonical
-            }
+            timezone: TimeZone.autoupdatingCurrent.identifier)
+        guard let encoded = try? Self.profileEncoder.encode(profile) else { return }
+        let canonical = String(decoding: encoded, as: UTF8.self)
+        guard canonical != UserDefaults.standard.string(forKey: "profileLastSynced"), enabled else { return }
+        let task = Task { [client, userID] in
+            (try? await client.uploadProfile(profile, userID: userID)) != nil
         }
+        profileUploadTask = task
+        let accepted = await task.value
+        profileUploadTask = nil
+        if accepted, enabled, !task.isCancelled {
+            UserDefaults.standard.set(canonical, forKey: "profileLastSynced")
         }
+    }
+}
 
-        var after = lastSyncedEpoch > 0
-            ? Date(timeIntervalSince1970: lastSyncedEpoch)
-            : (iso.date(from: lastSyncedISO) ?? legacyISO.date(from: lastSyncedISO)
-               ?? Date.distantPast)
-        let ctx = ModelContext(container)
-        while enabled {
-            var desc = FetchDescriptor<HRVSample>(
-                predicate: #Predicate { $0.timestamp > after },
-                sortBy: [SortDescriptor(\.timestamp)])
-            desc.fetchLimit = batch
-            let samples: [HRVSample]
-            do {
-                samples = try ctx.fetch(desc)
-            } catch {
-                lastError = "Cannot read saved metrics: \(error.localizedDescription)"
-                return
-            }
-            guard !samples.isEmpty else {
-                lastError = nil
-                return
-            }
-            let payload = MetricsUploadPayload(samples: samples.map { s in
-                MetricSamplePayload(ts: iso.string(from: s.timestamp),
-                    mean_bpm: s.meanBPM, rmssd: s.rmssd, sdnn: s.sdnn, pnn50: s.pnn50,
-                    lf_hf: s.lfHF, rsa_ms: s.rsaMs, coherence: s.coherence, cbi: s.cbi,
-                    breath_bpm: s.breathBPM, dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip,
-                    dc: s.dc, vti: s.vti, motion: s.motion,
-                    signal_quality: s.signalQuality, rr_invalid_rate: s.rrInvalidRate,
-                    ecg_quality_tier: s.ecgQualityTier) })
-            do {
-                _ = try await client.uploadMetrics(payload, userID: userID)
-            } catch {
-                lastError = "Metric upload failed: \(error.localizedDescription)"
-                return
-            }
-            guard let last = samples.last else { return }
-            after = last.timestamp
-            lastSyncedEpoch = after.timeIntervalSince1970
-            lastSyncedISO = iso.string(from: after)
-            let uploadedAt = Date()
-            lastUploadedAt = uploadedAt
-            UserDefaults.standard.set(uploadedAt.timeIntervalSince1970,
-                                      forKey: "metricsLastUploadAtEpoch")
-            lastError = nil
-            if samples.count < batch { return }
-            // A large offline backlog should not monopolize the main actor
-            // while new Bluetooth notifications continue to arrive.
-            await Task.yield()
-        }
+/// URLSession delegate callbacks are not actor-isolated. Accumulate every body
+/// fragment under a lock, cap unexpected response bodies, and consume once.
+private final class MetricUploadResponseBodies: @unchecked Sendable {
+    private let lock = NSLock()
+    private var bodies: [Int: Data] = [:]
+    func append(_ data: Data, task: Int) {
+        lock.lock(); defer { lock.unlock() }
+        var body = bodies[task] ?? Data()
+        if body.count <= 65_536 { body.append(data.prefix(65_537 - body.count)) }
+        bodies[task] = body
+    }
+    func take(task: Int) -> Data {
+        lock.lock(); defer { lock.unlock() }
+        return bodies.removeValue(forKey: task) ?? Data()
     }
 }
 
@@ -949,6 +1295,24 @@ extension SessionPayload {
     }
 }
 
+extension MetricSamplePayload {
+    init(from s: HRVSample, timestamp: String? = nil) {
+        let ts: String
+        if let timestamp { ts = timestamp } else {
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            ts = iso.string(from: s.timestamp)
+        }
+        self.init(ts: ts, mean_bpm: s.meanBPM, rmssd: s.rmssd, sdnn: s.sdnn,
+                  pnn50: s.pnn50, lf_hf: s.lfHF, rsa_ms: s.rsaMs,
+                  coherence: s.coherence, cbi: s.cbi, breath_bpm: s.breathBPM,
+                  dfa1: s.dfa1, rcmse: s.rcmse, pip: s.pip, dc: s.dc, vti: s.vti,
+                  motion: s.motion, signal_quality: s.signalQuality,
+                  rr_invalid_rate: s.rrInvalidRate, ecg_quality_tier: s.ecgQualityTier,
+                  timezone: s.timezone, stress_balance: s.stressBalanceValue)
+    }
+}
+
 extension SamplePayload {
     init(from s: HRVSample) {
         let iso = ISO8601DateFormatter()
@@ -963,6 +1327,7 @@ extension SamplePayload {
         self.coherence = s.coherence
         self.cbi       = s.cbi
         self.breathBPM = s.breathBPM
+        self.stressBalance = s.stressBalanceValue
     }
 }
 

@@ -23,6 +23,12 @@ final class CaptureAuditLog: @unchecked Sendable {
         let savedMetrics: Int
         let failedSaves: Int
         let invalidPackets: Int
+        var validRRIntervals: Int? = nil
+        var lastValidRRAt: Date? = nil
+        var lastECGAt: Date? = nil
+        var lastACCAt: Date? = nil
+        var lastSavedMetricAt: Date? = nil
+        var diagnosticError: String? = nil
     }
 
     private let lock = NSLock()
@@ -37,6 +43,12 @@ final class CaptureAuditLog: @unchecked Sendable {
     private var savedMetrics = 0
     private var failedSaves = 0
     private var invalidPackets = 0
+    private var validRRIntervals = 0
+    private var lastValidRRAt: Date?
+    private var lastECGAt: Date?
+    private var lastACCAt: Date?
+    private var lastSavedMetricAt: Date?
+    private var diagnosticError: String?
 
     init(directory: URL) throws {
         self.directory = directory
@@ -58,15 +70,22 @@ final class CaptureAuditLog: @unchecked Sendable {
     }
 
     func recordBLE(_ stream: RawPacketRecord.Stream, rrCount: Int,
-                   valid: Bool = true, at: Date = Date()) {
+                   valid: Bool = true, validRRCount: Int? = nil, at: Date = Date()) {
         lock.lock()
         defer { lock.unlock() }
         switch stream {
-        case .ecg: ecgPackets += 1
-        case .acc: accPackets += 1
+        case .ecg:
+            ecgPackets += 1
+            if valid { lastECGAt = at }
+        case .acc:
+            accPackets += 1
+            if valid { lastACCAt = at }
         case .hr: hrPackets += 1
         }
         rrIntervals += rrCount
+        let accepted = max(0, min(rrCount, validRRCount ?? (valid ? rrCount : 0)))
+        validRRIntervals += accepted
+        if accepted > 0 { lastValidRRAt = at }
         if !valid { invalidPackets += 1 }
         snapshotIfDue(at: at)
     }
@@ -74,14 +93,18 @@ final class CaptureAuditLog: @unchecked Sendable {
     func recordMetricSave(success: Bool, at: Date = Date()) {
         lock.lock()
         defer { lock.unlock() }
-        if success { savedMetrics += 1 } else { failedSaves += 1 }
+        if success {
+            savedMetrics += 1
+            lastSavedMetricAt = at
+        } else { failedSaves += 1 }
         snapshotIfDue(at: at)
     }
 
     func recordPhase(_ phase: String, at: Date = Date()) {
         lock.lock()
         defer { lock.unlock() }
-        try? append(event: phase, at: at)
+        do { try append(event: phase, at: at) }
+        catch { diagnosticError = "Capture audit write failed: \(error.localizedDescription)" }
     }
 
     /// Read-only export for device diagnostics and regression tests.
@@ -94,12 +117,41 @@ final class CaptureAuditLog: @unchecked Sendable {
             .compactMap { try? JSONDecoder().decode(Entry.self, from: Data($0.utf8)) }
     }
 
+    func exportSnapshot() throws -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        // Include the final counters even when no later BLE packet arrives to
+        // trigger the usual ten-second snapshot.
+        do { try append(event: "export", at: Date()) }
+        catch { diagnosticError = "Capture audit write failed: \(error.localizedDescription)" }
+        let previous = directory.appendingPathComponent("capture-audit.previous.jsonl")
+        var remaining = 262_144
+        var pieces: [Data] = []
+        for url in [file, previous] where remaining > 0 && FileManager.default.fileExists(atPath: url.path) {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            let size = try handle.seekToEnd()
+            let offset = size > UInt64(remaining) ? size - UInt64(remaining) : 0
+            try handle.seek(toOffset: offset)
+            var bytes = try handle.read(upToCount: remaining) ?? Data()
+            if offset > 0, let newline = bytes.firstIndex(of: 0x0A) {
+                bytes.removeSubrange(...newline)
+            }
+            remaining -= bytes.count
+            pieces.insert(bytes, at: 0)
+        }
+        var result = pieces.reduce(into: Data()) { $0.append($1) }
+        if let diagnosticError { result.append(Data("\n\(diagnosticError)\n".utf8)) }
+        return result
+    }
+
     private func snapshotIfDue(at date: Date) {
         guard lastSnapshotAt.map({ date.timeIntervalSince($0) >= 10 }) ?? true else { return }
         do {
             try append(event: "snapshot", at: date)
             lastSnapshotAt = date
         } catch {
+            diagnosticError = "Capture audit write failed: \(error.localizedDescription)"
             // A failed diagnostic write must not stop the Bluetooth callback.
             // Retry on the next packet instead of advancing the snapshot clock.
         }
@@ -110,7 +162,10 @@ final class CaptureAuditLog: @unchecked Sendable {
                           ecgPackets: ecgPackets, accPackets: accPackets,
                           hrPackets: hrPackets, rrIntervals: rrIntervals,
                           savedMetrics: savedMetrics, failedSaves: failedSaves,
-                          invalidPackets: invalidPackets)
+                          invalidPackets: invalidPackets, validRRIntervals: validRRIntervals,
+                          lastValidRRAt: lastValidRRAt, lastECGAt: lastECGAt,
+                          lastACCAt: lastACCAt, lastSavedMetricAt: lastSavedMetricAt,
+                          diagnosticError: diagnosticError)
         var bytes = try JSONEncoder().encode(entry)
         bytes.append(0x0A)
         if (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) ?? 0 >= maxBytes {
@@ -120,6 +175,9 @@ final class CaptureAuditLog: @unchecked Sendable {
             guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
                 throw CocoaError(.fileWriteUnknown)
             }
+            try FileManager.default.setAttributes(
+                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: file.path)
         }
         let handle = try FileHandle(forWritingTo: file)
         defer { try? handle.close() }
@@ -300,6 +358,11 @@ struct CircularBuffer<T> {
 /// Actor-isolated ring buffers mirroring the Python DataBuffer.
 /// All mutations and reads are serialised through the actor executor.
 actor DataBuffer {
+    private var recordingGeneration: UInt64 = 0
+    private var lastValidRRAt: Date?
+    private var lastValidRRUptime: TimeInterval?
+    private var lastECGUptime: TimeInterval?
+    private var lastACCUptime: TimeInterval?
 
     // ECG: 130 Hz × 8 s = 1040 samples for metrics; keep 10 s for display
     private var ecgBuf:  CircularBuffer<Float>        = CircularBuffer(capacity: 1300, defaultValue: 0)
@@ -322,11 +385,24 @@ actor DataBuffer {
 
     // MARK: Write
 
-    func appendECG(_ samples: [Float]) {
+    func appendECG(_ samples: [Float], generation: UInt64? = nil,
+                   uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        guard acceptGeneration(generation), !samples.isEmpty,
+              lastECGUptime.map({ uptime >= $0 }) ?? true else { return }
+        if let lastECGUptime, uptime - lastECGUptime > 5 { ecgBuf.clear() }
+        lastECGUptime = uptime
         ecgBuf.append(contentsOf: samples)
     }
 
-    func appendACC(xyz: [SIMD3<Int16>]) {
+    func appendACC(xyz: [SIMD3<Int16>], generation: UInt64? = nil,
+                   uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        guard acceptGeneration(generation), !xyz.isEmpty,
+              lastACCUptime.map({ uptime >= $0 }) ?? true else { return }
+        if let lastACCUptime, uptime - lastACCUptime > 5 {
+            accZBuf.clear()
+            accXYZBuf.clear()
+        }
+        lastACCUptime = uptime
         for v in xyz {
             let fv = SIMD3<Float>(Float(v.x), Float(v.y), Float(v.z))
             accXYZBuf.append(fv)
@@ -334,13 +410,23 @@ actor DataBuffer {
         }
     }
 
-    func appendRR(_ intervals: [Int]) {
-        for rr in intervals where rr >= 300 && rr <= 2000 {
+    @discardableResult
+    func appendRR(_ intervals: [Int], generation: UInt64? = nil, at: Date = Date(),
+                  uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        guard acceptGeneration(generation),
+              lastValidRRUptime.map({ uptime >= $0 }) ?? true else { return false }
+        let accepted = intervals.filter(RRSignalValidity.isValid)
+        guard !accepted.isEmpty else { return false }
+        for rr in accepted {
             rrBuf.append(rr)
         }
+        lastValidRRAt = at
+        lastValidRRUptime = uptime
+        return true
     }
 
-    func appendBPM(_ bpm: Float) {
+    func appendBPM(_ bpm: Float, generation: UInt64? = nil) {
+        guard acceptGeneration(generation) else { return }
         bpmBuf.append(bpm)
     }
 
@@ -353,7 +439,10 @@ actor DataBuffer {
             accZ:   accLive ? accZBuf.toArray() : [],
             accXYZ: accLive ? accXYZBuf.toArray() : [],
             rr:     rrBuf.toArray(),
-            bpm:    bpmBuf.toArray()
+            bpm:    bpmBuf.toArray(),
+            recordingGeneration: recordingGeneration,
+            lastValidRRAt: lastValidRRAt,
+            lastValidRRUptime: lastValidRRUptime
         )
     }
 
@@ -375,12 +464,36 @@ actor DataBuffer {
     /// RR interval count (used to check whether metrics are computable).
     var rrCount: Int { rrBuf.count }
 
-    func clear() {
+    func clear(generation: UInt64? = nil) {
+        if let generation {
+            _ = acceptGeneration(generation)
+            return
+        }
+        clearBuffers()
+    }
+
+    /// A new-generation frame may reach the actor before the queued reset.
+    /// Advance exactly once so that late reset never erases the new frame.
+    private func acceptGeneration(_ generation: UInt64?) -> Bool {
+        guard let generation else { return true }
+        guard generation >= recordingGeneration else { return false }
+        if generation > recordingGeneration {
+            recordingGeneration = generation
+            clearBuffers()
+        }
+        return true
+    }
+
+    private func clearBuffers() {
         ecgBuf.clear()
         accZBuf.clear()
         accXYZBuf.clear()
         rrBuf.clear()
         bpmBuf.clear()
+        lastValidRRAt = nil
+        lastValidRRUptime = nil
+        lastECGUptime = nil
+        lastACCUptime = nil
     }
 }
 
@@ -392,4 +505,15 @@ struct DataSnapshot {
     let accXYZ: [SIMD3<Float>]
     let rr:     [Int]
     let bpm:    [Float]
+    var recordingGeneration: UInt64 = 0
+    var lastValidRRAt: Date? = nil
+    var lastValidRRUptime: TimeInterval? = nil
+
+    func isUsable(recordingGeneration: UInt64,
+                  uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        guard self.recordingGeneration == recordingGeneration, !rr.isEmpty,
+              let lastValidRRUptime else { return false }
+        let age = uptime - lastValidRRUptime
+        return age >= 0 && age <= 5
+    }
 }

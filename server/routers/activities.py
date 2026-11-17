@@ -60,6 +60,11 @@ async def save_activity(
     # (older builds still upload one) and otherwise leaves the stored value
     # alone.
     updates = ", ".join(
+        # Pre-fix clients stamp their upload-time zone. They must not replace
+        # an activity's known reference clock after a flight. Explicit data
+        # repairs can still update it, but routine retries only fill unknowns.
+        "timezone = COALESCE(activities.timezone, EXCLUDED.timezone)"
+        if c == "timezone" else
         "impact_score = COALESCE(EXCLUDED.impact_score, activities.impact_score)"
         if c == "impact_score" else f"{c} = EXCLUDED.{c}"
         for c in cols if c != "client_activity_id"
@@ -109,7 +114,7 @@ async def list_activities(
     user_db_id = await get_or_create_user(x_user_id)
     cols = ["client_activity_id", "activity_type", "activity_subtype",
             "custom_name", "started_at", "ended_at", "is_manual",
-            "impact_score", "impact_delta_pct", "notes"] + _METRIC_COLS
+            "impact_score", "impact_delta_pct", "notes", "timezone", "sleep"] + _METRIC_COLS
 
     pool = await get_pool()
     rows = await pool.fetch(
@@ -132,6 +137,8 @@ async def list_activities(
             impact_score=r["impact_score"],
             impact_delta_pct=r["impact_delta_pct"],
             notes=r["notes"],
+            timezone=r["timezone"],
+            sleep=json.loads(r["sleep"]) if isinstance(r["sleep"], str) else r["sleep"],
             **{c: r[c] for c in _METRIC_COLS},
         )
         for r in rows

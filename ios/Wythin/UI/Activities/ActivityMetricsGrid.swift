@@ -118,9 +118,7 @@ let activityMetricDefs: [ActivityMetricDef] = [
     .init(label: "Harmony",             metric: .dfa1,          techLabel: "DFA α1", techFull: "Detrended Fluctuation Analysis (DFA α1)", unit: "",    direction: .target(1.0), extract: { $0.dfa1.map(Double.init) },    format: f2,                                 beforeKey: \.beforeDFA1,  duringKey: \.duringDFA1,
           why: "Harmony (DFA α1) is the fractal balance of your heartbeat, with ~1.0 the healthy sweet spot. Moving toward 1.0 signals well-organised regulation; expect it to approach 1.0 as you relax."),
     .init(label: "Stress Balance",      metric: .stressBalance, techLabel: "SNS",    techFull: "100·(1 − RMSSD index) (SNS %)", unit: "%",   direction: .lower,       extract: { pt in
-              AutonomicCompute.balance(rmssd: pt.rmssd, lf: pt.lfPower, hf: pt.hfPower,
-                                       breathBPM: pt.breathBPM, meanBPM: pt.meanBPM,
-                                       baselineRmssd: nil).map { Double($0.sns) * 100 }
+              LiveMetric.stressBalance.value(pt).map(Double.init)
           }, format: f0,                                 beforeKey: \.beforeStress, duringKey: \.duringStress,
           why: "Stress Balance is a breathing-robust 0–100 dial of how revved-up vs calm you are — the same one the Live view shows. It is built from RMSSD against your baseline, so paced breaths correctly read as calmer. Lower means you’re shifting into rest-and-digest; expect it to drop through the session."),
     .init(label: "Breath Rate",         metric: .breathBPM,     techLabel: "BR",     techFull: "Breaths per minute (br/min)", unit: "br/min", direction: .lower, extract: { $0.breathBPM.map(Double.init) }, format: f1,          beforeKey: \.beforeBreath, duringKey: \.duringBreath,

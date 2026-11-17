@@ -21,12 +21,19 @@ enum MetricSampleStore {
 /// One metrics tick (~2 s snapshot) within a session.
 @Model
 final class HRVSample {
+    /// Phone zone at capture; nil means historical location is unknown.
+    var timezone:       String?
     var timestamp:      Date
+    /// nil = legacy cursor migration, 0 = pending, 1 = server acknowledged.
+    /// New rows are identified independently of wall-clock timestamp ordering.
+    var cloudUploadState: Int?
     var meanBPM:        Float?
     var rmssd:          Float?
     var sdnn:           Float?
     var pnn50:          Float?
     var lfHF:           Float?
+    /// Captured 0–100 dial. Optional for stores predating this field.
+    var stressBalance:  Float?
     var rsaMs:          Float?
     var rsaIdx:         Float?
     var coherence:      Float?
@@ -73,13 +80,16 @@ final class HRVSample {
     /// synced to the server yet; can be added later without a migration.
     var breathSourceRaw: Int?
 
-    init(from tick: MetricsTick) {
+    init(from tick: MetricsTick, timezone: String? = TimeZone.autoupdatingCurrent.identifier) {
+        self.timezone = timezone
+        self.cloudUploadState = 0
         self.timestamp  = tick.timestamp
         self.meanBPM    = tick.meanBPM
         self.rmssd      = tick.rmssd
         self.sdnn       = tick.sdnn
         self.pnn50      = tick.pnn50
         self.lfHF       = tick.lfHF
+        self.stressBalance = AutonomicCompute.compute(tick: tick, baseline: nil).map { $0.sns * 100 }
         self.rsaMs      = tick.rsaMs
         self.rsaIdx     = tick.rsaIdx
         self.coherence  = tick.coherenceScore
@@ -125,13 +135,16 @@ final class HRVSample {
          lfHF: Float?, rsaMs: Float?, coherence: Float?, cbi: Float?,
          breathBPM: Float?, dfa1: Float?, rcmse: Float?, pip: Float?,
          dc: Float?, vti: Float?, motion: Float? = nil,
-         signalQuality: Float? = nil, rrInvalidRate: Float? = nil, ecgQualityTier: Int? = nil) {
+         signalQuality: Float? = nil, rrInvalidRate: Float? = nil, ecgQualityTier: Int? = nil, timezone: String? = nil, stressBalance: Float? = nil) {
+        self.timezone = timezone
+        self.cloudUploadState = 1
         self.timestamp = cloudTs
         self.meanBPM   = meanBPM
         self.rmssd     = rmssd
         self.sdnn      = sdnn
         self.pnn50     = pnn50
         self.lfHF      = lfHF
+        self.stressBalance = stressBalance
         self.rsaMs     = rsaMs
         self.coherence = coherence
         self.cbi       = cbi
@@ -156,6 +169,11 @@ final class HRVSample {
         self.ulfPower = nil; self.vlfPower = nil; self.lfPower = nil; self.hfPower = nil
     }
 
+    /// Older local rows can still upload the same dial their charts display.
+    var stressBalanceValue: Float? {
+        LiveMetric.stressBalance.value(MetricsHistoryPoint(from: self))
+    }
+
     /// Convenience initializer covering the fields the anchor pipeline reads,
     /// mirroring `MetricsHistoryPoint.init(anchorTestTimestamp:)` — so
     /// `AnchorBackfill` can be exercised against a real store without standing
@@ -173,8 +191,11 @@ final class HRVSample {
         motion: Float? = nil,
         signalQuality: Float? = nil,
         rrInvalidRate: Float? = nil,
-        ecgQualityTier: Int? = nil
+        ecgQualityTier: Int? = nil,
+        timezone: String? = nil
     ) {
+        self.timezone = timezone
+        self.cloudUploadState = 0
         self.timestamp = anchorTestTimestamp
         self.meanBPM   = meanBPM
         self.vti       = vti

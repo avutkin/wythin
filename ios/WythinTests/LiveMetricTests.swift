@@ -106,3 +106,198 @@ final class LiveMetricTests: XCTestCase {
         XCTAssertEqual(Set(keys).count, keys.count, "rawValue is a persisted dictionary key")
     }
 }
+
+final class LiveHistoryTimezoneTests: XCTestCase {
+    private func instant(_ value: String) -> Date { ISO8601DateFormatter().date(from: value)! }
+    private let dubai = TimeZone(identifier: "Asia/Dubai")!
+    private let moscow = TimeZone(identifier: "Europe/Moscow")!
+    private let day = LiveCivilDay(year: 2026, month: 11, day: 15)
+
+    private func point(_ timestamp: String, zone: String?) -> MetricsHistoryPoint {
+        MetricsHistoryPoint(timestamp: instant(timestamp), meanBPM: 60, rmssd: 40,
+                            sdnn: 45, timezone: zone)
+    }
+
+    func testDubaiMidnightStaysOnRecordedDayWhenViewedFromMoscow() {
+        let points = [point("2026-11-14T20:30:00Z", zone: "Asia/Dubai"),
+                      point("2026-11-15T20:30:00Z", zone: "Asia/Dubai")]
+        let result = LiveDayHistory.select(points, day: day, fallbackTimeZone: moscow, isToday: false)
+        XCTAssertEqual(result.raw.map(\.timestamp), [instant("2026-11-14T20:30:00Z")])
+        XCTAssertEqual(result.chartDay.bounds.lowerBound, instant("2026-11-14T20:00:00Z"))
+        XCTAssertEqual(result.chartDay.bounds.upperBound, instant("2026-11-15T20:00:00Z"))
+        XCTAssertEqual(result.chartDay.timeZone.identifier, "Asia/Dubai")
+        XCTAssertEqual(result.chartDay.clockLabel(at: points[0].timestamp), "00:30")
+    }
+
+    func testCandidateQueryCoversBothSidesOfDateLineFromAnyViewerZone() {
+        let range = day.candidateRange
+        XCTAssertEqual(range.lowerBound, instant("2026-11-14T10:00:00Z"))
+        XCTAssertEqual(range.upperBound, instant("2026-11-16T14:00:00Z"))
+        let points = [point("2026-11-14T10:01:00Z", zone: "Pacific/Kiritimati"),
+                      point("2026-11-16T11:59:00Z", zone: "Etc/GMT+12")]
+        XCTAssertTrue(points.allSatisfy { range.contains($0.timestamp) })
+        let result = LiveDayHistory.select(points, day: day, fallbackTimeZone: moscow, isToday: false)
+        XCTAssertEqual(result.raw.count, 2)
+        XCTAssertEqual(result.chartDay.bounds.lowerBound, instant("2026-11-14T10:00:00Z"))
+        XCTAssertEqual(result.chartDay.bounds.upperBound, instant("2026-11-16T12:00:00Z"))
+        XCTAssertEqual(result.chartDay.timeZone.identifier, "Pacific/Kiritimati")
+        XCTAssertEqual(result.chartDay.windowRange(.h24, panOffset: 0, now: .distantFuture),
+                       instant("2026-11-14T10:00:00Z")..<instant("2026-11-16T12:00:00Z"))
+    }
+
+    func testEarliestKnownSelectedZoneIsReferenceEvenIfInputIsUnsortedOrStartsWithLegacy() {
+        let points = [point("2026-11-15T08:00:00Z", zone: "Europe/Moscow"),
+                      point("2026-11-14T21:00:00Z", zone: nil),
+                      point("2026-11-14T22:00:00Z", zone: "Asia/Dubai"),
+                      point("2026-11-14T10:00:00Z", zone: "Europe/London")]
+        let result = LiveDayHistory.select(points, day: day, fallbackTimeZone: moscow, isToday: false)
+        XCTAssertEqual(result.raw.count, 3)
+        XCTAssertEqual(result.chartDay.timeZone.identifier, "Asia/Dubai")
+        XCTAssertEqual(result.chartDay.bounds.upperBound, instant("2026-11-15T21:00:00Z"))
+    }
+
+    func testLegacyAndInvalidZonesUseExplicitFallbackWithoutInventingProvenance() {
+        let points = [point("2026-11-14T20:30:00Z", zone: nil),
+                      point("2026-11-14T21:30:00Z", zone: "invalid/zone")]
+        let result = LiveDayHistory.select(points, day: day, fallbackTimeZone: moscow, isToday: false)
+        XCTAssertEqual(result.raw.count, 1)
+        XCTAssertEqual(result.raw.first?.timezone, "invalid/zone")
+        XCTAssertEqual(result.chartDay.timeZone, moscow)
+        let fromDubai = LiveDayHistory.select(points, day: day, fallbackTimeZone: dubai, isToday: false)
+        XCTAssertEqual(fromDubai.raw.count, 2)
+        XCTAssertNil(fromDubai.raw.first?.timezone)
+    }
+
+    func testWholeDayFollowsDSTInsteadOfAssuming24Hours() {
+        let newYork = TimeZone(identifier: "America/New_York")!
+        for (civil, start, end, duration) in [
+            (LiveCivilDay(year: 2026, month: 3, day: 8), "2026-03-08T05:00:00Z", "2026-03-09T04:00:00Z", 23.0),
+            (LiveCivilDay(year: 2026, month: 11, day: 1), "2026-11-01T04:00:00Z", "2026-11-02T05:00:00Z", 25.0)
+        ] {
+            let result = LiveDayHistory.select([], day: civil, fallbackTimeZone: newYork, isToday: false)
+            let range = result.chartDay.windowRange(.h24, panOffset: -7200, now: .distantFuture)
+            XCTAssertEqual(range, instant(start)..<instant(end))
+            XCTAssertEqual(range.upperBound.timeIntervalSince(range.lowerBound), duration * 3600)
+        }
+    }
+
+    func testShortWindowsPanInAbsoluteTimeAcrossRepeatedDSTHour() {
+        let chart = LiveDayHistory.select([], day: LiveCivilDay(year: 2026, month: 11, day: 1),
+                                          fallbackTimeZone: TimeZone(identifier: "America/New_York")!,
+                                          isToday: false).chartDay
+        let range = chart.windowRange(.h2, panOffset: -22 * 3600, now: .distantFuture)
+        XCTAssertEqual(range, instant("2026-11-01T05:00:00Z")..<instant("2026-11-01T07:00:00Z"))
+        XCTAssertEqual(chart.clockLabel(at: range.lowerBound), "01:00")
+        XCTAssertEqual(chart.clockLabel(at: range.upperBound), "02:00")
+        XCTAssertEqual(chart.windowRange(.h2, panOffset: -999999, now: .distantFuture).lowerBound,
+                       instant("2026-11-01T04:00:00Z"))
+    }
+
+    func testTodayUsesExplicitIdentityEvenWhenReferenceClockHasAlreadyAdvanced() {
+        let bounds = instant("2026-11-14T20:00:00Z")..<instant("2026-11-16T12:00:00Z")
+        let chart = LiveChartDay(bounds: bounds, timeZone: dubai, isToday: true)
+        let now = instant("2026-11-15T23:00:00Z") // Nov 16 in Dubai, still Nov 15 for the viewer.
+        XCTAssertEqual(chart.windowRange(.h2, panOffset: 0, now: now).upperBound, now)
+        XCTAssertEqual(chart.windowRange(.h24, panOffset: 0, now: now), bounds)
+    }
+
+    func testCivilDateSurvivesViewerTimezoneChangeAndDayListRollover() {
+        let original = LiveCivilDay(date: instant("2026-11-14T20:00:00Z"), timeZone: dubai)
+        XCTAssertEqual(original, day)
+        XCTAssertEqual(original.interval(in: moscow).lowerBound, instant("2026-11-14T21:00:00Z"))
+        let newDays = LiveCivilDay.recentDays(now: instant("2026-11-16T12:00:00Z"), timeZone: moscow)
+        XCTAssertEqual(newDays.last, LiveCivilDay(year: 2026, month: 11, day: 16))
+        XCTAssertEqual(newDays[newDays.count - 2], original)
+    }
+
+    func testLiveRefreshRetainsPersistedSamplesBeyond24HoursAndReplacesOverlappingTicks() {
+        let early = point("2026-11-14T10:01:00Z", zone: "Pacific/Kiritimati")
+        let overlap = point("2026-11-15T13:00:00Z", zone: "Etc/GMT+12")
+        let updated = MetricsHistoryPoint(timestamp: overlap.timestamp, meanBPM: 72, rmssd: 40,
+                                          sdnn: 45, timezone: "Etc/GMT+12")
+        let late = point("2026-11-16T11:59:00Z", zone: "Etc/GMT+12")
+        let merged = LiveDayHistory.mergedPoints([early, overlap], incoming: [updated, late])
+        let result = LiveDayHistory.select(merged, day: day, fallbackTimeZone: moscow, isToday: true)
+        XCTAssertEqual(result.raw.map(\.timestamp), [early.timestamp, overlap.timestamp, late.timestamp])
+        XCTAssertEqual(result.raw.map(\.meanBPM), [60, 72, 60])
+        XCTAssertEqual(result.chartDay.bounds.lowerBound, instant("2026-11-14T10:00:00Z"))
+        XCTAssertEqual(result.chartDay.bounds.upperBound, instant("2026-11-16T12:00:00Z"))
+    }
+
+    func testLiveMergePreservesKnownRecordingZoneWhenRollingCopyHasNoValidZone() {
+        let saved = point("2026-11-14T20:30:00Z", zone: "Asia/Dubai")
+        for unknownZone: String? in [nil, "invalid/zone"] {
+            let legacy = point("2026-11-14T20:30:00Z", zone: unknownZone)
+            let merged = LiveDayHistory.mergedPoints([saved], incoming: [legacy])
+            let result = LiveDayHistory.select(merged, day: day, fallbackTimeZone: moscow, isToday: true)
+            XCTAssertEqual(result.raw.count, 1)
+            XCTAssertEqual(result.raw.first?.timezone, "Asia/Dubai")
+        }
+    }
+
+    func testLiveRefreshCannotReintroducePersistedSamplesFromAnotherRecordedDay() {
+        // In Dubai this is Nov 16 00:30, so it must stay off the Nov 15 page
+        // even though a legacy in-memory copy looks like Nov 15 in Moscow.
+        let saved = point("2026-11-15T20:30:00Z", zone: "Asia/Dubai")
+        for unknownZone: String? in [nil, "invalid/zone"] {
+            var history = LiveDayHistory.select([saved], day: day, fallbackTimeZone: moscow, isToday: true)
+            XCTAssertTrue(history.raw.isEmpty)
+            for _ in 0..<3 {
+                history = history.refreshing(with: [point("2026-11-15T20:30:00Z", zone: unknownZone)],
+                                             day: day, fallbackTimeZone: moscow, isToday: true)
+                XCTAssertTrue(history.raw.isEmpty, "recorded-day exclusion must survive every live refresh")
+            }
+        }
+    }
+
+    func testDSTBoundarySamplesHaveVisibleBucketCenters() {
+        let points = [point("2026-11-01T04:00:01Z", zone: "America/New_York"),
+                      point("2026-11-02T04:59:59Z", zone: "America/New_York")]
+        let history = LiveDayHistory.select(points, day: LiveCivilDay(year: 2026, month: 11, day: 1),
+                                            fallbackTimeZone: moscow, isToday: false)
+        let card = MetricChartCard(title: "Pulse", subtitle: "", yLabel: "bpm", color: .blue,
+                                   windows: [.h24], refs: [], yDomain: 0...100, win: .h24,
+                                   selectedX: .constant(nil), panOffset: .constant(0),
+                                   history: history.filtered, date: history.chartDay.bounds.lowerBound,
+                                   liveDay: history.chartDay, extract: { $0.meanBPM.map(Double.init) })
+        XCTAssertEqual(card.points.count, 2)
+        XCTAssertTrue(card.points.allSatisfy { history.chartDay.bounds.contains($0.date) },
+                      "epoch-aligned bucket centers must not push midnight samples outside the plotted day")
+    }
+
+    func testPinnedActivitySpanTakesPriorityOverLiveDay() {
+        let history = LiveDayHistory.select([], day: day, fallbackTimeZone: dubai, isToday: false)
+        let start = instant("2026-11-14T18:00:00Z")
+        let end = instant("2026-11-15T03:00:00Z")
+        let card = MetricChartCard(title: "Pulse", subtitle: "", yLabel: "bpm", color: .blue,
+                                   windows: [.h24], refs: [], yDomain: 0...100, win: .h24,
+                                   night: start...end, selectedX: .constant(nil), panOffset: .constant(-3600),
+                                   history: [], date: start, liveDay: history.chartDay,
+                                   extract: { $0.meanBPM.map(Double.init) })
+        XCTAssertEqual(card.windowDates.start, start)
+        XCTAssertEqual(card.windowDates.end, end)
+    }
+
+    func testDayTimezoneAndHistoryRevisionChangesClearCachedHistoryAndReference() {
+        let original = LiveDayLoadID(day: day, fallbackTimeZone: moscow, historyRevision: 1, isToday: true)
+        let changes = [
+            LiveDayLoadID(day: LiveCivilDay(year: 2026, month: 11, day: 16), fallbackTimeZone: moscow, historyRevision: 1, isToday: true),
+            LiveDayLoadID(day: day, fallbackTimeZone: dubai, historyRevision: 1, isToday: true),
+            LiveDayLoadID(day: day, fallbackTimeZone: moscow, historyRevision: 2, isToday: true),
+            LiveDayLoadID(day: day, fallbackTimeZone: moscow, historyRevision: 1, isToday: false)
+        ]
+        let reference = LiveDayReference(stats: [:], dayCount: 7)
+        for changed in changes {
+            var state = LiveDayHistoryState()
+            state.begin(original)
+            state.history = LiveDayHistory.select([point("2026-11-15T08:00:00Z", zone: "Asia/Dubai")],
+                                                 day: day, fallbackTimeZone: moscow, isToday: true)
+            state.reference = reference
+            state.begin(original)
+            XCTAssertEqual(state.history?.raw.count, 1, "same load retains its snapshot")
+            state.begin(changed)
+            XCTAssertNil(state.history, "changed day/clock/revision must refetch even if raw was nonempty")
+            XCTAssertNil(state.reference)
+        }
+    }
+}

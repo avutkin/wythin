@@ -116,9 +116,10 @@ struct SleepMetricReadout: View {
         }
     }
 
-    private static let clock: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
-    }()
+    @Environment(\.timeZone) private var timeZone
+    private var clock: DateFormatter {
+        let f = DateFormatter(); f.dateFormat = "HH:mm"; f.timeZone = timeZone; return f
+    }
 
     var body: some View {
         if let e = extremes {
@@ -136,12 +137,12 @@ struct SleepMetricReadout: View {
             let unit = def.unit.isEmpty ? "" : " \(def.unit)"
             (Text("low ").foregroundStyle(Theme.dim)
              + Text(def.format(e.low) + unit).foregroundStyle(Theme.text)
-             + Text(" \(Self.clock.string(from: e.lowAt))").foregroundStyle(Theme.dim.opacity(0.7))
+             + Text(" \(clock.string(from: e.lowAt))").foregroundStyle(Theme.dim.opacity(0.7))
              + Text("  ·  typical ").foregroundStyle(Theme.dim)
              + Text(def.format(e.typical)).foregroundStyle(Theme.text)
              + Text("  ·  high ").foregroundStyle(Theme.dim)
              + Text(def.format(e.high)).foregroundStyle(Theme.text)
-             + Text(" \(Self.clock.string(from: e.highAt))").foregroundStyle(Theme.dim.opacity(0.7))
+             + Text(" \(clock.string(from: e.highAt))").foregroundStyle(Theme.dim.opacity(0.7))
              + Text(goodEnd.map { "\n\($0)" } ?? "").foregroundStyle(Theme.dim.opacity(0.75)))
                 .font(.system(size: 11, design: .monospaced))
                 .fixedSize(horizontal: false, vertical: true)
@@ -194,11 +195,9 @@ struct SleepHighlight: Identifiable {
 
 enum SleepHighlights {
 
-    private static let clock: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
-    }()
-
     static func of(_ night: PreparedNight, entry: ActivityLog) -> [SleepHighlight] {
+        let clock = DateFormatter(); clock.dateFormat = "HH:mm"
+        clock.timeZone = entry.recordedCalendar.timeZone
         var out: [SleepHighlight] = []
 
         func def(_ metric: LiveMetric) -> ActivityMetricDef { metricDef(metric) }

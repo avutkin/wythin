@@ -78,6 +78,7 @@ final class ActiveActivityTests: XCTestCase {
                                 start: start, end: start.addingTimeInterval(1800),
                                 context: ctx, client: NoopClient())
         let past = try! ctx.fetch(FetchDescriptor<ActivityLog>())[0]
+        XCTAssertNil(past.timezone, "a retrospective entry has no evidence of the historical phone zone")
         let originalEnd = past.endedAt
 
         ActivityLogging.begin(type: .walk, subtype: nil, customName: nil,

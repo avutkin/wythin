@@ -64,7 +64,7 @@ enum LiveMetric: String, CaseIterable {
 
     /// The metric's value at one tick.
     ///
-    /// `stressBalance` is the only derived one: it is the breathing-robust SNS
+    /// `stressBalance` uses its captured snapshot, or derives legacy rows: it is the breathing-robust SNS
     /// share (0–100), NOT `p.lfHF`. The raw ratio spikes during resonance
     /// breathing (~6/min) because the vagal peak moves out of HF into LF, so
     /// scoring it would read the most vagally-activating breathing there is as
@@ -79,7 +79,7 @@ enum LiveMetric: String, CaseIterable {
         case .rsa:       return p.rsaMs
         case .sdnn:      return p.sdnn
         case .stressBalance:
-            return AutonomicCompute.balance(rmssd: p.rmssd, lf: p.lfPower, hf: p.hfPower,
+            return p.stressBalance ?? AutonomicCompute.balance(rmssd: p.rmssd, lf: p.lfPower, hf: p.hfPower,
                                             breathBPM: p.breathBPM, meanBPM: p.meanBPM,
                                             baselineRmssd: nil)
                 .map { $0.sns * 100 }

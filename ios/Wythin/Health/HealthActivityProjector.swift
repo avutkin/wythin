@@ -13,11 +13,12 @@ import SwiftData
             let workout = entry.workout, key = entry.workout.id.uuidString
             let existing = byExternal[key]
             let row = existing ?? ActivityLog(activityType: ActivityType.exercise.rawValue, activitySubtype: workout.activityName,
-                                              startedAt: workout.startedAt, endedAt: workout.endedAt, isManual: true)
+                                              startedAt: workout.startedAt, endedAt: workout.endedAt, isManual: true, timezone: workout.timezone)
             if existing == nil { row.id = entry.activityId; row.origin = "apple_health"; row.externalWorkoutID = key; context.insert(row) }
             row.id = entry.activityId
             let changedWindow = row.startedAt != workout.startedAt || row.endedAt != workout.endedAt
             row.startedAt = workout.startedAt; row.endedAt = workout.endedAt
+            row.timezone = workout.timezone
             row.activitySubtype = entry.title ?? workout.activityName; row.notes = entry.notes
             // Existing fields still describe real Polar data only. Health analysis is a separate projection.
             if existing == nil || changedWindow {

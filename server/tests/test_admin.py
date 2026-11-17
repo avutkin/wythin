@@ -166,6 +166,90 @@ async def test_user_metrics_series():
     assert body["window"] == "24h"
     assert isinstance(body["samples"], list) and body["samples"], "expected bucketed samples"
     assert {"ts", "mean_bpm", "rmssd", "coherence", "dc", "dfa1"} <= set(body["samples"][0])
+    # Two ticks in a day: well under the cap, so both come back as stored.
+    assert body["bucket_seconds"] == 0 and body["ticks"] == 2 and len(body["samples"]) == 2
+    assert body["samples"][0]["mean_bpm"] == 61.0 and body["samples"][1]["mean_bpm"] == 62.0
+
+
+@pytest.mark.asyncio
+async def test_user_metrics_resolution_follows_the_data():
+    """Live charts show every tick while the window holds few enough, else the
+    finest bucket that keeps a chart under the point cap; `from`/`to` pick an
+    exact span. Requires a database."""
+    from datetime import datetime, timezone, timedelta
+    from server.routers import admin
+    base = datetime.now(timezone.utc) - timedelta(hours=2)
+    n = admin._METRIC_MAX_POINTS + 200          # one tick every 2 s, ~1.8 h of wear
+    async with _client() as client:
+        for i in range(0, n, 500):
+            up = await client.post("/v1/metrics", headers={"X-User-ID": "test-metrics-dense"}, json={
+                "samples": [{"ts": (base + timedelta(seconds=2 * j)).isoformat(), "mean_bpm": 60.0 + (j % 7)}
+                            for j in range(i, min(n, i + 500))]})
+            assert up.status_code in (200, 201), up.text
+        stats = await client.get("/admin/stats", params={"days": 3650})
+        uid = next(u["id"] for u in stats.json()["users"] if u["device_id"] == "test-metrics-dense")
+
+        day = (await client.get(f"/admin/users/{uid}/metrics", params={"window": "24h"})).json()
+        # Over the cap as raw ticks → 10-second means (6400 s of wear / 10 = 640 buckets).
+        assert day["ticks"] == n and day["bucket_seconds"] == 10
+        assert 600 <= len(day["samples"]) <= 700
+
+        # Zoomed to ten minutes of it: 300 raw ticks, every one returned.
+        f, t = base + timedelta(minutes=10), base + timedelta(minutes=20)
+        z = (await client.get(f"/admin/users/{uid}/metrics",
+                              params={"from": f.isoformat(), "to": t.isoformat()})).json()
+        assert z["bucket_seconds"] == 0 and len(z["samples"]) == 300
+        assert z["start"] == f.isoformat() and z["end"] == t.isoformat()
+        ts = [s["ts"] for s in z["samples"]]
+        assert ts == sorted(ts)
+
+        # A span that does not parse falls back to the window.
+        bad = (await client.get(f"/admin/users/{uid}/metrics", params={"from": "yesterday", "to": "now"})).json()
+        assert bad["window"] == "24h" and bad["bucket_seconds"] == 10
+
+
+@pytest.mark.asyncio
+async def test_track_four_direction_indexes():
+    """The track response carries one index per direction: 100 at this
+    person's typical, above it when the members sit better than their
+    baselines in their own direction. Requires a database."""
+    import math
+    from datetime import datetime, timezone, timedelta
+    from server.routers import admin
+    today = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
+    # Twenty flat days make the personal baseline; today is better on every
+    # relaxation signal (dc, rmssd, rsa up; breath down) and worse on focus
+    # (pip up, dfa1 off its 1.0 target).
+    samples = []
+    for back in range(1, 21):
+        samples.append({"ts": (today - timedelta(days=back)).isoformat(), "dc": 10.0, "rmssd": 40.0, "rsa_ms": 20.0,
+                        "breath_bpm": 12.0, "pip": 40.0, "dfa1": 1.0, "mean_bpm": 60.0, "lf_hf": 2.0,
+                        "rcmse": 1.2, "coherence": 0.5})
+    samples.append({"ts": today.isoformat(), "dc": 12.0, "rmssd": 48.0, "rsa_ms": 24.0, "breath_bpm": 10.0,
+                    "pip": 50.0, "dfa1": 0.8, "mean_bpm": 60.0, "lf_hf": 2.0, "rcmse": 1.2, "coherence": 0.5})
+    async with _client() as client:
+        up = await client.post("/v1/metrics", headers={"X-User-ID": "test-dirs-user"}, json={"samples": samples})
+        assert up.status_code in (200, 201), up.text
+        stats = await client.get("/admin/stats", params={"days": 3650})
+        uid = next(u["id"] for u in stats.json()["users"] if u["device_id"] == "test-dirs-user")
+        d = (await client.get(f"/admin/users/{uid}/track", params={"period": "week"})).json()
+    groups = {g["key"]: g for g in d["groups"]}
+    assert list(groups) == ["relaxation", "energy", "adaptivity", "focus"]
+    assert groups["relaxation"]["members"] == ["dc", "rmssd", "rsa_ms", "breath_bpm"]
+    todays = {k: g["bars"][-1]["value"] for k, g in groups.items()}
+    # Every relaxation member is 20% better → the index is 120.
+    assert todays["relaxation"] == 120.0
+    assert todays["energy"] == 100.0 and todays["adaptivity"] == 100.0
+    # pip 25% worse (ln 0.8), dfa1 off target by ln 0.8 → geometric mean 0.8.
+    assert todays["focus"] == 80.0
+    # A flat baseline day reads exactly typical.
+    assert groups["relaxation"]["bars"][-2]["value"] == 100.0
+    assert groups["relaxation"]["reference"] == 100.0 and groups["relaxation"]["direction"] == "higher"
+    assert groups["relaxation"]["reference_is_personal"] is True
+    assert groups["relaxation"]["better_count"] == 1 and groups["relaxation"]["present_count"] == 7
+    # The clamp: one member can swing an index by at most a factor of two.
+    assert admin._group_index(("dc",), {"dc": 1000.0}, {"dc": 1.0}) == 200.0
+    assert admin._group_index(("pip",), {"pip": 0.0}, {"pip": 40.0}) is None
 
 
 @pytest.mark.asyncio
@@ -628,7 +712,8 @@ async def test_track_daily_averages_and_baseline():
     assert prev["offset"] == 1 and prev["start"] < wk["start"]
 
     # Every stored metric gets a card, even ones with no data this week.
-    assert len(wk["metrics"]) == 14
+    assert len(wk["metrics"]) == 15
+    assert next(m for m in wk["metrics"] if m["key"] == "stress_balance")["direction"] == "lower"
 
 
 @pytest.mark.asyncio

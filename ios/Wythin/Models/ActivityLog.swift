@@ -157,6 +157,10 @@ final class ActivityLog {
     var activityType:    String   // ActivityType.rawValue; "Custom" uses customName
     var activitySubtype: String? // optional subtype, e.g. "Yoga" for Exercise
     var customName:      String? // only set when activityType == "Custom"
+    /// Zone of the activity start, captured once; nil on legacy/unknown history.
+    var timezone:        String?
+    /// Stable wake-day identity, including when a correction crosses midnight.
+    var sleepDay:        Date?
     var startedAt:       Date
     var endedAt:         Date?
     var notes:           String?
@@ -490,7 +494,9 @@ final class ActivityLog {
          startedAt:       Date    = .now,
          endedAt:         Date?   = nil,
          isManual:        Bool    = false,
-         targetMinutes:   Int?    = nil) {
+         targetMinutes:   Int?    = nil,
+         timezone:        String? = TimeZone.autoupdatingCurrent.identifier) {
+        self.timezone = timezone
         self.id              = UUID()
         self.activityType    = activityType
         self.activitySubtype = activitySubtype
@@ -500,6 +506,10 @@ final class ActivityLog {
         self.isManual        = isManual
         self.targetMinutes   = targetMinutes
     }
+
+    var recordedCalendar: Calendar { RecordingTimeZone.calendar(for: timezone) }
+
+    var recordedSleepDay: Date { sleepDay ?? recordedCalendar.startOfDay(for: endedAt ?? startedAt) }
 
     var isActive: Bool { endedAt == nil && !isManual }
 
@@ -808,9 +818,7 @@ final class ActivityLog {
         // breathing-robust balance per sample, then average over the window.
         func stressDial(_ arr: [HRVSample]) -> Float? {
             let vals = arr.compactMap { s in
-                AutonomicCompute.balance(rmssd: s.rmssd, lf: s.lfPower, hf: s.hfPower,
-                                         breathBPM: s.breathBPM, meanBPM: s.meanBPM,
-                                         baselineRmssd: nil).map { $0.sns * 100 }
+                s.stressBalanceValue
             }
             guard !vals.isEmpty else { return nil }
             return vals.reduce(0, +) / Float(vals.count)

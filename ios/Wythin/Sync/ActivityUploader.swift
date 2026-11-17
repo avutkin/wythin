@@ -19,8 +19,8 @@ struct ActivityUploadPayload: Codable {
     let notes:           String?
     /// The night, for a `Sleep` row; nil for everything else.
     let sleep:           SleepUploadPayload?
-    /// The phone's IANA zone as this row goes up — the clock the activity
-    /// happened in, so a night recorded on a trip keeps its own hours.
+    /// The saved recording-time IANA zone. Retries after a flight must not
+    /// replace the activity's reference clock with the uploading phone's zone.
     /// Optional on the way back down: rows uploaded before the app sent a
     /// zone come back from the server with none, and restore must still decode them.
     let timezone:        String?
@@ -74,7 +74,7 @@ struct ActivityUploadPayload: Codable {
         impactDeltaPct  = e.impactDeltaPct.map(Float.init)
         notes           = e.notes
         sleep           = SleepUploadPayload(from: e)
-        timezone        = TimeZone.current.identifier
+        timezone        = e.timezone
         beforeHR = e.beforeHR;         duringHR = e.duringHR;         afterHR = e.afterHR
         beforeRMSSD = e.beforeRMSSD;   duringRMSSD = e.duringRMSSD;   afterRMSSD = e.afterRMSSD
         beforeSDNN = e.beforeSDNN;     duringSDNN = e.duringSDNN;     afterSDNN = e.afterSDNN
