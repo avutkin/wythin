@@ -20,5 +20,9 @@
 	<true/>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Wythin reads your workouts and available heart rate, HRV, energy, distance and steps to show measurements before, during and after activity.</string>
+	<!-- App Store validation requires this for the linked HealthKit APIs even
+	     though HealthKitSource requests no write permissions (toShare: []). -->
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Wythin uses Apple Health to show activity measurements. Wythin only reads the data you allow and does not save or change data in Apple Health.</string>
 </dict>
 </plist>
