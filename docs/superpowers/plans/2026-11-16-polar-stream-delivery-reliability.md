@@ -62,8 +62,8 @@
 
 - [x] Run full simulator suite with absolute Xcode project path; exercise app background lifecycle and available system background upload path separately from physical BLE.
 - [x] Inspect device availability and collect non-destructive physical evidence if possible; explicitly document hardware/other-app and long-duration limitations.
-- [ ] Commit scoped code/docs/tests, integrate on latest origin/main without touching other checkouts, push, and execute sanctioned TestFlight release script with tests.
-- [ ] Verify processed build and external testing state via App Store Connect, provide build number, changes, evidence and remaining physical validation.
+- [x] Commit scoped code/docs/tests, integrate on latest origin/main without touching other checkouts, push, and execute sanctioned TestFlight release script with tests.
+- [x] Verify processed build and external testing state via App Store Connect, provide build number, changes, evidence and remaining physical validation.
 
 ## Execution record
 
@@ -81,3 +81,27 @@
 - All review findings resolved: every sync consent path cancels outstanding work; restored suspended tasks resume; BLE ordering/recovery and metric throttling use monotonic uptime. Clock rollback regression was separately observed RED→GREEN before the final suite.
 - Opt-in background system transport: **1 test, zero failures**, exit 0 (`/private/tmp/wythin-reliability-background.xcresult`). The simulator app was externally backgrounded before scheduling a real background URLSession file upload. A loopback receiver acknowledged one saved metric; the test verified the app stayed backgrounded and the persisted row became acknowledged. The fixture was removed afterward. This verifies system file transport while backgrounded, not process termination/relaunch, physical BLE or a 72-hour run.
 - Physical limits: an iPhone was reachable at the initial audit, but no worn H10 plus competing ECG app was confirmed. No physical same-phone contention or multi-day monitoring result is claimed. The added diagnostics and TestFlight build support that follow-up.
+
+- Integrated implementation commit `ca43b3f` by fast-forward push to main. The sanctioned `tools/ship.sh testflight` repeated all **1,810 tests (1 opt-in skip, zero failures)** before archiving. Build **150**, version **1.1**, is recorded in release commit `7ced257`. Release archive succeeded; its Info.plist retains `bluetooth-central` background mode. Upload and external-testing verification completed as recorded below.
+
+
+## Follow-up physical acceptance checks (not yet executed)
+
+Use the shipped build, a worn H10, and the user's normal competing apps on the same iPhone. Establish a saved baseline and export diagnostics after each case. Check capture timestamps separately from server arrival timestamps; opening Wythin to inspect history is not proof it recovered before opening.
+
+| Case | Action while monitoring | Evidence required |
+| --- | --- | --- |
+| Same-phone ECG interference | Background Wythin, start/stop another Polar ECG recording app, then leave Wythin backgrounded | ECG-specific recovery events and fresh ECG/RR capture/save timestamps before Wythin returns to foreground; healthy RR is not unnecessarily reset |
+| RR interruption / standby | Remove/re-wear strap, and separately take H10 out of range and back with the screen locked | Valid RR returns, the recording generation changes across a gap, no stale window is saved, recovery targets the selected H10 |
+| Final-tail delivery | Disable network, record, then stop sensor data; re-enable network while Wythin stays backgrounded | Last saved timestamps reach the server without another RR tick; acknowledged batch is removed only after receipt and local save |
+| Relaunch and consent | Allow a system background-session relaunch with queued files; separately turn cloud sync off | Existing task is reconciled rather than duplicated; opt-out cancels delivery and retains local unsent data |
+| Long monitoring | Record 48–72 hours; repeat ECG interference and out-of-range return after 24 hours | Maximum capture gap, recovery delay, upload lag and pending count are measured from diagnostics and saved/server data; no claim is based solely on the connection indicator |
+
+A user force-quit, first unlock after reboot, real OS suspension/termination, and sensor battery/contact problems must be recorded as distinct conditions. This release cannot grant one app exclusive priority over other apps using the same H10.
+
+
+## Release outcome
+
+`tools/ship.sh testflight` completed with exit 0. App Store Connect build `b2c7ee65-1235-4954-a15e-2c9617685f79` (**1.1 / 150**) is **VALID**, non-exempt encryption is false, and Beta App Review is **APPROVED**. Both internal and external build states are **IN_BETA_TESTING**. Fresh reads of both existing groups confirmed build 150 is assigned. English and Russian release notes were saved. The tester roster and public-link settings were unchanged; the existing link is https://testflight.apple.com/join/7c7b68t1.
+
+Verification artifacts are local: `wythin-reliability-full2.xcresult`, `wythin-reliability-background.xcresult`, `wythin-ship-tests.log`, `wythin-reliability-ship.log` under `/private/tmp`. The release includes the already-shipped Stress Balance storage/export/connector changes from build 149. No server deployment was needed for this follow-up. The remaining physical acceptance checks above are deliberately not marked passed.
