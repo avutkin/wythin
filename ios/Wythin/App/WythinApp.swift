@@ -224,12 +224,18 @@ struct ContentView: View {
             CloudSyncNoticeView(
                 onKeepOn:  {
                     cloudSyncEnabled = true
+                    env.metricSync.setEnabled(true)
                     env.checkIns.requestSync()
                     didShowCloudSyncNotice = true
                     showCloudNotice = false
-                    Task { await env.metricSync.syncIfEnabled() }
                 },
-                onTurnOff: { cloudSyncEnabled = false; didShowCloudSyncNotice = true; showCloudNotice = false }
+                onTurnOff: {
+                    cloudSyncEnabled = false
+                    env.metricSync.setEnabled(false)
+                    Task { await env.rawSync?.syncIfEnabled() }
+                    didShowCloudSyncNotice = true
+                    showCloudNotice = false
+                }
             )
             .interactiveDismissDisabled()
         }
@@ -237,6 +243,7 @@ struct ContentView: View {
             RawArchiveNoticeView(
                 onEnable: {
                     cloudSyncEnabled = true
+                    env.metricSync.setEnabled(true)
                     rawCloudSyncEnabled = true
                     env.checkIns.requestSync()
                     didShowRawArchiveNotice = true

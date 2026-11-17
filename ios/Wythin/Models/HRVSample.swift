@@ -24,6 +24,9 @@ final class HRVSample {
     /// Phone zone at capture; nil means historical location is unknown.
     var timezone:       String?
     var timestamp:      Date
+    /// nil = legacy cursor migration, 0 = pending, 1 = server acknowledged.
+    /// New rows are identified independently of wall-clock timestamp ordering.
+    var cloudUploadState: Int?
     var meanBPM:        Float?
     var rmssd:          Float?
     var sdnn:           Float?
@@ -79,6 +82,7 @@ final class HRVSample {
 
     init(from tick: MetricsTick, timezone: String? = TimeZone.autoupdatingCurrent.identifier) {
         self.timezone = timezone
+        self.cloudUploadState = 0
         self.timestamp  = tick.timestamp
         self.meanBPM    = tick.meanBPM
         self.rmssd      = tick.rmssd
@@ -133,6 +137,7 @@ final class HRVSample {
          dc: Float?, vti: Float?, motion: Float? = nil,
          signalQuality: Float? = nil, rrInvalidRate: Float? = nil, ecgQualityTier: Int? = nil, timezone: String? = nil, stressBalance: Float? = nil) {
         self.timezone = timezone
+        self.cloudUploadState = 1
         self.timestamp = cloudTs
         self.meanBPM   = meanBPM
         self.rmssd     = rmssd
@@ -190,6 +195,7 @@ final class HRVSample {
         timezone: String? = nil
     ) {
         self.timezone = timezone
+        self.cloudUploadState = 0
         self.timestamp = anchorTestTimestamp
         self.meanBPM   = meanBPM
         self.vti       = vti

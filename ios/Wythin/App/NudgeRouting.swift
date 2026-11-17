@@ -59,15 +59,18 @@ final class WythinAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
     func application(_ application: UIApplication,
                      handleEventsForBackgroundURLSession identifier: String,
                      completionHandler: @escaping () -> Void) {
-        guard identifier == RawChunkSyncService.sessionIdentifier else {
-            completionHandler()
-            return
-        }
         Task { @MainActor in
-            if let active = RawChunkSyncService.active {
-                active.handleBackgroundEvents(completionHandler: completionHandler)
-            } else {
-                RawChunkSyncService.pendingBackgroundCompletionHandler = completionHandler
+            switch identifier {
+            case MetricSyncService.sessionIdentifier:
+                if let active = MetricSyncService.active {
+                    active.handleBackgroundEvents(completionHandler: completionHandler)
+                } else { MetricSyncService.pendingBackgroundCompletionHandler = completionHandler }
+            case RawChunkSyncService.sessionIdentifier:
+                if let active = RawChunkSyncService.active {
+                    active.handleBackgroundEvents(completionHandler: completionHandler)
+                } else { RawChunkSyncService.pendingBackgroundCompletionHandler = completionHandler }
+            default:
+                completionHandler()
             }
         }
     }

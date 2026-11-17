@@ -188,7 +188,7 @@ enum MetricsEngine {
         }
 
         return MetricsTick(
-            timestamp:      Date(),
+            timestamp:      snapshot.lastValidRRAt ?? Date(),
             meanBPM:        robustBPM,
             sdnn:           hrv?.sdnn,
             rmssd:          hrv?.rmssd,

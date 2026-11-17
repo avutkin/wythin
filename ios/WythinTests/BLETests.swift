@@ -8,6 +8,308 @@ final class BLETests: XCTestCase {
 
     private let recoveryStart = Date(timeIntervalSince1970: 10_000)
 
+    func testInvalidOnlyRRDoesNotResetMissingBeatRecovery() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        let invalid = HRFrame(bpm: 60, rrIntervalsMs: [0, 299, 2001], contact: true)
+        XCTAssertEqual(recovery.receivedHeartRate(invalid,
+            at: recoveryStart.addingTimeInterval(15), inStandby: false, ecgLive: true),
+            .refreshHeartRate)
+        XCTAssertEqual(recovery.receivedHeartRate(invalid,
+            at: recoveryStart.addingTimeInterval(25), inStandby: false, ecgLive: true),
+            .reconnect)
+    }
+
+    func testMixedRRWithAValidBeatStopsEscalation() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(15)), .refreshHeartRate)
+        let mixed = HRFrame(bpm: 60, rrIntervalsMs: [299, 1000, 2001], contact: true)
+        XCTAssertEqual(recovery.receivedHeartRate(mixed,
+            at: recoveryStart.addingTimeInterval(20), inStandby: false, ecgLive: true), .wait)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(25)), .wait)
+    }
+
+    func testDelayedOlderRRDoesNotMoveTheHealthyClockBackwards() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        let frame = HRFrame(bpm: 60, rrIntervalsMs: [1000], contact: true)
+        XCTAssertEqual(recovery.receivedHeartRate(frame,
+            at: recoveryStart.addingTimeInterval(20), inStandby: false, ecgLive: true), .wait)
+        XCTAssertEqual(recovery.receivedHeartRate(frame,
+            at: recoveryStart.addingTimeInterval(1), inStandby: false, ecgLive: true), .wait)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart.addingTimeInterval(32)), .wait)
+    }
+
+    func testECGOnlyStallIsRepairedWhileACCAndRRRemainLive() {
+        let action = PMDWatchdogPolicy.decide(
+            isConnected: true, inStandby: false, ecgFlowing: false, rrFlowing: true,
+            timeSinceLastACCSample: 0, timeSinceLastRetry: nil,
+            retriesUsed: 0, stallThreshold: 5, retryGap: 5, maxRetries: 3, slowRetryGap: 60)
+        XCTAssertEqual(action, .retryECGStart,
+            "Repair ECG without restarting healthy ACC or disconnecting RR")
+    }
+
+    func testECGRetryBudgetSurvivesHealthyACCEventsAndDropsToSlowCadence() {
+        var recovery = PMDStreamRecovery()
+        recovery.begin(at: recoveryStart)
+        for second in 0...80 {
+            let now = recoveryStart.addingTimeInterval(Double(second))
+            recovery.received(.acc, at: now)
+            let action = recovery.evaluate(at: now, isConnected: true, inStandby: false, rrFlowing: true)
+            let expected: PMDWatchdogPolicy.Action
+            switch second {
+            case 5, 10, 15: expected = .retryECGStart
+            case 75: expected = .slowRetryECG
+            default: expected = .keepWaiting
+            }
+            XCTAssertEqual(action, expected, "second \(second)")
+        }
+        recovery.received(.ecg, at: recoveryStart.addingTimeInterval(81))
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(81),
+            isConnected: true, inStandby: false, rrFlowing: true), .keepWaiting)
+        recovery.received(.acc, at: recoveryStart.addingTimeInterval(86))
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(86),
+            isConnected: true, inStandby: false, rrFlowing: true), .retryECGStart)
+    }
+
+    func testIndependentPMDRecoverySelectsOnlyTheDueStream() {
+        var recovery = PMDStreamRecovery()
+        recovery.begin(at: recoveryStart)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(5),
+            isConnected: true, inStandby: false, rrFlowing: true), .retryBothPMD)
+        recovery.received(.ecg, at: recoveryStart.addingTimeInterval(10))
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(10),
+            isConnected: true, inStandby: false, rrFlowing: true), .retryACCStart)
+        recovery.received(.acc, at: recoveryStart.addingTimeInterval(15))
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(15),
+            isConnected: true, inStandby: false, rrFlowing: true), .retryECGStart)
+    }
+
+    func testPMDGraceDoesNotInventSamplesAndStandbyOrStopOwnsSilence() {
+        var recovery = PMDStreamRecovery()
+        recovery.begin(at: recoveryStart)
+        XCTAssertNil(recovery.lastSampleAt(.ecg))
+        XCTAssertNil(recovery.lastSampleAt(.acc))
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(4),
+            isConnected: true, inStandby: false, rrFlowing: true), .keepWaiting)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(20),
+            isConnected: true, inStandby: true, rrFlowing: true), .keepWaiting)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(20),
+            isConnected: false, inStandby: false, rrFlowing: true), .keepWaiting)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(20),
+            isConnected: true, inStandby: false, rrFlowing: false), .keepWaiting)
+        recovery.end()
+        recovery.received(.ecg, at: recoveryStart.addingTimeInterval(21))
+        XCTAssertNil(recovery.lastSampleAt(.ecg))
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(100),
+            isConnected: true, inStandby: false, rrFlowing: true), .keepWaiting)
+    }
+
+    func testPMDArrivalUptimeFollowsOnlyAcceptedSamplesAndResetsWithSession() {
+        var recovery = PMDStreamRecovery()
+        recovery.begin(at: recoveryStart)
+        XCTAssertTrue(recovery.received(.ecg, at: recoveryStart.addingTimeInterval(5), uptime: 105))
+        XCTAssertTrue(recovery.received(.acc, at: recoveryStart.addingTimeInterval(6), uptime: 106))
+        XCTAssertFalse(recovery.received(.ecg, at: recoveryStart.addingTimeInterval(4), uptime: 104))
+        XCTAssertEqual(recovery.lastSampleUptime(.ecg), 105)
+        XCTAssertEqual(recovery.lastSampleUptime(.acc), 106)
+        recovery.extendStartupGrace(at: recoveryStart.addingTimeInterval(7))
+        XCTAssertEqual(recovery.lastSampleUptime(.ecg), 105)
+        recovery.end()
+        XCTAssertNil(recovery.lastSampleUptime(.ecg))
+        XCTAssertNil(recovery.lastSampleUptime(.acc))
+    }
+
+    func testSettingsStartupGracePreservesActualSamplesAndRejectsOldForwarding() {
+        var recovery = PMDStreamRecovery()
+        recovery.begin(at: recoveryStart)
+        XCTAssertTrue(recovery.received(.ecg, at: recoveryStart.addingTimeInterval(1)))
+        recovery.extendStartupGrace(at: recoveryStart.addingTimeInterval(8))
+        XCTAssertEqual(recovery.lastSampleAt(.ecg), recoveryStart.addingTimeInterval(1))
+        XCTAssertFalse(recovery.received(.ecg, at: recoveryStart))
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(12),
+            isConnected: true, inStandby: false, rrFlowing: true), .keepWaiting)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(13),
+            isConnected: true, inStandby: false, rrFlowing: true), .retryBothPMD)
+    }
+
+    func testOlderHRCallbackIsRejectedBeforeItCanBeForwardedAsFresh() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        let frame = HRFrame(bpm: 60, rrIntervalsMs: [1000], contact: true)
+        _ = recovery.receivedHeartRate(frame, at: recoveryStart.addingTimeInterval(5),
+                                      inStandby: false, ecgLive: true)
+        XCTAssertFalse(recovery.acceptsHeartRate(at: recoveryStart.addingTimeInterval(4)))
+        XCTAssertTrue(recovery.acceptsHeartRate(at: recoveryStart.addingTimeInterval(6)))
+        recovery.endConnection()
+        XCTAssertFalse(recovery.acceptsHeartRate(at: recoveryStart.addingTimeInterval(7)))
+    }
+
+    func testOldPMDSamplesCannotRefreshANewSessionOrMoveClocksBackwards() {
+        var recovery = PMDStreamRecovery()
+        recovery.begin(at: recoveryStart.addingTimeInterval(10))
+        recovery.received(.ecg, at: recoveryStart.addingTimeInterval(9))
+        XCTAssertNil(recovery.lastSampleAt(.ecg))
+        recovery.received(.ecg, at: recoveryStart.addingTimeInterval(20))
+        recovery.received(.ecg, at: recoveryStart.addingTimeInterval(11))
+        XCTAssertEqual(recovery.lastSampleAt(.ecg), recoveryStart.addingTimeInterval(20))
+    }
+
+    func testPMDRepairRemainsBoundedAcross48HoursOfBackgroundEvents() {
+        var recovery = PMDStreamRecovery()
+        recovery.begin(at: recoveryStart)
+        var retrySeconds: [Int] = []
+        for second in 0...172_800 {
+            let now = recoveryStart.addingTimeInterval(Double(second))
+            recovery.received(.acc, at: now)
+            let action = recovery.evaluate(at: now, isConnected: true, inStandby: false, rrFlowing: true)
+            if action != .keepWaiting {
+                XCTAssertTrue(action == .retryECGStart || action == .slowRetryECG)
+                retrySeconds.append(second)
+            }
+        }
+        XCTAssertEqual(Array(retrySeconds.prefix(5)), [5, 10, 15, 75, 135])
+        XCTAssertEqual(retrySeconds.count, 2882)
+        XCTAssertEqual(retrySeconds.last, 172_755)
+    }
+
+    func testPMDCommandsWaitForTheirMatchingResponse() {
+        var commands = PMDCommandQueue()
+        commands.replacePending(with: [PolarH10Profile.cmdECGStart, PolarH10Profile.cmdACCStart])
+        let ecg = commands.next(at: recoveryStart)
+        XCTAssertEqual(ecg?.data, PolarH10Profile.cmdECGStart)
+        XCTAssertNil(commands.next(at: recoveryStart.addingTimeInterval(0.25)))
+        XCTAssertNil(commands.complete(opCode: 2, measurement: 2, at: recoveryStart.addingTimeInterval(1)))
+        XCTAssertNil(commands.complete(opCode: 2, measurement: 0, at: recoveryStart.addingTimeInterval(-1)))
+        XCTAssertEqual(commands.complete(opCode: 2, measurement: 0,
+            at: recoveryStart.addingTimeInterval(1)), ecg)
+        XCTAssertEqual(commands.next(at: recoveryStart.addingTimeInterval(1))?.data, PolarH10Profile.cmdACCStart)
+    }
+
+    func testStandbyDropsQueuedStartsAndSerializesStopBehindInFlightWork() {
+        var commands = PMDCommandQueue()
+        commands.replacePending(with: [PolarH10Profile.cmdECGStart, PolarH10Profile.cmdACCStart])
+        let old = commands.next(at: recoveryStart)!
+        commands.replacePending(with: [PolarH10Profile.cmdECGStop, PolarH10Profile.cmdACCStop])
+        XCTAssertNil(commands.next(at: recoveryStart.addingTimeInterval(1)))
+        let late = commands.complete(opCode: 2, measurement: 0, at: recoveryStart.addingTimeInterval(2))
+        XCTAssertEqual(late?.generation, old.generation)
+        XCTAssertNotEqual(late?.generation, commands.generation)
+        XCTAssertEqual(commands.next(at: recoveryStart.addingTimeInterval(2))?.data, PolarH10Profile.cmdECGStop)
+        commands.reset()
+        XCTAssertNil(commands.complete(opCode: 3, measurement: 0, at: recoveryStart.addingTimeInterval(3)))
+        XCTAssertNil(commands.next(at: recoveryStart.addingTimeInterval(4)))
+    }
+
+    func testLostPMDResponseTimesOutOnceAndDoesNotStrandTheNextCommand() {
+        var commands = PMDCommandQueue()
+        commands.replacePending(with: [PolarH10Profile.cmdGetECGSettings, PolarH10Profile.cmdGetACCSettings])
+        let first = commands.next(at: recoveryStart)
+        XCTAssertNil(commands.expire(at: recoveryStart.addingTimeInterval(3)))
+        XCTAssertEqual(commands.expire(at: recoveryStart.addingTimeInterval(4)), first)
+        XCTAssertNil(commands.expire(at: recoveryStart.addingTimeInterval(8)))
+        XCTAssertEqual(commands.next(at: recoveryStart.addingTimeInterval(8))?.data, PolarH10Profile.cmdGetACCSettings)
+        XCTAssertNil(commands.complete(opCode: 1, measurement: 0, at: recoveryStart.addingTimeInterval(9)))
+    }
+
+    func testRecoveryCancellationReconcilesLostCallbackWithoutStealingIOSConnect() {
+        var recovery = BLEConnectionRecovery()
+        recovery.cancellationRequested(at: recoveryStart)
+        XCTAssertEqual(recovery.reconcileCancellation(linkState: .connected,
+            at: recoveryStart.addingTimeInterval(7)), .wait)
+        XCTAssertEqual(recovery.reconcileCancellation(linkState: .disconnecting,
+            at: recoveryStart.addingTimeInterval(8)), .retryCancellation)
+        XCTAssertEqual(recovery.reconcileCancellation(linkState: .disconnected,
+            at: recoveryStart.addingTimeInterval(9)), .rearm)
+        XCTAssertEqual(recovery.reconcileCancellation(linkState: .connecting,
+            at: recoveryStart.addingTimeInterval(10)), .waitForSystem)
+        recovery.clearPendingRequest()
+        XCTAssertEqual(recovery.reconcileCancellation(linkState: .disconnected,
+            at: recoveryStart.addingTimeInterval(100)), .wait)
+    }
+
+    func testRecoveryCancellationRetriesSlowlyAfterFastBudget() {
+        var recovery = BLEConnectionRecovery()
+        recovery.cancellationRequested(at: recoveryStart)
+        var retries: [Int] = []
+        for second in 1...150 {
+            if recovery.reconcileCancellation(linkState: .disconnecting,
+                at: recoveryStart.addingTimeInterval(Double(second))) == .retryCancellation {
+                retries.append(second)
+            }
+        }
+        XCTAssertEqual(retries, [8, 16, 24, 84, 144])
+    }
+
+    func testWallClockMovingBackAfterTenHoursDoesNotRejectFreshRRorHideAGap() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart, uptime: 100)
+        let frame = HRFrame(bpm: 60, rrIntervalsMs: [1000], contact: true)
+        let afterTenHours = recoveryStart.addingTimeInterval(36_000)
+        _ = recovery.receivedHeartRate(frame, at: afterTenHours, uptime: 36_100,
+                                      inStandby: false, ecgLive: true)
+        let clockMovedBack = afterTenHours.addingTimeInterval(-3600)
+        XCTAssertTrue(recovery.acceptsHeartRate(at: clockMovedBack, uptime: 36_101))
+        XCTAssertEqual(recovery.receivedHeartRate(frame, at: clockMovedBack, uptime: 36_101,
+            inStandby: false, ecgLive: true), .wait)
+        XCTAssertFalse(recovery.acceptsHeartRate(at: afterTenHours, uptime: 36_099))
+        XCTAssertEqual(recovery.receivedPacket(at: clockMovedBack.addingTimeInterval(15),
+            uptime: 36_116), .refreshHeartRate)
+        XCTAssertEqual(recovery.receivedPacket(at: clockMovedBack.addingTimeInterval(25),
+            uptime: 36_126), .reconnect)
+    }
+
+    func testWallClockMovingBackPreservesPMDMetadataAndMonotonicRecovery() {
+        var recovery = PMDStreamRecovery()
+        recovery.begin(at: recoveryStart, uptime: 100)
+        let afterTenHours = recoveryStart.addingTimeInterval(36_000)
+        recovery.received(.ecg, at: afterTenHours, uptime: 36_100)
+        recovery.received(.acc, at: afterTenHours, uptime: 36_100)
+        let clockMovedBack = afterTenHours.addingTimeInterval(-3600)
+        XCTAssertTrue(recovery.received(.ecg, at: clockMovedBack, uptime: 36_101))
+        XCTAssertTrue(recovery.received(.acc, at: clockMovedBack, uptime: 36_101))
+        XCTAssertEqual(recovery.lastSampleAt(.ecg), clockMovedBack,
+            "Expose the actual wall timestamp, never an uptime disguised as a physiological date")
+        XCTAssertEqual(recovery.lastSampleUptime(.ecg), 36_101)
+        XCTAssertEqual(recovery.evaluate(at: clockMovedBack, uptime: 36_101,
+            isConnected: true, inStandby: false, rrFlowing: true), .keepWaiting)
+        recovery.received(.acc, at: clockMovedBack.addingTimeInterval(5), uptime: 36_106)
+        XCTAssertEqual(recovery.evaluate(at: clockMovedBack.addingTimeInterval(5), uptime: 36_106,
+            isConnected: true, inStandby: false, rrFlowing: true), .retryECGStart)
+    }
+
+    func testWallClockMovingBackDoesNotStrandCommandOrCancellationDeadlines() {
+        let afterTenHours = recoveryStart.addingTimeInterval(36_000)
+        let clockMovedBack = afterTenHours.addingTimeInterval(-3600)
+        var commands = PMDCommandQueue()
+        commands.replacePending(with: [PolarH10Profile.cmdECGStart, PolarH10Profile.cmdACCStart])
+        let ecg = commands.next(at: afterTenHours, uptime: 36_100)
+        XCTAssertEqual(commands.complete(opCode: 2, measurement: 0,
+            at: clockMovedBack, uptime: 36_101), ecg)
+        let acc = commands.next(at: clockMovedBack, uptime: 36_101)
+        XCTAssertNil(commands.expire(at: afterTenHours, uptime: 36_104))
+        XCTAssertEqual(commands.expire(at: clockMovedBack, uptime: 36_105), acc)
+        var connection = BLEConnectionRecovery()
+        connection.requested(at: afterTenHours, uptime: 36_100)
+        connection.cancellationRequested(at: afterTenHours, uptime: 36_100)
+        XCTAssertEqual(connection.reconcileCancellation(linkState: .disconnecting,
+            at: clockMovedBack, uptime: 36_108), .retryCancellation)
+        XCTAssertTrue(connection.shouldRearm(linkState: .disconnected,
+            at: clockMovedBack, uptime: 36_108))
+    }
+
+    func testRecoveredStreamRemovesItsQueuedStartWithoutInterruptingInFlightWork() {
+        var commands = PMDCommandQueue()
+        commands.replacePending(with: [PolarH10Profile.cmdECGStart, PolarH10Profile.cmdACCStart])
+        let ecg = commands.next(at: recoveryStart)
+        commands.removePendingStart(measurement: PolarH10Profile.typeACCMeas)
+        XCTAssertEqual(commands.inFlight, ecg)
+        XCTAssertEqual(commands.complete(opCode: 2, measurement: 0,
+            at: recoveryStart.addingTimeInterval(1)), ecg)
+        XCTAssertNil(commands.next(at: recoveryStart.addingTimeInterval(1)))
+    }
+
     func testPersistentConnectionsDelegateRetryAndBackoffToIOS() {
         let options = BLEConnectionRecovery.options(delay: 60)
         XCTAssertEqual(options[CBConnectPeripheralOptionEnableAutoReconnect] as? Bool, true)
@@ -618,7 +920,7 @@ final class BLETests: XCTestCase {
     //
     // PMDWatchdogPolicy.decide is the retry policy extracted from the ACC
     // watchdog so it can be tested without a real peripheral — see BLEService's
-    // PMDWatchdogPolicy and evaluateACCWatchdog for the CoreBluetooth plumbing
+    // PMDWatchdogPolicy and evaluatePMDWatchdog for the CoreBluetooth plumbing
     // that samples state and acts on this decision.
 
     func testACCWatchdogFiresWhenECGFlowsButACCSilent() {
@@ -630,8 +932,7 @@ final class BLETests: XCTestCase {
     }
 
     func testACCWatchdogStaysQuietWhenBothStreamsSilent() {
-        // Both ECG and ACC dead is a connection problem — owned by the
-        // existing reconnect/standby machinery, not this watchdog.
+        // RR is also missing, so connection/RR recovery owns the outage.
         let action = PMDWatchdogPolicy.decide(
             isConnected: true, inStandby: false, ecgFlowing: false, rrFlowing: false,
             timeSinceLastACCSample: 30, timeSinceLastRetry: nil,
@@ -723,9 +1024,8 @@ final class BLETests: XCTestCase {
 
     func testACCWatchdogNoStallImmediatelyAfterRecovery() {
         // An ACC sample just arrived (time-since ~0) — no stall regardless of
-        // retry history. BLEService.noteACCSampleReceived is what actually
-        // resets retriesUsed to 0 on real recovery; this only checks the
-        // policy doesn't fire while ACC is freshly live.
+        // retry history. PMDStreamRecovery resets only ACC's retry budget
+        // on that arrival; the independent ECG budget stays intact.
         let action = PMDWatchdogPolicy.decide(
             isConnected: true, inStandby: false, ecgFlowing: true, rrFlowing: true,
             timeSinceLastACCSample: 0, timeSinceLastRetry: 6,

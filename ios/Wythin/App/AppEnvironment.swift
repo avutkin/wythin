@@ -8,17 +8,24 @@ import UIKit
 struct MetricTriggerPolicy {
     let minInterval: TimeInterval
     private(set) var lastAcceptedAt: Date?
+    private var lastAcceptedClock: TimeInterval?
 
-    mutating func acceptSensorFrame(at now: Date, hasRR: Bool) -> Bool {
+    init(minInterval: TimeInterval) { self.minInterval = minInterval }
+
+    mutating func acceptSensorFrame(at now: Date, hasRR: Bool,
+                                   uptime: TimeInterval? = nil) -> Bool {
         guard hasRR else { return false }
-        if let lastAcceptedAt, now.timeIntervalSince(lastAcceptedAt) < minInterval {
+        let clock = uptime ?? now.timeIntervalSinceReferenceDate
+        if let lastAcceptedClock, clock >= lastAcceptedClock,
+           clock - lastAcceptedClock < minInterval {
             return false
         }
         lastAcceptedAt = now
+        lastAcceptedClock = clock
         return true
     }
 
-    mutating func reset() { lastAcceptedAt = nil }
+    mutating func reset() { lastAcceptedAt = nil; lastAcceptedClock = nil }
 }
 
 // MARK: - WaveformDisplay
@@ -105,6 +112,7 @@ final class AppEnvironment {
                 ble.checkRecordingRecovery()
             }
             if !isInForeground {
+                metricSync.applicationDidEnterBackground()
                 // Record the just-ended foreground interval as a usage event.
                 if let start = foregroundStart {
                     logUsageEvent(type: "foreground", start: start)
@@ -428,7 +436,6 @@ final class AppEnvironment {
 
     private let maxTickHistory  = 43_200   // 24 h at 2 s/tick
     private let trimBatch       = 600      // trim this many entries at once (amortises O(n) shift)
-    private var lastMetricSyncAt: Date = .distantPast     // throttles cloud sync attempts to ~120 s
     private var lastSleepCheckAt: Date = .distantPast
     /// Same cadence as the anchor. A night is written once and never changes,
     /// so there is nothing to gain from looking more often.
@@ -470,6 +477,7 @@ final class AppEnvironment {
             RawChunkSyncService(client: sync.client, userID: AppEnvironment.currentUserID(),
                                 journal: $0)
         }
+        metricSync.start()
 
         // Before any loop starts: a restoration relaunch is a background launch
         // and no scene phase change will ever say so. See `LaunchForeground`.
@@ -507,6 +515,43 @@ final class AppEnvironment {
     }
 
     // MARK: Session control
+
+    func recordingDiagnostics() throws -> URL {
+        let stamp: (Date?) -> String = { date in
+            date.map { ISO8601DateFormatter().string(from: $0) } ?? "none"
+        }
+        var metadata = [
+            "app.version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
+            "app.build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
+            "device.model": UIDevice.current.model,
+            "device.os": UIDevice.current.systemVersion,
+            "app.foreground": String(isInForeground),
+            "app.uptimeSeconds": String(Int(ProcessInfo.processInfo.systemUptime)),
+            "bluetooth.state": ble.cbStateDescription,
+            "recording.state": String(describing: ble.state),
+            "recording.generation": String(ble.recordingGeneration),
+            "recording.lastECG": stamp(ble.lastECGSampleAt),
+            "recording.lastACC": stamp(ble.lastACCSampleAt),
+            "recording.lastValidRR": stamp(ble.lastRRIntervalAt),
+            "recording.error": recordingError ?? "none",
+            "rawArchive.enabled": String(RawArchiveFeature.isAvailable)
+        ]
+        for (key, value) in metricSync.diagnosticsSummary { metadata["upload.\(key)"] = value }
+        var capture: String?
+        var captureError: String?
+        do {
+            if let audit = ble.captureAudit {
+                capture = String(decoding: try audit.exportSnapshot(), as: UTF8.self)
+            } else { captureError = "capture log could not be initialized" }
+        } catch { captureError = error.localizedDescription }
+        let bluetooth: String
+        do { bluetooth = try RecordingDiagnostics.readTail(BLEDiag.url) }
+        catch { bluetooth = "Bluetooth log unavailable: \(error.localizedDescription)" }
+        return try RecordingDiagnostics.write(directory:
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Diagnostics", isDirectory: true),
+            metadata: metadata, bluetooth: bluetooth, capture: capture, captureError: captureError)
+    }
 
     func startSession(context: ModelContext) {
         let session = HRVSession()
@@ -892,7 +937,9 @@ final class AppEnvironment {
             .sink { [weak self] samples in
                 guard let self else { return }
                 self.evaluateOffBodyIfDue()
-                Task { await self.dataBuffer.appendECG(samples) }
+                let generation = self.ble.recordingGeneration
+                let uptime = self.ble.lastECGSampleUptime ?? ProcessInfo.processInfo.systemUptime
+                Task { await self.dataBuffer.appendECG(samples, generation: generation, uptime: uptime) }
             }
             .store(in: &cancellables)
 
@@ -907,7 +954,9 @@ final class AppEnvironment {
                     self.accWindow.removeFirst(self.accWindow.count - self.accWindowMax)
                 }
                 self.evaluateOffBodyIfDue()
-                Task { await self.dataBuffer.appendACC(xyz: xyz) }
+                let generation = self.ble.recordingGeneration
+                let uptime = self.ble.lastACCSampleUptime ?? ProcessInfo.processInfo.systemUptime
+                Task { await self.dataBuffer.appendACC(xyz: xyz, generation: generation, uptime: uptime) }
             }
             .store(in: &cancellables)
 
@@ -916,10 +965,14 @@ final class AppEnvironment {
             .sink { [weak self] frame in
                 guard let self else { return }
                 self.evaluateOffBodyIfDue()
+                let generation = self.ble.recordingGeneration
+                let capturedAt = self.ble.lastRRIntervalAt ?? Date()
+                let uptime = self.ble.lastRRIntervalUptime ?? ProcessInfo.processInfo.systemUptime
                 Task {
-                    await self.dataBuffer.appendRR(frame.rrIntervalsMs)
-                    await self.dataBuffer.appendBPM(Float(frame.bpm))
-                    if !frame.rrIntervalsMs.isEmpty {
+                    let accepted = await self.dataBuffer.appendRR(frame.rrIntervalsMs,
+                        generation: generation, at: capturedAt, uptime: uptime)
+                    await self.dataBuffer.appendBPM(Float(frame.bpm), generation: generation)
+                    if accepted, self.ble.recordingGeneration == generation {
                         self.metricSignals.continuation.yield(())
                     }
                 }
@@ -940,7 +993,10 @@ final class AppEnvironment {
                 // The beats either side of a gap are not consecutive, so the
                 // QT series cannot span it any more than the RR buffer can.
                 self.qtTracker.reset()
-                Task { await self.dataBuffer.clear() }
+                self.nudges.interrupt()
+                self.lastComputedTick = nil
+                let generation = self.ble.recordingGeneration
+                Task { await self.dataBuffer.clear(generation: generation) }
             }
             .store(in: &cancellables)
 
@@ -954,33 +1010,31 @@ final class AppEnvironment {
                 guard !Task.isCancelled else { break }
                 guard case .connected = self.ble.state else { continue }
                 guard self.metricSchedule.acceptSensorFrame(at: Date(),
-                                                            hasRR: self.ble.rrIntervalsLive) else { continue }
-
-                // Off-body standby: ECG/ACC streams are paused, so there's no live
-                // data to process. Skip so stale/empty buckets never reach the
-                // charts; BLEService resumes automatically when the strap is worn.
-                if case .standby = self.ble.state {
-                    // The strap is off: stillness and load stretches are broken,
-                    // and whatever resumes later is a new run.
-                    self.nudges.interrupt()
-                    // Whatever breathing resumes later belongs to a different
-                    // stretch of time — don't drag the old rate across the gap.
-                    self.breathTracker.reset()
-                    self.qtTracker.reset()
-                    continue
-                }
+                    hasRR: self.ble.rrIntervalsLive,
+                    uptime: ProcessInfo.processInfo.systemUptime) else { continue }
 
                 let inForeground = self.isInForeground
+                let generation = self.ble.recordingGeneration
 
                 let snapshot = await self.dataBuffer.snapshot(
                     ecgLive: self.ble.ecgStreamLive,
                     accLive: self.ble.accStreamLive)
+                guard generation == self.ble.recordingGeneration,
+                      snapshot.isUsable(recordingGeneration: generation) else { continue }
 
                 // Use lower CPU priority in background so BLE callbacks stay responsive.
                 let priority: TaskPriority = inForeground ? .userInitiated : .utility
                 var tick = await Task.detached(priority: priority) {
                     MetricsEngine.compute(from: snapshot)
                 }.value
+                // A reconnect/standby transition can occur during either await.
+                // Never publish a result from an obsolete connection or stale RR.
+                guard case .connected = self.ble.state,
+                      generation == self.ble.recordingGeneration,
+                      snapshot.isUsable(recordingGeneration: generation) else {
+                    self.ble.captureAudit?.recordPhase("discard_obsolete_metric")
+                    continue
+                }
 
                 // The spectral pick is an observation, not the answer: track it
                 // over time so the chart shows breathing, not estimator noise.
@@ -1001,6 +1055,8 @@ final class AppEnvironment {
                         ecg: snapshot.ecg,
                         fs: Float(PolarH10Profile.ecgSampleRate),
                         windowEnd: tick.timestamp)
+                } else {
+                    self.qtTracker.reset()
                 }
 
                 // Keep the chart history current in BOTH foreground and background
@@ -1046,13 +1102,6 @@ final class AppEnvironment {
                     self.sync.sendTick(tick, userID: self.userID)
                 }
 
-                // ── Best-effort: incremental cloud sync (opt-in, throttled ~120 s) ──
-                // No-ops internally when the user hasn't enabled cloud sync.
-                if Date().timeIntervalSince(self.lastMetricSyncAt) >= 120 {
-                    self.lastMetricSyncAt = Date()
-                    Task { await self.metricSync.syncIfEnabled() }
-                }
-
                 // ── Always: persist to SwiftData ──────────────────────────────
                 // Continuous samples remain queryable without accumulating in
                 // one session relationship for the lifetime of the process.
@@ -1064,6 +1113,7 @@ final class AppEnvironment {
                                                   session: self.currentSession,
                                                   context: context)
                     self.ble.captureAudit?.recordMetricSave(success: true)
+                    self.metricSync.savedMetricsDidChange()
                     self.recordingError = nil
                 } catch {
                     self.ble.captureAudit?.recordMetricSave(success: false)

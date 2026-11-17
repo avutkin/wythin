@@ -254,10 +254,11 @@ private final class MetricSyncURLProtocol: URLProtocol {
 
     override func startLoading() {
         let isMetrics = request.url?.path == "/v1/metrics"
+        let requestData = requestBody()
         var shouldFail = false
         if isMetrics {
             Self.lock.lock()
-            Self.payloads.append(requestBody())
+            Self.payloads.append(requestData)
             Self.calls += 1
             shouldFail = Self.failFirst
             Self.failFirst = false
@@ -266,7 +267,8 @@ private final class MetricSyncURLProtocol: URLProtocol {
         let code = shouldFail ? 503 : 200
         // A gateway can preserve the response shape while returning 503.
         // The uploader must trust the HTTP status, not just decodable JSON.
-        let body = Data("{\"stored\":2}".utf8)
+        let count = (try? JSONDecoder().decode(MetricsUploadPayload.self, from: requestData).samples.count) ?? 0
+        let body = Data("{\"stored\":\(count),\"skipped\":0}".utf8)
         let response = HTTPURLResponse(url: request.url!, statusCode: code,
                                        httpVersion: "HTTP/1.1", headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -308,20 +310,37 @@ final class MetricSyncBacklogTests: XCTestCase {
         config.protocolClasses = [MetricSyncURLProtocol.self]
         let session = URLSession(configuration: config)
         defer { session.invalidateAndCancel() }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("metric-backlog-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var clock = Date(timeIntervalSince1970: 1_800_000_100)
         let service = MetricSyncService(
             client: APIClient(baseURL: URL(string: "https://sync.invalid")!, session: session),
-            userID: "test-device", container: container, batchSize: 2)
+            userID: "test-device", container: container, batchSize: 2,
+            queueDirectory: directory, sessionConfiguration: config, now: { clock })
 
         await service.syncIfEnabled()
-        XCTAssertEqual(MetricSyncURLProtocol.metricCalls(), 1)
-        XCTAssertEqual(defaults.double(forKey: "metricsLastSyncedEpoch"), 0,
-                       "a rejected batch must not advance the cursor")
+        for _ in 0..<200 where service.diagnosticsSummary["in_flight"] != "0" {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(MetricSyncURLProtocol.metricCalls(), 3)
+        let firstRejected = try XCTUnwrap(MetricSyncURLProtocol.metricPayloads().first)
+        XCTAssertEqual(service.pendingCount, firstRejected.samples.count, "only the rejected batch remains pending")
+        let pendingRows = try ModelContext(container).fetch(FetchDescriptor<HRVSample>()).filter { $0.cloudUploadState != 1 }
+        XCTAssertEqual(pendingRows.count, firstRejected.samples.count, "other acknowledgements cannot hide the rejected batch")
+        let queued = try MetricUploadQueue(root: directory, migrationBoundary: .distantPast)
+        XCTAssertEqual(queued.entries.count, 1)
+        XCTAssertEqual(queued.entries.first?.attempts, 1)
 
+        clock = clock.addingTimeInterval(31)
         await service.syncIfEnabled()
+        for _ in 0..<200 where service.pendingCount != 0 {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
         let sent = try MetricSyncURLProtocol.metricPayloads()
-        XCTAssertEqual(sent[0].samples.map(\.timezone), ["Asia/Dubai", "Asia/Dubai"], "retry keeps the capture zone")
-        XCTAssertEqual(sent.dropFirst().flatMap(\.samples).map(\.timezone), zones, "upload never stamps the current zone on stored samples")
-        XCTAssertEqual(sent[0].samples.first?.ts, "2027-01-15T08:00:00.000Z")
+        XCTAssertEqual(sent.last?.samples.map(\.timezone), sent.first?.samples.map(\.timezone), "retry keeps the capture zone")
+        let successful = sent.dropFirst().flatMap(\.samples).sorted { $0.ts < $1.ts }
+        XCTAssertEqual(successful.map(\.timezone), zones, "upload never stamps the current zone on stored samples")
+        XCTAssertEqual(successful.first?.ts, "2027-01-15T08:00:00.000Z")
         XCTAssertEqual(MetricSyncURLProtocol.metricCalls(), 4,
                        "five samples in batches of two need three successful requests")
         XCTAssertEqual(defaults.double(forKey: "metricsLastSyncedEpoch"),

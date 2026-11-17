@@ -196,7 +196,11 @@ enum BLEDiag {
                                               in: .userDomainMask)[0]
         .appendingPathComponent("ble-diag.log")
 
+    private static let lock = NSLock()
+
     static func log(_ message: String) {
+        lock.lock()
+        defer { lock.unlock() }
         let stamp = ISO8601DateFormatter().string(from: Date())
         let line = "\(stamp) \(message)\n"
         if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
@@ -213,11 +217,46 @@ enum BLEDiag {
 
 // MARK: - Persistent connection recovery
 
+/// Private policy instants use uptime in production, so changing the wall
+/// clock cannot reject fresh packets or postpone recovery. Date-only callers
+/// retain deterministic virtual-time support. These comparison instants must
+/// never be exposed as physiological timestamps; receivedAt stays a real Date.
+enum BLERecoveryClock {
+    static func instant(at date: Date, uptime: TimeInterval?) -> Date {
+        uptime.map { Date(timeIntervalSinceReferenceDate: $0) } ?? date
+    }
+}
+
 struct BLEConnectionRecovery {
     enum DisconnectAction { case ignore, waitForSystem, reconnect }
     private var nextRetryDelay: TimeInterval = 2
     private var pendingCheckAfter: Date?
     private var requestedAt: Date?
+    private var cancellationAt: Date?
+    private var cancellationRetries = 0
+
+    enum CancellationAction { case wait, retryCancellation, rearm, waitForSystem }
+
+    mutating func cancellationRequested(at date: Date, uptime: TimeInterval? = nil) {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
+        cancellationAt = now
+        cancellationRetries = 0
+    }
+
+    /// Reconcile a lost cancel callback without starting a competing connection.
+    /// CoreBluetooth owns `.connecting` indefinitely, including system reconnect.
+    mutating func reconcileCancellation(linkState: CBPeripheralState, at date: Date,
+                                       uptime: TimeInterval? = nil) -> CancellationAction {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
+        guard let cancellationAt else { return .wait }
+        if linkState == .disconnected { return .rearm }
+        if linkState == .connecting { return .waitForSystem }
+        let delay: TimeInterval = cancellationRetries < 3 ? 8 : 60
+        guard now.timeIntervalSince(cancellationAt) >= delay else { return .wait }
+        self.cancellationAt = now
+        cancellationRetries = min(3, cancellationRetries + 1)
+        return .retryCancellation
+    }
 
     static func options(delay: TimeInterval = 0) -> [String: Any] {
         [CBConnectPeripheralOptionNotifyOnDisconnectionKey: true,
@@ -225,7 +264,8 @@ struct BLEConnectionRecovery {
          CBConnectPeripheralOptionStartDelayKey: delay]
     }
 
-    mutating func requested(at now: Date, delay: TimeInterval = 0) {
+    mutating func requested(at date: Date, delay: TimeInterval = 0, uptime: TimeInterval? = nil) {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
         requestedAt = now
         pendingCheckAfter = now.addingTimeInterval(delay + 8)
     }
@@ -233,6 +273,8 @@ struct BLEConnectionRecovery {
     mutating func clearPendingRequest() {
         requestedAt = nil
         pendingCheckAfter = nil
+        cancellationAt = nil
+        cancellationRetries = 0
     }
     mutating func connectionSucceeded() { self = Self() }
 
@@ -242,14 +284,18 @@ struct BLEConnectionRecovery {
         return delay
     }
 
-    func shouldRearm(linkState: CBPeripheralState, at now: Date) -> Bool {
+    func shouldRearm(linkState: CBPeripheralState, at date: Date, uptime: TimeInterval? = nil) -> Bool {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
         guard linkState == .disconnected, let pendingCheckAfter else { return false }
         return now >= pendingCheckAfter
     }
 
     func acceptsFailure(targetID: UUID?, failedID: UUID, userDisconnected: Bool,
                         linkState: CBPeripheralState, at failedAt: Date,
-                        connectedAt: Date?) -> Bool {
+                        connectedAt: Date?, uptime: TimeInterval? = nil,
+                        connectedUptime: TimeInterval? = nil) -> Bool {
+        let failedAt = BLERecoveryClock.instant(at: failedAt, uptime: uptime)
+        let connectedAt = connectedAt.map { BLERecoveryClock.instant(at: $0, uptime: connectedUptime) }
         guard targetID == failedID, !userDisconnected,
               linkState != .connected, linkState != .disconnecting else { return false }
         if let connectedAt, failedAt < connectedAt { return false }
@@ -260,7 +306,10 @@ struct BLEConnectionRecovery {
     static func disconnectAction(isCurrent: Bool, userDisconnected: Bool,
                                  wasCanceled: Bool, linkState: CBPeripheralState,
                                  systemIsReconnecting: Bool, disconnectedAt: Date?,
-                                 connectedAt: Date?) -> DisconnectAction {
+                                 connectedAt: Date?, disconnectedUptime: TimeInterval? = nil,
+                                 connectedUptime: TimeInterval? = nil) -> DisconnectAction {
+        let disconnectedAt = disconnectedAt.map { BLERecoveryClock.instant(at: $0, uptime: disconnectedUptime) }
+        let connectedAt = connectedAt.map { BLERecoveryClock.instant(at: $0, uptime: connectedUptime) }
         guard isCurrent, !userDisconnected else { return .ignore }
         if let disconnectedAt, let connectedAt, disconnectedAt < connectedAt { return .ignore }
         // OS reconnect can finish before the delayed disconnect callback is
@@ -273,6 +322,12 @@ struct BLEConnectionRecovery {
 
 // MARK: - RR stream recovery
 
+/// Shared with the recording buffer: packets outside this range cannot prove
+/// that useful RR recording is healthy, even if the HR characteristic is busy.
+enum RRSignalValidity {
+    static func isValid(_ interval: Int) -> Bool { (300...2000).contains(interval) }
+}
+
 /// Bluetooth events drive this state machine even when the app is in the
 /// background. The watchdog is only a fallback while iOS allows execution.
 struct RRStreamRecovery {
@@ -281,12 +336,14 @@ struct RRStreamRecovery {
     private var connectedAt: Date?
     private var lastPacketAt: Date?
     private var lastHealthyHRAt: Date?
+    private var lastHRPacketAt: Date?
     private var refreshAt: Date?
     private var probeAt: Date?
     private var lastReconnectAt: Date?
     private var reconnectPending = false
 
-    mutating func beginConnection(at now: Date) {
+    mutating func beginConnection(at date: Date, uptime: TimeInterval? = nil) {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
         endConnection()
         connectedAt = now
     }
@@ -296,40 +353,52 @@ struct RRStreamRecovery {
         connectedAt = nil
         lastPacketAt = nil
         lastHealthyHRAt = nil
+        lastHRPacketAt = nil
         refreshAt = nil
         probeAt = nil
         reconnectPending = false
     }
 
-    func acceptsPacket(at now: Date) -> Bool {
-        !reconnectPending && (connectedAt.map { now >= $0 } ?? false)
+    func acceptsPacket(at date: Date, uptime: TimeInterval? = nil) -> Bool {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
+        return !reconnectPending && (connectedAt.map { now >= $0 } ?? false)
     }
 
-    mutating func receivedPacket(at now: Date) -> Action {
+    func acceptsHeartRate(at date: Date, uptime: TimeInterval? = nil) -> Bool {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
+        return acceptsPacket(at: now) && now >= (lastHRPacketAt ?? .distantPast)
+    }
+
+    mutating func receivedPacket(at date: Date, uptime: TimeInterval? = nil) -> Action {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
         guard acceptsPacket(at: now) else { return .wait }
-        lastPacketAt = now
+        lastPacketAt = max(lastPacketAt ?? now, now)
         return evaluate(at: now)
     }
 
-    mutating func receivedHeartRate(_ frame: HRFrame, at now: Date,
+    mutating func receivedHeartRate(_ frame: HRFrame, at date: Date, uptime: TimeInterval? = nil,
                                    inStandby: Bool, ecgLive: Bool) -> Action {
-        guard acceptsPacket(at: now) else { return .wait }
-        lastPacketAt = now
-        let hasRR = !frame.rrIntervalsMs.isEmpty && (!inStandby ||
-            StandbyResumeGate.isPhysiologicallyPlausible(bpm: frame.bpm, rr: frame.rrIntervalsMs))
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
+        guard acceptsHeartRate(at: now) else { return .wait }
+        lastHRPacketAt = now
+        lastPacketAt = max(lastPacketAt ?? now, now)
+        let validRR = frame.rrIntervalsMs.filter(RRSignalValidity.isValid)
+        let hasRR = !validRR.isEmpty && (!inStandby ||
+            StandbyResumeGate.isPhysiologicallyPlausible(bpm: frame.bpm, rr: validRR))
         // Fresh zero-HR beacons are normal off-body. A contact flag alone must
         // not hide a lost RR stream, particularly while ECG is still arriving.
         let offBodyBeacon = frame.bpm == 0 && frame.rrIntervalsMs.isEmpty &&
             frame.contact != true && !ecgLive
         if hasRR || offBodyBeacon {
-            lastHealthyHRAt = now
+            lastHealthyHRAt = max(lastHealthyHRAt ?? now, now)
             refreshAt = nil
             probeAt = nil
         }
         return evaluate(at: now)
     }
 
-    mutating func evaluate(at now: Date) -> Action {
+    mutating func evaluate(at date: Date, uptime: TimeInterval? = nil) -> Action {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
         guard let connectedAt, !reconnectPending,
               now.timeIntervalSince(lastHealthyHRAt ?? connectedAt) >= 15 else { return .wait }
         if let lastReconnectAt, now.timeIntervalSince(lastReconnectAt) < 60 { return .wait }
@@ -548,15 +617,9 @@ struct StandbyResumeGate {
 
 // MARK: - Connection Failure Pattern (pure, testable)
 //
-// The H10 is a single-link BLE peripheral — only one central can hold its
-// GATT connection. A native Polar app running its own background connection
-// competes for that one slot, and CoreBluetooth gives the losing side
-// nothing distinctive: the same `CBError.connectionTimeout` an out-of-range
-// or powered-off strap would also produce. There is no code that means
-// "someone else has it," so this can never name the cause with certainty.
-// What it can notice honestly is the shape only contention tends to
-// produce — several failures in quick succession — and say so as a
-// possibility, not a diagnosis.
+// Repeated connection failures can accompany interference, range loss or
+// other setup failures. They do not identify the cause, a competing app,
+// or an exclusive Bluetooth owner. This only gates a troubleshooting hint.
 enum ConnectionFailurePattern {
     static let minCount = 3
     static let windowSeconds: TimeInterval = 60
@@ -657,91 +720,179 @@ enum BatteryAlertPolicy {
     }
 }
 
-// MARK: - ACC Watchdog Policy (pure, testable)
-//
-// The H10 answers PMD control-point writes asynchronously, but `launchStreams`
-// serialises the ECG/ACC start commands with a fixed 250 ms timer rather than
-// waiting for the device's actual response (see BLEService.launchStreams). The
-// H10 can still be busy starting the 130 Hz ECG stream when the ACC start
-// arrives, and nothing today inspects the response or notices — one lost ACC
-// start silently disables breathing detection until the next reconnect or
-// standby cycle. This type is the retry policy for a watchdog that catches
-// that specific asymmetric failure and re-issues the ACC start itself.
-//
-// Deliberately free of CoreBluetooth: given liveness signals it returns a pure
-// decision, so BLETests can exercise every branch without a real peripheral.
-// `BLEService.evaluateACCWatchdog` is the only caller — it samples state, calls
-// `decide`, and acts on the result.
-enum PMDWatchdogPolicy {
+// MARK: - Independent PMD recovery
 
+enum PMDWatchdogPolicy {
     enum Action: Equatable {
-        /// Nothing wrong (or a retry was just issued) — check again next tick.
-        case keepWaiting
-        /// ECG is flowing, ACC has been silent past the threshold, a retry slot
-        /// remains, and enough time has passed since the last retry — reissue
-        /// the ACC start command.
-        case retryACCStart
-        /// ECG **and** ACC silent while RR still flows: the link is alive but
-        /// the PMD subsystem as a whole has stalled — reissue both start
-        /// commands. This is the branch the 2026-08-07 outage needed: RR
-        /// proves the connection, so the reconnect watchdog rightly stays
-        /// quiet, and someone still has to retry.
-        case retryBothPMD
-        /// Retry budget exhausted with the stall persisting. NOT terminal:
-        /// the watchdog stays alive for the session and reissues the start
-        /// command(s) on a slow cadence — a session should never end with
-        /// the app having permanently stopped trying.
-        case slowRetry(both: Bool)
+        case keepWaiting, retryECGStart, retryACCStart, retryBothPMD
+        case slowRetryECG, slowRetry(both: Bool)
     }
 
-    /// - Parameters:
-    ///   - isConnected: true only while the BLE state is `.connected`. If false
-    ///     the link itself is down — the existing reconnect machinery
-    ///     (`BLEService.startWatchdog`) owns that, not this watchdog.
-    ///   - inStandby: true while paused off-body. Streams are intentionally
-    ///     stopped there, so ACC silence is expected, not a failure.
-    ///   - ecgFlowing: whether ECG samples have arrived recently. This is the
-    ///     asymmetry check the whole watchdog exists for — if ECG is ALSO
-    ///     silent, the connection itself is the problem, not a lost ACC start,
-    ///     and this watchdog must stay quiet and let the reconnect path work.
-    ///   - timeSinceLastACCSample: seconds since the last ACC sample arrived.
-    ///   - timeSinceLastRetry: seconds since the last retry was issued, or nil
-    ///     if none has been issued since the streams were last (re)started.
-    ///   - retriesUsed: retries issued since the streams were last (re)started.
-    ///   - stallThreshold: seconds of ACC silence (while ECG flows) that counts
-    ///     as a stall rather than normal jitter or a brief connection hiccup.
-    ///   - retryGap: minimum seconds between successive retries — gives a
-    ///     just-issued retry a chance to take effect before trying again.
-    ///   - maxRetries: total retries allowed before giving up.
+    struct Retry {
+        var used: Int
+        var elapsed: TimeInterval?
+    }
+
     static func decide(
-        isConnected: Bool,
-        inStandby: Bool,
-        ecgFlowing: Bool,
-        rrFlowing: Bool,
-        timeSinceLastACCSample: TimeInterval,
-        timeSinceLastRetry: TimeInterval?,
-        retriesUsed: Int,
-        stallThreshold: TimeInterval,
-        retryGap: TimeInterval,
-        maxRetries: Int,
-        slowRetryGap: TimeInterval
+        isConnected: Bool, inStandby: Bool, ecgFlowing: Bool, rrFlowing: Bool,
+        timeSinceLastACCSample: TimeInterval, timeSinceLastRetry: TimeInterval?,
+        retriesUsed: Int, stallThreshold: TimeInterval, retryGap: TimeInterval,
+        maxRetries: Int, slowRetryGap: TimeInterval, ecgRetry: Retry? = nil
     ) -> Action {
-        guard isConnected, !inStandby else { return .keepWaiting }
-        // RR is the liveness oracle, NOT ECG: RR rides the heart-rate
-        // characteristic while ECG and ACC are both PMD streams. When RR has
-        // also stopped the link itself is down and reconnect owns it — but
-        // ECG-silent with RR flowing is a PMD-level stall this watchdog must
-        // act on, which is exactly the case the old ecgFlowing guard vetoed.
-        guard rrFlowing else { return .keepWaiting }
-        guard timeSinceLastACCSample >= stallThreshold else { return .keepWaiting }
-        let both = !ecgFlowing
-        if retriesUsed < maxRetries {
-            if let timeSinceLastRetry, timeSinceLastRetry < retryGap { return .keepWaiting }
-            return both ? .retryBothPMD : .retryACCStart
+        guard isConnected, !inStandby, rrFlowing else { return .keepWaiting }
+        let ecg = ecgRetry ?? Retry(used: retriesUsed, elapsed: timeSinceLastRetry)
+        func due(_ retry: Retry) -> Bool {
+            let gap = retry.used < maxRetries ? retryGap : slowRetryGap
+            return retry.elapsed.map { $0 >= gap } ?? true
         }
-        // Budget exhausted: drop to a slow cadence instead of giving up.
-        if let timeSinceLastRetry, timeSinceLastRetry < slowRetryGap { return .keepWaiting }
-        return .slowRetry(both: both)
+        let retryECG = !ecgFlowing && due(ecg)
+        let retryACC = timeSinceLastACCSample >= stallThreshold &&
+            due(Retry(used: retriesUsed, elapsed: timeSinceLastRetry))
+        switch (retryECG, retryACC) {
+        case (true, true):
+            return ecg.used >= maxRetries || retriesUsed >= maxRetries ? .slowRetry(both: true) : .retryBothPMD
+        case (true, false): return ecg.used >= maxRetries ? .slowRetryECG : .retryECGStart
+        case (false, true): return retriesUsed >= maxRetries ? .slowRetry(both: false) : .retryACCStart
+        case (false, false): return .keepWaiting
+        }
+    }
+}
+
+/// One retry budget per stream. ACC traffic cannot reset an ECG outage's
+/// budget, and startup grace never appears as a received sample in the UI.
+struct PMDStreamRecovery {
+    enum Stream: CaseIterable { case ecg, acc }
+    private struct Health {
+        var lastSampleAt: Date?
+        var lastSampleUptime: TimeInterval?
+        var lastSampleInstant: Date?
+        var lastRetryAt: Date?
+        var retries = 0
+    }
+    private var startedAt: Date?
+    private var graceStartedAt: Date?
+    private var ecg = Health()
+    private var acc = Health()
+
+    mutating func begin(at date: Date, uptime: TimeInterval? = nil) {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
+        self = Self()
+        startedAt = now
+        graceStartedAt = now
+    }
+    mutating func extendStartupGrace(at date: Date, uptime: TimeInterval? = nil) {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
+        guard let startedAt, now >= startedAt else { return }
+        graceStartedAt = now
+    }
+    mutating func end() { self = Self() }
+    func lastSampleAt(_ stream: Stream) -> Date? {
+        stream == .ecg ? ecg.lastSampleAt : acc.lastSampleAt
+    }
+    func lastSampleUptime(_ stream: Stream) -> TimeInterval? {
+        stream == .ecg ? ecg.lastSampleUptime : acc.lastSampleUptime
+    }
+    @discardableResult
+    mutating func received(_ stream: Stream, at date: Date, uptime: TimeInterval? = nil) -> Bool {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
+        let lastSampleInstant = stream == .ecg ? ecg.lastSampleInstant : acc.lastSampleInstant
+        guard let startedAt, now >= startedAt,
+              now >= (lastSampleInstant ?? startedAt) else { return false }
+        let healthy = Health(lastSampleAt: date, lastSampleUptime: uptime, lastSampleInstant: now)
+        if stream == .ecg { ecg = healthy } else { acc = healthy }
+        return true
+    }
+
+    mutating func evaluate(at date: Date, uptime: TimeInterval? = nil,
+                           isConnected: Bool, inStandby: Bool,
+                           rrFlowing: Bool) -> PMDWatchdogPolicy.Action {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
+        guard let startedAt, let graceStartedAt else { return .keepWaiting }
+        let action = PMDWatchdogPolicy.decide(
+            isConnected: isConnected, inStandby: inStandby,
+            ecgFlowing: now.timeIntervalSince(max(ecg.lastSampleInstant ?? startedAt, graceStartedAt)) < 5,
+            rrFlowing: rrFlowing,
+            timeSinceLastACCSample: now.timeIntervalSince(max(acc.lastSampleInstant ?? startedAt, graceStartedAt)),
+            timeSinceLastRetry: acc.lastRetryAt.map { now.timeIntervalSince($0) },
+            retriesUsed: acc.retries, stallThreshold: 5, retryGap: 5,
+            maxRetries: 3, slowRetryGap: 60,
+            ecgRetry: .init(used: ecg.retries, elapsed: ecg.lastRetryAt.map { now.timeIntervalSince($0) }))
+        let retryECG: Bool
+        let retryACC: Bool
+        switch action {
+        case .keepWaiting: return action
+        case .retryECGStart, .slowRetryECG: (retryECG, retryACC) = (true, false)
+        case .retryACCStart: (retryECG, retryACC) = (false, true)
+        case .retryBothPMD: (retryECG, retryACC) = (true, true)
+        case .slowRetry(let both): (retryECG, retryACC) = (both, true)
+        }
+        if retryECG { ecg.lastRetryAt = now; ecg.retries = min(3, ecg.retries + 1) }
+        if retryACC { acc.lastRetryAt = now; acc.retries = min(3, acc.retries + 1) }
+        return action
+    }
+}
+
+/// PMD responses have an opcode/type pair but no request identifier. Keep one
+/// transaction in flight, reject mismatched/older callbacks, and bound waiting
+/// when the sensor never answers. Epochs invalidate the *effects* of old work;
+/// an in-flight command still drains before a replacement session can write.
+struct PMDCommandQueue {
+    struct Transaction: Equatable {
+        let id: UInt64
+        let generation: UInt64
+        let data: Data
+        let sentAt: Date
+        let sentUptime: TimeInterval?
+    }
+    private(set) var generation: UInt64 = 0
+    private(set) var inFlight: Transaction?
+    private var pending: [Data] = []
+    private var nextID: UInt64 = 0
+    var isIdle: Bool { inFlight == nil && pending.isEmpty }
+
+    mutating func replacePending(with commands: [Data]) {
+        generation &+= 1
+        pending = []
+        enqueue(commands)
+    }
+    mutating func reset() {
+        inFlight = nil
+        replacePending(with: [])
+    }
+    mutating func enqueue(_ commands: [Data]) {
+        for command in commands where command.count >= 2 {
+            guard !pending.contains(command),
+                  !(inFlight?.generation == generation && inFlight?.data == command) else { continue }
+            pending.append(command)
+        }
+    }
+    mutating func removePendingStart(measurement: UInt8) {
+        pending.removeAll { $0[0] == PolarH10Profile.opStart && $0[1] == measurement }
+    }
+    mutating func next(at now: Date, uptime: TimeInterval? = nil) -> Transaction? {
+        guard inFlight == nil, !pending.isEmpty else { return nil }
+        nextID &+= 1
+        let transaction = Transaction(id: nextID, generation: generation,
+                                      data: pending.removeFirst(), sentAt: now, sentUptime: uptime)
+        inFlight = transaction
+        return transaction
+    }
+    mutating func complete(opCode: UInt8, measurement: UInt8, at date: Date,
+                           uptime: TimeInterval? = nil) -> Transaction? {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
+        guard let transaction = inFlight,
+              now >= BLERecoveryClock.instant(at: transaction.sentAt, uptime: transaction.sentUptime),
+              transaction.data[0] == opCode, transaction.data[1] == measurement else { return nil }
+        inFlight = nil
+        return transaction
+    }
+    mutating func expire(at date: Date, uptime: TimeInterval? = nil) -> Transaction? {
+        let now = BLERecoveryClock.instant(at: date, uptime: uptime)
+        guard let transaction = inFlight,
+              now.timeIntervalSince(BLERecoveryClock.instant(at: transaction.sentAt,
+                                                            uptime: transaction.sentUptime)) >= 4 else { return nil }
+        inFlight = nil
+        return transaction
     }
 }
 
@@ -794,6 +945,12 @@ final class BLEService: NSObject {
     /// around for HRV computation, since a resumed stream's first RR intervals
     /// may reflect elapsed time across the gap rather than a real beat-to-beat interval.
     let connectionGapSubject = PassthroughSubject<Void, Never>()
+    private(set) var recordingGeneration: UInt64 = 0
+
+    private func emitRecordingGap() {
+        recordingGeneration &+= 1
+        connectionGapSubject.send()
+    }
     let rawChunkReadySubject = PassthroughSubject<Void, Never>()
 
     // MARK: Private
@@ -808,10 +965,10 @@ final class BLEService: NSObject {
     private var advertisedNames:       [UUID: String] = [:]
     private var restoredPeripherals:   [CBPeripheral] = []
     private var scanTimeoutTask:       Task<Void, Never>?
-    private var settingsQueryTask:     Task<Void, Never>?
+    private var pmdCommandTask:        Task<Void, Never>?
     private var reconnectTask:         Task<Void, Never>?  // cancellable, replaces asyncAfter
     private var watchdogTask:          Task<Void, Never>?  // detects silent drops
-    private var accWatchdogTask:       Task<Void, Never>?  // detects a stalled ACC stream while ECG flows
+    private var pmdWatchdogTask:       Task<Void, Never>?  // fallback for independent ECG/ACC maintenance
     nonisolated let captureAudit: CaptureAuditLog? = try? CaptureAuditLog(directory:
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("CaptureAudit", isDirectory: true))
@@ -844,45 +1001,46 @@ final class BLEService: NSObject {
     private var ecgSettings: [UInt8: [UInt16]]?
     private var accSettings: [UInt8: [UInt16]]?
 
-    // ACC watchdog liveness/retry state — see ACCWatchdogPolicy and evaluateACCWatchdog().
-    private(set) var lastECGSampleAt: Date?
+    // Actual PMD arrivals; startup grace is kept separately by pmdRecovery.
+    var lastECGSampleAt: Date? { pmdRecovery.lastSampleAt(.ecg) }
+    var lastECGSampleUptime: TimeInterval? { pmdRecovery.lastSampleUptime(.ecg) }
 
     /// ECG frames arrived within the last 5 s — direct evidence the strap is
     /// worn, used when firmware doesn't report the HR contact flag.
     var ecgStreamLive: Bool {
-        lastECGSampleAt.map { Date().timeIntervalSince($0) < 5 } ?? false
+        lastECGSampleUptime.map { ProcessInfo.processInfo.systemUptime - $0 < 5 } ?? false
     }
 
     /// Same liveness window for the ACC stream — display gates on this so a
     /// dead stream shows as dead instead of leaving stale numbers up.
     var accStreamLive: Bool {
-        lastACCSampleAt.map { Date().timeIntervalSince($0) < 5 } ?? false
+        lastACCSampleUptime.map { ProcessInfo.processInfo.systemUptime - $0 < 5 } ?? false
     }
-    private(set) var lastACCSampleAt: Date?
-    private var lastRRSampleAt:  Date?
+    var lastACCSampleAt: Date? { pmdRecovery.lastSampleAt(.acc) }
+    var lastACCSampleUptime: TimeInterval? { pmdRecovery.lastSampleUptime(.acc) }
     private var resumeGate = StandbyResumeGate()
-    private var standbyEnteredAt: Date?
+    private var standbyEnteredUptime: TimeInterval?
     /// Actual RR intervals (not just HR frames) arrived within the last 8 s.
     /// The most direct wear signal there is: off-body straps keep sending HR
     /// beacon frames but stop producing beats almost immediately.
     private(set) var lastRRIntervalAt: Date?
+    private(set) var lastRRIntervalUptime: TimeInterval?
     var rrIntervalsLive: Bool {
-        lastRRIntervalAt.map { Date().timeIntervalSince($0) < 4 } ?? false
+        lastRRIntervalUptime.map { ProcessInfo.processInfo.systemUptime - $0 < 4 } ?? false
     }
     /// The strap's own verdict, at 1 Hz: a worn H10 always reports a human
     /// bpm; within seconds of doffing it reports 0. Unlike tick-derived ECG
     /// quality this needs no computation and no foreground, so it is the cue
     /// that keeps off-body detection fast while the app is backgrounded.
     private(set) var lastPlausibleBPMAt: Date?
+    private var lastPlausibleBPMUptime: TimeInterval?
     var heartbeatLive: Bool {
-        lastPlausibleBPMAt.map { Date().timeIntervalSince($0) < 4 } ?? false
+        lastPlausibleBPMUptime.map { ProcessInfo.processInfo.systemUptime - $0 < 4 } ?? false
     }
     private var lastECGStartCmd: Data?
     /// True once the fast budget has been spent and `lastError` surfaced —
     /// so the slow-retry loop doesn't rewrite it every minute.
     private var inSlowRetry = false
-    private var lastACCRetryAt:  Date?
-    private var accRetryCount:   Int = 0
     /// Resets on every fresh `discoverServices()` call, so an old failure
     /// never counts against a brand-new connection.
     private var discoveryRetryCount: Int = 0
@@ -894,24 +1052,14 @@ final class BLEService: NSObject {
     /// a frame merely arrived, since an off-body frame can still carry a
     /// non-empty (noise) RR array. `StandbyGapPolicy` reads this at resume
     /// to tell a genuine standby from a brief misclassification.
-    private var lastForwardedBeatAt: Date?
+    private var lastForwardedBeatUptime: TimeInterval?
     private var lastACCStartCmd: Data?
 
-    // ACC watchdog tuning. At 200 Hz the H10 delivers ACC notifications many
-    // times a second, so 5 s of total silence is ~1000 missed samples — never
-    // happens from ordinary jitter or a brief connection hiccup, but is exactly
-    // what a lost ACC start looks like, and is short enough that a user never
-    // again loses two hours of breathing data the way the 2026-07-29 outage did.
-    // 3 retries at a 5 s gap bounds worst-case recovery to ~20 s while still
-    // giving a genuinely broken strap a few honest tries before giving up.
-    private static let accStallThreshold:      TimeInterval = 5.0
-    private static let accRetryGap:            TimeInterval = 5.0
-    /// Cadence of the post-budget slow retries. The stall persisting past the
-    /// fast budget means something is genuinely wedged; once a minute keeps
-    /// pressure on it for the whole session without spamming the control point.
-    private static let accSlowRetryGap:        TimeInterval = 60.0
-    private static let accWatchdogMaxRetries:  Int          = 3
-    private static let accWatchdogPollInterval: TimeInterval = 2.0
+    private var pmdRecovery = PMDStreamRecovery()
+    private var pmdCommands = PMDCommandQueue()
+    private var pmdSessionStartedUptime: TimeInterval?
+    private var pmdConnectionEpoch: UInt64 = 0
+    private var pmdStartupPending = false
 
     private let bleQueue       = DispatchQueue(label: "com.wythin.ble", qos: .userInitiated)
     private let pairing = PolarH10Pairing(defaults: .standard)
@@ -919,6 +1067,7 @@ final class BLEService: NSObject {
 
     private var connectionRecovery = BLEConnectionRecovery()
     private var connectionEstablishedAt: Date?
+    private var connectionEstablishedUptime: TimeInterval?
 
     // Cancellations belong to a particular peripheral, not the next callback
     // from any device (a rejected watch can finish disconnecting after H10).
@@ -1106,7 +1255,7 @@ final class BLEService: NSObject {
         if let previous = peripheral, previous.identifier != p.identifier {
             cancelConnection(previous)
             clearConnectionState()
-            connectionGapSubject.send()
+            emitRecordingGap()
         }
         inStandby = false
         BLEDiag.log("SELECT manual id=\(p.identifier) name=\(device.name)")
@@ -1128,12 +1277,13 @@ final class BLEService: NSObject {
         inStandby = false
         scanTimeoutTask?.cancel()
         reconnectTask?.cancel()
-        settingsQueryTask?.cancel()
+        pmdCommandTask?.cancel()
         stopScanning()
         if let p = peripheral {
             stopPMDStreams()
             cancelConnection(p)
         }
+        if peripheral != nil { emitRecordingGap() }
         clearConnectionState()
         rrRecovery = RRStreamRecovery()
         connectionRecovery = BLEConnectionRecovery()
@@ -1154,10 +1304,10 @@ final class BLEService: NSObject {
         BLEDiag.log("STANDBY enter")
         inStandby = true
         resumeGate = StandbyResumeGate()   // fresh run for the wake decision
-        standbyEnteredAt = Date()          // starts the resume grace window
+        standbyEnteredUptime = ProcessInfo.processInfo.systemUptime
         reconnectTask?.cancel()
         // Keep monitoring the HR link that is responsible for standby resume.
-        accWatchdogTask?.cancel()
+        pmdWatchdogTask?.cancel()
         // No `connectionGapSubject.send()` here any more. That used to wipe
         // the RR buffer on every standby entry — right, for a strap that is
         // genuinely off, but exactly wrong for a misclassification, which
@@ -1175,7 +1325,7 @@ final class BLEService: NSObject {
     /// Restart the ECG/ACC streams and mark the link live.
     private func resumeFromStandby(name: String) {
         guard inStandby, peripheral != nil else { return }
-        let gap = lastForwardedBeatAt.map { Date().timeIntervalSince($0) }
+        let gap = lastForwardedBeatUptime.map { ProcessInfo.processInfo.systemUptime - $0 }
         if StandbyGapPolicy.shouldClearOnResume(secondsSinceLastForwardedBeat: gap) {
             // A real content gap: whatever is buffered predates it and is not
             // continuous with what is about to be measured. Clear now, right
@@ -1183,7 +1333,7 @@ final class BLEService: NSObject {
             // brief misclassification its whole pre-existing history for
             // nothing, the regression this exists to avoid.
             print("🌙 BLE: resuming after a real gap (\(gap.map { "\(Int($0))s" } ?? "no prior data")) — clearing buffered beats")
-            connectionGapSubject.send()
+            emitRecordingGap()
         }
         print("🌙 BLE: resuming from standby — strap worn again")
         BLEDiag.log("STANDBY resume")
@@ -1254,9 +1404,11 @@ final class BLEService: NSObject {
             discoveryRetryCount = 0
             state = .connected(name: device.name)
             let connectedAt = Date()
+            let connectedUptime = ProcessInfo.processInfo.systemUptime
             connectionEstablishedAt = connectedAt
+            connectionEstablishedUptime = connectedUptime
             connectionRecovery.connectionSucceeded()
-            rrRecovery.beginConnection(at: connectedAt)
+            rrRecovery.beginConnection(at: connectedAt, uptime: connectedUptime)
             recoveryCommands.beginConnection()
             centralManager.connect(p, options: BLEConnectionRecovery.options())
             discoverServices()
@@ -1281,7 +1433,8 @@ final class BLEService: NSObject {
         pmdStreamsStarted = false
         ecgSettings = nil
         accSettings = nil
-        connectionRecovery.requested(at: Date(), delay: delay)
+        connectionRecovery.requested(at: Date(), delay: delay,
+                                     uptime: ProcessInfo.processInfo.systemUptime)
         centralManager.connect(p, options: BLEConnectionRecovery.options(delay: delay))
         startWatchdog()
     }
@@ -1314,8 +1467,7 @@ final class BLEService: NSObject {
         case .giveUpAndReconnect:
             print("🔴 BLE: discovery failed \(DiscoveryRetryPolicy.maxRetries) times — forcing a reconnect")
             lastError = "Bluetooth setup failed — reconnecting"
-            canceledPeripheralIDs.remove(p.identifier)
-            centralManager.cancelPeripheralConnection(p)
+            applyRecordingRecovery(.reconnect)
         }
     }
 
@@ -1328,55 +1480,85 @@ final class BLEService: NSObject {
     }
 
     private func startPMDStreams() {
-        guard let ctrl = pmdControl, let data = pmdData, let p = peripheral else { return }
-        guard !pmdStreamsStarted else { return }
+        guard !userDisconnected, !inStandby, !recoveryReconnectPending,
+              let ctrl = pmdControl, let data = pmdData, let p = peripheral,
+              p.state == .connected, !pmdStreamsStarted else { return }
         pmdStreamsStarted = true
-
+        pmdStartupPending = true
+        let startedAt = Date()
+        let startedUptime = ProcessInfo.processInfo.systemUptime
+        pmdSessionStartedUptime = startedUptime
+        pmdRecovery.begin(at: startedAt, uptime: startedUptime)
+        ecgSettings = nil
+        accSettings = nil
         p.setNotifyValue(true, for: ctrl)
         p.setNotifyValue(true, for: data)
-        // Stop any lingering streams before starting fresh
-        p.writeValue(PolarH10Profile.cmdECGStop, for: ctrl, type: .withResponse)
-        p.writeValue(PolarH10Profile.cmdACCStop, for: ctrl, type: .withResponse)
-
-        // Query device capabilities; 0.4 s delay lets the stop-writes complete
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            guard let self, let ctrl = self.pmdControl, let p = self.peripheral else { return }
-            print("🔵 BLE: querying ECG settings")
-            p.writeValue(PolarH10Profile.cmdGetECGSettings, for: ctrl, type: .withResponse)
-
-            // Fallback: if device doesn't answer the query in 4 s, use hardcoded defaults
-            self.settingsQueryTask?.cancel()
-            self.settingsQueryTask = Task { @MainActor in
-                try? await Task.sleep(for: .seconds(4))
-                guard !Task.isCancelled else { return }
-                print("⚠️ BLE: settings query timed out — using defaults")
-                self.launchStreams(ecg: PolarH10Profile.cmdECGStart,
-                                   acc: PolarH10Profile.cmdACCStart)
-            }
-        }
+        // Subscribe and request our streams without first stopping a stream
+        // another app on this same iPhone may already be using.
+        pmdCommands.replacePending(with: [PolarH10Profile.cmdGetECGSettings,
+                                          PolarH10Profile.cmdGetACCSettings])
+        startPMDWatchdog()
+        pumpPMDCommands()
     }
 
-    private func launchStreams(ecg: Data, acc: Data) {
-        guard let ctrl = pmdControl, let p = peripheral else { return }
+    private func launchStreams() {
+        guard pmdStartupPending, pmdStreamsStarted, !inStandby,
+              !userDisconnected, !recoveryReconnectPending else { return }
+        pmdStartupPending = false
+        let ecg = ecgSettings.map {
+            PolarH10Profile.buildStartCommand(measurementType: PolarH10Profile.typeECGMeas, from: $0)
+        } ?? PolarH10Profile.cmdECGStart
+        let acc = accSettings.map {
+            PolarH10Profile.buildStartCommand(measurementType: PolarH10Profile.typeACCMeas, from: $0)
+        } ?? PolarH10Profile.cmdACCStart
         lastECGStartCmd = ecg
-        print("🔵 BLE: starting ECG — \(ecg.hexLog)")
-        BLEDiag.log("START ECG \(ecg.hexLog)")
-        p.writeValue(ecg, for: ctrl, type: .withResponse)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-            guard let self, let ctrl = self.pmdControl, let p = self.peripheral else { return }
-            print("🔵 BLE: starting ACC — \(acc.hexLog)")
-            BLEDiag.log("START ACC \(acc.hexLog)")
-            p.writeValue(acc, for: ctrl, type: .withResponse)
-            self.startACCWatchdog(accCmd: acc)
+        lastACCStartCmd = acc
+        pmdRecovery.extendStartupGrace(at: Date(), uptime: ProcessInfo.processInfo.systemUptime)
+        inSlowRetry = false
+        pmdCommands.enqueue([ecg, acc])
+    }
+
+    /// Both event callbacks and the fallback timer drive this queue. A lost
+    /// response cannot strand it, and delayed work can never choose a newer
+    /// connection's characteristic after waking up.
+    private func pumpPMDCommands() {
+        guard !userDisconnected, !recoveryReconnectPending,
+              let p = peripheral, p.state == .connected, let ctrl = pmdControl else { return }
+        if let timedOut = pmdCommands.expire(at: Date(), uptime: ProcessInfo.processInfo.systemUptime) {
+            BLEDiag.log("PMD response timeout op=\(timedOut.data[0]) type=\(timedOut.data[1])")
+        }
+        if pmdCommands.isIdle && pmdStartupPending { launchStreams() }
+        guard let transaction = pmdCommands.next(at: Date(), uptime: ProcessInfo.processInfo.systemUptime) else { return }
+        // Stops only enter this queue on an intentional pause. A superseded
+        // session cannot enqueue starts or apply a late settings response.
+        p.writeValue(transaction.data, for: ctrl, type: .withResponse)
+        BLEDiag.log("PMD command op=\(transaction.data[0]) type=\(transaction.data[1]) epoch=\(transaction.generation)")
+        pmdCommandTask?.cancel()
+        let connectionEpoch = pmdConnectionEpoch
+        pmdCommandTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled, let self,
+                  self.pmdConnectionEpoch == connectionEpoch,
+                  self.peripheral === p, self.pmdControl === ctrl,
+                  self.pmdCommands.inFlight?.id == transaction.id else { return }
+            self.pumpPMDCommands()
         }
     }
 
     private func stopPMDStreams() {
-        guard let ctrl = pmdControl, let data = pmdData, let p = peripheral else { return }
-        p.writeValue(PolarH10Profile.cmdECGStop, for: ctrl, type: .withResponse)
-        p.writeValue(PolarH10Profile.cmdACCStop, for: ctrl, type: .withResponse)
-        p.setNotifyValue(false, for: ctrl)
-        p.setNotifyValue(false, for: data)
+        let hadStartCommands = lastECGStartCmd != nil || lastACCStartCmd != nil
+        pmdStartupPending = false
+        pmdStreamsStarted = false
+        pmdSessionStartedUptime = nil
+        pmdRecovery.end()
+        pmdWatchdogTask?.cancel()
+        // Preserve the in-flight transaction until its response/timeout, but
+        // discard every queued startup/retry before putting intentional stops
+        // behind it. In-flight settings no longer have authority to restart.
+        pmdCommands.replacePending(with: hadStartCommands ?
+            [PolarH10Profile.cmdECGStop, PolarH10Profile.cmdACCStop] : [])
+        if let p = peripheral, let data = pmdData { p.setNotifyValue(false, for: data) }
+        pumpPMDCommands()
     }
 
     /// Zero out all connection-specific state. Does NOT touch `state`, retry backoff,
@@ -1384,9 +1566,9 @@ final class BLEService: NSObject {
     /// Clears only GATT state (characteristics, stream flags). Keeps `peripheral` alive
     /// so the caller can attempt a direct reconnect without scanning.
     private func clearCharacteristics() {
-        settingsQueryTask?.cancel()
+        pmdCommandTask?.cancel()
         watchdogTask?.cancel()
-        accWatchdogTask?.cancel()
+        pmdWatchdogTask?.cancel()
         pmdControl        = nil
         pmdData           = nil
         hrChar            = nil
@@ -1395,21 +1577,26 @@ final class BLEService: NSObject {
         pmdStreamsStarted  = false
         ecgSettings       = nil
         accSettings       = nil
-        lastECGSampleAt   = nil
-        lastACCSampleAt   = nil
-        lastACCRetryAt    = nil
-        accRetryCount     = 0
+        pmdConnectionEpoch &+= 1
+        pmdCommands.reset()
+        pmdRecovery.end()
+        pmdSessionStartedUptime = nil
+        pmdStartupPending = false
+        lastECGStartCmd = nil
+        inSlowRetry = false
         lastACCStartCmd   = nil
-        lastRRSampleAt    = nil
         lastRRIntervalAt  = nil
+        lastRRIntervalUptime = nil
         lastPlausibleBPMAt = nil
-        lastForwardedBeatAt = nil
+        lastPlausibleBPMUptime = nil
+        lastForwardedBeatUptime = nil
         sensorContact    = nil
         inStandby        = false
-        standbyEnteredAt = nil
+        standbyEnteredUptime = nil
         recoveryCommands.endConnection()
         rrRecovery.endConnection()
         connectionEstablishedAt = nil
+        connectionEstablishedUptime = nil
         connectionRecovery.clearPendingRequest()
     }
 
@@ -1439,14 +1626,27 @@ final class BLEService: NSObject {
     /// Called on lifecycle transitions as well as by the fallback timer.
     /// HR/PMD callbacks evaluate recovery directly, without a foreground tick.
     func checkRecordingRecovery() {
-        guard !userDisconnected, !recoveryReconnectPending,
+        guard !userDisconnected,
               centralManager.state == .poweredOn, let p = peripheral else { return }
+        if recoveryReconnectPending {
+            switch connectionRecovery.reconcileCancellation(linkState: p.state, at: Date(),
+                                                             uptime: ProcessInfo.processInfo.systemUptime) {
+            case .wait: break
+            case .retryCancellation:
+                BLEDiag.log("RR recovery reconciling missing cancellation callback")
+                centralManager.cancelPeripheralConnection(p)
+            case .rearm: handleUnexpectedDisconnect(p, error: nil)
+            case .waitForSystem: handleUnexpectedDisconnect(p, error: nil, systemIsReconnecting: true)
+            }
+            return
+        }
         switch state {
         case .connected, .standby: break
         case .connecting:
             // A legitimate pending connect has no expiry, even after days.
             // Only repair the case where the OS no longer has one armed.
-            if connectionRecovery.shouldRearm(linkState: p.state, at: Date()) {
+            if connectionRecovery.shouldRearm(linkState: p.state, at: Date(),
+                                              uptime: ProcessInfo.processInfo.systemUptime) {
                 BLEDiag.log("CONNECT maintenance — rearming lost pending request")
                 armPendingConnect(p)
             }
@@ -1456,7 +1656,8 @@ final class BLEService: NSObject {
         if p.state == .disconnected {
             handleUnexpectedDisconnect(p, error: nil)
         } else if p.state == .connected {
-            applyRecordingRecovery(rrRecovery.evaluate(at: Date()))
+            applyRecordingRecovery(rrRecovery.evaluate(at: Date(), uptime: ProcessInfo.processInfo.systemUptime))
+            evaluatePMDWatchdog()
         }
     }
 
@@ -1475,7 +1676,7 @@ final class BLEService: NSObject {
         switch command {
         case .clearRecordingGap:
             BLEDiag.log("RR recovery clearing buffered signals after gap")
-            connectionGapSubject.send()
+            emitRecordingGap()
         case .readRSSI:
             BLEDiag.log("RR recovery probe background=\(UIApplication.shared.applicationState == .background)")
             p.readRSSI()
@@ -1492,133 +1693,79 @@ final class BLEService: NSObject {
             // Deliberately use the unexpected-disconnect path: its callback
             // clears the gap and arms a persistent OS-managed connection.
             canceledPeripheralIDs.remove(p.identifier)
+            connectionRecovery.cancellationRequested(at: Date(), uptime: ProcessInfo.processInfo.systemUptime)
+            pmdCommandTask?.cancel()
+            pmdCommands.reset()
             centralManager.cancelPeripheralConnection(p)
         }
     }
 
-    // MARK: - ACC Watchdog
-    //
-    // Detects the asymmetric failure where ECG keeps flowing but the ACC start
-    // was lost or answered while the H10 was still busy (see launchStreams and
-    // ACCWatchdogPolicy above). Runs independently of startWatchdog(), which
-    // only detects a fully-dead connection — this one exists precisely for the
-    // case where the connection is fine and only one of the two streams died,
-    // so it must not fight the reconnect/standby machinery that owns that case.
+    private func acceptsConnectionCallback(_ p: CBPeripheral, uptime receivedUptime: TimeInterval) -> Bool {
+        guard peripheral === p, !userDisconnected else { return false }
+        if recoveryReconnectPending {
+            checkRecordingRecovery()
+            return false
+        }
+        guard p.state == .connected, let connectionEstablishedUptime else { return false }
+        return receivedUptime >= connectionEstablishedUptime
+    }
 
-    /// Arms the ACC watchdog for a freshly (re)started ACC stream: resets the
-    /// retry budget and seeds both liveness clocks to "now" so a normal-but-slow
-    /// stream start (the H10 still busy from the ECG start moments earlier)
-    /// isn't mistaken for a stall before either stream has delivered a sample.
-    private func startACCWatchdog(accCmd: Data) {
-        accWatchdogTask?.cancel()
-        accRetryCount   = 0
-        lastACCRetryAt  = nil
-        lastACCStartCmd = accCmd
-        lastACCSampleAt = Date()
-        lastECGSampleAt = Date()
-        lastRRSampleAt  = Date()
-        inSlowRetry     = false
-        print("🔵 BLE: PMD watchdog armed — stall threshold \(Int(Self.accStallThreshold))s, max \(Self.accWatchdogMaxRetries) retries")
+    // MARK: - PMD stream maintenance
 
-        accWatchdogTask = Task { @MainActor [weak self] in
+    private func startPMDWatchdog() {
+        pmdWatchdogTask?.cancel()
+        pmdWatchdogTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(Self.accWatchdogPollInterval))
+                try? await Task.sleep(for: .seconds(2))
                 guard !Task.isCancelled, let self else { return }
-                self.evaluateACCWatchdog()
+                self.evaluatePMDWatchdog()
             }
         }
     }
 
-    /// One poll tick: samples current liveness/state, asks the pure policy for
-    /// a decision, and acts on it (retry write, log, or give up).
-    private func evaluateACCWatchdog() {
-        guard case .connected = state,
-              let ctrl = pmdControl, let p = peripheral,
-              let accCmd = lastACCStartCmd else { return }
-
+    /// Invoked on HR/PMD delivery and lifecycle checks as well as a best-effort
+    /// timer. Background recovery does not require a foreground timer tick.
+    private func evaluatePMDWatchdog() {
+        pumpPMDCommands()
+        guard case .connected = state, !userDisconnected, !inStandby,
+              !recoveryReconnectPending, peripheral?.state == .connected,
+              pmdStreamsStarted, !pmdStartupPending,
+              let ecg = lastECGStartCmd, let acc = lastACCStartCmd else { return }
         let now = Date()
-        // "ECG flowing" reuses the stall threshold as its recency window: ECG
-        // arrives far more often than every 5 s, so treating longer silence as
-        // "not flowing" is generous, not tight — it only opens up when ECG has
-        // genuinely stopped too, at which point this is a connection problem.
-        let ecgFlowing = lastECGSampleAt.map { now.timeIntervalSince($0) < Self.accStallThreshold } ?? false
-        let rrFlowing  = lastRRSampleAt.map  { now.timeIntervalSince($0) < Self.accStallThreshold } ?? false
-        let timeSinceACC = lastACCSampleAt.map { now.timeIntervalSince($0) } ?? .infinity
-        let timeSinceRetry = lastACCRetryAt.map { now.timeIntervalSince($0) }
-
-        let action = PMDWatchdogPolicy.decide(
-            isConnected: true,
-            inStandby: inStandby,
-            ecgFlowing: ecgFlowing,
-            rrFlowing: rrFlowing,
-            timeSinceLastACCSample: timeSinceACC,
-            timeSinceLastRetry: timeSinceRetry,
-            retriesUsed: accRetryCount,
-            stallThreshold: Self.accStallThreshold,
-            retryGap: Self.accRetryGap,
-            maxRetries: Self.accWatchdogMaxRetries,
-            slowRetryGap: Self.accSlowRetryGap
-        )
-
+        let uptime = ProcessInfo.processInfo.systemUptime
+        let rrFlowing = lastRRIntervalUptime.map { uptime - $0 < 5 } ?? false
+        let action = pmdRecovery.evaluate(at: now, uptime: uptime, isConnected: true,
+                                          inStandby: inStandby, rrFlowing: rrFlowing)
+        let commands: [Data]
         switch action {
-        case .keepWaiting:
-            break
-
-        case .retryACCStart:
-            accRetryCount += 1
-            lastACCRetryAt = now
-            print("🟡 BLE: PMD watchdog — no ACC for \(Int(timeSinceACC))s while ECG flows — reissuing ACC start (\(accRetryCount)/\(Self.accWatchdogMaxRetries))")
-            p.writeValue(accCmd, for: ctrl, type: .withResponse)
-
-        case .retryBothPMD:
-            accRetryCount += 1
-            lastACCRetryAt = now
-            print("🟡 BLE: PMD watchdog — ECG and ACC both silent while RR flows — PMD stall, reissuing both starts (\(accRetryCount)/\(Self.accWatchdogMaxRetries))")
-            reissuePMDStarts(acc: accCmd, ctrl: ctrl, p: p)
-
-        case .slowRetry(let both):
-            accRetryCount += 1
-            lastACCRetryAt = now
+        case .keepWaiting: return
+        case .retryECGStart, .slowRetryECG: commands = [ecg]
+        case .retryACCStart: commands = [acc]
+        case .retryBothPMD: commands = [ecg, acc]
+        case .slowRetry(let both): commands = both ? [ecg, acc] : [acc]
+        }
+        if action == .slowRetryECG || action == .slowRetry(both: false) || action == .slowRetry(both: true) {
             if !inSlowRetry {
                 inSlowRetry = true
-                lastError = "Breathing sensor stream stalled — still retrying in the background"
-                print("🔴 BLE: PMD watchdog — fast budget exhausted, dropping to \(Int(Self.accSlowRetryGap))s retries for the rest of the session")
+                lastError = "Sensor stream stalled — still retrying in the background"
             }
-            if both { reissuePMDStarts(acc: accCmd, ctrl: ctrl, p: p) }
-            else    { p.writeValue(accCmd, for: ctrl, type: .withResponse) }
         }
+        BLEDiag.log("PMD recovery \(action) background=\(UIApplication.shared.applicationState == .background)")
+        pmdCommands.enqueue(commands)
+        pumpPMDCommands()
     }
 
-    /// Reissues ECG then ACC, serialised the same 250 ms apart as
-    /// `launchStreams` — without going through `launchStreams` itself, which
-    /// would re-arm the watchdog and hand the stall a fresh fast budget
-    /// forever.
-    private func reissuePMDStarts(acc: Data, ctrl: CBCharacteristic, p: CBPeripheral) {
-        if let ecg = lastECGStartCmd {
-            p.writeValue(ecg, for: ctrl, type: .withResponse)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                guard let self, let ctrl = self.pmdControl, let p = self.peripheral else { return }
-                p.writeValue(acc, for: ctrl, type: .withResponse)
-            }
-        } else {
-            p.writeValue(acc, for: ctrl, type: .withResponse)
-        }
-    }
-
-    /// Records ACC liveness. If the watchdog had been retrying, logs the
-    /// recovery and resets the retry budget so a later stall gets a full fresh
-    /// set of retries.
-    private func noteACCSampleReceived() {
-        lastACCSampleAt = Date()
-        if accRetryCount > 0 {
-            print("✅ BLE: PMD watchdog — ACC stream recovered after \(accRetryCount) retry attempt(s)")
-        }
-        if inSlowRetry {
+    private func notePMDSampleReceived(_ stream: PMDStreamRecovery.Stream, at receivedAt: Date,
+                                      uptime: TimeInterval) -> Bool {
+        guard pmdRecovery.received(stream, at: receivedAt, uptime: uptime) else { return false }
+        pmdCommands.removePendingStart(measurement: stream == .ecg ?
+            PolarH10Profile.typeECGMeas : PolarH10Profile.typeACCMeas)
+        if inSlowRetry, ecgStreamLive, accStreamLive {
             inSlowRetry = false
-            lastError   = nil
+            if lastError == "Sensor stream stalled — still retrying in the background" { lastError = nil }
+            BLEDiag.log("PMD streams recovered")
         }
-        accRetryCount  = 0
-        lastACCRetryAt = nil
+        return true
     }
 
     // MARK: - Unexpected disconnect handler
@@ -1631,7 +1778,7 @@ final class BLEService: NSObject {
         BLEDiag.log("DISCONNECT unexpected: \(error?.localizedDescription ?? "no error")")
         reconnectTask?.cancel()
         clearCharacteristics()          // keep `peripheral` for the pending reconnect
-        connectionGapSubject.send()
+        emitRecordingGap()
         state = .disconnected(reason: error?.localizedDescription ?? "Disconnected")
 
         // Persistent, no-timeout pending reconnect — no scan, no give-up. iOS
@@ -1642,7 +1789,7 @@ final class BLEService: NSObject {
         if systemIsReconnecting {
             BLEDiag.log("CONNECT system auto-reconnect pending id=\(p.identifier)")
             state = .connecting(name: supportedName(p) ?? "Polar H10")
-            connectionRecovery.requested(at: Date())
+            connectionRecovery.requested(at: Date(), uptime: ProcessInfo.processInfo.systemUptime)
             startWatchdog()
         } else {
             armPendingConnect(p)
@@ -1683,7 +1830,7 @@ extension BLEService: CBCentralManagerDelegate {
                 self.discovery.stop()
                 self.reconnectTask?.cancel()
                 self.clearConnectionState()
-                self.connectionGapSubject.send()
+                self.emitRecordingGap()
                 self.state = .disconnected(reason: "Bluetooth is off")
             default:
                 break
@@ -1743,6 +1890,7 @@ extension BLEService: CBCentralManagerDelegate {
                                     didConnect peripheral: CBPeripheral) {
         print("✅ BLE: connected to '\(peripheral.name ?? "?")'")
         let connectedAt = Date()
+        let connectedUptime = ProcessInfo.processInfo.systemUptime
         Task { @MainActor in
             guard !self.userDisconnected,
                   self.peripheral?.identifier == peripheral.identifier,
@@ -1750,11 +1898,12 @@ extension BLEService: CBCentralManagerDelegate {
                 self.rejectPeripheral(peripheral, source: "didConnect")
                 return
             }
-            guard peripheral.state == .connected else { return }
+            guard peripheral.state == .connected,
+                  connectedUptime >= (self.connectionEstablishedUptime ?? 0) else { return }
             // Auto-reconnect may have completed before its delayed disconnect
             // event. Always initialize the new connection independently.
             self.clearCharacteristics()
-            self.connectionGapSubject.send()
+            self.emitRecordingGap()
             // A live connection outdates any earlier failure — most visibly the
             // "No Polar H10 found (30 s)" scan timeout, which otherwise stays
             // on screen under a green connected card.
@@ -1764,10 +1913,11 @@ extension BLEService: CBCentralManagerDelegate {
             BLEDiag.log("CONNECTED id=\(peripheral.identifier) name=\(name)")
             self.connectionRecovery.connectionSucceeded()
             self.connectionEstablishedAt = connectedAt
+            self.connectionEstablishedUptime = connectedUptime
             self.discoveryRetryCount = 0
             self.recentConnectFailures.removeAll()
             self.state = .connected(name: name)
-            self.rrRecovery.beginConnection(at: connectedAt)
+            self.rrRecovery.beginConnection(at: connectedAt, uptime: connectedUptime)
             self.recoveryCommands.beginConnection()
             self.discoverServices()
             self.startWatchdog()
@@ -1778,6 +1928,7 @@ extension BLEService: CBCentralManagerDelegate {
                                     didFailToConnect peripheral: CBPeripheral,
                                     error: Error?) {
         let failedAt = Date()
+        let failedUptime = ProcessInfo.processInfo.systemUptime
         let nsError = error as NSError?
         print("❌ BLE: failed to connect — \(error?.localizedDescription ?? "unknown")"
               + (nsError.map { " (\($0.domain) \($0.code))" } ?? ""))
@@ -1787,7 +1938,8 @@ extension BLEService: CBCentralManagerDelegate {
                   self.connectionRecovery.acceptsFailure(
                     targetID: self.peripheral?.identifier, failedID: peripheral.identifier,
                     userDisconnected: self.userDisconnected, linkState: peripheral.state,
-                    at: failedAt, connectedAt: self.connectionEstablishedAt) else { return }
+                    at: failedAt, connectedAt: self.connectionEstablishedAt,
+                    uptime: failedUptime, connectedUptime: self.connectionEstablishedUptime) else { return }
             self.clearCharacteristics()   // keep the peripheral for a re-arm
 
             let now = Date()
@@ -1801,9 +1953,8 @@ extension BLEService: CBCentralManagerDelegate {
 
             var message = "Could not connect: \(error?.localizedDescription ?? "unknown error")"
             if looksLikeContention {
-                // Hedged on purpose — this is a pattern, not a detection. The
-                // H10 cannot be read by two apps at once, and this is the
-                // only shape the losing side ever sees.
+                // Repeated failures are evidence of contention, not proof
+                // of exclusivity or of which app/device caused the failure.
                 message += " — if another app (e.g. the Polar app) is also connected to this sensor, close it fully and try again."
             }
             self.lastError = message
@@ -1819,8 +1970,11 @@ extension BLEService: CBCentralManagerDelegate {
     nonisolated func centralManager(_ central: CBCentralManager,
                                     didDisconnectPeripheral peripheral: CBPeripheral,
                                     error: Error?) {
+        let disconnectedAt = Date()
+        let disconnectedUptime = ProcessInfo.processInfo.systemUptime
         Task { @MainActor in
-            self.handleDisconnectEvent(peripheral, disconnectedAt: nil,
+            self.handleDisconnectEvent(peripheral, disconnectedAt: disconnectedAt,
+                                       disconnectedUptime: disconnectedUptime,
                                        systemIsReconnecting: false, error: error)
         }
     }
@@ -1830,20 +1984,24 @@ extension BLEService: CBCentralManagerDelegate {
                                     timestamp: CFAbsoluteTime, isReconnecting: Bool,
                                     error: Error?) {
         let disconnectedAt = Date(timeIntervalSinceReferenceDate: timestamp)
+        let disconnectedUptime = ProcessInfo.processInfo.systemUptime
         Task { @MainActor in
             self.handleDisconnectEvent(peripheral, disconnectedAt: disconnectedAt,
+                                       disconnectedUptime: disconnectedUptime,
                                        systemIsReconnecting: isReconnecting, error: error)
         }
     }
 
     private func handleDisconnectEvent(_ p: CBPeripheral, disconnectedAt: Date?,
+                                       disconnectedUptime: TimeInterval,
                                        systemIsReconnecting: Bool, error: Error?) {
         let wasCanceled = canceledPeripheralIDs.remove(p.identifier) != nil
         let action = BLEConnectionRecovery.disconnectAction(
             isCurrent: peripheral?.identifier == p.identifier && supportedName(p) != nil,
             userDisconnected: userDisconnected, wasCanceled: wasCanceled,
             linkState: p.state, systemIsReconnecting: systemIsReconnecting,
-            disconnectedAt: disconnectedAt, connectedAt: connectionEstablishedAt)
+            disconnectedAt: disconnectedAt, connectedAt: connectionEstablishedAt,
+            disconnectedUptime: disconnectedUptime, connectedUptime: connectionEstablishedUptime)
         switch action {
         case .ignore: return
         case .waitForSystem:
@@ -1860,11 +2018,10 @@ extension BLEService: CBPeripheralDelegate {
 
     nonisolated func peripheral(_ peripheral: CBPeripheral,
                                 didDiscoverServices error: Error?) {
+        let receivedUptime = ProcessInfo.processInfo.systemUptime
         if let error { print("❌ BLE: service discovery error — \(error)") }
         Task { @MainActor in
-            guard self.peripheral?.identifier == peripheral.identifier,
-                  !self.recoveryReconnectPending, peripheral.state == .connected,
-                  self.supportedName(peripheral) != nil else { return }
+            guard self.acceptsConnectionCallback(peripheral, uptime: receivedUptime) else { return }
             guard error == nil, let services = peripheral.services else {
                 self.retryOrGiveUpOnDiscoveryFailure(peripheral)
                 return
@@ -1887,11 +2044,11 @@ extension BLEService: CBPeripheralDelegate {
     nonisolated func peripheral(_ peripheral: CBPeripheral,
                                 didDiscoverCharacteristicsFor service: CBService,
                                 error: Error?) {
+        let receivedUptime = ProcessInfo.processInfo.systemUptime
         if let error { print("❌ BLE: char discovery error — \(error)") }
         Task { @MainActor in
-            guard self.peripheral?.identifier == peripheral.identifier,
-                  !self.recoveryReconnectPending, peripheral.state == .connected,
-                  self.supportedName(peripheral) != nil else { return }
+            guard self.acceptsConnectionCallback(peripheral, uptime: receivedUptime),
+                  peripheral.services?.contains(where: { $0 === service }) == true else { return }
             guard error == nil, let chars = service.characteristics else {
                 self.retryOrGiveUpOnDiscoveryFailure(peripheral)
                 return
@@ -1899,9 +2056,15 @@ extension BLEService: CBPeripheralDelegate {
             for c in chars {
                 switch c.uuid {
                 case PolarH10Profile.pmdControl:
+                    if let old = self.pmdControl, old !== c {
+                        self.pmdCommandTask?.cancel()
+                        self.pmdCommands.reset()
+                        self.pmdStreamsStarted = false
+                    }
                     self.pmdControl = c
                     print("✅ BLE: PMD control char found")
                 case PolarH10Profile.pmdData:
+                    if let old = self.pmdData, old !== c { self.pmdStreamsStarted = false }
                     self.pmdData = c
                     print("✅ BLE: PMD data char found")
                 case PolarH10Profile.hrMeasurement:
@@ -1932,6 +2095,7 @@ extension BLEService: CBPeripheralDelegate {
             return
         }
         let receivedAt = Date()
+        let receivedUptime = ProcessInfo.processInfo.systemUptime
 
         switch characteristic.uuid {
 
@@ -1947,97 +2111,52 @@ extension BLEService: CBPeripheralDelegate {
                                                       deviceTimestampNs: deviceTimestampNs) } ?? false
             let parsed = PolarH10Profile.parsePMDFrame(data)
             if let stream {
-                captureAudit?.recordBLE(stream, rrCount: 0,
-                                        valid: parsed != nil, at: receivedAt)
+                let hasSamples = (parsed as? ECGFrame).map { !$0.samplesUV.isEmpty }
+                    ?? (parsed as? ACCFrame).map { !$0.samples.isEmpty } ?? false
+                captureAudit?.recordBLE(stream, rrCount: 0, valid: hasSamples, at: receivedAt)
             }
             Task { @MainActor in
-                guard self.peripheral?.identifier == peripheral.identifier,
-                      !self.recoveryReconnectPending, peripheral.state == .connected,
-                      self.supportedName(peripheral) != nil, !self.userDisconnected else { return }
+                guard self.acceptsConnectionCallback(peripheral, uptime: receivedUptime),
+                      characteristic === self.pmdData,
+                      !self.inStandby, let sessionStartedUptime = self.pmdSessionStartedUptime,
+                      receivedUptime >= sessionStartedUptime,
+                      self.rrRecovery.acceptsPacket(at: receivedAt, uptime: receivedUptime) else { return }
                 if sealed { self.rawChunkReadySubject.send(()) }
-                guard self.rrRecovery.acceptsPacket(at: receivedAt) else { return }
-                if let ecg = parsed as? ECGFrame {
-                    self.lastECGSampleAt = receivedAt
+                if let ecg = parsed as? ECGFrame, !ecg.samplesUV.isEmpty {
+                    guard self.notePMDSampleReceived(.ecg, at: receivedAt, uptime: receivedUptime) else { return }
                     self.ecgSubject.send(ecg.samplesUV.map { Float($0) })
-                } else if let acc = parsed as? ACCFrame {
-                    self.noteACCSampleReceived()
+                } else if let acc = parsed as? ACCFrame, !acc.samples.isEmpty {
+                    guard self.notePMDSampleReceived(.acc, at: receivedAt, uptime: receivedUptime) else { return }
                     self.accSubject.send(acc.samples)
                 }
-                self.applyRecordingRecovery(self.rrRecovery.receivedPacket(at: receivedAt))
+                self.applyRecordingRecovery(self.rrRecovery.receivedPacket(at: receivedAt, uptime: receivedUptime))
+                self.evaluatePMDWatchdog()
             }
 
         case PolarH10Profile.pmdControl:
-            // Diagnostic: always log the raw response — firmware variants have
-            // disagreed with the documented layout before, and the raw bytes
-            // are the only ground truth when a strap rejects our commands.
-            print("🔬 BLE: PMD CP raw — \(data.hexLog)")
-            BLEDiag.log("CP raw \(data.hexLog)")
-            // PMD CP response format: [0xF0][opCode][measType][status][...payload...]
-            guard data.count >= 4, data[0] == 0xF0 else { break }
-            let opCode   = data[1]
-            let measType = data[2]
-            let status   = data[3]
-
-            switch opCode {
-
-            case PolarH10Profile.opGetSettings:
-                if let parsed = PolarH10Profile.parseAvailableSettings(data) {
-                    let tag = parsed.measType == PolarH10Profile.typeECGMeas ? "ECG" : "ACC"
-                    print("✅ BLE: \(tag) settings received")
-                    Task { @MainActor in
-                        guard self.peripheral?.identifier == peripheral.identifier,
-                              self.supportedName(peripheral) != nil, !self.userDisconnected else { return }
-                        if parsed.measType == PolarH10Profile.typeECGMeas {
-                            self.ecgSettings = parsed.settings
-                            // Chain: query ACC settings next
-                            if let ctrl = self.pmdControl, let p = self.peripheral {
-                                print("🔵 BLE: querying ACC settings")
-                                p.writeValue(PolarH10Profile.cmdGetACCSettings,
-                                             for: ctrl, type: .withResponse)
-                            }
-                        } else if parsed.measType == PolarH10Profile.typeACCMeas {
-                            self.accSettings = parsed.settings
-                            self.settingsQueryTask?.cancel()
-                            let ecgCmd = self.ecgSettings.map {
-                                PolarH10Profile.buildStartCommand(
-                                    measurementType: PolarH10Profile.typeECGMeas, from: $0)
-                            } ?? PolarH10Profile.cmdECGStart
-                            let accCmd = PolarH10Profile.buildStartCommand(
-                                measurementType: PolarH10Profile.typeACCMeas,
-                                from: parsed.settings)
-                            self.launchStreams(ecg: ecgCmd, acc: accCmd)
-                        }
+            guard data.count >= 4, data[0] == 0xF0 else { return }
+            let opCode = data[1], measurement = data[2], status = data[3]
+            Task { @MainActor in
+                guard self.acceptsConnectionCallback(peripheral, uptime: receivedUptime),
+                      characteristic === self.pmdControl else { return }
+                guard let transaction = self.pmdCommands.complete(
+                    opCode: opCode, measurement: measurement, at: receivedAt, uptime: receivedUptime) else { return }
+                defer { self.evaluatePMDWatchdog() }
+                // A standby/resume may have replaced pending commands while
+                // this transaction was on the wire. It can release the queue,
+                // but cannot apply settings/errors to the newer session.
+                guard transaction.generation == self.pmdCommands.generation else { return }
+                BLEDiag.log("PMD result op=\(opCode) type=\(measurement) status=\(status)")
+                if opCode == PolarH10Profile.opGetSettings, self.pmdStartupPending,
+                   !self.inStandby, let parsed = PolarH10Profile.parseAvailableSettings(data) {
+                    if parsed.measType == PolarH10Profile.typeECGMeas {
+                        self.ecgSettings = parsed.settings
+                    } else if parsed.measType == PolarH10Profile.typeACCMeas {
+                        self.accSettings = parsed.settings
                     }
-                } else {
-                    // Device doesn't support the settings query — fall back to hardcoded defaults
-                    print("⚠️ BLE: GET_SETTINGS not supported (status=0x\(String(status, radix:16))) — using defaults")
-                    Task { @MainActor in
-                        guard self.peripheral?.identifier == peripheral.identifier,
-                              self.supportedName(peripheral) != nil, !self.userDisconnected else { return }
-                        self.settingsQueryTask?.cancel()
-                        self.launchStreams(ecg: PolarH10Profile.cmdECGStart,
-                                           acc: PolarH10Profile.cmdACCStart)
-                    }
+                } else if opCode == PolarH10Profile.opStart, status != 0, !self.inStandby {
+                    self.lastError = "PMD start error type=0x\(String(measurement, radix: 16)) status=0x\(String(status, radix: 16))"
                 }
-
-            case PolarH10Profile.opStart:
-                let mt = String(measType, radix: 16, uppercase: true)
-                if status == 0x00 {
-                    print("✅ BLE: stream start type=0x\(mt) OK")
-                    BLEDiag.log("START RESULT type=0x\(mt) OK")
-                } else {
-                    let st = String(status, radix: 16, uppercase: true)
-                    print("❌ BLE: stream start type=0x\(mt) failed status=0x\(st)")
-                    BLEDiag.log("START RESULT type=0x\(mt) FAILED status=0x\(st)")
-                    Task { @MainActor in
-                        guard self.peripheral?.identifier == peripheral.identifier,
-                              self.supportedName(peripheral) != nil, !self.userDisconnected else { return }
-                        self.lastError = "PMD start error type=0x\(mt) status=0x\(st)"
-                    }
-                }
-
-            default:
-                print("🔵 BLE: PMD response op=0x\(String(opCode, radix:16)) type=0x\(String(measType, radix:16)) status=0x\(String(status, radix:16))")
             }
 
         case PolarH10Profile.hrMeasurement:
@@ -2048,22 +2167,33 @@ extension BLEService: CBPeripheralDelegate {
             }
             let frame = PolarH10Profile.parseHRFrame(data)
             captureAudit?.recordBLE(.hr, rrCount: frame?.rrIntervalsMs.count ?? 0,
-                                    valid: frame != nil, at: receivedAt)
+                                    valid: frame != nil,
+                                    validRRCount: frame?.rrIntervalsMs.filter(RRSignalValidity.isValid).count ?? 0,
+                                    at: receivedAt)
             if let frame {
                 Task { @MainActor in
-                    guard self.peripheral?.identifier == peripheral.identifier,
-                          !self.recoveryReconnectPending, peripheral.state == .connected,
-                          let name = self.supportedName(peripheral), !self.userDisconnected else { return }
-                    guard self.rrRecovery.acceptsPacket(at: receivedAt) else { return }
-                    let recoveryAction = self.rrRecovery.receivedHeartRate(frame, at: receivedAt,
+                    guard self.acceptsConnectionCallback(peripheral, uptime: receivedUptime),
+                          characteristic === self.hrChar,
+                          let name = self.supportedName(peripheral) else { return }
+                    guard self.rrRecovery.acceptsHeartRate(at: receivedAt, uptime: receivedUptime) else { return }
+                    let recoveryAction = self.rrRecovery.receivedHeartRate(frame, at: receivedAt, uptime: receivedUptime,
                         inStandby: self.inStandby, ecgLive: self.ecgStreamLive)
-                    defer { self.applyRecordingRecovery(recoveryAction) }
+                    defer {
+                        self.applyRecordingRecovery(recoveryAction)
+                        self.evaluatePMDWatchdog()
+                    }
                     // RR liveness for the PMD watchdog: this characteristic is
                     // independent of both PMD streams, so it can prove the
                     // link is alive while ECG and ACC are both stalled.
-                    self.lastRRSampleAt = receivedAt
-                    if !frame.rrIntervalsMs.isEmpty { self.lastRRIntervalAt = receivedAt }
-                    if frame.bpm >= 30 { self.lastPlausibleBPMAt = receivedAt }
+                    let hasValidRR = frame.rrIntervalsMs.contains(where: RRSignalValidity.isValid)
+                    if hasValidRR {
+                        self.lastRRIntervalAt = receivedAt
+                        self.lastRRIntervalUptime = receivedUptime
+                    }
+                    if (30...220).contains(frame.bpm) {
+                        self.lastPlausibleBPMAt = receivedAt
+                        self.lastPlausibleBPMUptime = receivedUptime
+                    }
                     self.sensorContact = frame.contact
                     // Paused for off-body: keep watching the contact bit over the
                     // lightweight HR link and resume the moment the strap is worn
@@ -2071,8 +2201,8 @@ extension BLEService: CBPeripheralDelegate {
                     if self.inStandby {
                         // Contact bit when reported; otherwise a run of
                         // physiologically consistent beats — see StandbyResumeGate.
-                        let inStandbyFor = self.standbyEnteredAt.map {
-                            Date().timeIntervalSince($0)
+                        let inStandbyFor = self.standbyEnteredUptime.map {
+                            receivedUptime - $0
                         } ?? .infinity
                         if self.resumeGate.step(contact: frame.contact,
                                                 bpm: frame.bpm,
@@ -2091,7 +2221,7 @@ extension BLEService: CBPeripheralDelegate {
                             // remain off and the UI is untouched — only RR
                             // keeps accumulating so a correct resume, whenever
                             // it comes, starts from a warm buffer, not zero.
-                            self.lastForwardedBeatAt = Date()
+                            self.lastForwardedBeatUptime = receivedUptime
                             self.hrSubject.send(frame)
                         }
                         return
@@ -2105,16 +2235,19 @@ extension BLEService: CBPeripheralDelegate {
                     if case .connected = self.state {} else {
                         self.state = .connected(name: name)
                     }
-                    self.lastForwardedBeatAt = Date()
+                    if hasValidRR {
+                        self.lastForwardedBeatUptime = receivedUptime
+                    }
                     self.hrSubject.send(frame)
                 }
             }
 
         case PolarH10Profile.batteryLevel:
-            let level = Int(data[0])
+            guard let byte = data.first else { return }
+            let level = Int(byte)
             Task { @MainActor in
-                guard self.peripheral?.identifier == peripheral.identifier,
-                      self.supportedName(peripheral) != nil, !self.userDisconnected else { return }
+                guard self.acceptsConnectionCallback(peripheral, uptime: receivedUptime),
+                      characteristic === self.battChar else { return }
                 self.batteryLevel = level
                 self.alertIfBatteryCritical(level)
             }
@@ -2126,28 +2259,28 @@ extension BLEService: CBPeripheralDelegate {
     nonisolated func peripheral(_ peripheral: CBPeripheral,
                                 didUpdateNotificationStateFor characteristic: CBCharacteristic,
                                 error: Error?) {
+        let receivedUptime = ProcessInfo.processInfo.systemUptime
         Task { @MainActor in
-            guard self.peripheral?.identifier == peripheral.identifier,
-                  !self.userDisconnected, !self.recoveryReconnectPending,
-                  peripheral.state == .connected,
-                  characteristic === self.hrChar else { return }
-            if let error {
-                BLEDiag.log("HR notification error: \(error.localizedDescription)")
+            guard self.acceptsConnectionCallback(peripheral, uptime: receivedUptime) else { return }
+            if characteristic === self.hrChar {
+                if let error { BLEDiag.log("HR notification error: \(error.localizedDescription)") }
+                self.performRecoveryCommand(self.recoveryCommands.hrNotificationStateUpdated())
+                self.checkRecordingRecovery()
+            } else if characteristic === self.pmdControl || characteristic === self.pmdData {
+                if let error { BLEDiag.log("PMD notification error: \(error.localizedDescription)") }
+                self.evaluatePMDWatchdog()
             }
-            self.performRecoveryCommand(self.recoveryCommands.hrNotificationStateUpdated())
-            self.checkRecordingRecovery()
         }
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didReadRSSI RSSI: NSNumber,
                                 error: Error?) {
         let receivedAt = Date()
+        let receivedUptime = ProcessInfo.processInfo.systemUptime
         Task { @MainActor in
-            guard self.peripheral?.identifier == peripheral.identifier,
-                  !self.userDisconnected, !self.recoveryReconnectPending,
-                  peripheral.state == .connected else { return }
+            guard self.acceptsConnectionCallback(peripheral, uptime: receivedUptime) else { return }
             if error == nil {
-                self.applyRecordingRecovery(self.rrRecovery.receivedPacket(at: receivedAt))
+                self.applyRecordingRecovery(self.rrRecovery.receivedPacket(at: receivedAt, uptime: receivedUptime))
             } else {
                 self.checkRecordingRecovery()
             }
@@ -2157,11 +2290,20 @@ extension BLEService: CBPeripheralDelegate {
     nonisolated func peripheral(_ peripheral: CBPeripheral,
                                 didWriteValueFor characteristic: CBCharacteristic,
                                 error: Error?) {
-        if let error {
-            print("❌ BLE: write error for \(characteristic.uuid) — \(error)")
-            Task { @MainActor in
-                self.lastError = "BLE write error: \(error.localizedDescription)"
+        let receivedUptime = ProcessInfo.processInfo.systemUptime
+        Task { @MainActor in
+            guard self.acceptsConnectionCallback(peripheral, uptime: receivedUptime),
+                  characteristic === self.pmdControl,
+                  let transaction = self.pmdCommands.inFlight,
+                  transaction.sentUptime.map({ receivedUptime >= $0 }) == true,
+                  transaction.generation == self.pmdCommands.generation else { return }
+            // ATT write acknowledgement is not the sensor's PMD response.
+            // Even a write error is bounded by the transaction timeout; a
+            // delayed ACK must not complete a different PMD transaction.
+            if let error {
+                BLEDiag.log("PMD write error: \(error.localizedDescription)")
             }
+            self.evaluatePMDWatchdog()
         }
     }
 }

@@ -4,6 +4,19 @@ import XCTest
 /// Unit tests for MetricsEngine accuracy vs known reference outputs.
 /// Reference values produced by running metrics.py with the same inputs.
 final class MetricsTests: XCTestCase {
+    func testSensorScheduleUsesMonotonicElapsedTimeAcrossClockChange() {
+        var schedule = MetricTriggerPolicy(minInterval: 2)
+        XCTAssertTrue(schedule.acceptSensorFrame(at: Date(timeIntervalSince1970: 5000), hasRR: true, uptime: 100))
+        XCTAssertFalse(schedule.acceptSensorFrame(at: Date(timeIntervalSince1970: 1000), hasRR: true, uptime: 101))
+        XCTAssertTrue(schedule.acceptSensorFrame(at: Date(timeIntervalSince1970: 1001), hasRR: true, uptime: 102))
+    }
+    func testSensorScheduleRecoversAfterClockMovesBackward() {
+        var schedule = MetricTriggerPolicy(minInterval: 2)
+        XCTAssertTrue(schedule.acceptSensorFrame(at: Date(timeIntervalSince1970: 5000), hasRR: true))
+        XCTAssertTrue(schedule.acceptSensorFrame(at: Date(timeIntervalSince1970: 1000), hasRR: true))
+        XCTAssertFalse(schedule.acceptSensorFrame(at: Date(timeIntervalSince1970: 1001), hasRR: true))
+        XCTAssertTrue(schedule.acceptSensorFrame(at: Date(timeIntervalSince1970: 1002), hasRR: true))
+    }
 
     func testSensorDrivenScheduleAcceptsFreshRRWithoutTimerWake() {
         var schedule = MetricTriggerPolicy(minInterval: 2)

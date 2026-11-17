@@ -19,14 +19,8 @@ struct SettingsView: View {
     @State private var showDataDetail = false
     @State private var isDeletingCloudData = false
     @State private var notificationsAuthorized: Bool?
-    /// Re-read on appear rather than held live: the file changes from a
-    /// background queue (`BLEDiag.log`), and this only needs to be right
-    /// often enough to decide whether the share row is worth showing.
-    @State private var diagLogSize: Int?
-
-    private func refreshDiagLogSize() {
-        diagLogSize = try? BLEDiag.url.resourceValues(forKeys: [.fileSizeKey]).fileSize
-    }
+    @State private var diagnosticExport: DiagnosticShareItem?
+    @State private var diagnosticError: String?
 
     // MARK: Cloud restore
     @Environment(\.modelContext) private var modelContext
@@ -133,24 +127,29 @@ struct SettingsView: View {
                             .font(Theme.monoLabel)
                             .foregroundStyle(Theme.dim)
 
-                        // Hidden until there's something to share — a fresh
-                        // install, or right after BLEDiag's own rotation has
-                        // just cleared the file.
-                        if BLEDiagExport.isAvailable(fileSize: diagLogSize) {
-                            ShareLink(item: BLEDiag.url) {
+                        Button {
+                            do {
+                                diagnosticExport = DiagnosticShareItem(url: try env.recordingDiagnostics())
+                                diagnosticError = nil
+                            } catch { diagnosticError = "Could not prepare diagnostics: \(error.localizedDescription)" }
+                        } label: {
                                 HStack {
-                                    Text("Share Bluetooth diagnostics")
+                                    Text("Share recording diagnostics")
                                         .font(Theme.monoBody)
                                         .foregroundStyle(Theme.text)
                                     Spacer()
                                     Image(systemName: "square.and.arrow.up")
                                         .foregroundStyle(Theme.dim)
                                 }
-                            }
+                        }
+                        if let diagnosticError {
+                            Text(diagnosticError).font(Theme.monoLabel).foregroundStyle(Theme.dim)
                         }
                     }
                     .listRowBackground(Theme.card)
-                    .onAppear { refreshDiagLogSize() }
+                    .sheet(item: $diagnosticExport) { item in
+                        RecordingDiagnosticShareSheet(url: item.url)
+                    }
 
                     // ── Server ────────────────────────────────────────
                     Section("SERVER SYNC") {
@@ -261,9 +260,9 @@ struct SettingsView: View {
                         }
                         .tint(Theme.accent)
                         .onChange(of: cloudSyncEnabled) { _, enabled in
+                            env.metricSync.setEnabled(enabled)
                             if enabled { env.checkIns.requestSync() }
                             Task { await env.rawSync?.syncIfEnabled() }
-                            Task { await env.metricSync.syncIfEnabled() }
                         }
 
                         if cloudSyncEnabled, let uploaded = env.metricSync.lastUploadedAt {
@@ -619,4 +618,17 @@ private struct NewTokenSheet: View {
             .foregroundStyle(Theme.accent)
         }
     }
+}
+
+private struct DiagnosticShareItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct RecordingDiagnosticShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
