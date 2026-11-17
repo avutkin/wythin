@@ -11,28 +11,12 @@ struct StartActivitySheet: View {
     @State private var selectedSubtype:  String?      = nil
     @State private var customName:       String       = ""
     @State private var showCustom:       Bool         = false
-    @State private var targetMinutes:    Double?      = nil
-    /// "now" is captured when the sheet appears rather than read on every
-    /// render, so the projected end time does not creep forward while the sheet
-    /// is open and the user is still choosing.
-    @State private var openedAt:         Date         = .now
 
     init(preselected: ActivityType? = nil, onStart: @escaping (ActivityType, String?, String?, Int?) -> Void) {
         self.preselected = preselected
         self.onStart     = onStart
         _selected  = State(initialValue: preselected ?? .meditation)
         _showCustom = State(initialValue: preselected == .custom)
-    }
-
-    /// The end time, projected from the target and writing back a duration.
-    ///
-    /// Deliberately not stored: an independent end-time value would drift out
-    /// of agreement with the target it is supposed to describe.
-    private var endByBinding: Binding<Date> {
-        Binding(
-            get: { ActivityTimeMath.end(start: openedAt, minutes: targetMinutes ?? 20) },
-            set: { targetMinutes = ActivityTimeMath.minutes(start: openedAt, end: $0) }
-        )
     }
 
     var body: some View {
@@ -44,26 +28,11 @@ struct StartActivitySheet: View {
                                           customName: $customName,
                                           showCustom: $showCustom)
 
-                    DurationPresetRow(minutes: $targetMinutes, title: "TARGET (OPTIONAL)",
-                                      valueLabel: ActivityTimeMath.endLabel(start: openedAt,
-                                                                            minutes: targetMinutes)
-                                          .map { "ends \($0)" } ?? "")
+                    Text("Your timer and live metrics start now. Tap Finish when you’re done.")
+                        .font(Theme.monoLabel)
+                        .foregroundStyle(Theme.dim)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal)
-
-                    // Choosing an end sets the target; choosing a preset moves
-                    // the shown end. One value underneath, two ways in.
-                    if targetMinutes != nil {
-                        HStack {
-                            Text("END BY")
-                                .font(Theme.monoLabel)
-                                .foregroundStyle(Theme.dim)
-                            Spacer()
-                            DatePicker("", selection: endByBinding,
-                                       displayedComponents: [.hourAndMinute])
-                                .labelsHidden()
-                        }
-                        .padding(.horizontal)
-                    }
 
                 }
                 .padding(.top, 16)
@@ -75,12 +44,12 @@ struct StartActivitySheet: View {
             .safeAreaInset(edge: .bottom) {
                 Button {
                     let name = selected == .custom && !customName.isEmpty ? customName : nil
-                    onStart(selected, selectedSubtype, name, targetMinutes.map { Int($0) })
+                    onStart(selected, selectedSubtype, name, nil)
                     dismiss()
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "play.fill")
-                        Text("START ACTIVITY")
+                        Text("START NOW")
                     }
                     .font(Theme.monoBody)
                     .foregroundStyle(Theme.bg)
@@ -89,6 +58,8 @@ struct StartActivitySheet: View {
                     .background(Theme.accent)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("activity.start.confirm")
                 .disabled(selected == .custom && customName.isEmpty)
                 .padding(.horizontal)
                 .padding(.top, 12)
@@ -101,7 +72,6 @@ struct StartActivitySheet: View {
                         .frame(height: 0.5)
                 }
             }
-            .onAppear { openedAt = .now }
             .navigationTitle("START ACTIVITY")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bg, for: .navigationBar)

@@ -47,11 +47,7 @@ struct ActivitiesView: View {
         let todayKey = dayKey(.now, calendar: currentCalendar)
         let yesterdayKey = currentCalendar.date(byAdding: .day, value: -1, to: .now)
             .map { dayKey($0, calendar: currentCalendar) }
-        // A running session is listed like any other — as the row it will
-        // become, wrapped in a live frame — rather than as a separate banner
-        // with three pills. The banner showed a clock and no verdict, and the
-        // verdict then appeared fully formed the moment the session stopped.
-        let grouped = Dictionary(grouping: allEntries) { entry in
+        let grouped = Dictionary(grouping: ActivityLogging.historyEntries(in: allEntries)) { entry in
             dayKey(entry.startedAt, calendar: entry.recordedCalendar)
         }
 
@@ -100,11 +96,10 @@ struct ActivitiesView: View {
                 .sheet(item: $activeSheet) { sheet in
                     sheetContent(sheet)
                 }
-                // Every strap tick re-derives the rows still in motion: the one
-                // recording, and any that stopped inside the last ten minutes.
-                // Rows settle on their own and drop out of the candidate set.
+                // Live readings use the incoming tick directly. Only finished
+                // sessions need their after-window summaries refreshed here.
                 .onChange(of: env.latestTick?.timestamp) { _, _ in
-                    ActivityLogging.refreshLive(entries: allEntries, context: ctx)
+                    ActivityLogging.refreshLive(entries: ActivityLogging.historyEntries(in: allEntries), context: ctx)
                 }
         }
     }
@@ -131,6 +126,8 @@ struct ActivitiesView: View {
                             .background(Theme.accent)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("activity.start")
 
                         Button {
                             activeSheet = .logPast
@@ -148,12 +145,38 @@ struct ActivitiesView: View {
                             .overlay(RoundedRectangle(cornerRadius: 8)
                                 .strokeBorder(Theme.accent.opacity(0.3), lineWidth: 0.5))
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("activity.logPast")
                     }
                     .cardStyle()
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .listRowInsets(.init(top: 8, leading: 16, bottom: 4, trailing: 16))
                 }
+            }
+
+            if !activeEntries.isEmpty {
+                Section {
+                    ForEach(activeEntries) { entry in
+                        TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                            LiveActivityCard(entry: entry, now: timeline.date,
+                                point: LiveActivityPresentation.currentPoint(
+                                    env.latestTick.map { MetricsHistoryPoint(from: $0) },
+                                    startedAt: entry.startedAt, now: timeline.date,
+                                    signalAvailable: env.ble.rrIntervalsLive),
+                                onFinish: { endActivity(entry) })
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(.init(top: 4, leading: 16, bottom: 12, trailing: 16))
+                    }
+                } header: {
+                    Text("LIVE ACTIVITY")
+                        .font(Theme.monoLabel)
+                        .foregroundStyle(Theme.accent)
+                        .textCase(nil)
+                }
+                .listSectionSeparator(.hidden)
             }
 
             // ── Activity history, grouped by day ──────────────────
@@ -273,6 +296,132 @@ struct ActivitiesView: View {
         try? ctx.save()
     }
 
+}
+
+// MARK: - Ongoing activity
+
+/// Current readings and elapsed time only. Completed scores belong in history
+/// after Finish, not in the recording control.
+struct LiveActivityCard: View {
+    let entry: ActivityLog
+    let now: Date
+    let point: MetricsHistoryPoint?
+    let onFinish: () -> Void
+
+    private var startTime: String {
+        let format = DateFormatter()
+        format.timeZone = entry.recordedCalendar.timeZone
+        format.dateFormat = "HH:mm"
+        return format.string(from: entry.startedAt)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 10) {
+                Image(systemName: entry.activityTypeEnum.icon)
+                    .font(.system(size: 22))
+                    .foregroundStyle(entry.activityTypeEnum.color)
+                    .frame(width: 42, height: 42)
+                    .background(entry.activityTypeEnum.color.opacity(0.12), in: Circle())
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(entry.displayName)
+                        .font(Theme.mono(17))
+                        .foregroundStyle(Theme.text)
+                    Text("Started \(startTime)")
+                        .font(Theme.monoLabel)
+                        .foregroundStyle(Theme.dim)
+                }
+                Spacer()
+                HStack(spacing: 5) {
+                    PulsingDot(color: Theme.accent)
+                    Text("LIVE").font(Theme.monoLabel)
+                }
+                .foregroundStyle(Theme.accent)
+            }
+
+            HStack(alignment: .firstTextBaseline) {
+                Text(LiveActivityPresentation.clock(startedAt: entry.startedAt, now: now))
+                    .font(.system(size: 40, weight: .light, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.text)
+                    .accessibilityLabel("Elapsed time")
+                    .accessibilityIdentifier("activity.live.elapsed")
+                Spacer()
+                Text("ELAPSED")
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+            }
+
+            Rectangle().fill(Theme.border).frame(height: 0.5)
+
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Image(systemName: "heart.fill")
+                    .foregroundStyle(Theme.accent)
+                Text(MetricFormat.bpm(value(.hr)))
+                    .font(.system(size: 54, weight: .light, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.accent)
+                    .accessibilityIdentifier("activity.live.pulse")
+                Text("bpm")
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+                Spacer()
+                Text("PULSE NOW")
+                    .font(Theme.monoLabel)
+                    .foregroundStyle(Theme.dim)
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                reading("Calm Power", value: MetricFormat.ms(value(.rmssd)), unit: "ms")
+                reading("Stress Balance", value: MetricFormat.bpm(value(.stressBalance)), unit: "/ 100")
+                reading("Breath Rate", value: MetricFormat.ms(value(.breathBPM)), unit: "br/min")
+                reading("Vagal Tone", value: MetricFormat.ms(value(.dc)), unit: "ms")
+            }
+
+            Text(point == nil
+                 ? "Waiting for fresh sensor data. Your timer is still running."
+                 : "Live readings · updated as measurements arrive.")
+                .font(Theme.monoLabel)
+                .foregroundStyle(point == nil ? Theme.warn : Theme.dim)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("activity.live.signal")
+
+            Button(action: onFinish) {
+                Label("FINISH", systemImage: "stop.fill")
+                    .font(Theme.monoBody)
+                    .foregroundStyle(Theme.bg)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Theme.accent, in: RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("activity.live.finish")
+        }
+        .padding(18)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Theme.accent.opacity(0.35), lineWidth: 1))
+        .accessibilityIdentifier("activity.live.card")
+    }
+
+    private func value(_ metric: LiveMetric) -> Float? {
+        LiveActivityPresentation.value(metric, point: point)
+    }
+
+    private func reading(_ title: String, value: String, unit: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(Theme.monoLabel).foregroundStyle(Theme.dim)
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(value)
+                    .font(Theme.mono(22))
+                    .foregroundStyle(Theme.text)
+                    .monospacedDigit()
+                Text(unit).font(Theme.monoLabel).foregroundStyle(Theme.dim)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Theme.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
+    }
 }
 
 // MARK: - LiveActivityFrame

@@ -1,5 +1,6 @@
 import XCTest
 import SwiftData
+import SwiftUI
 @testable import Wythin
 
 /// Guards the "at most one activity is recording" invariant.
@@ -135,6 +136,118 @@ final class ActiveActivityTests: XCTestCase {
                                startedAt: now.addingTimeInterval(-600),
                                endedAt: now, isManual: true)
         XCTAssertTrue(ActivityLogging.activeEntries(in: [done]).isEmpty)
+    }
+
+    func testFinishingAgainDoesNotMoveTheSavedEndTime() {
+        let ctx = makeContext()
+        let finishedAt = Date(timeIntervalSince1970: 1_000_600)
+        let entry = ActivityLog(activityType: ActivityType.exercise.rawValue,
+                                startedAt: finishedAt.addingTimeInterval(-600),
+                                endedAt: finishedAt, isManual: false)
+        ctx.insert(entry)
+        try? ctx.save()
+        ActivityLogging.end(entry, context: ctx, client: nil)
+        XCTAssertEqual(entry.endedAt, finishedAt, "Finish must be idempotent")
+    }
+
+    func testLiveSessionSurvivesReloadWithoutAcquiringAnEndTime() throws {
+        let ctx = makeContext()
+        let entry = ActivityLogging.begin(type: .exercise, subtype: "Easy Run", customName: nil,
+                                          targetMinutes: nil, context: ctx)
+        let reloaded = try XCTUnwrap(ModelContext(ctx.container).fetch(FetchDescriptor<ActivityLog>()).first)
+        XCTAssertEqual(reloaded.id, entry.id)
+        XCTAssertEqual(reloaded.startedAt, entry.startedAt)
+        XCTAssertNil(reloaded.endedAt)
+        XCTAssertNil(reloaded.targetMinutes)
+        XCTAssertTrue(reloaded.isActive)
+        XCTAssertEqual(LiveActivityPresentation.clock(startedAt: reloaded.startedAt,
+            now: entry.startedAt.addingTimeInterval(3_725)), "01:02:05")
+    }
+
+    func testLiveEntriesStayOutOfHistoryUntilFinish() throws {
+        let ctx = makeContext()
+        let past = ActivityLog(activityType: "Walk", startedAt: .now.addingTimeInterval(-300),
+                               endedAt: .now.addingTimeInterval(-60), isManual: true)
+        let active = ActivityLogging.begin(type: .exercise, subtype: "Easy Run", customName: nil,
+                                           targetMinutes: nil, context: ctx)
+        ctx.insert(past)
+        XCTAssertEqual(ActivityLogging.historyEntries(in: [active, past]).map(\.id), [past.id])
+        XCTAssertEqual(ActivityLogging.activeEntries(in: [active, past]).map(\.id), [active.id])
+        let began = active.startedAt
+        ActivityLogging.end(active, context: ctx, client: nil)
+        XCTAssertEqual(active.startedAt, began)
+        XCTAssertNotNil(active.endedAt)
+        XCTAssertTrue(ActivityLogging.activeEntries(in: [active, past]).isEmpty)
+        XCTAssertEqual(ActivityLogging.historyEntries(in: [active, past]).map(\.id), [active.id, past.id])
+        let saved = try ModelContext(ctx.container).fetch(FetchDescriptor<ActivityLog>())
+        XCTAssertNotNil(saved.first(where: { $0.id == active.id })?.endedAt)
+    }
+
+    func testElapsedClockAdvancesWithoutMetricsAndDoesNotFinishAtTarget() {
+        let began = Date(timeIntervalSince1970: 1_000_000)
+        let entry = ActivityLog(activityType: "Exercise", startedAt: began, targetMinutes: 5)
+        XCTAssertEqual(LiveActivityPresentation.clock(startedAt: began, now: began), "00:00")
+        XCTAssertEqual(LiveActivityPresentation.clock(startedAt: began, now: began.addingTimeInterval(1)), "00:01")
+        XCTAssertEqual(LiveActivityPresentation.clock(startedAt: began, now: began.addingTimeInterval(601)), "10:01")
+        XCTAssertTrue(entry.isActive)
+        XCTAssertNil(entry.endedAt)
+        XCTAssertEqual(LiveActivityPresentation.clock(startedAt: began, now: began.addingTimeInterval(-10)), "00:00")
+    }
+
+    func testLiveReadingsRequireFreshMeasurementsFromThisSession() {
+        let began = Date(timeIntervalSince1970: 1_000_000)
+        let now = began.addingTimeInterval(30)
+        let point = MetricsHistoryPoint(timestamp: now, meanBPM: 166, rmssd: 18, sdnn: 22)
+        XCTAssertEqual(LiveActivityPresentation.currentPoint(point, startedAt: began,
+            now: now, signalAvailable: true)?.meanBPM, 166)
+        XCTAssertNil(LiveActivityPresentation.currentPoint(point, startedAt: began,
+            now: now.addingTimeInterval(7), signalAvailable: true), "A stopped stream is not live")
+        XCTAssertNil(LiveActivityPresentation.currentPoint(point, startedAt: began,
+            now: now, signalAvailable: false))
+        XCTAssertNil(LiveActivityPresentation.currentPoint(point, startedAt: now.addingTimeInterval(1),
+            now: now.addingTimeInterval(1), signalAvailable: true), "Do not borrow the previous session's reading")
+        XCTAssertNil(LiveActivityPresentation.currentPoint(point, startedAt: began,
+            now: now.addingTimeInterval(-1), signalAvailable: true))
+        XCTAssertNil(LiveActivityPresentation.currentPoint(nil, startedAt: began,
+            now: now, signalAvailable: true))
+    }
+
+    func testLiveReadingsUseCurrentValuesAndLeaveMissingValuesBlank() {
+        let now = Date()
+        var point = MetricsHistoryPoint(timestamp: now, meanBPM: 166, rmssd: 18, dc: 3)
+        point.stressBalance = 62
+        XCTAssertEqual(LiveActivityPresentation.value(.hr, point: point), 166)
+        XCTAssertEqual(LiveActivityPresentation.value(.stressBalance, point: point), 62)
+        XCTAssertNil(LiveActivityPresentation.value(.breathBPM, point: point))
+        XCTAssertNil(LiveActivityPresentation.value(.hr, point: nil))
+        let invalid = MetricsHistoryPoint(timestamp: now, meanBPM: .nan)
+        XCTAssertNil(LiveActivityPresentation.value(.hr, point: invalid))
+    }
+
+    /// Static render of the production view for visual review; no UI automation
+    /// or synthetic measurements enter the app's persistent store.
+    @MainActor
+    func testLiveActivityCardRendersAtCompactPhoneWidth() throws {
+        let began = Date(timeIntervalSince1970: 1_000_000)
+        let entry = ActivityLog(activityType: "Exercise", activitySubtype: "Easy Run", startedAt: began)
+        let now = began.addingTimeInterval(793)
+        let point = MetricsHistoryPoint(timestamp: now, meanBPM: 166, rmssd: 18.4,
+                                        breathBPM: 25, dc: 3.2)
+        for (name, reading) in [("live", Optional(point)), ("waiting", nil)] {
+            let view = LiveActivityCard(entry: entry, now: now, point: reading, onFinish: {})
+                .padding(16).frame(width: 375).background(Theme.bg)
+                .environment(\.colorScheme, .dark)
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            let image = try XCTUnwrap(renderer.uiImage)
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "activity-\(name)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("activity-\(name)-preview.png")
+            try XCTUnwrap(image.pngData()).write(to: url)
+        }
     }
 
     // MARK: The after-window

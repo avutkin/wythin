@@ -69,6 +69,11 @@ enum ActivityLogging {
         entries.filter(\.isActive).sorted { $0.startedAt < $1.startedAt }
     }
 
+    /// Recording sessions have their own live section, never a finished-score row.
+    static func historyEntries(in entries: [ActivityLog]) -> [ActivityLog] {
+        entries.filter { !$0.isActive }
+    }
+
     /// The entries whose numbers are still moving: every one recording now,
     /// and every one that stopped inside its after-window. The Activities list
     /// recomputes these on each strap tick; everything older is settled and
@@ -93,6 +98,7 @@ enum ActivityLogging {
     /// `client` is optional so the repair path above can run without one; a nil
     /// client skips insight generation but still closes the entry properly.
     static func end(_ entry: ActivityLog, context: ModelContext, client: InsightAPIClient?) {
+        guard entry.isActive else { return }
         entry.endedAt = .now
         Task { @MainActor in LiveSessionController.shared.end() }
         entry.computeHRVWindows(context: context)
@@ -122,6 +128,35 @@ enum ActivityLogging {
         entry.computeExerciseResponse(context: context)
         try? context.save()
         Task { await InsightGenerator(client: client).generate(for: entry, context: context) }
+    }
+}
+
+/// Presentation values for an ongoing activity. The clock comes from its saved
+/// start time, so changing tabs, backgrounding or relaunching cannot reset it.
+enum LiveActivityPresentation {
+    static func elapsed(startedAt: Date, now: Date) -> TimeInterval {
+        max(0, now.timeIntervalSince(startedAt))
+    }
+
+    static func clock(startedAt: Date, now: Date) -> String {
+        let seconds = Int(elapsed(startedAt: startedAt, now: now))
+        if seconds >= 3600 {
+            return String(format: "%02d:%02d:%02d", seconds / 3600, (seconds / 60) % 60, seconds % 60)
+        }
+        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
+    }
+
+    /// Do not present a pre-session or frozen foreground tick as a live reading.
+    static func currentPoint(_ point: MetricsHistoryPoint?, startedAt: Date,
+                             now: Date, signalAvailable: Bool) -> MetricsHistoryPoint? {
+        guard signalAvailable, let point, point.timestamp >= startedAt,
+              (0...6).contains(now.timeIntervalSince(point.timestamp)) else { return nil }
+        return point
+    }
+
+    static func value(_ metric: LiveMetric, point: MetricsHistoryPoint?) -> Float? {
+        guard let point, let value = metric.value(point), value.isFinite else { return nil }
+        return value
     }
 }
 
