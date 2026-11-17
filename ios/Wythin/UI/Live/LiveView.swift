@@ -1173,7 +1173,7 @@ struct BLEConnectionSheet: View {
             Text(message)
                 .font(Theme.monoLabel)
                 .foregroundStyle(Theme.warn)
-                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer()
         }
         .padding(12)

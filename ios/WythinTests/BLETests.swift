@@ -310,6 +310,94 @@ final class BLETests: XCTestCase {
         XCTAssertNil(commands.next(at: recoveryStart.addingTimeInterval(1)))
     }
 
+    func testImmediateConnectionOmitsUnnecessaryStartDelay() {
+        XCTAssertNil(BLEConnectionRecovery.options()[CBConnectPeripheralOptionStartDelayKey],
+                     "An immediate connection must not send an optional zero delay")
+    }
+
+    func testRejectedConnectionParametersFallBackToNilOptionsImmediately() {
+        let id = UUID()
+        var parameters = BLEConnectionParameters()
+        let rejected = parameters.request(for: id)
+        XCTAssertNotNil(rejected.options)
+        let invalid = NSError(domain: CBErrorDomain, code: CBError.invalidParameters.rawValue)
+        XCTAssertTrue(parameters.rejected(invalid, for: id))
+        let retry = parameters.request(for: id)
+        XCTAssertNil(retry.options, "Do not repeat any optional parameters rejected by iOS")
+        XCTAssertEqual(retry.localDelay, 0, "Arm the first fallback before background execution can end")
+        XCTAssertFalse(parameters.rejected(invalid, for: id), "Only one immediate fallback is allowed")
+    }
+
+    func testBasicRetryBacksOffWithoutReintroducingRejectedOptions() {
+        let id = UUID()
+        var parameters = BLEConnectionParameters()
+        var recovery = BLEConnectionRecovery()
+        let invalid = NSError(domain: CBErrorDomain, code: CBError.invalidParameters.rawValue)
+        XCTAssertTrue(parameters.rejected(invalid, for: id))
+        for expected in [2.0, 4, 8, 16, 32, 60, 60] {
+            XCTAssertFalse(parameters.rejected(invalid, for: id))
+            let request = parameters.request(for: id, delay: recovery.failedAttemptDelay())
+            XCTAssertNil(request.options)
+            XCTAssertEqual(request.localDelay, expected)
+        }
+        recovery.connectionSucceeded()
+        XCTAssertNil(parameters.request(for: id).options,
+                     "A successful basic connection must not restore rejected parameters on reconnect")
+    }
+
+    func testConnectionParameterFallbackIsScopedToTheSensorAndErrorDomain() {
+        let first = UUID(), second = UUID()
+        var parameters = BLEConnectionParameters()
+        XCTAssertFalse(parameters.rejected(nil, for: first))
+        XCTAssertFalse(parameters.rejected(NSError(domain: NSCocoaErrorDomain,
+            code: CBError.invalidParameters.rawValue), for: first))
+        XCTAssertFalse(parameters.rejected(NSError(domain: CBErrorDomain,
+            code: CBError.connectionTimeout.rawValue), for: first))
+        XCTAssertNotNil(parameters.request(for: first).options)
+        XCTAssertTrue(parameters.rejected(NSError(domain: CBErrorDomain,
+            code: CBError.invalidParameters.rawValue), for: first))
+        XCTAssertNil(parameters.request(for: first).options)
+        XCTAssertNotNil(parameters.request(for: second).options)
+    }
+
+    func testConnectionDelayIsFiniteBoundedAndOnlySentWhenPositive() {
+        for delay in [Double.nan, .infinity, -.infinity, -1, 0] {
+            XCTAssertNil(BLEConnectionRecovery.options(delay: delay)[CBConnectPeripheralOptionStartDelayKey])
+        }
+        let options = BLEConnectionRecovery.options(delay: 10_000)
+        XCTAssertEqual((options[CBConnectPeripheralOptionStartDelayKey] as? NSNumber)?.doubleValue, 60)
+    }
+
+    func testDeferredBasicRetryCannotReconnectAfterStopSwitchOrSystemReconnect() {
+        let id = UUID()
+        XCTAssertTrue(BLEConnectionParameters.canSubmitDeferred(targetID: id, requestedID: id,
+            userDisconnected: false, poweredOn: true, linkState: .disconnected))
+        for state in [CBPeripheralState.connecting, .connected, .disconnecting] {
+            XCTAssertFalse(BLEConnectionParameters.canSubmitDeferred(targetID: id, requestedID: id,
+                userDisconnected: false, poweredOn: true, linkState: state))
+        }
+        XCTAssertFalse(BLEConnectionParameters.canSubmitDeferred(targetID: nil, requestedID: id,
+            userDisconnected: false, poweredOn: true, linkState: .disconnected))
+        XCTAssertFalse(BLEConnectionParameters.canSubmitDeferred(targetID: UUID(), requestedID: id,
+            userDisconnected: false, poweredOn: true, linkState: .disconnected))
+        XCTAssertFalse(BLEConnectionParameters.canSubmitDeferred(targetID: id, requestedID: id,
+            userDisconnected: true, poweredOn: true, linkState: .disconnected))
+        XCTAssertFalse(BLEConnectionParameters.canSubmitDeferred(targetID: id, requestedID: id,
+            userDisconnected: false, poweredOn: false, linkState: .disconnected))
+    }
+
+    func testInvalidParametersNeverProduceACompetingAppHint() {
+        let error = NSError(domain: CBErrorDomain, code: CBError.invalidParameters.rawValue)
+        XCTAssertFalse(ConnectionFailurePattern.looksLikeContention(recentFailureCount: 100,
+            windowSeconds: 20, error: error))
+        for firstFallback in [true, false] {
+            let message = ConnectionFailurePattern.message(for: error, usingBasicRetry: firstFallback,
+                recentFailureCount: 100, windowSeconds: 20)
+            XCTAssertFalse(message.contains("another app"))
+            XCTAssertTrue(message.contains("Retrying"))
+        }
+    }
+
     func testPersistentConnectionsDelegateRetryAndBackoffToIOS() {
         let options = BLEConnectionRecovery.options(delay: 60)
         XCTAssertEqual(options[CBConnectPeripheralOptionEnableAutoReconnect] as? Bool, true)
@@ -1124,14 +1212,9 @@ final class BLETests: XCTestCase {
 
     // MARK: - Connection failure pattern (possible multi-app contention)
     //
-    // The H10 is a single-link BLE peripheral: only one central can hold its
-    // GATT connection. A native Polar app with its own background connection
-    // competes for that one slot, and CoreBluetooth gives the losing side
-    // nothing distinctive back — just the same connectionTimeout a dead
-    // battery or an out-of-range strap would also produce. There is no CBError
-    // code that means "someone else has it," so this cannot name the cause.
-    // What it CAN do honestly is notice the shape only contention produces:
-    // several failures in quick succession, not a single one.
+    // Repeated failures may accompany contention, but do not identify it.
+    // Apps on one iPhone do not each consume a separate physical BLE slot.
+    // Invalid request parameters must never trigger the competing-app hint.
     func testConnectionFailurePatternIsQuietOnAFirstFailure() {
         XCTAssertFalse(ConnectionFailurePattern.looksLikeContention(
             recentFailureCount: 1, windowSeconds: 20))

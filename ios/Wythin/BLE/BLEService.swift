@@ -259,9 +259,15 @@ struct BLEConnectionRecovery {
     }
 
     static func options(delay: TimeInterval = 0) -> [String: Any] {
-        [CBConnectPeripheralOptionNotifyOnDisconnectionKey: true,
-         CBConnectPeripheralOptionEnableAutoReconnect: true,
-         CBConnectPeripheralOptionStartDelayKey: delay]
+        var options: [String: Any] = [
+            CBConnectPeripheralOptionNotifyOnDisconnectionKey: NSNumber(value: true),
+            CBConnectPeripheralOptionEnableAutoReconnect: NSNumber(value: true)
+        ]
+        let delay = BLEConnectionParameters.boundedDelay(delay)
+        if delay > 0 {
+            options[CBConnectPeripheralOptionStartDelayKey] = NSNumber(value: delay)
+        }
+        return options
     }
 
     mutating func requested(at date: Date, delay: TimeInterval = 0, uptime: TimeInterval? = nil) {
@@ -317,6 +323,49 @@ struct BLEConnectionRecovery {
         if linkState == .connected { return .ignore }
         if wasCanceled && linkState != .disconnected { return .ignore }
         return systemIsReconnecting || linkState == .connecting ? .waitForSystem : .reconnect
+    }
+}
+
+/// An invalid-parameters callback must change the next request, not replay the
+/// rejected options forever. Remember the fallback per sensor for this process;
+/// success and ordinary reconnects must not reintroduce the rejected options.
+struct BLEConnectionParameters {
+    struct Request {
+        let options: [String: Any]?
+        /// Only needed when all optional CoreBluetooth parameters are omitted.
+        let localDelay: TimeInterval
+    }
+
+    private var basicPeripheralIDs: Set<UUID> = []
+
+    static func boundedDelay(_ delay: TimeInterval) -> TimeInterval {
+        delay.isFinite ? min(60, max(0, delay)) : 0
+    }
+
+    static func isInvalidParameters(_ error: Error?) -> Bool {
+        guard let error = error as NSError? else { return false }
+        return error.domain == CBErrorDomain && error.code == CBError.invalidParameters.rawValue
+    }
+
+    /// Returns true only for the first transition to the basic request, allowing
+    /// one immediate retry. Repeated failures must use the normal backoff.
+    mutating func rejected(_ error: Error?, for id: UUID) -> Bool {
+        guard Self.isInvalidParameters(error) else { return false }
+        return basicPeripheralIDs.insert(id).inserted
+    }
+
+    func request(for id: UUID, delay: TimeInterval = 0) -> Request {
+        let delay = Self.boundedDelay(delay)
+        if basicPeripheralIDs.contains(id) {
+            return Request(options: nil, localDelay: delay)
+        }
+        return Request(options: BLEConnectionRecovery.options(delay: delay), localDelay: 0)
+    }
+
+    static func canSubmitDeferred(targetID: UUID?, requestedID: UUID,
+                                  userDisconnected: Bool, poweredOn: Bool,
+                                  linkState: CBPeripheralState) -> Bool {
+        targetID == requestedID && !userDisconnected && poweredOn && linkState == .disconnected
     }
 }
 
@@ -624,8 +673,25 @@ enum ConnectionFailurePattern {
     static let minCount = 3
     static let windowSeconds: TimeInterval = 60
 
-    static func looksLikeContention(recentFailureCount: Int, windowSeconds: TimeInterval) -> Bool {
-        recentFailureCount >= minCount && windowSeconds <= Self.windowSeconds
+    static func looksLikeContention(recentFailureCount: Int, windowSeconds: TimeInterval,
+                                    error: Error? = nil) -> Bool {
+        !BLEConnectionParameters.isInvalidParameters(error)
+            && recentFailureCount >= minCount && windowSeconds <= Self.windowSeconds
+    }
+
+    static func message(for error: Error?, usingBasicRetry: Bool,
+                        recentFailureCount: Int, windowSeconds: TimeInterval) -> String {
+        if BLEConnectionParameters.isInvalidParameters(error) {
+            return usingBasicRetry
+                ? "Bluetooth could not start the connection. Retrying automatically…"
+                : "Bluetooth still cannot connect. Retrying. If this continues, restart Bluetooth in iPhone Settings."
+        }
+        var message = "Could not connect: \(error?.localizedDescription ?? "unknown error")"
+        if looksLikeContention(recentFailureCount: recentFailureCount,
+                               windowSeconds: windowSeconds, error: error) {
+            message += " — if another app is using this sensor, stop its recording and try again."
+        }
+        return message
     }
 }
 
@@ -1066,6 +1132,7 @@ final class BLEService: NSObject {
     private var pmdStreamsStarted = false
 
     private var connectionRecovery = BLEConnectionRecovery()
+    private var connectionParameters = BLEConnectionParameters()
     private var connectionEstablishedAt: Date?
     private var connectionEstablishedUptime: TimeInterval?
 
@@ -1410,7 +1477,7 @@ final class BLEService: NSObject {
             connectionRecovery.connectionSucceeded()
             rrRecovery.beginConnection(at: connectedAt, uptime: connectedUptime)
             recoveryCommands.beginConnection()
-            centralManager.connect(p, options: BLEConnectionRecovery.options())
+            centralManager.connect(p, options: connectionParameters.request(for: p.identifier).options)
             discoverServices()
             startWatchdog()
         } else {
@@ -1425,9 +1492,17 @@ final class BLEService: NSObject {
             rejectPeripheral(p, source: "pending-connect")
             return
         }
-        BLEDiag.log("CONNECT pending id=\(p.identifier) name=\(name) delay=\(delay)s")
+        let delay = BLEConnectionParameters.boundedDelay(delay)
+        let request = connectionParameters.request(for: p.identifier, delay: delay)
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        BLEDiag.log("CONNECT pending id=\(p.identifier) name=\(name) delay=\(delay)s"
+                    + " options=\(request.options == nil ? "basic" : "automatic")"
+                    + " retryOwner=\(request.localDelay > 0 ? "app" : "system")"
+                    + " background=\(UIApplication.shared.applicationState == .background)")
         state = .connecting(name: name)
-        print("🌙 BLE: armed pending reconnect (no timeout) — waiting for strap-on")
+        print(request.localDelay > 0 ? "🔵 BLE: basic reconnect scheduled" :
+              "🌙 BLE: armed pending reconnect (no timeout) — waiting for strap-on")
         peripheral = p
         p.delegate = self
         pmdStreamsStarted = false
@@ -1435,7 +1510,26 @@ final class BLEService: NSObject {
         accSettings = nil
         connectionRecovery.requested(at: Date(), delay: delay,
                                      uptime: ProcessInfo.processInfo.systemUptime)
-        centralManager.connect(p, options: BLEConnectionRecovery.options(delay: delay))
+        if request.localDelay > 0 {
+            // A basic request cannot carry the rejected system-delay option.
+            // This timer is opportunistic, not a background wake guarantee.
+            // The watchdog/lifecycle path also retains the retry deadline and
+            // rearms if execution resumes after the timer was suspended.
+            reconnectTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(request.localDelay))
+                guard !Task.isCancelled, let self,
+                      BLEConnectionParameters.canSubmitDeferred(
+                        targetID: self.peripheral?.identifier, requestedID: p.identifier,
+                        userDisconnected: self.userDisconnected,
+                        poweredOn: self.centralManager.state == .poweredOn,
+                        linkState: p.state) else { return }
+                self.armPendingConnect(p)
+            }
+        } else {
+            // A nil-options connect is still persistent and owned by iOS; it
+            // does not need a timer or an open app to wait for the sensor.
+            centralManager.connect(p, options: request.options)
+        }
         startWatchdog()
     }
 
@@ -1566,6 +1660,8 @@ final class BLEService: NSObject {
     /// Clears only GATT state (characteristics, stream flags). Keeps `peripheral` alive
     /// so the caller can attempt a direct reconnect without scanning.
     private func clearCharacteristics() {
+        reconnectTask?.cancel()
+        reconnectTask = nil
         pmdCommandTask?.cancel()
         watchdogTask?.cancel()
         pmdWatchdogTask?.cancel()
@@ -1943,26 +2039,31 @@ extension BLEService: CBCentralManagerDelegate {
             self.clearCharacteristics()   // keep the peripheral for a re-arm
 
             let now = Date()
-            self.recentConnectFailures.append(now)
+            let invalidParameters = BLEConnectionParameters.isInvalidParameters(error)
+            let switchedToBasic = self.connectionParameters.rejected(error, for: peripheral.identifier)
+            if invalidParameters {
+                self.recentConnectFailures.removeAll()
+            } else {
+                self.recentConnectFailures.append(now)
+            }
             self.recentConnectFailures.removeAll { now.timeIntervalSince($0) > 300 }
             let span = self.recentConnectFailures.first.map { now.timeIntervalSince($0) } ?? 0
             let looksLikeContention = ConnectionFailurePattern.looksLikeContention(
-                recentFailureCount: self.recentConnectFailures.count, windowSeconds: span)
+                recentFailureCount: self.recentConnectFailures.count, windowSeconds: span, error: error)
             BLEDiag.log("connect failed: \(nsError.map { "\($0.domain) \($0.code)" } ?? "unknown")"
                        + (looksLikeContention ? " — repeated in \(Int(span))s" : ""))
 
-            var message = "Could not connect: \(error?.localizedDescription ?? "unknown error")"
-            if looksLikeContention {
-                // Repeated failures are evidence of contention, not proof
-                // of exclusivity or of which app/device caused the failure.
-                message += " — if another app (e.g. the Polar app) is also connected to this sensor, close it fully and try again."
+            if switchedToBasic {
+                BLEDiag.log("CONNECT parameters rejected — immediate basic fallback id=\(peripheral.identifier)")
             }
-            self.lastError = message
+            self.lastError = ConnectionFailurePattern.message(for: error, usingBasicRetry: switchedToBasic,
+                recentFailureCount: self.recentConnectFailures.count, windowSeconds: span)
             // Keep the current selected H10, including a first connection.
             // A scan fallback could otherwise switch back to the old strap.
-            let delay = self.connectionRecovery.failedAttemptDelay()
-            // Register the retry now. CoreBluetooth owns the delay even
-            // if iOS suspends the app before another timer can fire.
+            let delay = switchedToBasic ? 0 : self.connectionRecovery.failedAttemptDelay()
+            // The first basic request is registered immediately, including in
+            // the background. Subsequent basic failures back off locally; the
+            // regular path keeps using the system-owned delayed request.
             self.armPendingConnect(peripheral, delay: delay)
         }
     }
