@@ -225,6 +225,8 @@ PLIST
   xcodebuild -project "$RELEASE_WT/ios/Wythin.xcodeproj" -scheme Wythin \
     -configuration Release -destination 'generic/platform=iOS' \
     archive -archivePath "$arch" -allowProvisioningUpdates \
+    -authenticationKeyPath "$ASC_P8" -authenticationKeyID "$ASC_KEY" \
+    -authenticationKeyIssuerID "$ASC_ISSUER" \
     > /tmp/wythin-ship-archive.log 2>&1 || { tail -15 /tmp/wythin-ship-archive.log; die "archive failed"; }
 
   say "uploading to App Store Connect"
