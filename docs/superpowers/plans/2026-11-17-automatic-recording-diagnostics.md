@@ -1,0 +1,49 @@
+# Automatic Recording Diagnostics Implementation Plan
+
+> For agentic workers: use superpowers:subagent-driven-development for independent server/transport tasks and native integration, followed by whole-change review.
+
+**Goal:** Automatically show where recording stopped: sensor, processing/storage, or metric delivery.
+**Architecture:** Strict technical snapshot contract, independent durable background outbox, per-installation server history and conservative stage classification.
+**Tech Stack:** Swift/SwiftData/CoreBluetooth/URLSession; Python FastAPI/Pydantic/PostgreSQL; existing admin HTML.
+**Spec:** docs/superpowers/specs/2026-11-17-automatic-recording-diagnostics-design.md
+
+## Global Constraints
+No raw signals, physiological values, names, identifiers of sensors, credentials, arbitrary dictionaries or free-form error logs. Respect cloudSyncEnabled. Missing/stale diagnostic heartbeat is UNKNOWN. Server retention14days,25,000/user; client2048reports/48h;50reports/request. All identifiers scoped to account and installation. Existing Last strap meanings unchanged.
+
+## Review Focus
+- A fresh diagnostic upload carrying old snapshots must not imply current sensor health.
+- Metric-upload failure must not prevent diagnostics and diagnostic success must not acknowledge metrics.
+- Disabled consent plus restored background tasks must send nothing and not resurrect cleared records.
+- Reinstall/second installation and delayed prior launch must not replace another installation's newest state.
+- Main-actor/processing stall and missing ECG with live RR must remain distinguishable from Bluetooth disconnection.
+
+### Task 1: Server contract, storage, classification, admin access
+Owner: server worker. Files: new server/routers/recording_diagnostics.py and server/tests/test_recording_diagnostics.py; modify server/db.py, main.py, routers/me.py, routers/admin.py, templates/dashboard.html.
+- [ ] Add failing endpoint/validation/replay/order/isolation/retention/deletion/stage tests against a new isolated local database.
+- [ ] Implement exact wire spec, ingestion transaction and bounded cleanup, admin stages and panel.
+- [ ] Run targeted then full server suite; report outputs and any pre-existing failures.
+Interfaces: POST events -> accepted_ids; GET admin latest per installation and bounded event timeline, field names per spec.
+
+### Task 2: iOS wire models, durable outbox and independent background transport
+Owner: transport worker. Files: new BLE/RecordingDiagnosticEvent.swift, Sync/RecordingDiagnosticOutbox.swift, Sync/RecordingDiagnosticSync.swift, tests/RecordingDiagnosticTransportTests.swift. Root owns pbxproj registration and APIClient extension.
+- [ ] Write failing persistence/replay/corruption/capacity/age/scoping tests and transport tests for exact ACK, retry without metrics, restore, cancellation, stale completion.
+- [ ] Implement Codable models with camelCase Swift names matching snake_case JSON contract; give optional nested fields nil defaults, counters0 defaults.
+- [ ] Expose @MainActor RecordingDiagnosticSync(client:APIClient,userID:String, defaults:UserDefaults=.standard, directory:URL?=nil, configuration:URLSessionConfiguration?=nil, now:()->Date=Date.init).
+- [ ] Expose start(), submit(event:RecordingDiagnosticEvent), setEnabled(Bool), handleBackgroundEvents(completionHandler:), installationID, launchID, launchSequence, nextSequence(), droppedReports. Session static sessionIdentifier, active, pendingBackgroundCompletionHandler follow MetricSyncService pattern.
+- [ ] Root supplies APIClient.recordingDiagnosticUploadRequest(userID:String)->URLRequest. Retain injectable default URLSession for tests; use URLProtocol only for default-session tests, real listener for background smoke.
+- [ ] Run focused tests once root registers files; return code and verification evidence.
+
+### Task 3: Capture integration and consent
+Owner: root. Files: new App/RecordingDiagnosticReporter.swift and tests/RecordingDiagnosticReporterTests.swift; modify BLE/DataBuffer.swift, BLE/BLEService.swift, App/AppEnvironment.swift, Sync/APIClient.swift, App/NudgeRouting.swift, UI/Settings/SettingsView.swift, App/WythinApp.swift, project.pbxproj.
+- [ ] Test cadence without metrics, lifecycle snapshots, computed-vs-durable-save counters, RR/ECG independence, sanitized errors, disabled cloud sync.
+- [ ] Add non-writing audit snapshot, safe BLE metadata + state-change signals, typed metric upload metadata and outcome callback; reporter reads these and tracks compute/save stages.
+- [ ] Wire launch/timer/BLE/lifecycle/save/error events and background completion. Update cloud-sync disclosure and cancellation paths.
+- [ ] Verify full iOS suite and compile Release through sanctioned ship pipeline only after integration to main.
+
+### Task 4: Review, staged deployment and TestFlight
+- [ ] Fresh independent review of full diff; fix important findings with focused verification.
+- [ ] Full server/iOS suites green, diff check; merge/push latest main while preserving other work.
+- [ ] Verify production service/deploy reality (known host uses /opt/pulsar; workflow paths may be historical), deploy additive support safely and confirm endpoint/auth/retention/deletion without injecting KT health data.
+- [ ] Run tools/ship.sh testflight, finish ASC processing/compliance/review/External Testers under prior explicit release authorization.
+- [ ] Report exact verified build, server availability, and remaining real-device/background limits.
+
