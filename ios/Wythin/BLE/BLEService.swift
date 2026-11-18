@@ -1006,6 +1006,7 @@ final class BLEService: NSObject {
     let accSubject = PassthroughSubject<[SIMD3<Int16>], Never>()
     let hrSubject  = PassthroughSubject<HRFrame, Never>()
     let diagnosticStateSubject = PassthroughSubject<Void, Never>()
+    let diagnosticRRSubject = PassthroughSubject<(uptime: TimeInterval, generation: UInt64), Never>()
     private var diagnosticErrorDomain: RecordingDiagnosticEvent.SensorErrorDomain?
     private var diagnosticErrorCode: Int?
     private var diagnosticErrorAt: Date?
@@ -2403,6 +2404,7 @@ extension BLEService: CBPeripheralDelegate {
                     }
                     if hasValidRR {
                         self.lastForwardedBeatUptime = receivedUptime
+                        self.diagnosticRRSubject.send((receivedUptime, self.recordingGeneration))
                     }
                     self.hrSubject.send(frame)
                 }

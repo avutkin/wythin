@@ -29,8 +29,12 @@ final class RecordingDiagnosticSync {
     private var unlockObserver: NSObjectProtocol?
     private var backgroundHandlers: [() -> Void] = []
     private var finishedBackgroundEvents = false
+    private var deletionInProgress = false
+    private var discardedThroughSequence = 0
+    private var deletionCancellation: (taskIDs: Set<Int>, continuation: CheckedContinuation<Void, Never>)?
 
     var onReady: (() -> Void)?
+    var onCollectionStateChanged: (() -> Void)?
     var installationID: UUID { identity?.installationID ?? fallbackInstallationID }
     let launchID = UUID()
     var launchSequence: Int { identity?.launchSequence ?? 0 }
@@ -39,6 +43,7 @@ final class RecordingDiagnosticSync {
     private var enabled: Bool { defaults.object(forKey: "cloudSyncEnabled") as? Bool ?? true }
     private var eraseKey: String { "recordingDiagnosticsPendingRemoval.\(namespace)" }
     private var mustErase: Bool { !enabled || defaults.bool(forKey: eraseKey) }
+    var canCollect: Bool { !deletionInProgress && !mustErase }
 
     init(client: APIClient, userID: String, defaults: UserDefaults = .standard,
          directory: URL? = nil, configuration: URLSessionConfiguration? = nil,
@@ -91,7 +96,7 @@ final class RecordingDiagnosticSync {
     }
 
     func nextSequence() -> Int {
-        guard identity != nil, sequence < 9_007_199_254_740_991 else { return 0 }
+        guard canCollect, identity != nil, sequence < 9_007_199_254_740_991 else { return 0 }
         sequence += 1
         return sequence
     }
@@ -118,13 +123,13 @@ final class RecordingDiagnosticSync {
     }
 
     func submit(event: RecordingDiagnosticEvent) {
-        guard enabled else { return }
+        guard canCollect else { return }
         defer { start() }
         do {
             try openQueue()
             try eraseIfRequired()
             guard event.installationId == installationID, event.launchId == launchID,
-                  event.launchSequence == launchSequence, event.sequence > 0 else { return }
+                  event.launchSequence == launchSequence, event.sequence > discardedThroughSequence else { return }
             // No unstructured Task before persistence. Lifecycle reports are
             // already queued when the caller returns to UIKit.
             try queue?.enqueue(event, at: now())
@@ -139,6 +144,43 @@ final class RecordingDiagnosticSync {
         if !value { defaults.set(true, forKey: eraseKey) }
         defaults.set(value, forKey: "cloudSyncEnabled")
         start()
+        onCollectionStateChanged?()
+    }
+
+    /// Quiesce this installation's diagnostics before any server deletion.
+    /// System task cancellation cannot retract bytes already sent to the server.
+    func withCloudDataDeletion(_ operation: () async throws -> Void) async throws {
+        guard !deletionInProgress else { throw CocoaError(.userCancelled) }
+        deletionInProgress = true
+        discardedThroughSequence = sequence
+        defaults.set(true, forKey: eraseKey)
+        onCollectionStateChanged?()
+        defer {
+            completions.removeAll()
+            deletionInProgress = false
+            start()
+            onCollectionStateChanged?()
+        }
+        await cancelTransfersForDeletion()
+        try openQueue()
+        try eraseIfRequired()
+        finishBackgroundWakeIfReady()
+        try await operation()
+    }
+
+    private func cancelTransfersForDeletion() async {
+        let knownTasks = (restoredTasks ?? []) + (currentTask.map { [$0] } ?? [])
+        for task in knownTasks { task.cancel() }
+        currentTask = nil
+
+        // Inventory the session even before startup reconciliation has run.
+        let tasks = knownTasks + (await session.allTasks)
+        await withCheckedContinuation { continuation in
+            let taskIDs = Set(tasks.filter { $0.state != .completed }.map(\.taskIdentifier))
+            deletionCancellation = (taskIDs, continuation)
+            for task in tasks { task.cancel() }
+            advance()
+        }
     }
 
     func handleBackgroundEvents(completionHandler: @escaping () -> Void) {
@@ -172,9 +214,23 @@ final class RecordingDiagnosticSync {
     fileprivate func advance() {
         retryTimer?.invalidate()
         retryTimer = nil
+        let pendingErase = defaults.bool(forKey: eraseKey)
+        defer {
+            if pendingErase, canCollect { onCollectionStateChanged?() }
+        }
         let events = delegate.takeEvents()
         completions.append(contentsOf: events.completions)
         finishedBackgroundEvents = finishedBackgroundEvents || events.finished
+        if deletionInProgress {
+            restoredTasks?.forEach { $0.cancel() }
+            if let cancellation = deletionCancellation,
+               cancellation.taskIDs.isSubset(of: Set(completions.map(\.taskIdentifier))) {
+                deletionCancellation = nil
+                cancellation.continuation.resume()
+            }
+            if !pendingErase { finishBackgroundWakeIfReady() }
+            return
+        }
         // Cancellation does not depend on reading protected files. Filter
         // restored task scope even when this account's outbox is inaccessible.
         if mustErase {

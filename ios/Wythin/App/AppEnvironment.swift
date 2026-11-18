@@ -497,7 +497,7 @@ final class AppEnvironment {
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
             appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
             osVersion: UIDevice.current.systemVersion,
-            enabled: { UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true },
+            enabled: { transport.canCollect },
             nextSequence: { transport.nextSequence() }, droppedReports: { transport.droppedReports },
             sensor: { [weak ble] in ble?.diagnosticSensor ?? .init() },
             delivery: { [weak metricSync] in metricSync?.recordingDiagnosticDelivery ?? .init() },
@@ -505,6 +505,7 @@ final class AppEnvironment {
             identity: { (transport.installationID, transport.launchID, transport.launchSequence) })
         metricSync.onDiagnosticChange = { [weak self] in self?.diagnosticReporter?.request(.state) }
         diagnosticSync.onReady = { [weak self] in self?.diagnosticReporter?.request(.launch) }
+        diagnosticSync.onCollectionStateChanged = { [weak self] in self?.diagnosticReporter?.consentChanged() }
         diagnosticSync.start()
         diagnosticReporter?.start(phase: launchState == .background ? .background :
             (launchState == .active ? .foreground : .inactive))
@@ -539,7 +540,6 @@ final class AppEnvironment {
 
     func setRecordingDiagnosticSyncEnabled(_ value: Bool) {
         diagnosticSync.setEnabled(value)
-        diagnosticReporter?.consentChanged()
     }
 
     func recordingDiagnostics() throws -> URL {
@@ -954,10 +954,11 @@ final class AppEnvironment {
 
     private func bindBLE() {
         ble.diagnosticStateSubject
-            .sink { [weak self] in
-                guard let self else { return }
-                if case .connected = self.ble.state {} else { self.diagnosticReporter?.resetRR() }
-                self.diagnosticReporter?.request(.state)
+            .sink { [weak self] in self?.diagnosticReporter?.sensorStateChanged() }
+            .store(in: &cancellables)
+        ble.diagnosticRRSubject
+            .sink { [weak self] receipt in
+                self?.diagnosticReporter?.receivedRR(uptime: receipt.uptime, generation: receipt.generation)
             }
             .store(in: &cancellables)
         ble.rawChunkReadySubject
@@ -1003,9 +1004,8 @@ final class AppEnvironment {
                 let generation = self.ble.recordingGeneration
                 let capturedAt = self.ble.lastRRIntervalAt ?? Date()
                 let uptime = self.ble.lastRRIntervalUptime ?? ProcessInfo.processInfo.systemUptime
-                if !frame.rrIntervalsMs.isEmpty, self.ble.rrIntervalsLive {
-                    self.diagnosticReporter?.receivedRR(uptime: uptime, generation: generation)
-                } else { self.diagnosticReporter?.poll() }
+                // HR notifications can wake the cadence even without a valid RR receipt.
+                self.diagnosticReporter?.poll()
                 Task {
                     let accepted = await self.dataBuffer.appendRR(frame.rrIntervalsMs,
                         generation: generation, at: capturedAt, uptime: uptime)

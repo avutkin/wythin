@@ -21,6 +21,9 @@ final class RecordingDiagnosticReporterTests: XCTestCase {
         XCTAssertEqual(sequence, 0)
         identity = (UUID(), UUID(), 12)
         reporter.request(.launch)
+        reporter.request(.launch)
+        XCTAssertEqual(output.count, 1)
+        XCTAssertEqual(sequence, 1)
         XCTAssertEqual(output.first?.installationId, identity.installationID)
         XCTAssertEqual(output.first?.launchId, identity.launchID)
         XCTAssertEqual(output.first?.launchSequence, 12)
@@ -95,6 +98,57 @@ final class RecordingDiagnosticReporterTests: XCTestCase {
         XCTAssertEqual(events.last?.recording.rrActiveAgeSeconds, 0)
         clock = 190; reporter.request(.lifecycle)
         XCTAssertNil(events.last?.recording.rrActiveAgeSeconds)
+    }
+
+    func testPlausibleStandbyRRDoesNotCountAfterSameGenerationResume() {
+        sensor.intended = true; sensor.connectionState = .connected; sensor.rrLive = true
+        let reporter = reporter()
+        reporter.request(.launch)
+        reporter.receivedRR(uptime: clock, generation: 1)
+
+        sensor.connectionState = .standby
+        reporter.sensorStateChanged()
+        for t in stride(from: 101.0, through: 114.0, by: 1) {
+            clock = t
+            reporter.receivedRR(uptime: t, generation: 1)
+        }
+        sensor.connectionState = .connected
+        clock = 115
+        reporter.sensorStateChanged()
+        reporter.request(.lifecycle)
+        XCTAssertNil(events.last?.recording.rrActiveAgeSeconds)
+        reporter.receivedRR(uptime: clock, generation: 1)
+        reporter.request(.lifecycle)
+        XCTAssertEqual(events.last?.recording.rrActiveAgeSeconds, 0)
+    }
+
+    func testUnintendedRRDoesNotStartGraceClock() {
+        sensor.connectionState = .connected; sensor.rrLive = true
+        let reporter = reporter()
+        reporter.request(.launch)
+        reporter.receivedRR(uptime: clock, generation: 1)
+        sensor.intended = true
+        clock += 1
+        reporter.request(.lifecycle)
+        XCTAssertNil(events.last?.recording.rrActiveAgeSeconds)
+    }
+
+    func testLaunchIsEmittedOncePerConsentEpoch() {
+        let reporter = reporter()
+        reporter.start(phase: .foreground)
+        reporter.request(.launch)
+        reporter.consentChanged()
+        XCTAssertEqual(events.map(\.reason), [.launch])
+        XCTAssertEqual(sequence, 1)
+
+        enabled = false
+        reporter.consentChanged()
+        reporter.request(.launch)
+        enabled = true
+        reporter.consentChanged()
+        reporter.request(.launch)
+        XCTAssertEqual(events.map(\.reason), [.launch, .launch])
+        XCTAssertEqual(sequence, 2)
     }
 
     func testDisabledCollectionAndReenableBeginFreshState() {

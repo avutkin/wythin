@@ -26,6 +26,8 @@ final class RecordingDiagnosticReporter {
     private var rrGeneration: UInt64?
     private var lastEmission: TimeInterval?
     private var pendingState = false
+    private var collectionEnabled: Bool
+    private var emittedLaunch: (installationID: UUID, launchID: UUID, launchSequence: Int)?
     private var timer: Task<Void, Never>?
 
     init(installationID: UUID, launchID: UUID, launchSequence: Int,
@@ -41,6 +43,7 @@ final class RecordingDiagnosticReporter {
         self.appBuild = Event.technicalVersion(appBuild)
         self.osVersion = Event.technicalVersion(osVersion)
         self.now = now; self.uptime = uptime; self.enabled = enabled
+        collectionEnabled = enabled()
         self.nextSequence = nextSequence; self.droppedReports = droppedReports
         self.sensor = sensor; self.delivery = delivery; self.submit = submit
     }
@@ -62,21 +65,36 @@ final class RecordingDiagnosticReporter {
     func setPhase(_ value: Event.Phase) { phase = value; request(.lifecycle) }
 
     func consentChanged() {
-        recording = Event.Recording()
-        computedUptime = nil; savedUptime = nil
-        resetRR(); lastEmission = nil; pendingState = false
-        if enabled() { request(.launch) }
+        let isEnabled = enabled()
+        if isEnabled != collectionEnabled {
+            collectionEnabled = isEnabled
+            recording = Event.Recording()
+            computedUptime = nil; savedUptime = nil
+            resetRR(); lastEmission = nil; pendingState = false
+            emittedLaunch = nil
+        }
+        if isEnabled { request(.launch) }
+    }
+
+    func sensorStateChanged() {
+        let sensor = sensor()
+        if !sensor.intended || sensor.connectionState != .connected { resetRR() }
+        request(.state)
     }
 
     func resetRR() { rrStart = nil; lastRR = nil; rrGeneration = nil }
 
     func receivedRR(uptime received: TimeInterval, generation: UInt64) {
         guard enabled() else { return }
+        let sensor = sensor()
+        guard sensor.intended, sensor.connectionState == .connected else {
+            resetRR()
+            return
+        }
         if rrGeneration != generation || lastRR.map({ received - $0 > 4 || received < $0 }) ?? true {
             rrStart = received
         }
         rrGeneration = generation; lastRR = received
-        poll()
     }
 
     func computed(sampleAt: Date) {
@@ -121,6 +139,7 @@ final class RecordingDiagnosticReporter {
         // Never consume an event sequence for an identity that could not be
         // persisted yet (for example before the first unlock after reboot).
         guard identity.launchSequence > 0 else { return }
+        if reason == .launch, let emittedLaunch, emittedLaunch == identity { return }
         let clock = uptime()
         if reason == .state, let lastEmission, clock - lastEmission < 15 {
             pendingState = true
@@ -133,8 +152,11 @@ final class RecordingDiagnosticReporter {
         recording.computedAgeSeconds = computedUptime.map { max(0, clock - $0) }
         recording.savedAgeSeconds = savedUptime.map { max(0, clock - $0) }
         recording.rrActiveAgeSeconds = rrStart.map { max(0, clock - $0) }
+        let sequence = nextSequence()
+        guard sequence > 0 else { return }
+        if reason == .launch { emittedLaunch = identity }
         submit(Event(installationId: identity.installationID, launchId: identity.launchID,
-            launchSequence: identity.launchSequence, sequence: nextSequence(), observedAt: now(),
+            launchSequence: identity.launchSequence, sequence: sequence, observedAt: now(),
             uptimeSeconds: max(0, clock), reason: reason, appVersion: appVersion,
             appBuild: appBuild, osVersion: osVersion, phase: phase, sensor: sensor,
             recording: recording, delivery: delivery(), droppedReports: droppedReports()))

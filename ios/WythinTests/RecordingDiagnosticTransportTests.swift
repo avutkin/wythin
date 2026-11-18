@@ -239,6 +239,123 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
         try await until { try self.persistedEvents(in: directory).isEmpty }
     }
 
+    func testCloudDeletionFencesPendingAndInFlightReportsUntilItReturns() async throws {
+        let directory = root()
+        let stub = DiagnosticHTTPStub()
+        var session: URLSession?
+        let sync = makeSync(root: directory, configuration: stub.configuration, sessionFactory: { config, delegate in
+            let created = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+            session = created
+            return created
+        })
+        let transferSession = try XCTUnwrap(session)
+        let installation = sync.installationID
+        let first = event(sync.nextSequence(), installation: installation, launch: sync.launchID)
+        let release = stub.hold(status: 200, accepted: [first.eventId])
+        defer { release() }
+        sync.submit(event: first)
+        try await until { stub.requestCount >= 1 }
+        let tasks = await transferSession.allTasks
+        let active = try XCTUnwrap(tasks.first)
+        let pending = event(sync.nextSequence(), installation: installation, launch: sync.launchID)
+        sync.submit(event: pending)
+        XCTAssertEqual(Set(try persistedEvents(in: directory).map(\.eventId)), Set([first.eventId, pending.eventId]))
+
+        try await sync.withCloudDataDeletion {
+            XCTAssertTrue(try persistedEvents(in: directory).isEmpty)
+            XCTAssertEqual((active.error as? URLError)?.code, .cancelled)
+            let during = event(sync.nextSequence(), installation: installation, launch: sync.launchID)
+            sync.submit(event: during)
+            XCTAssertTrue(try persistedEvents(in: directory).isEmpty)
+        }
+
+        sync.submit(event: pending)
+        XCTAssertTrue(try persistedEvents(in: directory).isEmpty)
+        XCTAssertEqual(sync.installationID, installation)
+        let fresh = event(sync.nextSequence(), installation: installation, launch: sync.launchID)
+        stub.reply(status: 200, accepted: [fresh.eventId])
+        sync.submit(event: fresh)
+        release()
+        try await until { try stub.requestCount >= 2 && self.persistedEvents(in: directory).isEmpty }
+        XCTAssertEqual(stub.requestCount, 2)
+    }
+
+    func testCloudDeletionCancelsRestoredTaskBeforeTheAttemptAndResumesAfterFailure() async throws {
+        let directory = root()
+        let staleProcess = makeSync(root: directory)
+        let report = event(1, installation: staleProcess.installationID, launch: staleProcess.launchID)
+        let scopedRoot = try scopeDirectory(in: directory)
+        let queue = try RecordingDiagnosticOutbox(root: scopedRoot)
+        try queue.enqueue(report, at: clock)
+        let batch = try XCTUnwrap(queue.nextBatch(at: clock))
+        let transferID = try queue.registerTransfer(batch)
+        let api = APIClient(baseURL: URL(string: "http://127.0.0.1:2")!)
+        let stub = DiagnosticHTTPStub()
+        let release = stub.hold(status: 200, accepted: [report.eventId])
+        defer { release() }
+        var restoredTask: URLSessionUploadTask?
+        let sync = makeSync(root: directory, configuration: stub.configuration,
+                            sessionFactory: { config, delegate in
+            let restored = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+            let task = restored.uploadTask(with: api.recordingDiagnosticUploadRequest(userID: "user"),
+                                           fromFile: queue.payloadURL(batch))
+            task.taskDescription = "\(scopedRoot.lastPathComponent):\(transferID.uuidString)"
+            restoredTask = task
+            return restored
+        })
+        let task = try XCTUnwrap(restoredTask)
+        task.resume()
+        try await until { stub.requestCount >= 1 }
+
+        do {
+            try await sync.withCloudDataDeletion {
+                XCTAssertEqual((task.error as? URLError)?.code, .cancelled)
+                XCTAssertTrue(try persistedEvents(in: directory).isEmpty)
+                throw URLError(.notConnectedToInternet)
+            }
+            XCTFail("The deletion error should propagate")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .notConnectedToInternet)
+        }
+
+        let fresh = event(sync.nextSequence(), installation: sync.installationID, launch: sync.launchID,
+                          launchSequence: sync.launchSequence)
+        stub.reply(status: 200, accepted: [fresh.eventId])
+        sync.submit(event: fresh)
+        release()
+        try await until { try stub.requestCount >= 2 && self.persistedEvents(in: directory).isEmpty }
+        XCTAssertEqual(stub.requestCount, 2)
+    }
+
+    func testCloudDeletionWithUnavailableOutboxFencesReportsUntilErasureCanFinish() async throws {
+        let directory = root()
+        let old = makeSync(root: directory)
+        let scope = try scopeDirectory(in: directory)
+        let queue = try RecordingDiagnosticOutbox(root: scope)
+        let report = event(1, installation: old.installationID, launch: old.launchID)
+        try queue.enqueue(report, at: clock)
+        let state = scope.appendingPathComponent("state.json")
+        let parked = scope.appendingPathComponent("state.parked")
+        try FileManager.default.moveItem(at: state, to: parked)
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: false)
+
+        let sync = makeSync(root: directory)
+        XCTAssertEqual(sync.launchSequence, 0)
+        do {
+            try await sync.withCloudDataDeletion { XCTFail("Erasure must precede the server request") }
+            XCTFail("The outbox erasure error should propagate")
+        } catch {
+            XCTAssertEqual(sync.nextSequence(), 0)
+        }
+
+        try FileManager.default.removeItem(at: state)
+        try FileManager.default.moveItem(at: parked, to: state)
+        sync.start()
+        XCTAssertTrue(try persistedEvents(in: directory).isEmpty)
+        XCTAssertEqual(sync.installationID, old.installationID)
+        XCTAssertEqual(sync.nextSequence(), 1)
+    }
+
     func testRestoredCompletionBeforeInventoryStillAcknowledgesDurably() async throws {
         let directory = root()
         let staleProcess = makeSync(root: directory)
@@ -445,7 +562,6 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
             .map { try RecordingDiagnosticEvent.decoder().decode(RecordingDiagnosticEvent.self, from: Data(contentsOf: $0)) }
     }
 }
-
 
 private final class DiagnosticHTTPStub: @unchecked Sendable {
     private let token = UUID().uuidString
