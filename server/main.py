@@ -6,26 +6,46 @@ Prod:  uvicorn server.main:app --host 0.0.0.0 --port 8000 --workers 4
 """
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import asyncio
+import logging
+from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .db import init_pool, close_pool, create_schema
+from .db import init_pool, close_pool, create_schema, purge_expired_recording_diagnostics
 from .auth import key_ok
 from .auth_user import resolve_bearer, AuthError
 from .mcp_server import mcp
 from .health.router import router as health_router
-from .routers import sessions, stream, admin, insights, tokens, me, activities, metrics, profile, usage, raw, felt_state
+from .routers import sessions, stream, admin, insights, tokens, me, activities, metrics, profile, usage, raw, felt_state, recording_diagnostics
+
+
+async def _maintain_recording_diagnostics() -> None:
+    while True:
+        await asyncio.sleep(3600)
+        try:
+            await purge_expired_recording_diagnostics()
+        except Exception:
+            logging.getLogger(__name__).exception("Recording diagnostics retention cleanup failed")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_pool()
-    await create_schema()
-    async with mcp.session_manager.run():
-        yield
-    await close_pool()
+    try:
+        await create_schema()
+        await purge_expired_recording_diagnostics()
+        maintenance = asyncio.create_task(_maintain_recording_diagnostics())
+        try:
+            async with mcp.session_manager.run():
+                yield
+        finally:
+            maintenance.cancel()
+            with suppress(asyncio.CancelledError):
+                await maintenance
+    finally:
+        await close_pool()
 
 
 app = FastAPI(
@@ -107,6 +127,7 @@ app.include_router(usage.router)
 app.include_router(raw.router)
 app.include_router(felt_state.router)
 app.include_router(health_router)
+app.include_router(recording_diagnostics.router)
 
 app.mount("/mcp", mcp.streamable_http_app())
 

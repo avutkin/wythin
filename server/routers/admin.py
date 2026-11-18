@@ -17,12 +17,14 @@ import io
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
-from fastapi import APIRouter, HTTPException, Query
+from uuid import UUID
+from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse, HTMLResponse
 from ..db import get_pool
 from ..impact import impact_for
 from .. import zones
 from ..models import AdminUserRow, zone_or_none
+from .recording_diagnostics import read_user_diagnostics
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -565,6 +567,12 @@ def _parse_instant(s: str | None) -> datetime | None:
     except ValueError:
         return None
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+@router.get("/users/{user_id}/recording-diagnostics")
+async def user_recording_diagnostics(user_id: UUID, response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    return await read_user_diagnostics(user_id)
 
 
 @router.get("/users/{user_id}/metrics")

@@ -187,6 +187,23 @@ CREATE TABLE IF NOT EXISTS raw_chunks (
 );
 CREATE INDEX IF NOT EXISTS raw_chunks_user_created ON raw_chunks(user_id, created_at, chunk_id);
 
+CREATE TABLE IF NOT EXISTS recording_diagnostics (
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_id        UUID NOT NULL,
+    installation_id UUID NOT NULL,
+    launch_id       UUID NOT NULL,
+    launch_sequence BIGINT NOT NULL,
+    sequence        BIGINT NOT NULL,
+    observed_at     TIMESTAMPTZ NOT NULL,
+    received_at     TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
+    payload         JSONB NOT NULL,
+    PRIMARY KEY (user_id, event_id),
+    UNIQUE (user_id, installation_id, launch_sequence, sequence)
+);
+CREATE INDEX IF NOT EXISTS recording_diagnostics_user_receipt
+    ON recording_diagnostics(user_id, received_at DESC, event_id DESC);
+CREATE INDEX IF NOT EXISTS recording_diagnostics_receipt ON recording_diagnostics(received_at);
+
 -- Additive migrations. SCHEMA_SQL runs on every boot, and each statement here
 -- is idempotent, so this block is safe to re-run and safe to grow. Columns
 -- added to a CREATE TABLE body above only reach a database that does not yet
@@ -308,15 +325,38 @@ async def has_ai_insights_consent(device_id: str) -> bool:
     return bool(row and row["consent_ai_insights"])
 
 
-async def get_or_create_user(device_id: str) -> str:
+async def get_or_create_user(device_id: str, *, conn: asyncpg.Connection | None = None) -> str:
     """Return user UUID for a device_id, creating the user row if needed."""
-    async with get_pool().acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT id FROM users WHERE device_id = $1", device_id
+    if conn is None:
+        async with get_pool().acquire() as acquired:
+            return await get_or_create_user(device_id, conn=acquired)
+
+    user_id = await conn.fetchval("SELECT id FROM users WHERE device_id = $1", device_id)
+    if user_id is None:
+        user_id = await conn.fetchval(
+            "INSERT INTO users (device_id) VALUES ($1) ON CONFLICT (device_id) DO NOTHING RETURNING id",
+            device_id,
         )
-        if row:
-            return str(row["id"])
-        row = await conn.fetchrow(
-            "INSERT INTO users (device_id) VALUES ($1) RETURNING id", device_id
+        if user_id is None:
+            # A concurrent first upload enrolled this device. Read it in a
+            # separate statement so the winner is visible at READ COMMITTED.
+            user_id = await conn.fetchval("SELECT id FROM users WHERE device_id = $1", device_id)
+    return str(user_id)
+
+
+async def purge_expired_recording_diagnostics() -> None:
+    """Expire reports across all users, including inactive installations."""
+    pool = get_pool()
+    while await pool.fetchval("""
+        WITH expired AS (
+            SELECT user_id, event_id FROM recording_diagnostics
+            WHERE received_at < NOW() - INTERVAL '14 days'
+            ORDER BY received_at LIMIT 1000 FOR UPDATE SKIP LOCKED
+        ),
+        removed AS (
+            DELETE FROM recording_diagnostics d USING expired e
+            WHERE d.user_id = e.user_id AND d.event_id = e.event_id RETURNING 1
         )
-        return str(row["id"])
+        SELECT COUNT(*) FROM removed
+    """) == 1000:
+        pass

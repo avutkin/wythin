@@ -30,7 +30,9 @@ async def me(user_id: str = Depends(current_user_id)):
 
 @router.delete("/data")
 async def delete_my_data(user_id: str = Depends(current_user_id)):
-    async with get_pool().acquire() as conn:
+    async with get_pool().acquire() as conn, conn.transaction():
+        # Serialize deletion with diagnostic ingestion for the same account.
+        await conn.fetchval("SELECT id FROM users WHERE id = $1 FOR NO KEY UPDATE", user_id)
         raw_rows = await conn.fetch("SELECT chunk_id FROM raw_chunks WHERE user_id = $1", user_id)
         if raw_rows or os.getenv("RAW_ARCHIVE_ROOT"):
             root = _root()
@@ -51,4 +53,5 @@ async def delete_my_data(user_id: str = Depends(current_user_id)):
             "raw_chunks":     await _del("raw_chunks"),
             "usage_events":   await _del("usage_events"),
             "felt_state_logs": await _del("felt_state_logs"),
+            "recording_diagnostics": await _del("recording_diagnostics"),
         }
