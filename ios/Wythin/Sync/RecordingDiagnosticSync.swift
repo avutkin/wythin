@@ -248,15 +248,19 @@ final class RecordingDiagnosticSync {
               currentTask == nil || currentTask?.taskIdentifier == completion.taskIdentifier else { return }
         currentTask = nil
 
-        if [400, 409, 413, 422].contains(completion.status ?? 0) {
-            try queue.resolve(batch, dropped: true)
-        } else if completion.succeeded, let status = completion.status, (200..<300).contains(status),
-                  let reportIDs = completion.acceptedIDs,
-                  reportIDs.count == batch.eventIDs.count, Set(reportIDs) == Set(batch.eventIDs) {
-            try queue.resolve(batch, dropped: false)
-        } else {
-            try queue.retry(batch, at: now())
+        if let endpoint = request.url, let response = completion.response, response.url == endpoint {
+            if [400, 409, 413, 422].contains(response.statusCode) {
+                try queue.resolve(batch, dropped: true)
+                return
+            }
+            if completion.succeeded, (200..<300).contains(response.statusCode),
+               let reportIDs = completion.acceptedIDs,
+               reportIDs.count == batch.eventIDs.count, Set(reportIDs) == Set(batch.eventIDs) {
+                try queue.resolve(batch, dropped: false)
+                return
+            }
         }
+        try queue.retry(batch, at: now())
     }
 
     private func taskDescription(_ transferID: UUID) -> String { "\(namespace):\(transferID.uuidString)" }
@@ -287,7 +291,7 @@ private final class RecordingDiagnosticSessionDelegate: NSObject, URLSessionData
     struct Completion {
         let taskIdentifier: Int
         let description: String?
-        let status: Int?
+        let response: HTTPURLResponse?
         let succeeded: Bool
         let acceptedIDs: [UUID]?
     }
@@ -328,7 +332,7 @@ private final class RecordingDiagnosticSessionDelegate: NSObject, URLSessionData
                 accepted = (try? JSONDecoder().decode(Receipt.self, from: data))?.acceptedIDs
             }
             completions.append(Completion(taskIdentifier: task.taskIdentifier, description: task.taskDescription,
-                                          status: (task.response as? HTTPURLResponse)?.statusCode,
+                                          response: task.response as? HTTPURLResponse,
                                           succeeded: error == nil, acceptedIDs: accepted))
         }
         notifyOwner()

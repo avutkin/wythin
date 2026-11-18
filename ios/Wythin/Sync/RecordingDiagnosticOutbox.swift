@@ -48,7 +48,7 @@ final class RecordingDiagnosticOutbox {
         }
     }
 
-    private struct Payload: Decodable {
+    private struct Payload: Codable {
         let events: [RecordingDiagnosticEvent]
     }
 
@@ -85,13 +85,16 @@ final class RecordingDiagnosticOutbox {
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
             state = State(installationID: UUID())
         }
-        for url in try files.contentsOfDirectory(at: reportsDirectory, includingPropertiesForKeys: nil) {
-            if let report = Report(url: url) { reports[report.id] = report }
+        let reportFiles = try files.contentsOfDirectory(at: reportsDirectory, includingPropertiesForKeys: nil)
+        for url in reportFiles.sorted(by: { $0.lastPathComponent > $1.lastPathComponent }) {
+            guard let report = Report(url: url), reports[report.id] == nil else {
+                try remove(url)
+                continue
+            }
+            reports[report.id] = report
         }
         try finishDiscards()
-        if let batch = state.batch, try !validPayload(for: batch) {
-            try resolve(batch, dropped: true)
-        }
+        try invalidateCorruptBatch()
         try cleanOrphanPayloads()
     }
 
@@ -124,12 +127,14 @@ final class RecordingDiagnosticOutbox {
 
     func nextBatch(at now: Date) throws -> Batch? {
         try finishDiscards()
+        try invalidateCorruptBatch()
         let pending = try pendingReports(at: now)
         if let batch = state.batch { return batch }
         var body = Data("{\"events\":[".utf8)
         var members: [UUID] = []
         var invalid: [UUID] = []
         let decoder = RecordingDiagnosticEvent.decoder()
+        let encoder = RecordingDiagnosticEvent.encoder()
         for report in pending {
             let data: Data
             do {
@@ -139,13 +144,17 @@ final class RecordingDiagnosticOutbox {
                 continue
             }
             guard let event = try? decoder.decode(RecordingDiagnosticEvent.self, from: data),
-                  event.eventId == report.id, event.schemaVersion == 1 else {
+                  event.eventId == report.id, event.schemaVersion == 1,
+                  event.launchSequence == report.launchSequence, event.sequence == report.sequence else {
                 invalid.append(report.id)
                 continue
             }
-            guard body.count + (members.isEmpty ? 0 : 1) + data.count + 2 <= Self.maxBodyBytes else { break }
+            // Decoding can ignore unknown fields. Upload only the model's
+            // typed keys and values, even when replaying a stored snapshot.
+            let wire = try encoder.encode(event)
+            guard body.count + (members.isEmpty ? 0 : 1) + wire.count + 2 <= Self.maxBodyBytes else { break }
             if !members.isEmpty { body.append(44) } // comma
-            body.append(data)
+            body.append(wire)
             members.append(report.id)
             if members.count == 50 { break }
         }
@@ -205,6 +214,9 @@ final class RecordingDiagnosticOutbox {
             try commit(updated)
             try finishDiscards()
         }
+        for url in try files.contentsOfDirectory(at: reportsDirectory, includingPropertiesForKeys: nil) {
+            try remove(url)
+        }
         try cleanOrphanPayloads()
     }
 
@@ -213,7 +225,6 @@ final class RecordingDiagnosticOutbox {
         let pending = reports.values.filter { !inFlight.contains($0.id) }
         let oldest = now.addingTimeInterval(-Self.maximumAge)
         let fresh = pending.filter { $0.queuedAt >= oldest }.sorted {
-            if $0.queuedAt != $1.queuedAt { return $0.queuedAt > $1.queuedAt }
             if $0.launchSequence != $1.launchSequence { return $0.launchSequence > $1.launchSequence }
             if $0.sequence != $1.sequence { return $0.sequence > $1.sequence }
             return $0.id.uuidString > $1.id.uuidString
@@ -244,13 +255,35 @@ final class RecordingDiagnosticOutbox {
         try commit(updated)
     }
 
+    private func invalidateCorruptBatch() throws {
+        guard let batch = state.batch, try !validPayload(for: batch) else { return }
+        // The old transfer token can no longer be restored. The source
+        // reports can build a fresh batch from permitted fields.
+        var updated = state
+        updated.batch = nil
+        try commit(updated)
+        try remove(payloadURL(batch))
+    }
+
     private func validPayload(for batch: Batch) throws -> Bool {
         let data: Data
-        do { data = try Data(contentsOf: payloadURL(batch)) }
-        catch let error as CocoaError where error.code == .fileReadNoSuchFile { return false }
+        let url = payloadURL(batch)
+        do {
+            guard let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                  size <= Self.maxBodyBytes else { return false }
+            data = try Data(contentsOf: url)
+        }
+        catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            return false
+        }
         guard data.count <= Self.maxBodyBytes,
-              let payload = try? RecordingDiagnosticEvent.decoder().decode(Payload.self, from: data) else { return false }
-        return !payload.events.isEmpty && payload.events.count <= 50 && payload.events.map(\.eventId) == batch.eventIDs
+              let payload = try? RecordingDiagnosticEvent.decoder().decode(Payload.self, from: data),
+              !payload.events.isEmpty, payload.events.count <= 50,
+              payload.events.allSatisfy({ $0.schemaVersion == 1 }),
+              payload.events.map(\.eventId) == batch.eventIDs else { return false }
+        // Only resume the exact canonical body. This catches extra keys,
+        // including repeated JSON keys a decoder could otherwise ignore.
+        return data == (try RecordingDiagnosticEvent.encoder().encode(payload))
     }
 
     private func readReport(_ report: Report) throws -> Data {

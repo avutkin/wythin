@@ -83,6 +83,73 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
         XCTAssertEqual(try queue.nextBatch(at: clock.addingTimeInterval(49 * 3600))?.eventIDs, Array(newest.reversed()))
     }
 
+    func testBackwardClockKeepsNewestLaunchAndSequenceAtCapacity() throws {
+        let queue = try RecordingDiagnosticOutbox(root: root())
+        for number in 1...2048 {
+            try queue.enqueue(event(number), at: clock)
+        }
+        let firstNewLaunch = event(1, launchSequence: 2)
+        try queue.enqueue(firstNewLaunch, at: clock.addingTimeInterval(-300))
+        let newest = event(2, launchSequence: 2)
+        try queue.enqueue(newest, at: clock.addingTimeInterval(-600))
+        XCTAssertEqual(queue.droppedReports, 2)
+        XCTAssertEqual(try queue.nextBatch(at: clock)?.eventIDs.prefix(2), [newest.eventId, firstNewLaunch.eventId])
+    }
+
+    func testDiskReplayRemovesUnknownNestedFieldsAndRebuildsContaminatedBatch() throws {
+        let directory = root()
+        let queue = try RecordingDiagnosticOutbox(root: directory)
+        let report = event(1)
+        try queue.enqueue(report, at: clock)
+        let reports = directory.appendingPathComponent("reports")
+        let stored = try XCTUnwrap(try FileManager.default.contentsOfDirectory(at: reports, includingPropertiesForKeys: nil).first)
+        var fields = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stored)) as? [String: Any])
+        var sensor = try XCTUnwrap(fields["sensor"] as? [String: Any])
+        sensor["extra_fixture_field"] = "private synthetic value"
+        fields["sensor"] = sensor
+        try JSONSerialization.data(withJSONObject: fields).write(to: stored)
+
+        let original = try XCTUnwrap(queue.nextBatch(at: clock))
+        let originalFile = queue.payloadURL(original)
+        XCTAssertFalse(String(decoding: try Data(contentsOf: originalFile), as: UTF8.self).contains("extra_fixture_field"))
+        _ = try queue.registerTransfer(original)
+        try JSONSerialization.data(withJSONObject: ["events": [fields]]).write(to: originalFile)
+
+        let restored = try RecordingDiagnosticOutbox(root: directory)
+        let replacement = try XCTUnwrap(restored.nextBatch(at: clock))
+        XCTAssertNotEqual(replacement.id, original.id)
+        XCTAssertNil(replacement.transferID)
+        XCTAssertEqual(replacement.eventIDs, [report.eventId])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: originalFile.path))
+        XCTAssertFalse(String(decoding: try Data(contentsOf: restored.payloadURL(replacement)), as: UTF8.self)
+            .contains("extra_fixture_field"))
+
+        try JSONSerialization.data(withJSONObject: ["events": [fields]]).write(to: restored.payloadURL(replacement))
+        let retry = try XCTUnwrap(restored.nextBatch(at: clock))
+        XCTAssertNotEqual(retry.id, replacement.id)
+        XCTAssertEqual(retry.eventIDs, [report.eventId])
+        XCTAssertFalse(String(decoding: try Data(contentsOf: restored.payloadURL(retry)), as: UTF8.self)
+            .contains("extra_fixture_field"))
+    }
+
+    func testConsentErasesMalformedAndDuplicateReportPathsAcrossReopen() throws {
+        let directory = root()
+        let queue = try RecordingDiagnosticOutbox(root: directory)
+        let identity = try queue.beginLaunch()
+        try queue.enqueue(event(1), at: clock)
+        let reports = directory.appendingPathComponent("reports")
+        let stored = try XCTUnwrap(try FileManager.default.contentsOfDirectory(at: reports, includingPropertiesForKeys: nil).first)
+        let bytes = try Data(contentsOf: stored)
+        try bytes.write(to: reports.appendingPathComponent("malformed.json"))
+        try FileManager.default.copyItem(at: stored, to: reports.appendingPathComponent("1_" + stored.lastPathComponent.split(separator: "_").dropFirst().joined(separator: "_")))
+        let restored = try RecordingDiagnosticOutbox(root: directory)
+        try bytes.write(to: reports.appendingPathComponent("later-malformed.json"))
+        try restored.clear()
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(at: reports, includingPropertiesForKeys: nil).isEmpty)
+        XCTAssertEqual(try restored.beginLaunch().installationID, identity.installationID)
+        XCTAssertEqual(restored.droppedReports, 0)
+    }
+
     func testAccountAndServerScopesDoNotShareIdentityOrQueuedReports() throws {
         let directory = root()
         let first = makeSync(root: directory, user: "one")
@@ -308,6 +375,41 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
         XCTAssertEqual(upload.events.map(\.eventId), [report.eventId])
     }
 
+    func testBackgroundRedirectCannotAcknowledgeOrDropOriginalBatch() async throws {
+        for status in [200, 400] {
+            let directory = root()
+            let target = try DiagnosticLoopbackListener(status: status)
+            defer { target.cancel() }
+            try await until { target.port != nil }
+            let redirect = "http://127.0.0.1:\(try XCTUnwrap(target.port))/other-endpoint"
+            let original = try DiagnosticLoopbackListener(redirect: redirect)
+            defer { original.cancel() }
+            try await until { original.port != nil }
+
+            let configuration = URLSessionConfiguration.background(withIdentifier: "com.wythin.diagnostic-test.\(UUID())")
+            var session: URLSession?
+            let sync = makeSync(root: directory, port: Int(try XCTUnwrap(original.port)), configuration: configuration,
+                                sessionFactory: { configuration, delegate in
+                let created = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+                session = created
+                return created
+            })
+            defer { session?.invalidateAndCancel() }
+            let report = event(1, installation: sync.installationID, launch: sync.launchID)
+            sync.submit(event: report)
+            let scope = try scopeDirectory(in: directory)
+            try await until("redirect reached target") { target.upload != nil }
+            try await until("redirect retry recorded") {
+                let batch = try RecordingDiagnosticOutbox(root: scope).currentBatch
+                return batch?.attempts == 1 || batch == nil
+            }
+            let batch = try RecordingDiagnosticOutbox(root: scope).currentBatch
+            XCTAssertEqual(batch?.eventIDs, [report.eventId], "redirect with status \(status)")
+            XCTAssertEqual(batch?.notBefore, clock.addingTimeInterval(30))
+            XCTAssertEqual(sync.droppedReports, 0)
+        }
+    }
+
     private func scopeDirectory(in root: URL) throws -> URL {
         try XCTUnwrap(try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil).first)
     }
@@ -462,6 +564,8 @@ private final class DiagnosticLoopbackListener: @unchecked Sendable {
     }
 
     private let listener: NWListener
+    private let status: Int
+    private let redirect: String?
     private let queue = DispatchQueue(label: "RecordingDiagnosticTransportTests.loopback")
     private let lock = NSLock()
     private var received: Upload?
@@ -476,7 +580,9 @@ private final class DiagnosticLoopbackListener: @unchecked Sendable {
     }
     var upload: Upload? { lock.withLock { received } }
 
-    init() throws {
+    init(status: Int = 200, redirect: String? = nil) throws {
+        self.status = status
+        self.redirect = redirect
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)
@@ -505,8 +611,14 @@ private final class DiagnosticLoopbackListener: @unchecked Sendable {
             if let upload = self.parse(message) {
                 self.lock.withLock { self.received = upload }
                 let receipt = try! JSONEncoder().encode(["accepted_ids": upload.events.map(\.eventId)])
-                let headers = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(receipt.count)\r\nConnection: close\r\n\r\n"
-                connection.send(content: Data(headers.utf8) + receipt, completion: .contentProcessed { _ in connection.cancel() })
+                let reply: Data
+                if let redirect = self.redirect {
+                    reply = Data("HTTP/1.1 307 Temporary Redirect\r\nLocation: \(redirect)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
+                } else {
+                    let headers = "HTTP/1.1 \(self.status) Test\r\nContent-Type: application/json\r\nContent-Length: \(receipt.count)\r\nConnection: close\r\n\r\n"
+                    reply = Data(headers.utf8) + receipt
+                }
+                connection.send(content: reply, completion: .contentProcessed { _ in connection.cancel() })
             } else if done || message.count > 300_000 {
                 connection.cancel()
             } else {
