@@ -534,13 +534,15 @@ struct SettingsView: View {
         isDeletingCloudData = true; accessError = nil
         defer { isDeletingCloudData = false }
         do {
-            try await env.diagnosticSync.withCloudDataDeletion {
-                try await HealthSyncCoordinator.shared.deleteForGeneralDataRemoval()
-                let created = try await env.sync.client.createToken(name: "delete-my-data", userID: env.userID)
-                defer {
-                    Task { try? await env.sync.client.revokeToken(id: created.id, userID: env.userID) }
+            try await env.metricSync.withCloudDataDeletion {
+                try await env.diagnosticSync.withCloudDataDeletion {
+                    try await HealthSyncCoordinator.shared.deleteForGeneralDataRemoval()
+                    let created = try await env.sync.client.createToken(name: "delete-my-data", userID: env.userID)
+                    defer {
+                        Task { try? await env.sync.client.revokeToken(id: created.id, userID: env.userID) }
+                    }
+                    try await env.sync.client.deleteMyData(token: created.token)
                 }
-                try await env.sync.client.deleteMyData(token: created.token)
             }
             await loadTokens()
         } catch {

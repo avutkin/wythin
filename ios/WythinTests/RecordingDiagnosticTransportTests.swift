@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import SwiftData
 import XCTest
 @testable import Wythin
 
@@ -241,11 +242,13 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
     func testDisableClearsReportsPreservesIdentityAndIgnoresStaleCompletion() async throws {
         let directory = root()
         let stub = DiagnosticHTTPStub()
-        let sync = makeSync(root: directory, configuration: stub.configuration)
+        let side = DiagnosticHTTPStub()
+        let sync = dualTransport(root: directory, native: stub, immediate: side)
         let first = event(1, installation: sync.installationID, launch: sync.launchID)
         let stale = stub.hold(status: 200, accepted: [first.eventId])
+        let lateSide = side.hold(status: 200, accepted: [first.eventId])
         sync.submit(event: first)
-        try await until { stub.requestCount == 1 }
+        try await until { stub.requestCount == 1 && side.requestCount == 1 }
         let installation = sync.installationID
         sync.setEnabled(false)
         XCTAssertTrue(try persistedEvents(in: directory).isEmpty)
@@ -256,7 +259,9 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
         let fresh = event(2, installation: sync.installationID, launch: sync.launchID)
         let current = stub.hold(status: 200, accepted: [fresh.eventId])
         sync.submit(event: fresh)
+        try await until { side.cancellationCount == 1 }
         stale()
+        lateSide()
         try await until { stub.requestCount == 2 }
         XCTAssertEqual(try persistedEvents(in: directory).map(\.eventId), [fresh.eventId])
         current()
@@ -480,6 +485,201 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
         XCTAssertEqual(sync.nextSequence(), 1)
     }
 
+    private func dualTransport(root: URL, native: DiagnosticHTTPStub, immediate: DiagnosticHTTPStub,
+                               uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) -> RecordingDiagnosticSync {
+        let configuration = URLSessionConfiguration.background(withIdentifier: "com.wythin.test.\(UUID())")
+        return makeSync(root: root, configuration: configuration, makeImmediateUpload: {
+            ImmediateFileUpload(configuration: immediate.configuration, uptime: uptime)
+        }, sessionFactory: { _, delegate in
+            URLSession(configuration: native.configuration, delegate: delegate, delegateQueue: nil)
+        })
+    }
+
+    func testImmediateExactACKSurvivesNativeRetryTokenRotation() async throws {
+        let directory = root(), native = DiagnosticHTTPStub(), immediate = DiagnosticHTTPStub()
+        let sync = dualTransport(root: directory, native: native, immediate: immediate)
+        let report = event(sync.nextSequence(), installation: sync.installationID, launch: sync.launchID)
+        let fail = native.hold(status: 503, accepted: [])
+        let retry = native.hold(status: 500, accepted: [])
+        let success = immediate.hold(status: 200, accepted: [report.eventId])
+        defer { retry(); success(); fail() }
+        sync.submit(event: report)
+        try await until { native.requestCount == 1 && immediate.requestCount == 1 }
+        let scope = try scopeDirectory(in: directory)
+        let queue = try RecordingDiagnosticOutbox(root: scope)
+        let initial = try XCTUnwrap(queue.currentBatch)
+        let file = try Data(contentsOf: queue.payloadURL(initial))
+        XCTAssertEqual(native.lastRequestBody, file)
+        XCTAssertEqual(immediate.lastRequestBody, file)
+        fail()
+        try await until { try RecordingDiagnosticOutbox(root: scope).currentBatch?.attempts == 1 }
+        let rotated = try XCTUnwrap(RecordingDiagnosticOutbox(root: scope).currentBatch)
+        XCTAssertEqual(initial.id, rotated.id)
+        XCTAssertNotEqual(initial.transferID, rotated.transferID)
+        success()
+        try await until { try self.persistedEvents(in: directory).isEmpty }
+        XCTAssertEqual(sync.droppedReports, 0)
+    }
+
+    func testImmediateMalformedACKRetainsImmutableBatchUntilNativeSucceeds() async throws {
+        let directory = root(), native = DiagnosticHTTPStub(), immediate = DiagnosticHTTPStub()
+        let sync = dualTransport(root: directory, native: native, immediate: immediate)
+        let report = event(sync.nextSequence(), installation: sync.installationID, launch: sync.launchID)
+        let success = native.hold(status: 200, accepted: [report.eventId])
+        let invalid = immediate.hold(status: 200, accepted: [UUID()])
+        defer { success(); invalid() }
+        sync.submit(event: report)
+        try await until { native.requestCount == 1 && immediate.requestCount == 1 }
+        let scope = try scopeDirectory(in: directory)
+        let batch = try XCTUnwrap(RecordingDiagnosticOutbox(root: scope).currentBatch)
+        invalid()
+        try await Task.sleep(for: .milliseconds(100))
+        let retained = try XCTUnwrap(RecordingDiagnosticOutbox(root: scope).currentBatch)
+        XCTAssertEqual(batch.transferID, retained.transferID)
+        XCTAssertEqual(retained.attempts, 0)
+        XCTAssertEqual(native.cancellationCount, 0)
+        success()
+        try await until { try self.persistedEvents(in: directory).isEmpty }
+    }
+
+    func testNativeReceiptCancelsSideTransferAndDeletionFencesBothLanes() async throws {
+        let directory = root(), native = DiagnosticHTTPStub(), immediate = DiagnosticHTTPStub()
+        var uptime: TimeInterval = 100
+        let sync = dualTransport(root: directory, native: native, immediate: immediate, uptime: { uptime })
+        let first = event(sync.nextSequence(), installation: sync.installationID, launch: sync.launchID)
+        let win = native.hold(status: 200, accepted: [first.eventId])
+        let stale = immediate.hold(status: 200, accepted: [first.eventId])
+        sync.submit(event: first)
+        try await until { native.requestCount == 1 && immediate.requestCount == 1 }
+        win()
+        try await until { try immediate.cancellationCount == 1 && self.persistedEvents(in: directory).isEmpty }
+        uptime += 30
+        let second = event(sync.nextSequence(), installation: sync.installationID, launch: sync.launchID)
+        let nativeLate = native.hold(status: 200, accepted: [second.eventId])
+        let sideLate = immediate.hold(status: 200, accepted: [second.eventId])
+        sync.submit(event: second)
+        try await until { immediate.requestCount == 2 && native.requestCount == 2 }
+        stale()
+        XCTAssertEqual(try persistedEvents(in: directory).map(\.eventId), [second.eventId])
+        try await sync.withCloudDataDeletion {
+            XCTAssertEqual(immediate.cancellationCount, 2)
+            XCTAssertEqual(native.cancellationCount, 1)
+            XCTAssertFalse(sync.canCollect)
+            XCTAssertTrue(try persistedEvents(in: directory).isEmpty)
+        }
+        nativeLate()
+        sideLate()
+        sync.submit(event: second)
+        XCTAssertTrue(try persistedEvents(in: directory).isEmpty)
+        let fresh = event(sync.nextSequence(), installation: sync.installationID, launch: sync.launchID)
+        native.reply(status: 200, accepted: [fresh.eventId])
+        sync.submit(event: fresh)
+        try await until { try self.persistedEvents(in: directory).isEmpty }
+    }
+
+    func testImmediateSpacingAndFailureCooldownRespectMonotonicClockAndDurableDeadline() async throws {
+        let receiver = DiagnosticHTTPStub()
+        let file = root()
+        try Data("{}".utf8).write(to: file)
+        var uptime: TimeInterval = 100
+        var wall = clock
+        var due = clock.addingTimeInterval(5)
+        var finishes = 0
+        let lane = ImmediateFileUpload(configuration: receiver.configuration, uptime: { uptime })
+        let id = UUID(), request = APIClient(baseURL: URL(string: "http://127.0.0.1:2")!).metricUploadRequest(userID: "fixture")
+        func offer() {
+            lane.offer(batch: id, request: request, file: file, notBefore: due, now: wall, receipt: { _, _, _ in
+                finishes += 1
+                return false
+            }, wake: {})
+        }
+        offer()
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(receiver.requestCount, 0)
+        wall = due
+        for (index, delay) in [30, 60, 120, 240, 480, 960, 1920, 3600, 3600].enumerated() {
+            offer()
+            try await until { finishes == index + 1 }
+            wall.addTimeInterval(86400)
+            uptime += Double(delay - 1)
+            offer()
+            try await Task.sleep(for: .milliseconds(20))
+            XCTAssertEqual(receiver.requestCount, index + 1)
+            uptime += 1
+        }
+        due = wall.addingTimeInterval(100)
+        wall.addTimeInterval(-600)
+        offer()
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(receiver.requestCount, 9)
+        wall = due
+        offer()
+        try await until { finishes == 10 }
+        lane.acknowledged(id)
+        uptime += 29
+        offer()
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(receiver.requestCount, 10)
+        uptime += 1
+        offer()
+        try await until { finishes == 11 }
+        await lane.cancelAndWait()
+    }
+
+    func testHeldNativeUploadDeliversImmutableDiagnosticFileOverImmediateHTTP() async throws {
+        let directory = root()
+        let listener = try DiagnosticLoopbackListener()
+        defer { listener.cancel() }
+        try await until { listener.port != nil }
+        let held = DiagnosticHTTPStub()
+        let release = held.hold(status: 500, accepted: [])
+        defer { release() }
+        var session: URLSession?
+        let config = URLSessionConfiguration.background(withIdentifier: "com.wythin.test.\(UUID())")
+        let sync = makeSync(root: directory, port: Int(try XCTUnwrap(listener.port)), configuration: config,
+                            makeImmediateUpload: { ImmediateFileUpload() }, sessionFactory: { _, delegate in
+            let native = URLSession(configuration: held.configuration, delegate: delegate, delegateQueue: nil)
+            session = native
+            return native
+        })
+        defer { session?.invalidateAndCancel() }
+        let metricRoot = root()
+        let container = try ModelContainer(for: HRVSession.self, HRVSample.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let context = ModelContext(container)
+        context.insert(HRVSample(anchorTestTimestamp: Date(), meanBPM: 63))
+        try context.save()
+        let metricNative = DiagnosticHTTPStub(), metricSide = DiagnosticHTTPStub()
+        let releaseNative = metricNative.hold(status: 503, accepted: [])
+        let releaseSide = metricSide.hold(status: 503, accepted: [])
+        let metrics = MetricSyncService(client: APIClient(baseURL: URL(string: "http://127.0.0.1:2")!), userID: "fixture",
+            container: container, queueDirectory: metricRoot, sessionConfiguration: config,
+            sessionFactory: { _, delegate in
+                URLSession(configuration: metricNative.configuration, delegate: delegate, delegateQueue: nil)
+            }, makeImmediateUpload: { ImmediateFileUpload(configuration: metricSide.configuration) })
+        let consent = UserDefaults.standard.object(forKey: "cloudSyncEnabled")
+        UserDefaults.standard.set(true, forKey: "cloudSyncEnabled")
+        defer {
+            releaseNative()
+            releaseSide()
+            UserDefaults.standard.set(consent, forKey: "cloudSyncEnabled")
+        }
+        await metrics.syncIfEnabled()
+        try await until { metricNative.requestCount == 1 && metricSide.requestCount == 1 }
+        let report = event(1, installation: sync.installationID, launch: sync.launchID)
+        sync.submit(event: report)
+        try await until("immediate exact receipt while native task is held") {
+            try listener.upload != nil && self.persistedEvents(in: directory).isEmpty
+        }
+        XCTAssertEqual(metrics.recordingDiagnosticDelivery.pendingSamples, 1)
+        XCTAssertNil(metrics.recordingDiagnosticDelivery.lastAckAt)
+        XCTAssertNil(metrics.recordingDiagnosticDelivery.lastAttemptAt)
+        XCTAssertEqual(listener.upload?.events.map(\.eventId), [report.eventId])
+        metrics.setEnabled(false)
+        await Task.yield()
+        await metrics.syncIfEnabled()
+    }
+
     func testBackgroundSessionUploadsFileToLoopbackListener() async throws {
         let directory = root()
         let listener = try DiagnosticLoopbackListener()
@@ -568,6 +768,7 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
     private func makeSync(root: URL, user: String = "user", port: Int = 2,
                           configuration: URLSessionConfiguration? = .ephemeral,
                           clock: (() -> Date)? = nil, enabled: Bool = true,
+                          makeImmediateUpload: @MainActor () -> ImmediateFileUpload? = { nil },
                           sessionFactory: ((URLSessionConfiguration, URLSessionDelegate) -> URLSession)? = nil) -> RecordingDiagnosticSync {
         let name = UUID().uuidString
         let defaults = UserDefaults(suiteName: name)!
@@ -576,7 +777,7 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
         let client = APIClient(baseURL: URL(string: "http://127.0.0.1:\(port)")!)
         return RecordingDiagnosticSync(client: client, userID: user, defaults: defaults,
                                        directory: root, configuration: configuration,
-                                       now: clock ?? { self.clock }, sessionFactory: sessionFactory)
+                                       now: clock ?? { self.clock }, makeImmediateUpload: makeImmediateUpload, sessionFactory: sessionFactory)
     }
 
     private func persistedEvents(in root: URL) throws -> [RecordingDiagnosticEvent] {
@@ -587,11 +788,13 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
     }
 }
 
-private final class DiagnosticHTTPStub: @unchecked Sendable {
+final class DiagnosticHTTPStub: @unchecked Sendable {
     private let token = UUID().uuidString
     private let lock = NSLock()
     private var responses: [(DiagnosticURLProtocol) -> Void] = []
     private var requests = 0
+    private var cancellations = 0
+    private var lastBody = Data()
 
     init() { DiagnosticURLProtocol.register(self, token: token) }
     deinit { DiagnosticURLProtocol.unregister(token) }
@@ -604,6 +807,9 @@ private final class DiagnosticHTTPStub: @unchecked Sendable {
     }
 
     var requestCount: Int { lock.withLock { requests } }
+    var lastRequestBody: Data { lock.withLock { lastBody } }
+    var cancellationCount: Int { lock.withLock { cancellations } }
+    fileprivate func cancelled() { lock.withLock { cancellations += 1 } }
 
     func reply(status: Int, accepted: [UUID]) {
         lock.withLock { responses.append { $0.respond(status: status, accepted: accepted) } }
@@ -617,8 +823,28 @@ private final class DiagnosticHTTPStub: @unchecked Sendable {
         return { held.release() }
     }
 
-    func receive(_ task: DiagnosticURLProtocol) {
+    func hold(status: Int, body: Data) -> () -> Void {
+        let held = HeldResponse()
+        lock.withLock {
+            responses.append { task in held.store { task.respond(status: status, body: body) } }
+        }
+        return { held.release() }
+    }
+
+    fileprivate func receive(_ task: DiagnosticURLProtocol) {
+        var bytes = task.request.httpBody ?? Data()
+        if bytes.isEmpty, let stream = task.request.httpBodyStream {
+            stream.open()
+            defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                guard count > 0 else { break }
+                bytes.append(contentsOf: buffer.prefix(count))
+            }
+        }
         let response = lock.withLock { () -> ((DiagnosticURLProtocol) -> Void)? in
+            lastBody = bytes
             requests += 1
             return responses.isEmpty ? nil : responses.removeFirst()
         }
@@ -657,6 +883,7 @@ private final class DiagnosticURLProtocol: URLProtocol {
     private static let registryLock = NSLock()
     private let lock = NSLock()
     private var stopped = false
+    private var responded = false
 
     static func register(_ stub: DiagnosticHTTPStub, token: String) {
         registryLock.withLock { registry.setObject(stub, forKey: token as NSString) }
@@ -678,11 +905,20 @@ private final class DiagnosticURLProtocol: URLProtocol {
         stub.receive(self)
     }
 
-    override func stopLoading() { lock.withLock { stopped = true } }
+    override func stopLoading() {
+        let cancelled = lock.withLock { stopped = true; return !responded }
+        if cancelled, let token = request.value(forHTTPHeaderField: "X-Test-Stub") {
+            Self.registryLock.withLock { Self.registry.object(forKey: token as NSString) }?.cancelled()
+        }
+    }
 
     func respond(status: Int, accepted: [UUID]) {
-        guard !lock.withLock({ stopped }) else { return }
-        let payload = try! JSONEncoder().encode(["accepted_ids": accepted])
+        respond(status: status, body: try! JSONEncoder().encode(["accepted_ids": accepted]))
+    }
+
+    func respond(status: Int, body payload: Data) {
+        let live = lock.withLock { responded = true; return !stopped }
+        guard live else { return }
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil,
                                        headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)

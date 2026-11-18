@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		D1570000000000000000000B /* RecordingDiagnosticTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1570000000000000000000C /* RecordingDiagnosticTransportTests.swift */; };
 		D15700000000000000000009 /* RecordingDiagnosticSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1570000000000000000000A /* RecordingDiagnosticSync.swift */; };
+		D157000000000000000000C1 /* ImmediateFileUpload.swift in Sources */ = {isa = PBXBuildFile; fileRef = D157000000000000000000C2 /* ImmediateFileUpload.swift */; };
 		D15700000000000000000007 /* RecordingDiagnosticOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15700000000000000000008 /* RecordingDiagnosticOutbox.swift */; };
 		D15700000000000000000005 /* RecordingDiagnosticReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15700000000000000000006 /* RecordingDiagnosticReporter.swift */; };
 		D15700000000000000000003 /* RecordingDiagnosticEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15700000000000000000004 /* RecordingDiagnosticEvent.swift */; };
@@ -356,6 +357,7 @@
 /* Begin PBXFileReference section */
 		D1570000000000000000000C /* RecordingDiagnosticTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingDiagnosticTransportTests.swift; sourceTree = "<group>"; };
 		D1570000000000000000000A /* RecordingDiagnosticSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingDiagnosticSync.swift; sourceTree = "<group>"; };
+		D157000000000000000000C2 /* ImmediateFileUpload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImmediateFileUpload.swift; sourceTree = "<group>"; };
 		D15700000000000000000008 /* RecordingDiagnosticOutbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingDiagnosticOutbox.swift; sourceTree = "<group>"; };
 		D15700000000000000000006 /* RecordingDiagnosticReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingDiagnosticReporter.swift; sourceTree = "<group>"; };
 		D15700000000000000000004 /* RecordingDiagnosticEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingDiagnosticEvent.swift; sourceTree = "<group>"; };
@@ -1001,6 +1003,7 @@
 				F112 /* APIClient.swift */,
 				D15700000000000000000008 /* RecordingDiagnosticOutbox.swift */,
 				D1570000000000000000000A /* RecordingDiagnosticSync.swift */,
+				D157000000000000000000C2 /* ImmediateFileUpload.swift */,
 				D15000000000000000000008 /* MetricUploadQueue.swift */,
 				F113 /* SessionUploader.swift */,
 				F208 /* ActivityUploader.swift */,
@@ -1358,6 +1361,7 @@
 				A112 /* APIClient.swift in Sources */,
 				D15700000000000000000007 /* RecordingDiagnosticOutbox.swift in Sources */,
 				D15700000000000000000009 /* RecordingDiagnosticSync.swift in Sources */,
+				D157000000000000000000C1 /* ImmediateFileUpload.swift in Sources */,
 				D15000000000000000000007 /* MetricUploadQueue.swift in Sources */,
 				A113 /* SessionUploader.swift in Sources */,
 				A208 /* ActivityUploader.swift in Sources */,

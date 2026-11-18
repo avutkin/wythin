@@ -127,6 +127,14 @@ final class RecordingReliabilityTests: XCTestCase {
 @MainActor
 final class RecordingBackgroundSmokeTests: XCTestCase {
     func testSystemFileUploadCompletesWhileHostAppIsBackgrounded() async throws {
+        try await exerciseBackgroundUpload(holdNative: false)
+    }
+
+    func testImmediateFileUploadCompletesWithNativeHeldWhileHostAppIsBackgrounded() async throws {
+        try await exerciseBackgroundUpload(holdNative: true)
+    }
+
+    private func exerciseBackgroundUpload(holdNative: Bool) async throws {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let configuration = documents.appendingPathComponent("wythin-background-smoke.json")
         guard FileManager.default.fileExists(atPath: configuration.path) else {
@@ -150,16 +158,28 @@ final class RecordingBackgroundSmokeTests: XCTestCase {
         let container = try ModelContainer(for: HRVSession.self, HRVSample.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let context = ModelContext(container)
-        let sample = HRVSample(anchorTestTimestamp: Date(), meanBPM: 65, timezone: "UTC")
-        context.insert(sample)
-        try context.save()
+        func saveSample() throws {
+            context.insert(HRVSample(anchorTestTimestamp: Date(), meanBPM: 65, timezone: "UTC"))
+            try context.save()
+        }
+        if !holdNative { try saveSample() }
         let folder = documents.appendingPathComponent("background-smoke-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
         let transport = URLSessionConfiguration.background(withIdentifier: "com.wythin.tests.background.\(UUID().uuidString)")
         transport.sessionSendsLaunchEvents = true
         transport.isDiscretionary = false
+        var native: URLSession?
+        defer { native?.invalidateAndCancel() }
         let service = MetricSyncService(client: APIClient(baseURL: base), userID: "local-background-smoke",
-            container: container, queueDirectory: folder, sessionConfiguration: transport)
+            container: container, queueDirectory: folder, sessionConfiguration: transport,
+            sessionFactory: { config, delegate in
+                let actual = holdNative ? URLSessionConfiguration.ephemeral : config
+                if holdNative { actual.protocolClasses = [DeferredNativeUploadProtocol.self] }
+                native = URLSession(configuration: actual, delegate: delegate, delegateQueue: nil)
+                return native!
+            }, makeImmediateUpload: { holdNative ? ImmediateFileUpload() : nil })
+        let originalNativeStarts = DeferredNativeUploadProtocol.startCount
+        if holdNative { await service.syncIfEnabled() }
         let ready = documents.appendingPathComponent("wythin-background-smoke.ready")
         try Data("ready".utf8).write(to: ready)
         defer { try? FileManager.default.removeItem(at: ready) }
@@ -168,14 +188,35 @@ final class RecordingBackgroundSmokeTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(100))
         }
         XCTAssertEqual(UIApplication.shared.applicationState, .background, "External harness must background Wythin")
-        await service.syncIfEnabled()
+        if holdNative {
+            try saveSample()
+            service.savedMetricsDidChange()
+        } else {
+            await service.syncIfEnabled()
+        }
         let uploadDeadline = ProcessInfo.processInfo.systemUptime + 90
-        while service.lastUploadedAt == nil && ProcessInfo.processInfo.systemUptime < uploadDeadline {
+        while service.recordingDiagnosticDelivery.lastAckAt == nil && ProcessInfo.processInfo.systemUptime < uploadDeadline {
             try await Task.sleep(for: .milliseconds(200))
         }
-        XCTAssertNotNil(service.lastUploadedAt, service.lastError ?? "No system upload receipt")
+        XCTAssertNotNil(service.recordingDiagnosticDelivery.lastAckAt, service.lastError ?? "No system upload receipt")
         XCTAssertEqual(UIApplication.shared.applicationState, .background)
+        if holdNative {
+            XCTAssertEqual(DeferredNativeUploadProtocol.startCount, originalNativeStarts + 1)
+            XCTAssertNotNil(service.recordingDiagnosticDelivery.lastAttemptAt)
+        }
         let check = ModelContext(container)
         XCTAssertEqual(try check.fetch(FetchDescriptor<HRVSample>()).first?.cloudUploadState, 1)
     }
+}
+
+
+/// Models a system upload whose scheduler never grants a network start.
+private final class DeferredNativeUploadProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var starts = 0
+    static var startCount: Int { lock.withLock { starts } }
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { Self.lock.withLock { Self.starts += 1 } }
+    override func stopLoading() {}
 }

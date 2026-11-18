@@ -777,6 +777,7 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
     static let sessionIdentifier = "com.wythin.metrics-upload"
     static var active: MetricSyncService?
     static var pendingBackgroundCompletionHandler: (() -> Void)?
+    private let uploadRequest: URLRequest
     private let client: APIClient
     private let userID: String
     private let container: ModelContainer
@@ -784,6 +785,11 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
     private let queueDirectory: URL
     private let now: () -> Date
     private let coalescingInterval: TimeInterval
+    private let immediateUpload: ImmediateFileUpload?
+    private var deletionInProgress = false
+    private var deletionCompletions = Set<Int>()
+    private var deletionWaiter: (ids: Set<Int>, continuation: CheckedContinuation<Void, Never>)?
+    private var startedTaskIDs = Set<Int>()
     private let usesBackgroundSession: Bool
     private var queue: MetricUploadQueue?
     private var session: URLSession!
@@ -829,14 +835,17 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
          batchSize: Int = 2000, queueDirectory: URL? = nil,
          sessionConfiguration: URLSessionConfiguration? = nil,
          sessionFactory: ((URLSessionConfiguration, URLSessionDelegate) -> URLSession)? = nil,
+         makeImmediateUpload: @MainActor () -> ImmediateFileUpload? = { ImmediateFileUpload() },
          coalescingInterval: TimeInterval = 30, now: @escaping () -> Date = Date.init) {
+        uploadRequest = client.metricUploadRequest(userID: userID)
         self.client = client
         self.userID = userID
         self.container = container
         self.batch = min(max(batchSize, 1), 5000)
         self.now = now
         self.coalescingInterval = max(0, coalescingInterval)
-        self.usesBackgroundSession = sessionConfiguration == nil
+        self.usesBackgroundSession = sessionConfiguration == nil || sessionConfiguration?.identifier != nil
+        immediateUpload = usesBackgroundSession ? makeImmediateUpload() : nil
         let namespace = SHA256.hash(data: Data(userID.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
         self.queueDirectory = queueDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("MetricUploads/\(namespace)", isDirectory: true)
@@ -846,7 +855,7 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
         let configuration = sessionConfiguration ?? Self.backgroundConfiguration()
         session = sessionFactory?(configuration, self)
             ?? URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
-        if usesBackgroundSession {
+        if configuration.identifier == Self.sessionIdentifier {
             Self.active = self
             backgroundCompletionHandler = Self.pendingBackgroundCompletionHandler
             Self.pendingBackgroundCompletionHandler = nil
@@ -900,6 +909,7 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
         // still up to date while new rows wait to be batched.
         unscannedSavedSamples += 1
         if firstUnscannedSaveAt == nil { firstUnscannedSaveAt = lastSavedAt }
+        guard !deletionInProgress else { return }
         guard enabled else { pauseForConsent(); return }
         consentPauseLogged = false
         guard coalescingTimer == nil else { return }
@@ -921,6 +931,7 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
     func syncIfEnabled() async {
         // Even when disabled, enumerate restored system tasks before returning.
         // Cancelling only the in-memory map would miss uploads across relaunch.
+        guard !deletionInProgress else { return }
         if !enabled { pauseForConsent() }
         guard !isSyncing else { syncRequested = true; return }
         isSyncing = true
@@ -939,8 +950,11 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
             let tasks = await withCheckedContinuation { continuation in
                 session.getAllTasks { continuation.resume(returning: $0) }
             }
+            guard !deletionInProgress else { tasks.forEach { $0.cancel() }; return }
             for task in tasks {
-                guard let description = task.taskDescription, let id = UUID(uuidString: description),
+                guard let original = task.originalRequest, original.url == uploadRequest.url,
+                      original.value(forHTTPHeaderField: "X-User-ID") == userID,
+                      let description = task.taskDescription, let id = UUID(uuidString: description),
                       task.state == .running || task.state == .suspended else { task.cancel(); continue }
                 if tasksByBatch[id] != nil { task.cancel() }
                 else { tasksByBatch[id] = task }
@@ -959,7 +973,7 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
     }
 
     private func beginAllowance() {
-        guard usesBackgroundSession, allowance == .invalid else { return }
+        guard enabled, !deletionInProgress, usesBackgroundSession, allowance == .invalid else { return }
         allowance = UIApplication.shared.beginBackgroundTask(withName: "Save metric upload tail") { [weak self] in
             // UIKit invokes this on the main thread. Do not launch an async
             // Task here: the handoff must finish before the allowance ends.
@@ -978,13 +992,39 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
         }
     }
 
-    private func pauseForConsent() {
+    func withCloudDataDeletion(_ operation: () async throws -> Void) async throws {
+        guard !deletionInProgress else { throw CocoaError(.userCancelled) }
+        deletionInProgress = true
+        defer {
+            deletionCompletions.removeAll()
+            deletionInProgress = false
+            start()
+        }
+        var waiting = Set(tasksByBatch.values.filter { $0.state != .completed }.map(\.taskIdentifier))
+        cancelTransfers()
+        let restored = await session.allTasks
+        waiting.formUnion(restored.filter { $0.state != .completed }.map(\.taskIdentifier))
+        for task in restored { task.cancel() }
+        await immediateUpload?.cancelAndWait()
+        if !waiting.isSubset(of: deletionCompletions) {
+            await withCheckedContinuation { deletionWaiter = (waiting, $0) }
+        }
+        try await operation()
+    }
+
+    private func cancelTransfers() {
+        immediateUpload?.cancel()
+        startedTaskIDs.removeAll()
         coalescingTimer?.invalidate(); coalescingTimer = nil
         retryTimer?.invalidate(); retryTimer = nil
         profileUploadTask?.cancel()
         for task in tasksByBatch.values { task.cancel() }
         tasksByBatch.removeAll()
         if allowance != .invalid { UIApplication.shared.endBackgroundTask(allowance); allowance = .invalid }
+    }
+
+    private func pauseForConsent() {
+        cancelTransfers()
         lastError = nil
         if !consentPauseLogged {
             BLEDiag.log("METRIC_SYNC consent=off pending=\(pendingCount)")
@@ -1012,6 +1052,7 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
 
     private func flush() {
         defer { onDiagnosticChange?() }
+        guard !deletionInProgress else { return }
         guard enabled else { pauseForConsent(); return }
         guard !blockedForStorage else { return }
         do {
@@ -1063,12 +1104,15 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
                 if !usesBackgroundSession && entry.nextAttemptAt > now() { continue }
                 let file = queue.payloadURL(for: entry.id)
                 guard FileManager.default.fileExists(atPath: file.path) else { throw CocoaError(.fileReadNoSuchFile) }
-                let task = session.uploadTask(with: client.metricUploadRequest(userID: userID), fromFile: file)
+                let task = session.uploadTask(with: uploadRequest, fromFile: file)
                 task.taskDescription = entry.id.uuidString
                 task.earliestBeginDate = entry.nextAttemptAt
                 tasksByBatch[entry.id] = task
                 task.resume()
                 BLEDiag.log("METRIC_SYNC scheduled batch=\(entry.id) task=\(task.taskIdentifier) attempt=\(entry.attempts) delay=\(max(0, Int(entry.nextAttemptAt.timeIntervalSince(now()))))")
+            }
+            if let entry = queue.entries.filter({ $0.acknowledgedAt == nil }).min(by: { $0.nextAttemptAt < $1.nextAttemptAt }) {
+                offerImmediate(entry, queue: queue)
             }
             scheduleForegroundRetry()
         } catch {
@@ -1076,6 +1120,68 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
             diagnosticLastErrorCode = RecordingDiagnosticEvent.errorCode(error)
             lastError = "Cannot prepare saved metrics for upload"
             BLEDiag.log("METRIC_SYNC queue_error code=\((error as NSError).code)")
+        }
+    }
+
+    private func offerImmediate(_ entry: MetricUploadQueue.Entry, queue: MetricUploadQueue) {
+        let id = entry.id
+        immediateUpload?.offer(batch: id, request: uploadRequest,
+            file: queue.payloadURL(for: id), notBefore: entry.nextAttemptAt, now: now(),
+            progress: { [weak self] date in
+                guard let self, self.enabled, !self.deletionInProgress else { return }
+                self.recordNetworkStart(date)
+            }, receipt: { [weak self] response, body, error in
+                guard let self, self.enabled, !self.deletionInProgress,
+                      queue.entries.contains(where: { $0.id == id && $0.acknowledgedAt == nil }) else { return false }
+                self.diagnosticLastHTTPStatus = response?.statusCode
+                do {
+                    try self.persistReceipt(id, queue: queue, response: response, body: body, error: error)
+                    if let task = self.tasksByBatch.removeValue(forKey: id) {
+                        self.startedTaskIDs.remove(task.taskIdentifier)
+                        task.cancel()
+                    }
+                    return true
+                } catch {
+                    self.diagnosticLastErrorCode = RecordingDiagnosticEvent.errorCode(error)
+                    return false
+                }
+            }, wake: { [weak self] in self?.flush() })
+    }
+
+    private func persistReceipt(_ id: UUID, queue: MetricUploadQueue, response: HTTPURLResponse?,
+                                body: Data, error: Error?) throws {
+        if let error { throw error }
+        guard let response, response.url == uploadRequest.url,
+              (200..<300).contains(response.statusCode), body.count <= 65_536 else {
+            throw URLError(.badServerResponse)
+        }
+        try queue.acknowledge(id, response: body, now: now())
+        lastError = nil
+        diagnosticLastErrorCode = nil
+    }
+
+    private func recordNetworkStart(_ date: Date) {
+        diagnosticLastAttemptAt = max(diagnosticLastAttemptAt ?? .distantPast, date)
+        onDiagnosticChange?()
+    }
+
+    private func observedStart(_ task: URLSessionTask, at date: Date) {
+        guard enabled, !deletionInProgress, let description = task.taskDescription,
+              let id = UUID(uuidString: description), tasksByBatch[id]?.taskIdentifier == task.taskIdentifier,
+              startedTaskIDs.insert(task.taskIdentifier).inserted else { return }
+        recordNetworkStart(date)
+    }
+
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+                                totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+        guard bytesSent > 0 else { return }
+        let observed = Date()
+        DispatchQueue.main.async { self.observedStart(task, at: observed) }
+    }
+
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        if let start = metrics.transactionMetrics.compactMap(\.requestStartDate).first {
+            DispatchQueue.main.async { self.observedStart(task, at: start) }
         }
     }
 
@@ -1126,32 +1232,35 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         let body = responseBodies.take(task: task.taskIdentifier)
         completionGroup.enter()
-        Task { @MainActor in
+        DispatchQueue.main.async {
             self.finish(task, body: body, error: error)
             self.completionGroup.leave()
         }
     }
 
     private func finish(_ task: URLSessionTask, body: Data, error: Error?) {
+        if deletionInProgress {
+            deletionCompletions.insert(task.taskIdentifier)
+            if let waiter = deletionWaiter, waiter.ids.isSubset(of: deletionCompletions) {
+                deletionWaiter = nil
+                waiter.continuation.resume()
+            }
+            return
+        }
         guard let description = task.taskDescription, let id = UUID(uuidString: description),
               tasksByBatch[id]?.taskIdentifier == task.taskIdentifier else { return }
         tasksByBatch.removeValue(forKey: id)
+        startedTaskIDs.remove(task.taskIdentifier)
         guard enabled else { pauseForConsent(); return }
         defer { onDiagnosticChange?() }
-        diagnosticLastAttemptAt = now()
         diagnosticLastHTTPStatus = (task.response as? HTTPURLResponse)?.statusCode
         do {
             let queue = try openQueue()
             guard queue.entries.contains(where: { $0.id == id }) else { return }
-            if error == nil, let response = task.response as? HTTPURLResponse, (200..<300).contains(response.statusCode) {
-                try queue.acknowledge(id, response: body, now: now())
-                try applyReceipts(queue, context: ModelContext(container))
-                lastError = nil
-                diagnosticLastErrorCode = nil
-                BLEDiag.log("METRIC_SYNC acknowledged batch=\(id) task=\(task.taskIdentifier)")
-            } else {
-                throw error ?? URLError(.badServerResponse)
-            }
+            try persistReceipt(id, queue: queue, response: task.response as? HTTPURLResponse, body: body, error: error)
+            immediateUpload?.acknowledged(id)
+            try applyReceipts(queue, context: ModelContext(container))
+            BLEDiag.log("METRIC_SYNC acknowledged batch=\(id) task=\(task.taskIdentifier)")
         } catch {
             diagnosticLastErrorCode = RecordingDiagnosticEvent.errorCode(error)
             // If the receipt was saved but SwiftData could not yet be updated,
@@ -1221,7 +1330,7 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
     }
 
     private func syncProfileIfNeeded() async {
-        guard enabled else { return }
+        guard enabled, !deletionInProgress else { return }
         let p = ClientProfileStore().load()
         guard p.hasRequiredContact else { return }
         let profile = ProfilePayload(

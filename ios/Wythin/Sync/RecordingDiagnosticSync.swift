@@ -14,6 +14,7 @@ final class RecordingDiagnosticSync {
     private let defaults: UserDefaults
     private let now: () -> Date
     private let background: Bool
+    private let immediateUpload: ImmediateFileUpload?
     private let session: URLSession
     private let delegate: RecordingDiagnosticSessionDelegate
     private let fallbackInstallationID = UUID()
@@ -48,6 +49,7 @@ final class RecordingDiagnosticSync {
     init(client: APIClient, userID: String, defaults: UserDefaults = .standard,
          directory: URL? = nil, configuration: URLSessionConfiguration? = nil,
          now: @escaping () -> Date = Date.init,
+         makeImmediateUpload: @MainActor () -> ImmediateFileUpload? = { ImmediateFileUpload() },
          sessionFactory: ((URLSessionConfiguration, URLSessionDelegate) -> URLSession)? = nil) {
         request = client.recordingDiagnosticUploadRequest(userID: userID)
         // Include an unambiguous account delimiter and the entire endpoint,
@@ -61,6 +63,7 @@ final class RecordingDiagnosticSync {
         self.now = now
         background = configuration == nil || configuration?.identifier != nil
 
+        immediateUpload = background ? makeImmediateUpload() : nil
         let delegate = RecordingDiagnosticSessionDelegate()
         let configuration = configuration ?? Self.backgroundConfiguration()
         self.delegate = delegate
@@ -169,10 +172,14 @@ final class RecordingDiagnosticSync {
     }
 
     private func cancelTransfersForDeletion() async {
+        retryTimer?.invalidate()
+        retryTimer = nil
+        immediateUpload?.cancel()
         let knownTasks = (restoredTasks ?? []) + (currentTask.map { [$0] } ?? [])
         for task in knownTasks { task.cancel() }
         currentTask = nil
 
+        await immediateUpload?.cancelAndWait()
         // Inventory the session even before startup reconciliation has run.
         let tasks = knownTasks + (await session.allTasks)
         await withCheckedContinuation { continuation in
@@ -234,6 +241,7 @@ final class RecordingDiagnosticSync {
         // Cancellation does not depend on reading protected files. Filter
         // restored task scope even when this account's outbox is inaccessible.
         if mustErase {
+            immediateUpload?.cancel()
             currentTask?.cancel()
             currentTask = nil
         }
@@ -261,7 +269,7 @@ final class RecordingDiagnosticSync {
                 completions.removeFirst()
             }
             try queue.finishDiscards()
-            if enabled { try scheduleUpload(queue) }
+            if canCollect { try scheduleUpload(queue) }
             finishBackgroundWakeIfReady()
         } catch {
             reportStorageError(error)
@@ -283,18 +291,34 @@ final class RecordingDiagnosticSync {
     }
 
     private func scheduleUpload(_ queue: RecordingDiagnosticOutbox) throws {
-        guard currentTask == nil, let batch = try queue.nextBatch(at: now()) else { return }
-        let delay = batch.notBefore.timeIntervalSince(now())
-        if !background && delay > 0 {
-            scheduleWake(after: delay)
-            return
+        let candidate = currentTask == nil ? try queue.nextBatch(at: now()) : queue.currentBatch
+        guard let batch = candidate else { return }
+        let file = queue.payloadURL(batch)
+        if currentTask == nil {
+            let delay = batch.notBefore.timeIntervalSince(now())
+            if !background && delay > 0 {
+                scheduleWake(after: delay)
+                return
+            }
+            let token = try queue.registerTransfer(batch)
+            let task = session.uploadTask(with: request, fromFile: file)
+            task.taskDescription = taskDescription(token)
+            if delay > 0 { task.earliestBeginDate = batch.notBefore }
+            currentTask = task
+            task.resume()
         }
-        let token = try queue.registerTransfer(batch)
-        let task = session.uploadTask(with: request, fromFile: queue.payloadURL(batch))
-        task.taskDescription = taskDescription(token)
-        if delay > 0 { task.earliestBeginDate = batch.notBefore }
-        currentTask = task
-        task.resume()
+        immediateUpload?.offer(batch: batch.id, request: request, file: file, notBefore: batch.notBefore, now: now(),
+            receipt: { [weak self] response, body, error in
+                guard let self, self.canCollect, let current = queue.currentBatch, current.id == batch.id,
+                      error == nil else { return false }
+                do {
+                    return try self.accept(current, in: queue, response: response,
+                                           ids: RecordingDiagnosticSessionDelegate.acceptedIDs(body))
+                } catch {
+                    self.reportStorageError(error)
+                    return false
+                }
+            }, wake: { [weak self] in self?.advance() })
     }
 
     private func apply(_ completion: RecordingDiagnosticSessionDelegate.Completion,
@@ -306,17 +330,34 @@ final class RecordingDiagnosticSync {
 
         if let endpoint = request.url, let response = completion.response, response.url == endpoint {
             if [400, 409, 413, 422].contains(response.statusCode) {
-                try queue.resolve(batch, dropped: true)
+                try resolve(batch, in: queue, dropped: true)
                 return
             }
-            if completion.succeeded, (200..<300).contains(response.statusCode),
-               let reportIDs = completion.acceptedIDs,
-               reportIDs.count == batch.eventIDs.count, Set(reportIDs) == Set(batch.eventIDs) {
-                try queue.resolve(batch, dropped: false)
-                return
-            }
+            if completion.succeeded, try accept(batch, in: queue, response: response, ids: completion.acceptedIDs) { return }
         }
         try queue.retry(batch, at: now())
+    }
+
+    private func accept(_ batch: RecordingDiagnosticOutbox.Batch, in queue: RecordingDiagnosticOutbox,
+                        response: HTTPURLResponse?, ids: [UUID]?) throws -> Bool {
+        guard let response, response.url == request.url, (200..<300).contains(response.statusCode),
+              let ids, ids.count == batch.eventIDs.count, Set(ids) == Set(batch.eventIDs) else { return false }
+        try resolve(batch, in: queue, dropped: false)
+        return true
+    }
+
+    private func resolve(_ batch: RecordingDiagnosticOutbox.Batch, in queue: RecordingDiagnosticOutbox,
+                         dropped: Bool) throws {
+        defer {
+            // The outbox commits resolution before cleaning up its files.
+            if queue.currentBatch?.id != batch.id {
+                currentTask?.cancel()
+                currentTask = nil
+                if dropped { immediateUpload?.cancel(batch: batch.id) }
+                else { immediateUpload?.acknowledged(batch.id) }
+            }
+        }
+        try queue.resolve(batch, dropped: dropped)
     }
 
     private func taskDescription(_ transferID: UUID) -> String { "\(namespace):\(transferID.uuidString)" }
@@ -357,6 +398,11 @@ private final class RecordingDiagnosticSessionDelegate: NSObject, URLSessionData
         enum CodingKeys: String, CodingKey { case acceptedIDs = "accepted_ids" }
     }
 
+    static func acceptedIDs(_ data: Data) -> [UUID]? {
+        guard data.count <= 8192 else { return nil }
+        return (try? JSONDecoder().decode(Receipt.self, from: data))?.acceptedIDs
+    }
+
     private enum Body {
         case data(Data)
         case oversized
@@ -385,7 +431,7 @@ private final class RecordingDiagnosticSessionDelegate: NSObject, URLSessionData
         lock.withLock {
             var accepted: [UUID]?
             if case .data(let data) = bodies.removeValue(forKey: task.taskIdentifier) {
-                accepted = (try? JSONDecoder().decode(Receipt.self, from: data))?.acceptedIDs
+                accepted = Self.acceptedIDs(data)
             }
             completions.append(Completion(taskIdentifier: task.taskIdentifier, description: task.taskDescription,
                                           response: task.response as? HTTPURLResponse,
