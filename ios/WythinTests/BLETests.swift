@@ -1291,6 +1291,52 @@ final class BLETests: XCTestCase {
         }
     }
 
+    func testStaleNegativeContactCannotPauseWornStrapBeforeRRRecovery() {
+        let contact = SensorContactObservation(contact: false, uptime: 100)
+        var gate = StandbyEntryGate()
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart, uptime: 100)
+        _ = recovery.receivedHeartRate(HRFrame(bpm: 60, rrIntervalsMs: [1000], contact: false),
+            at: recoveryStart, uptime: 100, inStandby: false, ecgLive: true)
+        // Dry electrodes reported false alongside a real heartbeat. Then the
+        // HR subscription stalls but ECG callbacks keep arriving in any app phase.
+        for second in 1...15 {
+            let now = 100 + Double(second)
+            let heartbeatLive = second < 4
+            let current = contact.current(at: now)
+            let score = StandbyPolicy.offBodyScore(contact: current, ecgPoor: false,
+                rrBad: !heartbeatLive, still: true, rrLive: heartbeatLive,
+                ecgLive: true, heartbeatLive: heartbeatLive)
+            XCTAssertFalse(gate.shouldEnterStandby(score: score, connected: true,
+                generation: 1, uptime: now), "stale contact at second \(second)")
+            XCTAssertFalse(SkinContactPolicy.isOffBody(contact: current, rrLive: heartbeatLive,
+                heartbeatLive: heartbeatLive, inStandby: false))
+            let action = recovery.receivedPacket(at: recoveryStart.addingTimeInterval(Double(second)), uptime: now)
+            XCTAssertEqual(action, second == 15 ? .refreshHeartRate : .wait)
+        }
+    }
+
+    func testFreshNegativeHRBeaconsStillPauseDespiteContinuousECGNoise() {
+        var gate = StandbyEntryGate()
+        for second in 1...9 {
+            let now = 100 + Double(second)
+            let contact = SensorContactObservation(contact: false, uptime: now)
+            let heartbeatLive = second < 4
+            let score = StandbyPolicy.offBodyScore(contact: contact.current(at: now),
+                ecgPoor: false, rrBad: !heartbeatLive, still: false,
+                rrLive: heartbeatLive, ecgLive: true, heartbeatLive: heartbeatLive)
+            XCTAssertEqual(gate.shouldEnterStandby(score: score, connected: true,
+                generation: 1, uptime: now), second == 9)
+        }
+    }
+
+    func testContactObservationExpiresAndRejectsFutureReceipt() {
+        let contact = SensorContactObservation(contact: false, uptime: 100)
+        XCTAssertEqual(contact.current(at: 103.9), false)
+        XCTAssertNil(contact.current(at: 104))
+        XCTAssertNil(contact.current(at: 99))
+    }
+
     func testContinuedOffBodyECGCallbacksReachStandbyWithoutMetrics() {
         var gate = StandbyEntryGate()
         for second in 100...105 {

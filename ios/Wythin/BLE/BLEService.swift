@@ -777,6 +777,18 @@ enum DiscoveryRetryPolicy {
 // Some H10 firmware never sets the sensor-contact-supported flag in the HR
 // measurement, so `sensorContact` stays nil on those straps. Raw ECG can
 // continue off-body; it cannot fill in an absent contact report.
+struct SensorContactObservation {
+    let contact: Bool?
+    let uptime: TimeInterval
+
+    func current(at now: TimeInterval) -> Bool? {
+        // The HR channel can stall independently while ECG keeps arriving.
+        // Do not let its last contact bit outlive the heartbeat liveness window.
+        guard now >= uptime, now - uptime < 4 else { return nil }
+        return contact
+    }
+}
+
 enum SkinContactPolicy {
     static func label(contact: Bool?, ecgLive: Bool) -> String {
         switch contact {
@@ -1015,9 +1027,12 @@ final class BLEService: NSObject {
     private var discovery = BLEDiscoverySession()
     var discoveredDevices: [BLEDevice] { discovery.devices }
     var isScanning: Bool { discovery.isScanning }
-    /// Latest Polar-reported skin-contact status (HR flags bits 1–2).
-    /// nil = sensor doesn't report it; false = off-body; true = on skin.
-    var sensorContact:     Bool?       = nil
+    /// Current Polar-reported skin-contact status (HR flags bits 1–2).
+    /// nil = unreported or expired; false = off-body; true = on skin.
+    private var sensorContactObservation: SensorContactObservation?
+    var sensorContact: Bool? {
+        sensorContactObservation?.current(at: ProcessInfo.processInfo.systemUptime)
+    }
 
     /// Presentation follows wear evidence, not cached metric quality or raw
     /// ECG arrival. A lying contact bit alone cannot hide a real heartbeat.
@@ -1786,7 +1801,7 @@ final class BLEService: NSObject {
         lastPlausibleBPMAt = nil
         lastPlausibleBPMUptime = nil
         lastForwardedBeatUptime = nil
-        sensorContact    = nil
+        sensorContactObservation = nil
         inStandby        = false
         standbyEnteredUptime = nil
         recoveryCommands.endConnection()
@@ -2403,7 +2418,8 @@ extension BLEService: CBPeripheralDelegate {
                         self.lastPlausibleBPMAt = receivedAt
                         self.lastPlausibleBPMUptime = receivedUptime
                     }
-                    self.sensorContact = frame.contact
+                    self.sensorContactObservation = SensorContactObservation(
+                        contact: frame.contact, uptime: receivedUptime)
                     // Paused for off-body: keep watching the contact bit over the
                     // lightweight HR link and resume the moment the strap is worn
                     // again. Don't forward off-body beats into the pipeline.
