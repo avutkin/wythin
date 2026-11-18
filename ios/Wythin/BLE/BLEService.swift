@@ -12,8 +12,8 @@ enum BLEState: Equatable {
     case connecting(name: String)
     case connected(name: String)
     case disconnected(reason: String)
-    /// Strap off-body: streaming stopped to save battery, a no-timeout pending
-    /// connect is armed, and iOS will auto-reconnect the instant it's worn again.
+    /// Strap off-body: ECG/ACC paused; HR notifications remain subscribed
+    /// so wear evidence can automatically resume recording.
     case standby(name: String)
     case unauthorized
     case unsupported
@@ -534,15 +534,19 @@ struct RRRecoveryCommands {
 // on. Both gates are now contact-OPTIONAL: the bit remains the authoritative
 // fast path when present, and signal evidence carries the decision when not.
 enum StandbyPolicy {
-    /// Off-body confidence. ≥ 2 ⇒ off-body; ≥ 3 trips the fast (~20 s) path.
+    /// Off-body confidence. ≥ 2 ⇒ off-body; ≥ 3 uses the five-second dwell.
     /// Callers must feed `rrBad`/`ecgPoor` as true for DEAD streams too, not
     /// only poor-quality ones — no data is worse evidence of wear than bad data.
     static func offBodyScore(contact: Bool?, ecgPoor: Bool, rrBad: Bool, still: Bool,
-                             rrLive: Bool = false, ecgLive: Bool = false) -> Int {
-        // The contact bit and quality estimates can be wrong, especially
-        // after the app backgrounds. Never turn off an actively arriving
-        // physiological stream merely to save strap battery.
-        if rrLive || ecgLive { return 0 }
+                             rrLive: Bool = false, ecgLive: Bool = false,
+                             heartbeatLive: Bool = false) -> Int {
+        // Fresh heartbeat evidence protects a worn strap with dry electrodes.
+        // ECG packet arrival only proves the electronics are streaming: open
+        // electrodes can continue sending noise after the strap is removed.
+        if rrLive || heartbeatLive { return 0 }
+        // With no explicit off-body report, a live ECG and missing RR may be
+        // an HR subscription fault. Leave that case to independent RR recovery.
+        if ecgLive && contact != false { return 0 }
         var score = 0
         if contact == false { score += 3 } else if contact == true { score -= 1 }
         if ecgPoor { score += 1 }
@@ -570,6 +574,32 @@ enum StandbyPolicy {
         // below are exactly as they were.
         if !rrBad { return min(score, 1) }
         return score
+    }
+}
+
+/// Shared by sensor callbacks and the foreground fallback poll. It only
+/// measures evidence while the process executes; it does not wake iOS.
+struct StandbyEntryGate {
+    private var offBodySince: TimeInterval?
+    private var generation: UInt64?
+
+    mutating func shouldEnterStandby(score: Int, connected: Bool,
+                                    generation: UInt64, uptime: TimeInterval) -> Bool {
+        guard connected, score >= 2 else {
+            offBodySince = nil
+            self.generation = nil
+            return false
+        }
+        if self.generation != generation || offBodySince.map({ uptime < $0 }) == true {
+            offBodySince = nil
+        }
+        self.generation = generation
+        let since = offBodySince ?? uptime
+        offBodySince = since
+        let needed: TimeInterval = score >= 3 ? 5 : 45
+        guard uptime - since >= needed else { return false }
+        offBodySince = nil
+        return true
     }
 }
 
@@ -745,17 +775,20 @@ enum DiscoveryRetryPolicy {
 // MARK: - Skin Contact Display Policy (pure, testable)
 //
 // Some H10 firmware never sets the sensor-contact-supported flag in the HR
-// measurement, so `sensorContact` stays nil forever on those straps. But a
-// live ECG stream is direct evidence the electrodes are on skin — dead
-// electrodes deliver no usable waveform — so fall back to that instead of
-// showing a permanent "not reported".
+// measurement, so `sensorContact` stays nil on those straps. Raw ECG can
+// continue off-body; it cannot fill in an absent contact report.
 enum SkinContactPolicy {
     static func label(contact: Bool?, ecgLive: Bool) -> String {
         switch contact {
         case .some(true):  return "on skin"
         case .some(false): return "off-body"
-        case .none:        return ecgLive ? "on skin (ECG)" : "not reported"
+        case .none:        return "not reported"
         }
+    }
+
+    static func isOffBody(contact: Bool?, rrLive: Bool, heartbeatLive: Bool,
+                          inStandby: Bool) -> Bool {
+        inStandby || (contact == false && !rrLive && !heartbeatLive)
     }
 }
 
@@ -986,6 +1019,15 @@ final class BLEService: NSObject {
     /// nil = sensor doesn't report it; false = off-body; true = on skin.
     var sensorContact:     Bool?       = nil
 
+    /// Presentation follows wear evidence, not cached metric quality or raw
+    /// ECG arrival. A lying contact bit alone cannot hide a real heartbeat.
+    var isOffBody: Bool {
+        let standby: Bool
+        if case .standby = state { standby = true } else { standby = false }
+        return SkinContactPolicy.isOffBody(contact: sensorContact,
+            rrLive: rrIntervalsLive, heartbeatLive: heartbeatLive, inStandby: standby)
+    }
+
     /// Human-readable CoreBluetooth central manager state — shown in the BLE sheet for diagnostics.
     var cbStateDescription: String {
         guard let cm = centralManager else { return "BT not initialised" }
@@ -1129,8 +1171,8 @@ final class BLEService: NSObject {
     var lastECGSampleAt: Date? { pmdRecovery.lastSampleAt(.ecg) }
     var lastECGSampleUptime: TimeInterval? { pmdRecovery.lastSampleUptime(.ecg) }
 
-    /// ECG frames arrived within the last 5 s — direct evidence the strap is
-    /// worn, used when firmware doesn't report the HR contact flag.
+    /// ECG frames arrived within the last 5 s. This describes transport
+    /// liveness, not skin contact or physiological signal quality.
     var ecgStreamLive: Bool {
         lastECGSampleUptime.map { ProcessInfo.processInfo.systemUptime - $0 < 5 } ?? false
     }
@@ -1144,7 +1186,7 @@ final class BLEService: NSObject {
     var lastACCSampleUptime: TimeInterval? { pmdRecovery.lastSampleUptime(.acc) }
     private var resumeGate = StandbyResumeGate()
     private var standbyEnteredUptime: TimeInterval?
-    /// Actual RR intervals (not just HR frames) arrived within the last 8 s.
+    /// Actual RR intervals (not just HR frames) arrived within the last 4 s.
     /// The most direct wear signal there is: off-body straps keep sending HR
     /// beacon frames but stop producing beats almost immediately.
     private(set) var lastRRIntervalAt: Date?

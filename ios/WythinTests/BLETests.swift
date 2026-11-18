@@ -1260,19 +1260,104 @@ final class BLETests: XCTestCase {
 
     // MARK: - Standby policy (contact bit optional in BOTH directions)
 
-    func testLiveSensorStreamCannotBeStoppedByStaleQualityOrContact() {
+    func testLiveRRStreamCannotBeStoppedByStaleQualityOrContact() {
         // The background path used the last foreground-only quality tick.
-        // Even if that tick is poor and the contact bit is wrong, fresh RR or
-        // ECG traffic is direct evidence that recording must continue.
+        // Even if that tick is poor and the contact bit is wrong, fresh RR
+        // is evidence that recording must continue.
         XCTAssertEqual(StandbyPolicy.offBodyScore(
             contact: false, ecgPoor: true, rrBad: true, still: true,
             rrLive: true, ecgLive: false), 0)
-        XCTAssertEqual(StandbyPolicy.offBodyScore(
-            contact: false, ecgPoor: true, rrBad: true, still: true,
-            rrLive: false, ecgLive: true), 0)
         XCTAssertGreaterThanOrEqual(StandbyPolicy.offBodyScore(
             contact: false, ecgPoor: true, rrBad: true, still: true,
             rrLive: false, ecgLive: false), 3)
+    }
+
+    func testOffBodyECGPacketsCannotOverrideMissingHeartbeatAndContact() {
+        // The removed strap still sends electrical noise and may be moving.
+        XCTAssertGreaterThanOrEqual(StandbyPolicy.offBodyScore(
+            contact: false, ecgPoor: false, rrBad: true, still: false,
+            rrLive: false, ecgLive: true), 3)
+    }
+
+    func testFreshHeartbeatProtectsWornStrapDuringRRSubscriptionGap() {
+        XCTAssertEqual(StandbyPolicy.offBodyScore(contact: false, ecgPoor: false,
+            rrBad: true, still: true, rrLive: false, ecgLive: true, heartbeatLive: true), 0)
+    }
+
+    func testLiveECGWithoutExplicitOffBodyLeavesRRRecoveryInCharge() {
+        for contact: Bool? in [nil, true] {
+            XCTAssertEqual(StandbyPolicy.offBodyScore(contact: contact, ecgPoor: false,
+                rrBad: true, still: true, rrLive: false, ecgLive: true), 0)
+        }
+    }
+
+    func testContinuedOffBodyECGCallbacksReachStandbyWithoutMetrics() {
+        var gate = StandbyEntryGate()
+        for second in 100...105 {
+            let score = StandbyPolicy.offBodyScore(contact: false, ecgPoor: false,
+                rrBad: true, still: false, rrLive: false, ecgLive: true)
+            XCTAssertEqual(gate.shouldEnterStandby(score: score, connected: true,
+                generation: 1, uptime: Double(second)), second == 105)
+        }
+    }
+
+    func testStandbyDwellResetsForFreshHeartbeatConnectionAndGeneration() {
+        var gate = StandbyEntryGate()
+        XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: 100))
+        XCTAssertFalse(gate.shouldEnterStandby(score: 0, connected: true, generation: 1, uptime: 104))
+        XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: 105))
+        XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: false, generation: 1, uptime: 109))
+        XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: 110))
+        XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: true, generation: 2, uptime: 114))
+        XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: true, generation: 2, uptime: 118))
+        XCTAssertTrue(gate.shouldEnterStandby(score: 4, connected: true, generation: 2, uptime: 119))
+    }
+
+    func testBorderlineEvidenceWaitsFortyFiveSecondsAndBackwardUptimeResets() {
+        var gate = StandbyEntryGate()
+        XCTAssertFalse(gate.shouldEnterStandby(score: 2, connected: true, generation: 1, uptime: 100))
+        XCTAssertFalse(gate.shouldEnterStandby(score: 2, connected: true, generation: 1, uptime: 144))
+        XCTAssertTrue(gate.shouldEnterStandby(score: 2, connected: true, generation: 1, uptime: 145))
+        XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: 200))
+        XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: 10))
+        XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: 14))
+        XCTAssertTrue(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: 15))
+    }
+
+    func testOffBodyPresentationMasksStaleQualityButPreservesFreshHeartbeat() {
+        XCTAssertTrue(SkinContactPolicy.isOffBody(contact: false, rrLive: false,
+            heartbeatLive: false, inStandby: false))
+        XCTAssertTrue(SkinContactPolicy.isOffBody(contact: nil, rrLive: false,
+            heartbeatLive: false, inStandby: true))
+        XCTAssertFalse(SkinContactPolicy.isOffBody(contact: false, rrLive: true,
+            heartbeatLive: false, inStandby: false))
+        XCTAssertFalse(SkinContactPolicy.isOffBody(contact: false, rrLive: false,
+            heartbeatLive: true, inStandby: false))
+        XCTAssertFalse(SkinContactPolicy.isOffBody(contact: nil, rrLive: false,
+            heartbeatLive: false, inStandby: false))
+    }
+
+    @MainActor
+    func testStandbyClearsOldScopeAndResumeStartsWithNewSamples() {
+        let ble = BLEService()
+        ble.state = .connected(name: "Polar H10")
+        let scope = StreamScope(ble: ble)
+        ble.ecgSubject.send([1, 2, 3])
+        ble.accSubject.send([SIMD3<Int16>(0, 0, 1000), SIMD3<Int16>(100, 0, 1000)])
+        XCTAssertEqual(scope.ecg, [1, 2, 3])
+        XCTAssertEqual(scope.accMag.count, 2)
+        ble.diagnosticStateSubject.send()
+        XCTAssertEqual(scope.ecg, [1, 2, 3], "A diagnostic update without a connection transition preserves the trace")
+        ble.state = .standby(name: "Polar H10")
+        XCTAssertTrue(scope.ecg.isEmpty, "A paused trace must not look like current ECG")
+        XCTAssertTrue(scope.accMag.isEmpty)
+        ble.ecgSubject.send([7])
+        ble.accSubject.send([SIMD3<Int16>(1, 2, 3)])
+        XCTAssertTrue(scope.ecg.isEmpty, "A callback already being published when standby begins must not refill the scope")
+        XCTAssertTrue(scope.accMag.isEmpty)
+        ble.state = .connected(name: "Polar H10")
+        ble.ecgSubject.send([9])
+        XCTAssertEqual(scope.ecg, [9], "Do not join old off-body noise to the resumed waveform")
     }
 
     func testOffBodyScoreContactAuthoritative() {
@@ -1534,7 +1619,7 @@ final class BLETests: XCTestCase {
     func testSkinContactLabels() {
         XCTAssertEqual(SkinContactPolicy.label(contact: true,  ecgLive: false), "on skin")
         XCTAssertEqual(SkinContactPolicy.label(contact: false, ecgLive: true),  "off-body")
-        XCTAssertEqual(SkinContactPolicy.label(contact: nil,   ecgLive: true),  "on skin (ECG)")
+        XCTAssertEqual(SkinContactPolicy.label(contact: nil,   ecgLive: true),  "not reported")
         XCTAssertEqual(SkinContactPolicy.label(contact: nil,   ecgLive: false), "not reported")
     }
 

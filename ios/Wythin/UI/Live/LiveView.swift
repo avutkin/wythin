@@ -624,19 +624,37 @@ final class StreamScope {
 
     private var bag = Set<AnyCancellable>()
 
+    private func clear() {
+        ecg.removeAll()
+        accMag.removeAll()
+        gravity = nil
+        detector = MotionEventDetector()
+        movementEvents.removeAll()
+        movementCount = 0
+    }
+
     init(ble: BLEService) {
+        ble.diagnosticStateSubject
+            .compactMap { [weak ble] in ble?.state }
+            .prepend(ble.state)
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in self?.clear() }
+            .store(in: &bag)
         // Both subjects publish from the main actor (BLEService hops before
         // sending), so mutating here is main-thread safe.
         ble.ecgSubject
-            .sink { [weak self] samples in
-                guard let self else { return }
+            .sink { [weak self, weak ble] samples in
+                guard let self, let ble else { return }
+                guard case .connected = ble.state, !ble.isOffBody else { clear(); return }
                 ecg.append(contentsOf: samples)
                 if ecg.count > Self.ecgWindow { ecg.removeFirst(ecg.count - Self.ecgWindow) }
             }
             .store(in: &bag)
         ble.accSubject
-            .sink { [weak self] xyz in
-                guard let self else { return }
+            .sink { [weak self, weak ble] xyz in
+                guard let self, let ble else { return }
+                guard case .connected = ble.state, !ble.isOffBody else { clear(); return }
                 for s in xyz {
                     let f = SIMD3<Float>(Float(s.x), Float(s.y), Float(s.z))
                     var g = gravity ?? f
@@ -682,6 +700,7 @@ private struct ScopeStrip: View {
     /// big movement is never clipped flat — the range's upper bound stays the
     /// FLOOR of the scale (stillness always looks the same), not a ceiling.
     var expandsToFit: Bool = false
+    var emptyMessage: String = "waiting for stream…"
 
     private var isEmpty: Bool { series.allSatisfy { $0.points.isEmpty } }
 
@@ -711,7 +730,7 @@ private struct ScopeStrip: View {
 
             ZStack {
                 if isEmpty {
-                    Text("waiting for stream…")
+                    Text(emptyMessage)
                         .font(Theme.monoLabel)
                         .foregroundStyle(Theme.dim.opacity(0.7))
                 } else {
@@ -869,17 +888,19 @@ struct BLEConnectionSheet: View {
     }
 
     private func signalQualityCard(_ q: CombinedSignalQuality) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let offBody = ble.isOffBody
+        let color = offBody ? Theme.warn : q.tier.color
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("SIGNAL QUALITY")
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Spacer()
                 HStack(spacing: 5) {
-                    Circle().fill(q.tier.color).frame(width: 7, height: 7)
-                    Text(q.tier.label)
+                    Circle().fill(color).frame(width: 7, height: 7)
+                    Text(offBody ? "OFF-BODY" : q.tier.label)
                         .font(Theme.monoBody)
-                        .foregroundStyle(q.tier.color)
+                        .foregroundStyle(color)
                 }
             }
             HStack {
@@ -887,7 +908,7 @@ struct BLEConnectionSheet: View {
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Spacer()
-                Text(q.rrArtifactPercent.map { "\($0)%" } ?? "—")
+                Text(offBody || !ble.rrIntervalsLive ? "—" : (q.rrArtifactPercent.map { "\($0)%" } ?? "—"))
                     .font(Theme.monoBody)
                     .foregroundStyle(Theme.text)
             }
@@ -898,9 +919,9 @@ struct BLEConnectionSheet: View {
                 Spacer()
                 // A verdict is only as fresh as the stream behind it — a dead
                 // stream says so instead of leaving the last "clean" up.
-                Text(ble.ecgStreamLive ? (q.ecgReason ?? "—") : "no stream")
+                Text(offBody ? "no skin contact" : (ble.ecgStreamLive ? (q.ecgReason ?? "—") : "no stream"))
                     .font(Theme.monoBody)
-                    .foregroundStyle(ble.ecgStreamLive ? Theme.text : Theme.warn)
+                    .foregroundStyle(!offBody && ble.ecgStreamLive ? Theme.text : Theme.warn)
             }
             HStack {
                 Text("Skin contact")
@@ -923,7 +944,7 @@ struct BLEConnectionSheet: View {
                     .font(Theme.monoBody)
                     .foregroundStyle(ble.accStreamLive ? Theme.text : Theme.warn)
             }
-            if q.tier != .good {
+            if offBody || q.tier != .good {
                 Divider().background(Theme.border)
                 Text("Improving signal quality")
                     .font(Theme.monoLabel)
@@ -1020,6 +1041,12 @@ struct BLEConnectionSheet: View {
         )
     }
 
+    private var streamEmptyMessage: String {
+        guard ble.isOffBody else { return "waiting for stream…" }
+        if case .standby = ble.state { return "strap off — recording paused" }
+        return "strap off — no usable signal"
+    }
+
     /// Raw stream scope — the fastest way to see whether the strap is actually
     /// delivering ECG and ACC, as opposed to the state label saying so.
     private var liveStreamsCard: some View {
@@ -1029,18 +1056,20 @@ struct BLEConnectionSheet: View {
                     title: "ECG",
                     detail: "130 Hz · last 4 s · µV",
                     capacity: StreamScope.ecgWindow,
-                    series: [.init(label: nil, color: Theme.accent, points: scope.ecg)]
+                    series: [.init(label: nil, color: Theme.accent, points: ble.isOffBody ? [] : scope.ecg)],
+                    emptyMessage: streamEmptyMessage
                 )
                 ScopeStrip(
                     title: "MOVEMENT",
                     detail: "all axes combined · scale fits peaks · last 4 s",
                     capacity: StreamScope.accWindow,
-                    series: [.init(label: nil, color: Theme.rsa, points: scope.accMag)],
+                    series: [.init(label: nil, color: Theme.rsa, points: ble.isOffBody ? [] : scope.accMag)],
                     fixedRange: 0...60,
                     filled: true,
-                    expandsToFit: true
+                    expandsToFit: true,
+                    emptyMessage: streamEmptyMessage
                 )
-                if !scope.accMag.isEmpty {
+                if !ble.isOffBody && !scope.accMag.isEmpty {
                     HStack(spacing: 10) {
                         motionChip(scope.motionState)
                         Spacer()
@@ -1187,7 +1216,7 @@ struct BLEConnectionSheet: View {
 
     private var stateColor: Color {
         switch ble.state {
-        case .connected:             return Theme.accent
+        case .connected:             return ble.isOffBody ? Theme.warn : Theme.accent
         case .scanning, .connecting: return Theme.warn
         case .disconnected:          return Theme.warn.opacity(0.7)
         default:                     return Theme.dim
@@ -1196,7 +1225,7 @@ struct BLEConnectionSheet: View {
 
     private var stateIcon: String {
         switch ble.state {
-        case .connected:   return "checkmark.circle.fill"
+        case .connected:   return ble.isOffBody ? "pause.circle" : "checkmark.circle.fill"
         case .scanning:    return "dot.radiowaves.left.and.right"
         case .connecting:  return "arrow.triangle.2.circlepath"
         case .unauthorized: return "lock.slash"
@@ -1222,9 +1251,9 @@ struct BLEConnectionSheet: View {
         case .idle:              return "Tap Scan to find your Polar H10"
         case .scanning:          return "Searching (Heart Rate service filter)…"
         case .connecting:        return "Establishing connection…"
-        case .connected:         return "ECG + ACC streaming"
+        case .connected:         return ble.isOffBody ? "Strap off — pausing recording" : "ECG + ACC streaming"
         case .disconnected(let r): return r
-        case .standby:           return "Strap off — will reconnect when worn"
+        case .standby:           return "Strap off — recording resumes when worn"
         case .unauthorized:      return "Allow Bluetooth in iPhone Settings"
         case .unsupported:       return "This device doesn't support BLE"
         }

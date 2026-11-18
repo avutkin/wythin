@@ -786,19 +786,8 @@ final class AppEnvironment {
     // MARK: BLE → DataBuffer → MetricsEngine pipeline
 
     // Off-body detector: timestamp when sustained bad/absent signal began.
-    // After `offBodyStandbySeconds` of continuous off-body ticks we drop the
-    // strap into low-power standby (auto-reconnects when worn again).
-    private var offBodySince: Date?
-    private var lastOffBodyEvaluationAt: Date = .distantPast
-    private let offBodyStandbySeconds:     TimeInterval = 45   // borderline consensus (score 2)
-    // Read together with the 4 s liveness windows in BLEService: the cues go
-    // true ~4 s after doffing, plus 5 s of sustained strong agreement lands
-    // standby ~10 s after the strap comes off — Alex's chosen budget — in
-    // the background too, since every cue is a liveness flag, none needs a
-    // metrics tick. The worn-strap safety margin is the bpm cue: a worn H10
-    // keeps reporting a heart rate straight through motion-artifact gaps, so
-    // the fast path can't assemble on a wearer even at these windows.
-    private let offBodyStandbyFastSeconds: TimeInterval = 5    // strong agreement (score ≥ 3)
+    private var standbyEntryGate = StandbyEntryGate()
+    private var lastOffBodyEvaluationUptime: TimeInterval?
 
     // Accelerometer motion: worn straps always jitter a little (breathing,
     // ballistocardiogram, posture); a strap set down is dead-still. Rolling
@@ -814,54 +803,30 @@ final class AppEnvironment {
     private let accStillnessThreshold: Float = 3.0
 
     // ── Off-body detection → low-power standby ────────────────────────────
-    // Fuse four cues into a confidence score so no single cue can wrongly
-    // trip (false positive) or be missed:
-    //   • skin-contact bit — authoritative: worn (−1) / off (+3)
-    //   • ECG stream stopped arriving: +1
-    //   • RR intervals stopped arriving: +1
-    //   • accelerometer dead-still while both streams stopped: +1
-    // score ≥ 2 ⇒ off-body. Strong agreement (≥3) trips after a short dwell,
-    // borderline needs 45 s. Check incoming ECG, ACC and HR notifications,
-    // including frames without RR intervals; a 5 s poll covers foreground
-    // periods with no notifications. This path does no FFT.
-    private func evaluateOffBodyStandby() {
+    // HR, ECG and ACC callbacks advance the same dwell even without a metric
+    // tick or foreground UI. Raw ECG noise must not veto a missing heartbeat
+    // plus explicit off-body contact. Fresh RR/HR still protects worn straps.
+    private func evaluateOffBodyStandby(uptime: TimeInterval) {
         accMotion = computeAccMotion()
-        guard case .connected = ble.state else {
-            offBodySince = nil
-            return
-        }
-        let contact = ble.sensorContact
-        // Quality can remain stale after notifications stop. Only current
-        // stream liveness can authorize an automatic stop.
+        let connected: Bool
+        if case .connected = ble.state { connected = true } else { connected = false }
         let ecgLive = ble.ecgStreamLive
         let rrLive = ble.rrIntervalsLive
-        let ecgPoor = !ecgLive
-        let rrBad = !rrLive
-        let still   = accMotion.map { $0 < self.accStillnessThreshold } ?? false
-        let score   = StandbyPolicy.offBodyScore(
-            contact: contact, ecgPoor: ecgPoor, rrBad: rrBad, still: still,
-            rrLive: rrLive, ecgLive: ecgLive)
-
-        if score >= 2 {
-            let since = offBodySince ?? Date()
-            offBodySince = since
-            let needed = score >= 3 ? offBodyStandbyFastSeconds : offBodyStandbySeconds
-            if Date().timeIntervalSince(since) >= needed {
-                ble.enterStandby()
-                offBodySince = nil
-            }
-        } else {
-            offBodySince = nil
+        let score = StandbyPolicy.offBodyScore(
+            contact: ble.sensorContact, ecgPoor: !ecgLive, rrBad: !rrLive,
+            still: accMotion.map { $0 < self.accStillnessThreshold } ?? false,
+            rrLive: rrLive, ecgLive: ecgLive, heartbeatLive: ble.heartbeatLive)
+        if standbyEntryGate.shouldEnterStandby(score: score, connected: connected,
+            generation: ble.recordingGeneration, uptime: uptime) {
+            ble.enterStandby()
         }
     }
 
-    /// Check on any incoming sensor notification, including HR frames with no
-    /// RR intervals. A metric tick requires fresh RR, but losing RR is itself
-    /// an off-body cue and must not stop the standby detector's clock.
-    private func evaluateOffBodyIfDue(now: Date = Date()) {
-        guard now.timeIntervalSince(lastOffBodyEvaluationAt) >= 1 else { return }
-        lastOffBodyEvaluationAt = now
-        evaluateOffBodyStandby()
+    private func evaluateOffBodyIfDue() {
+        let uptime = ProcessInfo.processInfo.systemUptime
+        if let last = lastOffBodyEvaluationUptime, uptime - last < 1 { return }
+        lastOffBodyEvaluationUptime = uptime
+        evaluateOffBodyStandby(uptime: uptime)
     }
 
     /// Mean per-axis standard deviation of the rolling ACC window — the live
@@ -973,6 +938,7 @@ final class AppEnvironment {
             .sink { [weak self] samples in
                 guard let self else { return }
                 self.evaluateOffBodyIfDue()
+                guard case .connected = self.ble.state else { return }
                 let generation = self.ble.recordingGeneration
                 let uptime = self.ble.lastECGSampleUptime ?? ProcessInfo.processInfo.systemUptime
                 Task { await self.dataBuffer.appendECG(samples, generation: generation, uptime: uptime) }
@@ -990,6 +956,7 @@ final class AppEnvironment {
                     self.accWindow.removeFirst(self.accWindow.count - self.accWindowMax)
                 }
                 self.evaluateOffBodyIfDue()
+                guard case .connected = self.ble.state else { return }
                 let generation = self.ble.recordingGeneration
                 let uptime = self.ble.lastACCSampleUptime ?? ProcessInfo.processInfo.systemUptime
                 Task { await self.dataBuffer.appendACC(xyz: xyz, generation: generation, uptime: uptime) }
