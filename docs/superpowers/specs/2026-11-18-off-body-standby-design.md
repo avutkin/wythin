@@ -17,3 +17,5 @@ Implementation choices above are ours within the user's explicit request to fix 
 Reproduce the original veto with a failing test. Exercise continuing ECG/no RR, false contact with real RR/HR, unknown contact with an RR stall, dwell resets, standby PMD suppression and resume. Verify that cached good quality is masked and prior traces clear on state change. Run focused tests then the full signed iOS suite and independent final review. Ship the correction through tools/ship.sh under the ongoing update authorization. Distinguish simulated callback/background behavior from a physical H10 removal test, which is not available here.
 
 Primary reference: Polar's SDK exposes sensor-contact and contact-supported flags independently of ECG data: https://github.com/polarofficial/polar-ble-sdk/blob/master/sources/iOS/ios-communications/Sources/iOSCommunications/ble/api/model/gatt/client/BleHrClient.swift.
+
+Released as externally approved **TestFlight 158**. See [verification and release record](../plans/2026-11-18-off-body-standby.md#released--testflight-158).

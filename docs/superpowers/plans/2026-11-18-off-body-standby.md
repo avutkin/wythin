@@ -24,7 +24,7 @@ Interfaces: SensorContactObservation.current(at:) supplies age-qualified contact
 - [x] Correct policy, add the dwell gate and its reset/boundary tests, connect the application callback/poll path and retain independent recovery.
 - [x] Mask cached quality/waveforms when off-body; clear StreamScope at state transitions; test real publisher/reset behavior.
 - [x] Run focused BLE/reliability/quality/reporter tests, then full signed WythinTests with an absolute project path. Expect TEST SUCCEEDED, only existing opt-in skips.
-- [ ] Commit, independent final review, fix any important findings with regression evidence, push and ship through tools/ship.sh testflight. Verify external build state and record evidence.
+- [x] Commit, independent final review, fix any important findings with regression evidence, push and ship through tools/ship.sh testflight. Verify external build state and record evidence.
 
 
 ## Verification before release
@@ -36,3 +36,14 @@ Independent whole-change review found one important regression: an old negative 
 The existing tests cover stopped PMD startup/retry commands in standby, HR resume gates, and genuine-gap buffer handling. The callback/poll path uses no foreground-only metric or UI result. No physical H10 removal, battery-drain or locked-iPhone wake test was performed; simulator and pure callback tests do not establish those outcomes.
 
 Decisions: implement and release under the user's continuing correction/update authorization; retain the lightweight HR link for automatic resume instead of a reconnect loop; release with the explicitly stated physical-device validation limit. Costs: the sensor is not physically powered off, and hardware-specific timing remains to be checked on the installed build.
+
+
+## Released — TestFlight 158
+
+On 2026-11-18, the sanctioned `tools/ship.sh testflight` pipeline independently passed the full **1,953-test suite (2 opt-in skips, 0 failures)**, archived Release successfully and uploaded build **158**. Released source is `93f4016` on `origin/main`, including correction `0fb5158` and stale-contact fix `01fe7bf`.
+
+App Store Connect build `477fd819-2a73-4c82-b8bd-7c9c9461f660` is VALID; beta review is APPROVED; internal and external states are IN_BETA_TESTING. Membership in **External Testers** was verified using the expanded group build relationship. English and Russian testing notes were updated; automatic notification is enabled. Invitation: https://testflight.apple.com/join/7c7b68t1.
+
+Expected removal flow: after live RR/plausible HR expires and fresh negative contact persists through the five-second dwell, ECG/ACC pause; HR stays subscribed for automatic resume. The scope masks off-body noise and clears its old trace at standby/resume. A negative contact report older than four seconds becomes unknown and cannot stop a continuing ECG ahead of RR recovery. The prior 45-second borderline dwell remains unchanged. Physical-device timing is still subject to the validation limit above.
+
+Evidence: `/private/tmp/wythin-offbody-red.log`, `/private/tmp/wythin-offbody-focused1.log`, `/private/tmp/wythin-offbody-focused-green.log`, `/private/tmp/wythin-offbody-stale-contact-red.log`, `/private/tmp/wythin-offbody-final-full.log`, `/private/tmp/wythin-offbody-testflight.log`; release suite `/tmp/wythin-ship-tests.log`. The supplied screenshot and personal diagnostics were not committed. Existing unrelated worktrees and untracked reports/research notes were preserved.
