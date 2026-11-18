@@ -18,8 +18,9 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse, HTMLResponse
+from ..auth import require_recording_diagnostics_key
 from ..db import get_pool
 from ..impact import impact_for
 from .. import zones
@@ -569,7 +570,7 @@ def _parse_instant(s: str | None) -> datetime | None:
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
-@router.get("/users/{user_id}/recording-diagnostics")
+@router.get("/users/{user_id}/recording-diagnostics", dependencies=[Depends(require_recording_diagnostics_key)])
 async def user_recording_diagnostics(user_id: UUID, response: Response):
     response.headers["Cache-Control"] = "no-store"
     return await read_user_diagnostics(user_id)

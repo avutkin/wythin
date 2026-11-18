@@ -8,9 +8,10 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 import asyncpg
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import AwareDatetime, BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
 
+from ..auth import require_recording_diagnostics_key
 from ..db import get_pool, get_or_create_user
 
 router = APIRouter(prefix="/v1/recording-diagnostics", tags=["recording-diagnostics"])
@@ -130,7 +131,7 @@ class Batch(WireModel):
     events: Annotated[list[Event], Field(min_length=1, max_length=50)]
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_recording_diagnostics_key)])
 async def upload_recording_diagnostics(
     request: Request, x_user_id: str = Header(..., alias="X-User-ID"),
 ):

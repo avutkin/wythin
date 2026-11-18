@@ -7,18 +7,31 @@ from uuid import uuid4
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from server import auth
 from server.db import close_pool, create_schema, get_pool, init_pool
 from server.main import app
 
 UPLOAD = "/v1/recording-diagnostics"
+TEST_KEY = "recording-diagnostics-test-only"
+
+
+@pytest.fixture(autouse=True)
+def diagnostics_key(monkeypatch):
+    monkeypatch.setattr(auth, "API_KEY", None)
+    monkeypatch.setenv("RECORDING_DIAGNOSTICS_API_KEY", TEST_KEY)
+
+
+def http_client(key=TEST_KEY):
+    headers = {"X-API-Key": key} if key is not None else {}
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=headers)
 
 
 @asynccontextmanager
-async def client():
+async def client(key=TEST_KEY):
     await init_pool()
     try:
         await create_schema()
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        async with http_client(key) as c:
             yield c
     finally:
         await close_pool()
@@ -70,14 +83,35 @@ async def diagnostics(c, user):
 
 
 @pytest.mark.asyncio
-async def test_admin_and_upload_follow_shared_key_gate(monkeypatch):
-    from server import auth
+@pytest.mark.parametrize(("configured", "provided", "expected"), [
+    (None, None, 503),
+    ("", TEST_KEY, 503),
+    (TEST_KEY, None, 401),
+    (TEST_KEY, "wrong-key", 401),
+])
+async def test_diagnostic_key_required_before_processing(monkeypatch, configured, provided, expected):
+    if configured is None:
+        monkeypatch.delenv("RECORDING_DIAGNOSTICS_API_KEY")
+    else:
+        monkeypatch.setenv("RECORDING_DIAGNOSTICS_API_KEY", configured)
+    device = str(uuid4())
+    async with client(key=provided) as c:
+        upload = await c.post(UPLOAD, json={"events": [event()]}, headers={"X-User-ID": device})
+        assert upload.status_code == expected
+        assert (await c.get(f"/admin/users/{uuid4()}/recording-diagnostics")).status_code == expected
+        assert await user_id(device) is None
+        assert (await c.get("/admin/stats")).status_code == 200
 
+
+@pytest.mark.asyncio
+async def test_admin_and_upload_follow_shared_key_gate(monkeypatch):
     monkeypatch.setattr(auth, "API_KEY", "diagnostics-test-key")
     device = str(uuid4())
     item = event()
-    async with client() as c:
+    async with client(key=None) as c:
         assert (await c.post(UPLOAD, json={"events": [item]}, headers={"X-User-ID": device})).status_code == 401
+        assert (await c.get(f"/admin/users/{uuid4()}/recording-diagnostics")).status_code == 401
+        c.headers["X-API-Key"] = TEST_KEY
         assert (await c.get(f"/admin/users/{uuid4()}/recording-diagnostics")).status_code == 401
         c.headers["X-API-Key"] = "diagnostics-test-key"
         assert (await c.post(UPLOAD, json={"events": [item]})).status_code == 422
@@ -183,7 +217,7 @@ async def test_retention_restart_timeline_and_cloud_deletion():
         assert len({item["event_id"] for item in timeline}) == 100
 
     async with LifespanManager(app):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        async with http_client() as c:
             assert not await get_pool().fetchval("SELECT TRUE FROM recording_diagnostics WHERE user_id = $1", other_owner)
             assert (await diagnostics(c, other_owner))["recent_events"] == []
             token = await c.post("/v1/tokens", headers={"X-User-ID": device}, json={"name": "delete test"})
