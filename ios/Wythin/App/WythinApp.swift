@@ -65,6 +65,12 @@ struct WythinApp: App {
         }
         .onChange(of: scenePhase) { _, newPhase in
             env.isInForeground = (newPhase == .active)
+            switch newPhase {
+            case .active: env.diagnosticReporter?.setPhase(.foreground)
+            case .inactive: env.diagnosticReporter?.setPhase(.inactive)
+            case .background: env.diagnosticReporter?.setPhase(.background)
+            @unknown default: env.diagnosticReporter?.setPhase(.unknown)
+            }
             HealthSyncCoordinator.shared.isInForeground = (newPhase == .active)
             if newPhase == .active { Task { await HealthSyncCoordinator.shared.synchronize() } }
             // An after-window closes ten minutes after its session, long after
@@ -228,6 +234,7 @@ struct ContentView: View {
                 onKeepOn:  {
                     cloudSyncEnabled = true
                     env.metricSync.setEnabled(true)
+                    env.setRecordingDiagnosticSyncEnabled(true)
                     env.checkIns.requestSync()
                     didShowCloudSyncNotice = true
                     showCloudNotice = false
@@ -235,6 +242,7 @@ struct ContentView: View {
                 onTurnOff: {
                     cloudSyncEnabled = false
                     env.metricSync.setEnabled(false)
+                    env.setRecordingDiagnosticSyncEnabled(false)
                     Task { await env.rawSync?.syncIfEnabled() }
                     didShowCloudSyncNotice = true
                     showCloudNotice = false
@@ -247,6 +255,7 @@ struct ContentView: View {
                 onEnable: {
                     cloudSyncEnabled = true
                     env.metricSync.setEnabled(true)
+                    env.setRecordingDiagnosticSyncEnabled(true)
                     rawCloudSyncEnabled = true
                     env.checkIns.requestSync()
                     didShowRawArchiveNotice = true
@@ -386,7 +395,8 @@ private struct CloudSyncNoticeView: View {
                 .multilineTextAlignment(.center)
             VStack(spacing: 12) {
                 Text("Wythin syncs your metrics — heart rate, Inner Noise, and the rest — to your private account so you can explore them from Claude Code.")
-                Text("Your data is tied to your account and only reachable with your personal token. You can turn this off anytime in Settings — then everything stays on this device.")
+                Text("Sync also sends technical recording diagnostics to Wythin support to help find gaps in Bluetooth, saving, or uploads. These reports contain no signal recordings or metric values and are kept for up to 14 days.")
+                Text("You can turn sync off anytime in Settings to stop new uploads, or delete data already saved in the cloud.")
             }
             .font(.system(size: 14))
             .foregroundStyle(Theme.dim)

@@ -25,9 +25,9 @@ Owner: server worker. Files: new server/routers/recording_diagnostics.py and ser
 Interfaces: POST events -> accepted_ids; GET admin latest per installation and bounded event timeline, field names per spec.
 
 ### Task 2: iOS wire models, durable outbox and independent background transport
-Owner: transport worker. Files: new BLE/RecordingDiagnosticEvent.swift, Sync/RecordingDiagnosticOutbox.swift, Sync/RecordingDiagnosticSync.swift, tests/RecordingDiagnosticTransportTests.swift. Root owns pbxproj registration and APIClient extension.
+Owner: transport worker. Files: existing root-provided BLE/RecordingDiagnosticEvent.swift, new Sync/RecordingDiagnosticOutbox.swift, Sync/RecordingDiagnosticSync.swift, tests/RecordingDiagnosticTransportTests.swift. Root owns pbxproj registration and APIClient extension.
 - [ ] Write failing persistence/replay/corruption/capacity/age/scoping tests and transport tests for exact ACK, retry without metrics, restore, cancellation, stale completion.
-- [ ] Implement Codable models with camelCase Swift names matching snake_case JSON contract; give optional nested fields nil defaults, counters0 defaults.
+- [ ] Use the root-provided Codable model and encoder()/decoder() helpers; optional nested fields have nil defaults, counters0 defaults. Root owns model changes.
 - [ ] Expose @MainActor RecordingDiagnosticSync(client:APIClient,userID:String, defaults:UserDefaults=.standard, directory:URL?=nil, configuration:URLSessionConfiguration?=nil, now:()->Date=Date.init).
 - [ ] Expose start(), submit(event:RecordingDiagnosticEvent), setEnabled(Bool), handleBackgroundEvents(completionHandler:), installationID, launchID, launchSequence, nextSequence(), droppedReports. Session static sessionIdentifier, active, pendingBackgroundCompletionHandler follow MetricSyncService pattern.
 - [ ] Root supplies APIClient.recordingDiagnosticUploadRequest(userID:String)->URLRequest. Retain injectable default URLSession for tests; use URLProtocol only for default-session tests, real listener for background smoke.

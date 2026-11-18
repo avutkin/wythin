@@ -178,6 +178,13 @@ final class HealthCloudConsentTests: XCTestCase {
     @MainActor
     private func withCloudEnvironment(_ body: (URL, HealthRepository) async throws -> Void) async throws {
         let defaults = UserDefaults.standard
+        // The test host has a local-only server argument so automatic app
+        // telemetry cannot reach production. This test deliberately changes
+        // servers; temporarily release just that override and restore it.
+        let oldArguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        var arguments = oldArguments
+        arguments.removeValue(forKey: "serverURL")
+        defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
         let oldServer = defaults.object(forKey: "serverURL")
         let oldCloud = defaults.object(forKey: "cloudSyncEnabled")
         let server = URL(string: "https://health-consent-\(UUID().uuidString.lowercased()).example.test")!
@@ -187,6 +194,7 @@ final class HealthCloudConsentTests: XCTestCase {
             try? HealthCredentialStore().remove(server: server)
             defaults.set(oldServer, forKey: "serverURL")
             defaults.set(oldCloud, forKey: "cloudSyncEnabled")
+            defaults.setVolatileDomain(oldArguments, forName: UserDefaults.argumentDomain)
         }
         let repository = try HealthRepository(inMemory: true)
         try await repository.setEnabled(true)

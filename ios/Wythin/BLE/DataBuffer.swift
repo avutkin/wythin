@@ -13,6 +13,27 @@ enum RawArchiveFeature {
 /// handing work to the main actor; comparing these counts with saved metrics
 /// distinguishes sensor delivery loss from a stalled processing pipeline.
 final class CaptureAuditLog: @unchecked Sendable {
+    struct Counters {
+        let ecgPackets: Int
+        let accPackets: Int
+        let hrPackets: Int
+        let rrIntervals: Int
+        let validRRIntervals: Int
+        let invalidPackets: Int
+        let lastValidRRAt: Date?
+        let lastECGAt: Date?
+        let lastACCAt: Date?
+    }
+
+    /// Technical counters only; does not read/write a log or expose its strings.
+    func counters() -> Counters {
+        lock.lock(); defer { lock.unlock() }
+        return Counters(ecgPackets: ecgPackets, accPackets: accPackets, hrPackets: hrPackets,
+                        rrIntervals: rrIntervals, validRRIntervals: validRRIntervals,
+                        invalidPackets: invalidPackets, lastValidRRAt: lastValidRRAt,
+                        lastECGAt: lastECGAt, lastACCAt: lastACCAt)
+    }
+
     struct Entry: Codable {
         let at: String
         let event: String

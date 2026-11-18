@@ -976,7 +976,7 @@ final class BLEService: NSObject {
 
     // MARK: Observable state
 
-    var state:             BLEState    = .idle
+    var state: BLEState = .idle { didSet { diagnosticStateSubject.send() } }
     var batteryLevel:      Int?        = nil
     var lastError:         String?     = nil
     private var discovery = BLEDiscoverySession()
@@ -1005,6 +1005,63 @@ final class BLEService: NSObject {
     let ecgSubject = PassthroughSubject<[Float], Never>()
     let accSubject = PassthroughSubject<[SIMD3<Int16>], Never>()
     let hrSubject  = PassthroughSubject<HRFrame, Never>()
+    let diagnosticStateSubject = PassthroughSubject<Void, Never>()
+    private var diagnosticErrorDomain: RecordingDiagnosticEvent.SensorErrorDomain?
+    private var diagnosticErrorCode: Int?
+    private var diagnosticErrorAt: Date?
+
+    private func noteDiagnosticError(_ error: Error) {
+        let ns = error as NSError
+        switch ns.domain {
+        case CBErrorDomain, CBATTErrorDomain: diagnosticErrorDomain = .coreBluetooth
+        case NSCocoaErrorDomain: diagnosticErrorDomain = .cocoa
+        case NSPOSIXErrorDomain: diagnosticErrorDomain = .posix
+        default: diagnosticErrorDomain = .other
+        }
+        diagnosticErrorCode = RecordingDiagnosticEvent.errorCode(error)
+        diagnosticErrorAt = Date()
+        diagnosticStateSubject.send()
+    }
+
+    var diagnosticSensor: RecordingDiagnosticEvent.Sensor {
+        var result = RecordingDiagnosticEvent.Sensor()
+        switch centralManager?.state ?? .unknown {
+        case .unknown: result.centralState = .unknown
+        case .resetting: result.centralState = .resetting
+        case .unsupported: result.centralState = .unsupported
+        case .unauthorized: result.centralState = .unauthorized
+        case .poweredOff: result.centralState = .poweredOff
+        case .poweredOn: result.centralState = .poweredOn
+        @unknown default: result.centralState = .unknown
+        }
+        switch state {
+        case .idle: result.connectionState = .idle
+        case .scanning: result.connectionState = .scanning
+        case .connecting: result.connectionState = .connecting
+        case .connected: result.connectionState = .connected
+        case .disconnected: result.connectionState = .disconnected
+        case .standby: result.connectionState = .standby
+        case .unauthorized: result.connectionState = .unauthorized
+        case .unsupported: result.connectionState = .unsupported
+        }
+        result.intended = !userDisconnected && (pairing.savedID != nil || peripheral != nil)
+        result.rrLive = rrIntervalsLive; result.ecgLive = ecgStreamLive; result.accLive = accStreamLive
+        result.generation = Int(clamping: recordingGeneration)
+        if case .connected = state {
+            result.connectionAgeSeconds = connectionEstablishedUptime.map { max(0, ProcessInfo.processInfo.systemUptime - $0) }
+        }
+        let counters = captureAudit?.counters()
+        result.lastRrAt = counters?.lastValidRRAt ?? lastRRIntervalAt
+        result.lastEcgAt = counters?.lastECGAt ?? lastECGSampleAt
+        result.lastAccAt = counters?.lastACCAt ?? lastACCSampleAt
+        result.sensorContact = sensorContact
+        result.hrPackets = counters?.hrPackets; result.ecgPackets = counters?.ecgPackets
+        result.accPackets = counters?.accPackets; result.rrIntervals = counters?.rrIntervals
+        result.validRrIntervals = counters?.validRRIntervals; result.invalidPackets = counters?.invalidPackets
+        result.errorDomain = diagnosticErrorDomain; result.errorCode = diagnosticErrorCode
+        result.errorAt = diagnosticErrorAt
+        return result
+    }
 
     /// Fires whenever the connection drops (expectedly or not) — signals that any
     /// in-flight signal buffers span a gap and must be discarded rather than kept
@@ -1904,6 +1961,7 @@ extension BLEService: CBCentralManagerDelegate {
     nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
         print("🔵 BLE: central state → \(central.state.rawValue)")
         Task { @MainActor in
+            defer { self.diagnosticStateSubject.send() }
             switch central.state {
             case .poweredOn:
                 // On BT power-on, UNLESS the user explicitly disconnected: silently
@@ -2037,6 +2095,7 @@ extension BLEService: CBCentralManagerDelegate {
                     at: failedAt, connectedAt: self.connectionEstablishedAt,
                     uptime: failedUptime, connectedUptime: self.connectionEstablishedUptime) else { return }
             self.clearCharacteristics()   // keep the peripheral for a re-arm
+            if let error { self.noteDiagnosticError(error) }
 
             let now = Date()
             let invalidParameters = BLEConnectionParameters.isInvalidParameters(error)
@@ -2106,8 +2165,10 @@ extension BLEService: CBCentralManagerDelegate {
         switch action {
         case .ignore: return
         case .waitForSystem:
+            if let error { noteDiagnosticError(error) }
             handleUnexpectedDisconnect(p, error: error, systemIsReconnecting: true)
         case .reconnect:
+            if let error { noteDiagnosticError(error) }
             handleUnexpectedDisconnect(p, error: error)
         }
     }
@@ -2256,6 +2317,10 @@ extension BLEService: CBPeripheralDelegate {
                         self.accSettings = parsed.settings
                     }
                 } else if opCode == PolarH10Profile.opStart, status != 0, !self.inStandby {
+                    self.diagnosticErrorDomain = .pmd
+                    self.diagnosticErrorCode = Int(status)
+                    self.diagnosticErrorAt = receivedAt
+                    self.diagnosticStateSubject.send()
                     self.lastError = "PMD start error type=0x\(String(measurement, radix: 16)) status=0x\(String(status, radix: 16))"
                 }
             }
@@ -2363,6 +2428,7 @@ extension BLEService: CBPeripheralDelegate {
         let receivedUptime = ProcessInfo.processInfo.systemUptime
         Task { @MainActor in
             guard self.acceptsConnectionCallback(peripheral, uptime: receivedUptime) else { return }
+            if let error { self.noteDiagnosticError(error) }
             if characteristic === self.hrChar {
                 if let error { BLEDiag.log("HR notification error: \(error.localizedDescription)") }
                 self.performRecoveryCommand(self.recoveryCommands.hrNotificationStateUpdated())
@@ -2402,6 +2468,7 @@ extension BLEService: CBPeripheralDelegate {
             // Even a write error is bounded by the transaction timeout; a
             // delayed ACK must not complete a different PMD transaction.
             if let error {
+                self.noteDiagnosticError(error)
                 BLEDiag.log("PMD write error: \(error.localizedDescription)")
             }
             self.evaluatePMDWatchdog()

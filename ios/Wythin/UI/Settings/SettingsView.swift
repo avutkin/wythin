@@ -255,13 +255,14 @@ struct SettingsView: View {
                         Toggle(isOn: $cloudSyncEnabled) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Sync my data to the cloud").font(Theme.monoBody).foregroundStyle(Theme.text)
-                                Text("Lets Claude Code read your continuous metrics. Off = data stays on this device.")
+                                Text("Syncs your metrics and technical recording diagnostics so Wythin support can investigate gaps. Diagnostics contain no signal recordings or metric values. Off stops new uploads.")
                                     .font(Theme.monoLabel).foregroundStyle(Theme.dim)
                             }
                         }
                         .tint(Theme.accent)
                         .onChange(of: cloudSyncEnabled) { _, enabled in
                             env.metricSync.setEnabled(enabled)
+                            env.setRecordingDiagnosticSyncEnabled(enabled)
                             if enabled { env.checkIns.requestSync() }
                             Task { await env.rawSync?.syncIfEnabled() }
                         }

@@ -61,6 +61,10 @@ final class WythinAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
                      completionHandler: @escaping () -> Void) {
         Task { @MainActor in
             switch identifier {
+            case RecordingDiagnosticSync.sessionIdentifier:
+                if let active = RecordingDiagnosticSync.active {
+                    active.handleBackgroundEvents(completionHandler: completionHandler)
+                } else { RecordingDiagnosticSync.pendingBackgroundCompletionHandler = completionHandler }
             case MetricSyncService.sessionIdentifier:
                 if let active = MetricSyncService.active {
                     active.handleBackgroundEvents(completionHandler: completionHandler)

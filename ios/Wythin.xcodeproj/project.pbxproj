@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		D1570000000000000000000B /* RecordingDiagnosticTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1570000000000000000000C /* RecordingDiagnosticTransportTests.swift */; };
+		D15700000000000000000009 /* RecordingDiagnosticSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1570000000000000000000A /* RecordingDiagnosticSync.swift */; };
+		D15700000000000000000007 /* RecordingDiagnosticOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15700000000000000000008 /* RecordingDiagnosticOutbox.swift */; };
+		D15700000000000000000005 /* RecordingDiagnosticReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15700000000000000000006 /* RecordingDiagnosticReporter.swift */; };
+		D15700000000000000000003 /* RecordingDiagnosticEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15700000000000000000004 /* RecordingDiagnosticEvent.swift */; };
+		D15700000000000000000001 /* RecordingDiagnosticReporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15700000000000000000002 /* RecordingDiagnosticReporterTests.swift */; };
 		D15000000000000000000003 /* RecordingDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15000000000000000000004 /* RecordingDiagnostics.swift */; };
 		D15000000000000000000005 /* RecordingReliabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15000000000000000000006 /* RecordingReliabilityTests.swift */; };
 		D15000000000000000000007 /* MetricUploadQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15000000000000000000008 /* MetricUploadQueue.swift */; };
@@ -348,6 +354,12 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		D1570000000000000000000C /* RecordingDiagnosticTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingDiagnosticTransportTests.swift; sourceTree = "<group>"; };
+		D1570000000000000000000A /* RecordingDiagnosticSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingDiagnosticSync.swift; sourceTree = "<group>"; };
+		D15700000000000000000008 /* RecordingDiagnosticOutbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingDiagnosticOutbox.swift; sourceTree = "<group>"; };
+		D15700000000000000000006 /* RecordingDiagnosticReporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingDiagnosticReporter.swift; sourceTree = "<group>"; };
+		D15700000000000000000004 /* RecordingDiagnosticEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingDiagnosticEvent.swift; sourceTree = "<group>"; };
+		D15700000000000000000002 /* RecordingDiagnosticReporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingDiagnosticReporterTests.swift; sourceTree = "<group>"; };
 		D15000000000000000000004 /* RecordingDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingDiagnostics.swift; sourceTree = "<group>"; };
 		D15000000000000000000006 /* RecordingReliabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingReliabilityTests.swift; sourceTree = "<group>"; };
 		D15000000000000000000008 /* MetricUploadQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricUploadQueue.swift; sourceTree = "<group>"; };
@@ -767,6 +779,7 @@
 			children = (
 				F101 /* WythinApp.swift */,
 				E02F045E1EC55D2E98AF5D68 /* LiveSessionController.swift */,
+				D15700000000000000000006 /* RecordingDiagnosticReporter.swift */,
 				F102 /* AppEnvironment.swift */,
 				F247 /* NudgeRouting.swift */,
 			);
@@ -788,6 +801,7 @@
 				F103 /* BLEService.swift */,
 				F104 /* PolarH10Profile.swift */,
 				F105 /* DataBuffer.swift */,
+				D15700000000000000000004 /* RecordingDiagnosticEvent.swift */,
 				D15000000000000000000004 /* RecordingDiagnostics.swift */,
 			);
 			path = BLE;
@@ -985,6 +999,8 @@
 			children = (
 				F111 /* SyncService.swift */,
 				F112 /* APIClient.swift */,
+				D15700000000000000000008 /* RecordingDiagnosticOutbox.swift */,
+				D1570000000000000000000A /* RecordingDiagnosticSync.swift */,
 				D15000000000000000000008 /* MetricUploadQueue.swift */,
 				F113 /* SessionUploader.swift */,
 				F208 /* ActivityUploader.swift */,
@@ -1120,6 +1136,8 @@
 				FT96 /* BreathRateValidationTests.swift */,
 				FT94 /* WelchPSDSegmentCountTests.swift */,
 				FT91 /* CloudRestoreTests.swift */,
+				D15700000000000000000002 /* RecordingDiagnosticReporterTests.swift */,
+				D1570000000000000000000C /* RecordingDiagnosticTransportTests.swift */,
 				D15000000000000000000002 /* MetricUploadQueueTests.swift */,
 				FT13 /* AnchorDetectorTests.swift */,
 				FT43 /* AnchorBackfillTests.swift */,
@@ -1323,11 +1341,13 @@
 				A210 /* AnchorDetector.swift in Sources */,
 				A101 /* WythinApp.swift in Sources */,
 				60ED9331C4BD56C098F8D57D /* LiveSessionController.swift in Sources */,
+				D15700000000000000000005 /* RecordingDiagnosticReporter.swift in Sources */,
 				A102 /* AppEnvironment.swift in Sources */,
 				A247 /* NudgeRouting.swift in Sources */,
 				A103 /* BLEService.swift in Sources */,
 				A104 /* PolarH10Profile.swift in Sources */,
 				A105 /* DataBuffer.swift in Sources */,
+				D15700000000000000000003 /* RecordingDiagnosticEvent.swift in Sources */,
 				D15000000000000000000003 /* RecordingDiagnostics.swift in Sources */,
 				A106 /* MetricsEngine.swift in Sources */,
 				A107 /* HRVCompute.swift in Sources */,
@@ -1336,6 +1356,8 @@
 				A110 /* CoherenceCompute.swift in Sources */,
 				A111 /* SyncService.swift in Sources */,
 				A112 /* APIClient.swift in Sources */,
+				D15700000000000000000007 /* RecordingDiagnosticOutbox.swift in Sources */,
+				D15700000000000000000009 /* RecordingDiagnosticSync.swift in Sources */,
 				D15000000000000000000007 /* MetricUploadQueue.swift in Sources */,
 				A113 /* SessionUploader.swift in Sources */,
 				A208 /* ActivityUploader.swift in Sources */,
@@ -1558,6 +1580,8 @@
 				AT96 /* BreathRateValidationTests.swift in Sources */,
 				AT94 /* WelchPSDSegmentCountTests.swift in Sources */,
 				AT91 /* CloudRestoreTests.swift in Sources */,
+				D15700000000000000000001 /* RecordingDiagnosticReporterTests.swift in Sources */,
+				D1570000000000000000000B /* RecordingDiagnosticTransportTests.swift in Sources */,
 				D15000000000000000000001 /* MetricUploadQueueTests.swift in Sources */,
 				AT13 /* AnchorDetectorTests.swift in Sources */,
 				AT43 /* AnchorBackfillTests.swift in Sources */,

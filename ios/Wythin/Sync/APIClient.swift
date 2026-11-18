@@ -500,6 +500,13 @@ struct APIClient {
         return req
     }
 
+    func recordingDiagnosticUploadRequest(userID: String) -> URLRequest {
+        var req = request(path: "/v1/recording-diagnostics", method: "POST")
+        req.setValue(userID, forHTTPHeaderField: "X-User-ID")
+        req.timeoutInterval = 120
+        return req
+    }
+
     func uploadUsage(_ payload: UsageUploadPayload, userID: String) async throws {
         var req = request(path: "/v1/usage", method: "POST")
         req.addValue(userID, forHTTPHeaderField: "X-User-ID")
@@ -798,6 +805,16 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
     private(set) var lastSavedAt: Date?
     private(set) var lastError: String?
     private(set) var pendingCount = 0
+    var onDiagnosticChange: (() -> Void)?
+    private var hasScannedPending = false
+    private var unscannedSavedSamples = 0
+    private var firstUnscannedSaveAt: Date?
+    private var diagnosticStorageError = false
+    private var diagnosticLastAttemptAt: Date?
+    private var diagnosticLastAckAt: Date?
+    private var diagnosticLastAckSampleAt: Date?
+    private var diagnosticLastHTTPStatus: Int?
+    private var diagnosticLastErrorCode: Int?
     private var enabled: Bool { UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true }
     private let iso: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -878,6 +895,11 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
     /// task or per-sample file is necessary to make that pending marker durable.
     func savedMetricsDidChange() {
         lastSavedAt = now()
+        // One notification follows each durable sample. A coalescing timer
+        // must not leave diagnostics claiming the previously empty queue is
+        // still up to date while new rows wait to be batched.
+        unscannedSavedSamples += 1
+        if firstUnscannedSaveAt == nil { firstUnscannedSaveAt = lastSavedAt }
         guard enabled else { pauseForConsent(); return }
         consentPauseLogged = false
         guard coalescingTimer == nil else { return }
@@ -989,6 +1011,7 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
     }
 
     private func flush() {
+        defer { onDiagnosticChange?() }
         guard enabled else { pauseForConsent(); return }
         guard !blockedForStorage else { return }
         do {
@@ -1015,6 +1038,10 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
                 BLEDiag.log("METRIC_SYNC queued batch=\(entry.id) samples=\(samples.count)")
             }
             pendingCount = try context.fetchCount(pendingDescriptor(queue.migrationBoundary))
+            hasScannedPending = true
+            unscannedSavedSamples = 0
+            firstUnscannedSaveAt = nil
+            diagnosticStorageError = false
             // Startup reconciliation owns the system task inventory. A lifecycle
             // flush can persist files before it finishes; reconciliation then
             // schedules those files, without creating duplicate uploads.
@@ -1045,6 +1072,8 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
             }
             scheduleForegroundRetry()
         } catch {
+            diagnosticStorageError = true
+            diagnosticLastErrorCode = RecordingDiagnosticEvent.errorCode(error)
             lastError = "Cannot prepare saved metrics for upload"
             BLEDiag.log("METRIC_SYNC queue_error code=\((error as NSError).code)")
         }
@@ -1067,6 +1096,8 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
             defaults.set(epoch, forKey: "metricsLastSyncedEpoch")
             defaults.set(iso.string(from: Date(timeIntervalSince1970: epoch)), forKey: "metricsLastSyncedAt")
             if let acceptedAt = entry.acknowledgedAt {
+                diagnosticLastAckAt = max(diagnosticLastAckAt ?? .distantPast, acceptedAt)
+                diagnosticLastAckSampleAt = max(diagnosticLastAckSampleAt ?? .distantPast, entry.latestSampleAt)
                 lastUploadedAt = max(lastUploadedAt ?? .distantPast, acceptedAt)
                 defaults.set(lastUploadedAt!.timeIntervalSince1970, forKey: "metricsLastUploadAtEpoch")
             }
@@ -1106,6 +1137,9 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
               tasksByBatch[id]?.taskIdentifier == task.taskIdentifier else { return }
         tasksByBatch.removeValue(forKey: id)
         guard enabled else { pauseForConsent(); return }
+        defer { onDiagnosticChange?() }
+        diagnosticLastAttemptAt = now()
+        diagnosticLastHTTPStatus = (task.response as? HTTPURLResponse)?.statusCode
         do {
             let queue = try openQueue()
             guard queue.entries.contains(where: { $0.id == id }) else { return }
@@ -1113,11 +1147,13 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
                 try queue.acknowledge(id, response: body, now: now())
                 try applyReceipts(queue, context: ModelContext(container))
                 lastError = nil
+                diagnosticLastErrorCode = nil
                 BLEDiag.log("METRIC_SYNC acknowledged batch=\(id) task=\(task.taskIdentifier)")
             } else {
                 throw error ?? URLError(.badServerResponse)
             }
         } catch {
+            diagnosticLastErrorCode = RecordingDiagnosticEvent.errorCode(error)
             // If the receipt was saved but SwiftData could not yet be updated,
             // fail() preserves it; the next flush/relaunch applies that receipt.
             do { try queue?.fail(id, now: now()) }
@@ -1161,6 +1197,27 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
             "maximum_attempts": String(entries.map(\.attempts).max() ?? 0),
             "error": lastError ?? "none"
         ]
+    }
+
+    /// Describes metric delivery only. The diagnostic uploader cannot update it.
+    var recordingDiagnosticDelivery: RecordingDiagnosticEvent.Delivery {
+        let entries = queue?.entries ?? []
+        var result = RecordingDiagnosticEvent.Delivery()
+        if blockedForStorage || diagnosticStorageError { result.state = .storageBlocked }
+        else if entries.contains(where: { $0.attempts > 0 }) { result.state = .retrying }
+        else if !tasksByBatch.isEmpty || unscannedSavedSamples > 0 { result.state = .uploading }
+        else if hasScannedPending { result.state = .idle }
+        result.queuedBatches = entries.count
+        result.inFlight = tasksByBatch.count
+        result.maximumAttempts = entries.map(\.attempts).max() ?? 0
+        result.pendingSamples = hasScannedPending ? pendingCount + unscannedSavedSamples : nil
+        result.oldestQueuedAt = (entries.map(\.createdAt) + [firstUnscannedSaveAt].compactMap { $0 }).min()
+        result.lastAttemptAt = diagnosticLastAttemptAt
+        result.lastAckAt = diagnosticLastAckAt
+        result.lastAckSampleAt = diagnosticLastAckSampleAt
+        result.lastHttpStatus = diagnosticLastHTTPStatus
+        result.lastErrorCode = diagnosticLastErrorCode
+        return result
     }
 
     private func syncProfileIfNeeded() async {

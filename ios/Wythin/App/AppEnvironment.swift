@@ -70,6 +70,8 @@ final class AppEnvironment {
     let dataBuffer = DataBuffer()
     let sync:        SyncService
     let metricSync:  MetricSyncService
+    let diagnosticSync: RecordingDiagnosticSync
+    private(set) var diagnosticReporter: RecordingDiagnosticReporter?
     private(set) var rawSync: RawChunkSyncService?
     var recordingError: String?
 
@@ -469,6 +471,7 @@ final class AppEnvironment {
             .flatMap(URL.init) ?? URL(string: "https://api.77.42.73.250.sslip.io")!)
         self.metricSync = MetricSyncService(client: sync.client, userID: AppEnvironment.currentUserID(),
                                              container: modelContainer)
+        self.diagnosticSync = RecordingDiagnosticSync(client: sync.client, userID: AppEnvironment.currentUserID())
         self.checkIns = CheckInCoordinator(container: modelContainer,
                                            notifier: CheckInNotificationService(),
                                            client: sync.client,
@@ -487,6 +490,24 @@ final class AppEnvironment {
             isInForeground = false
         }
         BLEDiag.log("LAUNCH state=\(launchState.rawValue) foreground=\(isInForeground)")
+        let transport = diagnosticSync
+        diagnosticReporter = RecordingDiagnosticReporter(
+            installationID: transport.installationID, launchID: transport.launchID,
+            launchSequence: transport.launchSequence,
+            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
+            appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
+            osVersion: UIDevice.current.systemVersion,
+            enabled: { UserDefaults.standard.object(forKey: "cloudSyncEnabled") as? Bool ?? true },
+            nextSequence: { transport.nextSequence() }, droppedReports: { transport.droppedReports },
+            sensor: { [weak ble] in ble?.diagnosticSensor ?? .init() },
+            delivery: { [weak metricSync] in metricSync?.recordingDiagnosticDelivery ?? .init() },
+            submit: { transport.submit(event: $0) },
+            identity: { (transport.installationID, transport.launchID, transport.launchSequence) })
+        metricSync.onDiagnosticChange = { [weak self] in self?.diagnosticReporter?.request(.state) }
+        diagnosticSync.onReady = { [weak self] in self?.diagnosticReporter?.request(.launch) }
+        diagnosticSync.start()
+        diagnosticReporter?.start(phase: launchState == .background ? .background :
+            (launchState == .active ? .foreground : .inactive))
         observeLifecycleForDiagnostics()
 
         bindBLE()
@@ -515,6 +536,11 @@ final class AppEnvironment {
     }
 
     // MARK: Session control
+
+    func setRecordingDiagnosticSyncEnabled(_ value: Bool) {
+        diagnosticSync.setEnabled(value)
+        diagnosticReporter?.consentChanged()
+    }
 
     func recordingDiagnostics() throws -> URL {
         let stamp: (Date?) -> String = { date in
@@ -871,13 +897,15 @@ final class AppEnvironment {
             })
         lifecycleObservers.append(center.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification,
-            object: nil, queue: .main) { _ in
+            object: nil, queue: .main) { [weak self] _ in
                 BLEDiag.log("MEMORY WARNING")
+                Task { @MainActor in self?.diagnosticReporter?.request(.memoryWarning) }
             })
         lifecycleObservers.append(center.addObserver(
             forName: UIApplication.willTerminateNotification,
-            object: nil, queue: .main) { _ in
+            object: nil, queue: .main) { [weak self] _ in
                 BLEDiag.log("WILL TERMINATE")
+                MainActor.assumeIsolated { self?.diagnosticReporter?.request(.termination) }
             })
     }
 
@@ -925,6 +953,13 @@ final class AppEnvironment {
     }
 
     private func bindBLE() {
+        ble.diagnosticStateSubject
+            .sink { [weak self] in
+                guard let self else { return }
+                if case .connected = self.ble.state {} else { self.diagnosticReporter?.resetRR() }
+                self.diagnosticReporter?.request(.state)
+            }
+            .store(in: &cancellables)
         ble.rawChunkReadySubject
             .sink { [weak self] in
                 guard let self else { return }
@@ -968,6 +1003,9 @@ final class AppEnvironment {
                 let generation = self.ble.recordingGeneration
                 let capturedAt = self.ble.lastRRIntervalAt ?? Date()
                 let uptime = self.ble.lastRRIntervalUptime ?? ProcessInfo.processInfo.systemUptime
+                if !frame.rrIntervalsMs.isEmpty, self.ble.rrIntervalsLive {
+                    self.diagnosticReporter?.receivedRR(uptime: uptime, generation: generation)
+                } else { self.diagnosticReporter?.poll() }
                 Task {
                     let accepted = await self.dataBuffer.appendRR(frame.rrIntervalsMs,
                         generation: generation, at: capturedAt, uptime: uptime)
@@ -989,6 +1027,8 @@ final class AppEnvironment {
             .sink { [weak self] in
                 guard let self else { return }
                 self.metricSchedule.reset()
+                self.diagnosticReporter?.resetRR()
+                self.diagnosticReporter?.request(.state)
                 self.breathTracker.reset()
                 // The beats either side of a gap are not consecutive, so the
                 // QT series cannot span it any more than the RR buffer can.
@@ -1035,6 +1075,7 @@ final class AppEnvironment {
                     self.ble.captureAudit?.recordPhase("discard_obsolete_metric")
                     continue
                 }
+                self.diagnosticReporter?.computed(sampleAt: tick.timestamp)
 
                 // The spectral pick is an observation, not the answer: track it
                 // over time so the chart shows breathing, not estimator noise.
@@ -1113,10 +1154,12 @@ final class AppEnvironment {
                                                   session: self.currentSession,
                                                   context: context)
                     self.ble.captureAudit?.recordMetricSave(success: true)
+                    self.diagnosticReporter?.saved(sampleAt: tick.timestamp)
                     self.metricSync.savedMetricsDidChange()
                     self.recordingError = nil
                 } catch {
                     self.ble.captureAudit?.recordMetricSave(success: false)
+                    self.diagnosticReporter?.saveFailed(error)
                     self.recordingError = "Metric recording failed: \(error.localizedDescription)"
                 }
             }

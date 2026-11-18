@@ -259,11 +259,15 @@ final class MetricDeliveryLifecycleTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let container = try store(), context = ModelContext(container)
         let service = service(container, root: root)
+        XCTAssertNil(service.recordingDiagnosticDelivery.pendingSamples, "not scanned is not an empty queue")
         await service.syncIfEnabled()
         let sample = HRVSample(anchorTestTimestamp: Date(timeIntervalSince1970: 1_800_000_000), meanBPM: 61, timezone: "Asia/Dubai")
         sample.stressBalance = 23
         context.insert(sample); try context.save()
         service.savedMetricsDidChange()
+        XCTAssertEqual(service.recordingDiagnosticDelivery.pendingSamples, 1,
+                       "a new durable save is pending even before the coalesced queue scan")
+        XCTAssertEqual(service.recordingDiagnosticDelivery.state, .uploading)
         try await waitForDrain(service)
         let sent = try MetricDeliveryURLProtocol.samples()
         XCTAssertEqual(sent.count, 1)
@@ -271,6 +275,12 @@ final class MetricDeliveryLifecycleTests: XCTestCase {
         XCTAssertEqual(sent.first?.timezone, "Asia/Dubai")
         XCTAssertEqual(sent.first?.stress_balance, 23)
         XCTAssertEqual(try ModelContext(container).fetch(FetchDescriptor<HRVSample>()).first?.cloudUploadState, 1)
+        let diagnostic = service.recordingDiagnosticDelivery
+        XCTAssertEqual(diagnostic.state, .idle)
+        XCTAssertEqual(diagnostic.pendingSamples, 0)
+        XCTAssertEqual(diagnostic.lastHttpStatus, 200)
+        XCTAssertEqual(diagnostic.lastAckSampleAt, sample.timestamp)
+        XCTAssertNotNil(diagnostic.lastAckAt)
     }
 
     func testMigrationDoesNotHideNewRowsWithEarlierOrEqualTimestamps() async throws {
@@ -386,6 +396,10 @@ final class MetricDeliveryLifecycleTests: XCTestCase {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTAssertEqual(service.diagnosticsSummary["storage_retry_blocked"], "true")
+        XCTAssertEqual(service.recordingDiagnosticDelivery.state, .storageBlocked)
+        XCTAssertEqual(service.recordingDiagnosticDelivery.lastHttpStatus, 503)
+        XCTAssertNotNil(service.recordingDiagnosticDelivery.lastErrorCode)
+        XCTAssertNil(service.recordingDiagnosticDelivery.lastAckAt)
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertEqual(MetricDeliveryURLProtocol.requestCount(), 1, "failed persistence cannot create an immediate retry loop")
         XCTAssertEqual(service.pendingCount, 1)
