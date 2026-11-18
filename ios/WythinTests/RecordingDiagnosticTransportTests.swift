@@ -96,6 +96,30 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
         XCTAssertEqual(try queue.nextBatch(at: clock)?.eventIDs.prefix(2), [newest.eventId, firstNewLaunch.eventId])
     }
 
+    func testOversizedReencodedNewestReportDoesNotBlockHealthyBacklog() throws {
+        let directory = root()
+        let queue = try RecordingDiagnosticOutbox(root: directory)
+        let healthy = event(1)
+        var damaged = event(2)
+        try queue.enqueue(healthy, at: clock)
+        try queue.enqueue(damaged, at: clock)
+
+        let reports = directory.appendingPathComponent("reports")
+        let stored = try XCTUnwrap(try FileManager.default.contentsOfDirectory(at: reports, includingPropertiesForKeys: nil)
+            .first { $0.deletingPathExtension().lastPathComponent.hasSuffix(damaged.eventId.uuidString) })
+        damaged.appVersion = String(repeating: "/", count: 140_000)
+        let encoder = RecordingDiagnosticEvent.encoder()
+        encoder.outputFormatting.insert(.withoutEscapingSlashes)
+        let compact = try encoder.encode(damaged)
+        XCTAssertLessThan(compact.count, 256 * 1024)
+        XCTAssertGreaterThan(try RecordingDiagnosticEvent.encoder().encode(damaged).count, 256 * 1024)
+        try compact.write(to: stored)
+
+        XCTAssertEqual(try queue.nextBatch(at: clock)?.eventIDs, [healthy.eventId])
+        XCTAssertEqual(queue.droppedReports, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stored.path))
+    }
+
     func testDiskReplayRemovesUnknownNestedFieldsAndRebuildsContaminatedBatch() throws {
         let directory = root()
         let queue = try RecordingDiagnosticOutbox(root: directory)

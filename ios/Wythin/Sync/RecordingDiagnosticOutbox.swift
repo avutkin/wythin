@@ -61,6 +61,7 @@ final class RecordingDiagnosticOutbox {
     private static let capacity = 2048
     private static let maximumAge: TimeInterval = 48 * 3600
     private static let maxBodyBytes = 256 * 1024
+    private static let maxReportBytes = maxBodyBytes - #"{"events":[]}"#.utf8.count
     private static let maximumCounter = 9_007_199_254_740_991
 
     var droppedReports: Int { state.droppedReports }
@@ -112,7 +113,7 @@ final class RecordingDiagnosticOutbox {
         try finishDiscards()
         guard reports[event.eventId] == nil else { return }
         let body = try RecordingDiagnosticEvent.encoder().encode(event)
-        guard body.count <= Self.maxBodyBytes - 13 else {
+        guard body.count <= Self.maxReportBytes else {
             try discard([event.eventId])
             return
         }
@@ -152,6 +153,10 @@ final class RecordingDiagnosticOutbox {
             // Decoding can ignore unknown fields. Upload only the model's
             // typed keys and values, even when replaying a stored snapshot.
             let wire = try encoder.encode(event)
+            guard wire.count <= Self.maxReportBytes else {
+                invalid.append(report.id)
+                continue
+            }
             guard body.count + (members.isEmpty ? 0 : 1) + wire.count + 2 <= Self.maxBodyBytes else { break }
             if !members.isEmpty { body.append(44) } // comma
             body.append(wire)
@@ -288,7 +293,7 @@ final class RecordingDiagnosticOutbox {
 
     private func readReport(_ report: Report) throws -> Data {
         let size = try report.url.resourceValues(forKeys: [.fileSizeKey]).fileSize
-        guard let size, size <= Self.maxBodyBytes - 13 else { throw CocoaError(.fileReadCorruptFile) }
+        guard let size, size <= Self.maxReportBytes else { throw CocoaError(.fileReadCorruptFile) }
         return try Data(contentsOf: report.url)
     }
 
