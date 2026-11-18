@@ -8,6 +8,11 @@ final class RecordingDiagnosticSync {
     static var active: RecordingDiagnosticSync?
     static var pendingBackgroundCompletionHandler: (() -> Void)?
 
+    private static let withdrawalKey = "recordingDiagnosticsLastWithdrawal"
+    private static let domainKey = "recordingDiagnosticsConsentDomain"
+    private static let instances = NSHashTable<RecordingDiagnosticSync>.weakObjects()
+
+    private let consentDomain: String
     private let request: URLRequest
     private let namespace: String
     private let directory: URL
@@ -43,7 +48,12 @@ final class RecordingDiagnosticSync {
 
     private var enabled: Bool { defaults.object(forKey: "cloudSyncEnabled") as? Bool ?? true }
     private var eraseKey: String { "recordingDiagnosticsPendingRemoval.\(namespace)" }
-    private var mustErase: Bool { !enabled || defaults.bool(forKey: eraseKey) }
+    private var withdrawal: String? { defaults.string(forKey: Self.withdrawalKey) }
+    private var pendingErase: Bool {
+        if let withdrawal, queue?.lastWithdrawal != withdrawal { return true }
+        return defaults.bool(forKey: eraseKey)
+    }
+    private var mustErase: Bool { !enabled || pendingErase }
     var canCollect: Bool { !deletionInProgress && !mustErase }
 
     init(client: APIClient, userID: String, defaults: UserDefaults = .standard,
@@ -60,6 +70,12 @@ final class RecordingDiagnosticSync {
             .appendingPathComponent("RecordingDiagnostics", isDirectory: true)
         self.directory = base.appendingPathComponent(namespace, isDirectory: true)
         self.defaults = defaults
+        if let domain = defaults.string(forKey: Self.domainKey) {
+            consentDomain = domain
+        } else {
+            consentDomain = UUID().uuidString
+            defaults.set(consentDomain, forKey: Self.domainKey)
+        }
         self.now = now
         background = configuration == nil || configuration?.identifier != nil
 
@@ -80,6 +96,8 @@ final class RecordingDiagnosticSync {
 
         // Reporter startup needs identity before the asynchronous system
         // inventory returns. The launch increment must be durable first.
+        Self.instances.add(self)
+        if !enabled { withdrawConsent() }
         try? openQueue()
     }
 
@@ -142,12 +160,53 @@ final class RecordingDiagnosticSync {
     }
 
     func setEnabled(_ value: Bool) {
-        // Remember a pending erase even if disabling and re-enabling both
-        // happen while file protection prevents durable cleanup.
-        if !value { defaults.set(true, forKey: eraseKey) }
-        defaults.set(value, forKey: "cloudSyncEnabled")
-        start()
-        onCollectionStateChanged?()
+        if value {
+            defaults.set(true, forKey: "cloudSyncEnabled")
+            for service in servicesSharingConsent {
+                service.start()
+                service.onCollectionStateChanged?()
+            }
+        } else {
+            withdrawConsent()
+            start()
+            onCollectionStateChanged?()
+        }
+    }
+
+    private var servicesSharingConsent: [RecordingDiagnosticSync] {
+        let base = directory.deletingLastPathComponent()
+        return Self.instances.allObjects.filter {
+            $0.consentDomain == consentDomain && $0.directory.deletingLastPathComponent() == base
+        }
+    }
+
+    private func withdrawConsent() {
+        // The shared fence survives an unreadable namespace or directory listing.
+        // Each outbox records the generation only after removing its last payload.
+        let generation = UUID().uuidString
+        defaults.set(generation, forKey: Self.withdrawalKey)
+        defaults.set(false, forKey: "cloudSyncEnabled")
+        let base = directory.deletingLastPathComponent()
+        let live = servicesSharingConsent
+        for service in live {
+            service.discardedThroughSequence = service.sequence
+            if service !== self || service.inventoryRequested { service.start() }
+            if service !== self { service.onCollectionStateChanged?() }
+        }
+        let activeScopes = Set(live.map(\.namespace))
+        do {
+            for scope in try FileManager.default.contentsOfDirectory(at: base, includingPropertiesForKeys: nil) {
+                let name = scope.lastPathComponent
+                guard name.utf8.count == 64, name.allSatisfy(\.isHexDigit), !activeScopes.contains(name) else { continue }
+                do {
+                    let outbox = try RecordingDiagnosticOutbox(root: scope)
+                    // Older outboxes have no persisted domain and belong to this installation.
+                    if outbox.consentDomain == nil || outbox.consentDomain == consentDomain {
+                        try outbox.clear(for: generation)
+                    }
+                } catch { reportStorageError(error) }
+            }
+        } catch { reportStorageError(error) }
     }
 
     /// Quiesce this installation's diagnostics before any server deletion.
@@ -198,7 +257,10 @@ final class RecordingDiagnosticSync {
     private func openQueue() throws {
         guard queue == nil else { return }
         let opened = try RecordingDiagnosticOutbox(root: directory)
-        let identity = try opened.beginLaunch()
+        if enabled, let withdrawal, opened.lastWithdrawal != withdrawal {
+            try opened.clear(for: withdrawal)
+        }
+        let identity = try opened.beginLaunch(consentDomain: consentDomain)
         queue = opened
         self.identity = identity
         if onReady != nil {
@@ -212,8 +274,13 @@ final class RecordingDiagnosticSync {
         currentTask = nil
         restoredTasks?.forEach { $0.cancel() }
         completions.removeAll()
+        if let withdrawal, let queue, queue.lastWithdrawal != withdrawal {
+            // A previous service for this scope may still hold an older in-memory
+            // snapshot. Preserve the launch and drop counters currently on disk.
+            self.queue = try RecordingDiagnosticOutbox(root: directory)
+        }
         if let queue {
-            try queue.clear()
+            try queue.clear(for: withdrawal)
             defaults.removeObject(forKey: eraseKey)
         }
     }
@@ -221,9 +288,9 @@ final class RecordingDiagnosticSync {
     fileprivate func advance() {
         retryTimer?.invalidate()
         retryTimer = nil
-        let pendingErase = defaults.bool(forKey: eraseKey)
+        let wasPendingErase = pendingErase
         defer {
-            if pendingErase, canCollect { onCollectionStateChanged?() }
+            if wasPendingErase, canCollect { onCollectionStateChanged?() }
         }
         let events = delegate.takeEvents()
         completions.append(contentsOf: events.completions)

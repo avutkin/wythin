@@ -21,6 +21,8 @@ final class RecordingDiagnosticOutbox {
         let installationID: UUID
         var launchSequence = 0
         var droppedReports = 0
+        var consentDomain: String?
+        var lastWithdrawal: String?
         var batch: Batch?
         // The counter and removal intent are committed together. A crash
         // between those writes and unlinking must not count a report twice.
@@ -64,6 +66,8 @@ final class RecordingDiagnosticOutbox {
     private static let maxReportBytes = maxBodyBytes - #"{"events":[]}"#.utf8.count
     private static let maximumCounter = 9_007_199_254_740_991
 
+    var consentDomain: String? { state.consentDomain }
+    var lastWithdrawal: String? { state.lastWithdrawal }
     var droppedReports: Int { state.droppedReports }
     var currentBatch: Batch? { state.batch }
 
@@ -99,9 +103,10 @@ final class RecordingDiagnosticOutbox {
         try cleanOrphanPayloads()
     }
 
-    func beginLaunch() throws -> Identity {
+    func beginLaunch(consentDomain: String? = nil) throws -> Identity {
         guard state.launchSequence < Self.maximumCounter else { throw CocoaError(.fileWriteOutOfSpace) }
         var updated = state
+        if let consentDomain { updated.consentDomain = consentDomain }
         updated.launchSequence += 1
         try commit(updated)
         return Identity(installationID: updated.installationID, launchSequence: updated.launchSequence)
@@ -210,7 +215,7 @@ final class RecordingDiagnosticOutbox {
         try cleanOrphanPayloads()
     }
 
-    func clear() throws {
+    func clear(for withdrawal: String? = nil) throws {
         try finishDiscards()
         if state.batch != nil || !reports.isEmpty {
             var updated = state
@@ -223,6 +228,12 @@ final class RecordingDiagnosticOutbox {
             try remove(url)
         }
         try cleanOrphanPayloads()
+        // A failed unlink or interrupted clear must leave this generation outstanding.
+        if let withdrawal, state.lastWithdrawal != withdrawal {
+            var updated = state
+            updated.lastWithdrawal = withdrawal
+            try commit(updated)
+        }
     }
 
     private func pendingReports(at now: Date) throws -> [Report] {

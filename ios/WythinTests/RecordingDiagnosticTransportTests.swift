@@ -194,6 +194,141 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
         XCTAssertEqual(try persistedEvents(in: directory).map(\.eventId), [report.eventId])
     }
 
+    private func offlineScope(in directory: URL, defaults: UserDefaults) throws
+        -> (scope: URL, report: RecordingDiagnosticEvent, file: URL, token: UUID) {
+        let first = makeSync(root: directory, defaults: defaults)
+        let scope = try scopeDirectory(in: directory)
+        let queue = try RecordingDiagnosticOutbox(root: scope)
+        let discarded = event(1, installation: first.installationID, launch: first.launchID)
+        try queue.enqueue(discarded, at: clock)
+        try queue.resolve(XCTUnwrap(queue.nextBatch(at: clock)), dropped: true)
+        let report = event(2, installation: first.installationID, launch: first.launchID)
+        try queue.enqueue(report, at: clock)
+        let batch = try XCTUnwrap(queue.nextBatch(at: clock))
+        return (scope, report, queue.payloadURL(batch), try queue.registerTransfer(batch))
+    }
+
+    func testGlobalWithdrawalClearsInactiveServerBeforeItsNextLaunch() async throws {
+        let directory = root(), defaults = isolatedDefaults()
+        let old = try offlineScope(in: directory, defaults: defaults)
+        let other = makeSync(root: directory, port: 3, defaults: defaults)
+        other.setEnabled(false)
+        XCTAssertTrue(try persistedEvents(in: old.scope).isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: old.file.path))
+        other.setEnabled(true)
+
+        let native = DiagnosticHTTPStub()
+        let relaunched = makeSync(root: directory, configuration: native.configuration, defaults: defaults)
+        XCTAssertEqual(relaunched.installationID, old.report.installationId)
+        XCTAssertEqual(relaunched.launchSequence, 2)
+        XCTAssertEqual(relaunched.droppedReports, 1)
+        let fresh = event(relaunched.nextSequence(), installation: relaunched.installationID,
+                          launch: relaunched.launchID, launchSequence: relaunched.launchSequence)
+        native.reply(status: 200, accepted: [fresh.eventId])
+        relaunched.submit(event: fresh)
+        try await until { native.requestCount > 0 }
+        XCTAssertFalse(String(decoding: native.lastRequestBody, as: UTF8.self).contains(old.report.eventId.uuidString))
+        try await until { try self.persistedEvents(in: old.scope).isEmpty }
+        XCTAssertEqual(native.requestCount, 1)
+    }
+
+    func testWithdrawalFencesUnavailableInactiveScopeAndItsRestoredNativeTask() async throws {
+        let directory = root(), defaults = isolatedDefaults()
+        let old = try offlineScope(in: directory, defaults: defaults)
+        let parked = root()
+        let spooledFile = parked.appendingPathComponent(old.file.lastPathComponent)
+        try FileManager.default.moveItem(at: old.scope, to: parked)
+        try Data().write(to: URL(fileURLWithPath: old.scope.path, isDirectory: false))
+        let other = makeSync(root: directory, port: 3, defaults: defaults)
+        other.setEnabled(false)
+        other.setEnabled(true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: spooledFile.path))
+
+        let native = DiagnosticHTTPStub()
+        let api = APIClient(baseURL: URL(string: "http://127.0.0.1:2")!)
+        let release = native.hold(status: 200, accepted: [old.report.eventId])
+        defer { release() }
+        var restored: URLSessionUploadTask?
+        let returning = makeSync(root: directory, configuration: native.configuration, defaults: defaults,
+                                 sessionFactory: { config, delegate in
+            let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+            let task = session.uploadTask(with: api.recordingDiagnosticUploadRequest(userID: "user"), fromFile: spooledFile)
+            task.taskDescription = "\(old.scope.lastPathComponent):\(old.token.uuidString)"
+            restored = task
+            return session
+        })
+        // The system may already be running a transfer when it returns the inventory.
+        let task = try XCTUnwrap(restored)
+        task.resume()
+        try await until { native.requestCount == 1 }
+        returning.start()
+        XCTAssertFalse(returning.canCollect)
+        XCTAssertEqual(returning.nextSequence(), 0)
+        try await until("restored task cancellation while locked") { task.state == .completed }
+        XCTAssertEqual((task.error as? URLError)?.code, .cancelled)
+        release()
+        XCTAssertEqual(native.requestCount, 1)
+
+        try FileManager.default.removeItem(at: old.scope)
+        try FileManager.default.moveItem(at: parked, to: old.scope)
+        returning.start()
+        XCTAssertEqual(returning.installationID, old.report.installationId)
+        XCTAssertEqual(returning.launchSequence, 2)
+        XCTAssertEqual(returning.droppedReports, 1)
+        XCTAssertTrue(try persistedEvents(in: old.scope).isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: old.file.path))
+        let fresh = event(returning.nextSequence(), installation: returning.installationID,
+                          launch: returning.launchID, launchSequence: returning.launchSequence)
+        native.reply(status: 200, accepted: [fresh.eventId])
+        returning.submit(event: fresh)
+        try await until { try native.requestCount == 2 && self.persistedEvents(in: old.scope).isEmpty }
+        XCTAssertTrue(String(decoding: native.lastRequestBody, as: UTF8.self).contains(fresh.eventId.uuidString))
+    }
+
+    func testGlobalWithdrawalCancelsBothLanesOfAnotherLiveScope() async throws {
+        let directory = root(), defaults = isolatedDefaults()
+        let native = DiagnosticHTTPStub(), side = DiagnosticHTTPStub()
+        let first = dualTransport(root: directory, native: native, immediate: side, defaults: defaults)
+        let old = event(first.nextSequence(), installation: first.installationID, launch: first.launchID)
+        let lateNative = native.hold(status: 200, accepted: [old.eventId])
+        let lateSide = side.hold(status: 200, accepted: [old.eventId])
+        defer { lateNative(); lateSide() }
+        first.submit(event: old)
+        try await until { native.requestCount == 1 && side.requestCount == 1 }
+        let unsubmitted = event(first.nextSequence(), installation: first.installationID, launch: first.launchID)
+        let other = makeSync(root: directory, user: "another-account", defaults: defaults)
+        other.setEnabled(false)
+        other.setEnabled(true)
+        first.submit(event: unsubmitted)
+        XCTAssertTrue(try persistedEvents(in: directory).isEmpty)
+        try await until { native.cancellationCount == 1 && side.cancellationCount == 1 }
+
+        let fresh = event(first.nextSequence(), installation: first.installationID, launch: first.launchID)
+        let ack = native.hold(status: 200, accepted: [fresh.eventId])
+        first.submit(event: fresh)
+        try await until { native.requestCount == 2 }
+        lateNative()
+        lateSide()
+        XCTAssertEqual(try persistedEvents(in: directory).map(\.eventId), [fresh.eventId])
+        ack()
+        try await until { try self.persistedEvents(in: directory).isEmpty }
+    }
+
+    func testCloudDeletionPreservesAnotherServersPendingBatch() async throws {
+        let directory = root(), defaults = isolatedDefaults()
+        let old = try offlineScope(in: directory, defaults: defaults)
+        let bytes = try Data(contentsOf: old.file)
+        let other = makeSync(root: directory, port: 3, defaults: defaults)
+        try await other.withCloudDataDeletion {}
+        XCTAssertEqual(try Data(contentsOf: old.file), bytes)
+        let native = DiagnosticHTTPStub()
+        native.reply(status: 200, accepted: [old.report.eventId])
+        let returning = makeSync(root: directory, configuration: native.configuration, defaults: defaults)
+        returning.start()
+        try await until { try native.requestCount == 1 && self.persistedEvents(in: old.scope).isEmpty }
+        XCTAssertEqual(native.lastRequestBody, bytes)
+    }
+
     func testWrongAcknowledgementPersistsRetryAndExactAcknowledgementRemovesBatch() async throws {
         let directory = root()
         var resumedAt: Date?
@@ -487,9 +622,10 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
     }
 
     private func dualTransport(root: URL, native: DiagnosticHTTPStub, immediate: DiagnosticHTTPStub,
+                               defaults: UserDefaults? = nil,
                                uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) -> RecordingDiagnosticSync {
         let configuration = URLSessionConfiguration.background(withIdentifier: "com.wythin.test.\(UUID())")
-        return makeSync(root: root, configuration: configuration, makeImmediateUpload: {
+        return makeSync(root: root, configuration: configuration, defaults: defaults, makeImmediateUpload: {
             ImmediateFileUpload(configuration: immediate.configuration, uptime: uptime)
         }, sessionFactory: { _, delegate in
             URLSession(configuration: native.configuration, delegate: delegate, delegateQueue: nil)
@@ -818,15 +954,20 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
 
     private enum WaitError: Error { case timeout(String) }
 
-    private func makeSync(root: URL, user: String = "user", port: Int = 2,
-                          configuration: URLSessionConfiguration? = .ephemeral,
-                          clock: (() -> Date)? = nil, enabled: Bool = true,
-                          makeImmediateUpload: @MainActor () -> ImmediateFileUpload? = { nil },
-                          sessionFactory: ((URLSessionConfiguration, URLSessionDelegate) -> URLSession)? = nil) -> RecordingDiagnosticSync {
+    private func isolatedDefaults() -> UserDefaults {
         let name = UUID().uuidString
         let defaults = UserDefaults(suiteName: name)!
         addTeardownBlock { defaults.removePersistentDomain(forName: name) }
-        defaults.set(enabled, forKey: "cloudSyncEnabled")
+        return defaults
+    }
+
+    private func makeSync(root: URL, user: String = "user", port: Int = 2,
+                          configuration: URLSessionConfiguration? = .ephemeral,
+                          clock: (() -> Date)? = nil, enabled: Bool? = nil, defaults: UserDefaults? = nil,
+                          makeImmediateUpload: @MainActor () -> ImmediateFileUpload? = { nil },
+                          sessionFactory: ((URLSessionConfiguration, URLSessionDelegate) -> URLSession)? = nil) -> RecordingDiagnosticSync {
+        let defaults = defaults ?? isolatedDefaults()
+        if let enabled { defaults.set(enabled, forKey: "cloudSyncEnabled") }
         let client = APIClient(baseURL: URL(string: "http://127.0.0.1:\(port)")!)
         return RecordingDiagnosticSync(client: client, userID: user, defaults: defaults,
                                        directory: root, configuration: configuration,
