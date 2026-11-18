@@ -255,12 +255,14 @@ final class MetricDeliveryLifecycleTests: XCTestCase {
     }
 
     private func dualMetricService(_ container: ModelContainer, root: URL, native: DiagnosticHTTPStub,
-                                   immediate: DiagnosticHTTPStub) -> MetricSyncService {
+                                   immediate: DiagnosticHTTPStub, captureNative: ((URLSession) -> Void)? = nil) -> MetricSyncService {
         let configuration = URLSessionConfiguration.background(withIdentifier: "com.wythin.test.\(UUID())")
         return MetricSyncService(client: APIClient(baseURL: URL(string: "http://127.0.0.1:2")!),
             userID: "fixture", container: container, queueDirectory: root, sessionConfiguration: configuration,
             sessionFactory: { _, delegate in
-                URLSession(configuration: native.configuration, delegate: delegate, delegateQueue: nil)
+                let session = URLSession(configuration: native.configuration, delegate: delegate, delegateQueue: nil)
+                captureNative?(session)
+                return session
             }, makeImmediateUpload: { ImmediateFileUpload(configuration: immediate.configuration) },
             coalescingInterval: 0.01)
     }
@@ -336,15 +338,24 @@ final class MetricDeliveryLifecycleTests: XCTestCase {
         context.insert(HRVSample(anchorTestTimestamp: Date(), meanBPM: 64))
         try context.save()
         let native = DiagnosticHTTPStub(), immediate = DiagnosticHTTPStub()
-        let service = dualMetricService(container, root: root, native: native, immediate: immediate)
+        var nativeSession: URLSession?
+        let service = dualMetricService(container, root: root, native: native, immediate: immediate) { nativeSession = $0 }
         let ack = Data(#"{"stored":1,"skipped":0}"#.utf8)
         let nativeLate = native.hold(status: 200, body: ack)
         let sideLate = immediate.hold(status: 200, body: ack)
         await service.syncIfEnabled()
         try await waitForRequests(native: native, immediate: immediate)
+        let session = try XCTUnwrap(nativeSession)
+        let inventory = await session.allTasks
+        let nativeTask = try XCTUnwrap(inventory.first)
+        let sideTask = try XCTUnwrap(immediate.lastTransfer)
+        XCTAssertEqual(nativeTask.state, .running)
+        XCTAssertEqual(sideTask.state, .running)
         try await service.withCloudDataDeletion {
-            XCTAssertEqual(native.cancellationCount, 1)
-            XCTAssertEqual(immediate.cancellationCount, 1)
+            XCTAssertEqual(nativeTask.state, .completed)
+            XCTAssertEqual((nativeTask.error as? URLError)?.code, .cancelled)
+            XCTAssertEqual(sideTask.state, .completed)
+            XCTAssertEqual((sideTask.error as? URLError)?.code, .cancelled)
             await service.syncIfEnabled()
             service.setEnabled(false)
             nativeLate()
@@ -546,6 +557,100 @@ final class MetricDeliveryLifecycleTests: XCTestCase {
         MetricDeliveryURLProtocol.release()
         await service.syncIfEnabled()
         try await waitForDrain(service)
+    }
+
+    func testEarlyRestoredReceiptAndStartAreAppliedBeforeBackgroundWakeCompletes() async throws {
+        try await exerciseEarlyReceipt(account: "current-account")
+    }
+
+    func testEarlyRestoredWrongAccountCannotSupplyReceiptOrStart() async throws {
+        try await exerciseEarlyReceipt(account: "another-account")
+    }
+
+    func testConsentChangeFencesEarlyRestoredReceiptAndStart() async throws {
+        try await exerciseEarlyReceipt(account: "current-account", fence: .consent)
+    }
+
+    func testCloudDeletionFencesEarlyRestoredReceiptAndStart() async throws {
+        try await exerciseEarlyReceipt(account: "current-account", fence: .deletion)
+    }
+
+    private enum RestorationFence { case consent, deletion }
+
+    private func exerciseEarlyReceipt(account: String, fence: RestorationFence? = nil) async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let container = try store(), context = ModelContext(container)
+        let sample = HRVSample(anchorTestTimestamp: Date(), meanBPM: 64)
+        context.insert(sample)
+        try context.save()
+        let queue = try MetricUploadQueue(root: root, migrationBoundary: .distantPast)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let entry = try queue.enqueue(payload: encoder.encode(MetricsUploadPayload(samples: [MetricSamplePayload(from: sample)])),
+            members: [encoder.encode(sample.persistentModelID)], latestSampleAt: sample.timestamp,
+            expectedStored: 1, expectedSkipped: 0, now: sample.timestamp)
+        let api = APIClient(baseURL: URL(string: "http://127.0.0.1:2")!)
+        let native = DiagnosticHTTPStub()
+        let ack = Data(#"{"stored":1,"skipped":0}"#.utf8)
+        let early = native.hold(status: 200, body: ack)
+        let replacement = native.hold(status: 200, body: ack)
+        defer { early(); replacement() }
+        var old: URLSessionUploadTask?
+        var nativeSession: URLSession?
+        let service = MetricSyncService(client: api, userID: "current-account", container: container,
+            queueDirectory: root, sessionConfiguration: native.configuration, sessionFactory: { config, delegate in
+                let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+                let task = session.uploadTask(with: api.metricUploadRequest(userID: account), fromFile: queue.payloadURL(for: entry.id))
+                task.taskDescription = entry.id.uuidString
+                old = task
+                nativeSession = session
+                return session
+            })
+        let deadline = ContinuousClock.now + .seconds(3)
+        let task = try XCTUnwrap(old), session = try XCTUnwrap(nativeSession)
+        defer { session.invalidateAndCancel() }
+        task.resume()
+        while native.requestCount == 0 && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        let observedAfter = Date()
+        service.urlSession(session, task: task, didSendBodyData: 1, totalBytesSent: 1, totalBytesExpectedToSend: 10)
+        early()
+        while task.state != .completed && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertEqual(task.state, .completed)
+        // Drain the serial delegate queue, then let its main-queue work run
+        // before the service has requested the launch inventory.
+        await withCheckedContinuation { continuation in session.delegateQueue.addOperation { continuation.resume() } }
+        await Task.yield()
+        switch fence {
+        case .consent:
+            service.setEnabled(false)
+            service.setEnabled(true)
+        case .deletion:
+            try await service.withCloudDataDeletion {
+                XCTAssertNil(service.recordingDiagnosticDelivery.lastAckAt)
+            }
+        case nil: break
+        }
+        service.urlSessionDidFinishEvents(forBackgroundURLSession: session)
+        var woke = false
+        let matching = account == "current-account" && fence == nil
+        service.handleBackgroundEvents {
+            let stored = try? ModelContext(container).fetch(FetchDescriptor<HRVSample>()).first?.cloudUploadState
+            XCTAssertEqual(stored, matching ? 1 : 0)
+            XCTAssertEqual(service.recordingDiagnosticDelivery.lastAckAt != nil, matching)
+            XCTAssertEqual(service.recordingDiagnosticDelivery.lastAttemptAt != nil, matching)
+            if matching, let start = service.recordingDiagnosticDelivery.lastAttemptAt {
+                XCTAssertGreaterThanOrEqual(start, observedAfter)
+            }
+            woke = true
+        }
+        while (!woke || (!matching && native.requestCount < 2)) && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertTrue(woke)
+        XCTAssertEqual(native.requestCount, matching ? 1 : 2)
+        if !matching { replacement(); try await waitForDrain(service) }
+        XCTAssertTrue(try MetricUploadQueue(root: root, migrationBoundary: .distantPast).entries.isEmpty)
     }
 
     func testRestoredTaskForAnotherAccountCannotRetireMatchingBatchID() async throws {

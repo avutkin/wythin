@@ -793,6 +793,15 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
     private let usesBackgroundSession: Bool
     private var queue: MetricUploadQueue?
     private var session: URLSession!
+    private struct NativeEvents {
+        let task: URLSessionTask
+        var firstStart: Date?
+        var completion: (body: Data, error: Error?)?
+    }
+
+    private var pendingNativeEvents: [Int: NativeEvents] = [:]
+    private var restoreAllowed = true
+    private var restoredBatchIDs = Set<UUID>()
     private var reconciled = false
     private var isSyncing = false
     private var syncRequested = false
@@ -805,7 +814,7 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
     private var allowance: UIBackgroundTaskIdentifier = .invalid
     private var unlockObserver: NSObjectProtocol?
     private var backgroundCompletionHandler: (() -> Void)?
-    nonisolated private let completionGroup = DispatchGroup()
+    private var finishedBackgroundEvents = false
     nonisolated private let responseBodies = MetricUploadResponseBodies()
     private(set) var lastUploadedAt: Date?
     private(set) var lastSavedAt: Date?
@@ -948,13 +957,15 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
         }
         if !reconciled {
             let tasks = await withCheckedContinuation { continuation in
-                session.getAllTasks { continuation.resume(returning: $0) }
+                session.getAllTasks { tasks in
+                    // Drain earlier delegate deliveries on the same queue
+                    // before allowing the inventory to schedule replacements.
+                    DispatchQueue.main.async { continuation.resume(returning: tasks) }
+                }
             }
             guard !deletionInProgress else { tasks.forEach { $0.cancel() }; return }
             for task in tasks {
-                guard let original = task.originalRequest, original.url == uploadRequest.url,
-                      original.value(forHTTPHeaderField: "X-User-ID") == userID,
-                      let description = task.taskDescription, let id = UUID(uuidString: description),
+                guard restoreAllowed, let id = scopedBatchID(task),
                       task.state == .running || task.state == .suspended else { task.cancel(); continue }
                 if tasksByBatch[id] != nil { task.cancel() }
                 else { tasksByBatch[id] = task }
@@ -963,6 +974,7 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
         }
         guard enabled else {
             pauseForConsent()
+            finishBackgroundWakeIfReady()
             if let queue = try? openQueue() {
                 pendingCount = (try? ModelContext(container).fetchCount(pendingDescriptor(queue.migrationBoundary))) ?? pendingCount
             }
@@ -1013,6 +1025,9 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
     }
 
     private func cancelTransfers() {
+        restoreAllowed = false
+        restoredBatchIDs.removeAll()
+        pendingNativeEvents.removeAll()
         immediateUpload?.cancel()
         startedTaskIDs.removeAll()
         coalescingTimer?.invalidate(); coalescingTimer = nil
@@ -1040,6 +1055,9 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
         let boundary = epoch > 0 ? Date(timeIntervalSince1970: epoch)
             : (iso.date(from: legacy) ?? ISO8601DateFormatter().date(from: legacy) ?? .distantPast)
         let opened = try MetricUploadQueue(root: queueDirectory, migrationBoundary: boundary)
+        if restoreAllowed {
+            restoredBatchIDs = Set(opened.entries.filter { $0.acknowledgedAt == nil }.map(\.id))
+        }
         queue = opened
         return opened
     }
@@ -1051,13 +1069,17 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
     }
 
     private func flush() {
-        defer { onDiagnosticChange?() }
+        defer {
+            onDiagnosticChange?()
+            finishBackgroundWakeIfReady()
+        }
         guard !deletionInProgress else { return }
         guard enabled else { pauseForConsent(); return }
         guard !blockedForStorage else { return }
         do {
             let queue = try openQueue()
             let context = ModelContext(container)
+            if reconciled { try applyNativeEvents(to: queue) }
             try applyReceipts(queue, context: context)
             // Three immutable files bound disk duplication and keep a backlog
             // moving in parallel without a new app wake for each individual row.
@@ -1118,7 +1140,7 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
         } catch {
             diagnosticStorageError = true
             diagnosticLastErrorCode = RecordingDiagnosticEvent.errorCode(error)
-            lastError = "Cannot prepare saved metrics for upload"
+            lastError = blockedForStorage ? "Cannot save metric upload retry" : "Cannot prepare saved metrics for upload"
             BLEDiag.log("METRIC_SYNC queue_error code=\((error as NSError).code)")
         }
     }
@@ -1165,11 +1187,25 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
         onDiagnosticChange?()
     }
 
+    private func scopedBatchID(_ task: URLSessionTask) -> UUID? {
+        guard let original = task.originalRequest, original.url == uploadRequest.url,
+              original.value(forHTTPHeaderField: "X-User-ID") == userID,
+              let description = task.taskDescription else { return nil }
+        return UUID(uuidString: description)
+    }
+
+    private func mayRestore(_ id: UUID) -> Bool {
+        restoreAllowed && (queue == nil || restoredBatchIDs.contains(id))
+    }
+
     private func observedStart(_ task: URLSessionTask, at date: Date) {
-        guard enabled, !deletionInProgress, let description = task.taskDescription,
-              let id = UUID(uuidString: description), tasksByBatch[id]?.taskIdentifier == task.taskIdentifier,
-              startedTaskIDs.insert(task.taskIdentifier).inserted else { return }
-        recordNetworkStart(date)
+        guard enabled, !deletionInProgress, let id = scopedBatchID(task) else { return }
+        let key = task.taskIdentifier
+        if tasksByBatch[id]?.taskIdentifier == key || (reconciled && restoredBatchIDs.contains(id)) {
+            if startedTaskIDs.insert(key).inserted { recordNetworkStart(date) }
+        } else if mayRestore(id), pendingNativeEvents[key]?.firstStart == nil {
+            pendingNativeEvents[key, default: NativeEvents(task: task)].firstStart = date
+        }
     }
 
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
@@ -1208,6 +1244,7 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
                 defaults.set(lastUploadedAt!.timeIntervalSince1970, forKey: "metricsLastUploadAtEpoch")
             }
             try queue.removeAcknowledged(entry.id)
+            restoredBatchIDs.remove(entry.id)
         }
     }
 
@@ -1223,6 +1260,7 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
     func handleBackgroundEvents(completionHandler: @escaping () -> Void) {
         backgroundCompletionHandler = completionHandler
         start()
+        finishBackgroundWakeIfReady()
     }
 
     nonisolated func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
@@ -1231,11 +1269,7 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
 
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         let body = responseBodies.take(task: task.taskIdentifier)
-        completionGroup.enter()
-        DispatchQueue.main.async {
-            self.finish(task, body: body, error: error)
-            self.completionGroup.leave()
-        }
+        DispatchQueue.main.async { self.finish(task, body: body, error: error) }
     }
 
     private func finish(_ task: URLSessionTask, body: Data, error: Error?) {
@@ -1247,46 +1281,83 @@ final class MetricSyncService: NSObject, URLSessionDataDelegate {
             }
             return
         }
-        guard let description = task.taskDescription, let id = UUID(uuidString: description),
-              tasksByBatch[id]?.taskIdentifier == task.taskIdentifier else { return }
-        tasksByBatch.removeValue(forKey: id)
-        startedTaskIDs.remove(task.taskIdentifier)
-        guard enabled else { pauseForConsent(); return }
-        defer { onDiagnosticChange?() }
-        diagnosticLastHTTPStatus = (task.response as? HTTPURLResponse)?.statusCode
-        do {
-            let queue = try openQueue()
-            guard queue.entries.contains(where: { $0.id == id }) else { return }
-            try persistReceipt(id, queue: queue, response: task.response as? HTTPURLResponse, body: body, error: error)
-            immediateUpload?.acknowledged(id)
-            try applyReceipts(queue, context: ModelContext(container))
-            BLEDiag.log("METRIC_SYNC acknowledged batch=\(id) task=\(task.taskIdentifier)")
-        } catch {
-            diagnosticLastErrorCode = RecordingDiagnosticEvent.errorCode(error)
-            // If the receipt was saved but SwiftData could not yet be updated,
-            // fail() preserves it; the next flush/relaunch applies that receipt.
-            do { try queue?.fail(id, now: now()) }
-            catch {
-                blockedForStorage = true
-                lastError = "Cannot save metric upload retry"
-                BLEDiag.log("METRIC_SYNC retry_storage_error code=\((error as NSError).code)")
-                return
-            }
-            lastError = "Metric upload waiting to retry"
-            BLEDiag.log("METRIC_SYNC retry batch=\(id) status=\((task.response as? HTTPURLResponse)?.statusCode ?? 0) code=\((error as NSError).code)")
-        }
-        // Background retry tasks carry earliestBeginDate. iOS owns their wait;
-        // a failed callback never immediately sends another network request.
-        flush()
+        guard enabled, let id = scopedBatchID(task),
+              tasksByBatch[id]?.taskIdentifier == task.taskIdentifier || mayRestore(id) else { return }
+        pendingNativeEvents[task.taskIdentifier, default: NativeEvents(task: task)].completion = (body, error)
+        if reconciled { flush() }
     }
 
-    nonisolated func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
-        completionGroup.notify(queue: .main) {
-            Task { @MainActor in
-                self.backgroundCompletionHandler?()
-                self.backgroundCompletionHandler = nil
+    /// Inventory can omit a restored task that already finished. Only a batch
+    /// found on disk at launch can accept an untracked task's scoped evidence.
+    private func applyNativeEvents(to queue: MetricUploadQueue) throws {
+        for (key, events) in pendingNativeEvents {
+            let task = events.task
+            guard let id = scopedBatchID(task),
+                  tasksByBatch[id]?.taskIdentifier == key || restoredBatchIDs.contains(id),
+                  queue.entries.contains(where: { $0.id == id && $0.acknowledgedAt == nil }) else {
+                pendingNativeEvents.removeValue(forKey: key)
+                continue
             }
+            if let start = events.firstStart, startedTaskIDs.insert(key).inserted { recordNetworkStart(start) }
+            if let completion = events.completion {
+                let current = tasksByBatch[id]
+                let response = task.response as? HTTPURLResponse
+                if current == nil || current?.taskIdentifier == key { diagnosticLastHTTPStatus = response?.statusCode }
+                do {
+                    try persistReceipt(id, queue: queue, response: response, body: completion.body, error: completion.error)
+                    if current?.taskIdentifier != key { current?.cancel() }
+                    immediateUpload?.acknowledged(id)
+                    BLEDiag.log("METRIC_SYNC acknowledged batch=\(id) task=\(key)")
+                } catch {
+                    // A storage failure while recording a valid receipt must
+                    // retain the callback until the journal is writable again.
+                    guard completion.error != nil || error is URLError || error is DecodingError else { throw error }
+                    // A stray failed restore must not penalize a live replacement.
+                    if let current, current.taskIdentifier != key {
+                        startedTaskIDs.remove(key)
+                        pendingNativeEvents.removeValue(forKey: key)
+                        continue
+                    }
+                    diagnosticLastErrorCode = RecordingDiagnosticEvent.errorCode(error)
+                    do { try queue.fail(id, now: now()) }
+                    catch {
+                        // No retry checkpoint was written. An explicit sync
+                        // can retry the immutable file after storage recovers.
+                        blockedForStorage = true
+                        pendingNativeEvents.removeValue(forKey: key)
+                        tasksByBatch.removeValue(forKey: id)
+                        startedTaskIDs.remove(key)
+                        BLEDiag.log("METRIC_SYNC retry_storage_error code=\((error as NSError).code)")
+                        throw error
+                    }
+                    lastError = "Metric upload waiting to retry"
+                    BLEDiag.log("METRIC_SYNC retry batch=\(id) status=\(response?.statusCode ?? 0) code=\((error as NSError).code)")
+                }
+                diagnosticLastHTTPStatus = response?.statusCode
+                tasksByBatch.removeValue(forKey: id)
+                if let current { startedTaskIDs.remove(current.taskIdentifier) }
+                startedTaskIDs.remove(key)
+            }
+            pendingNativeEvents.removeValue(forKey: key)
         }
+    }
+
+    // The native session serializes delegate callbacks. Its main-queue
+    // deliveries therefore precede this finish-events marker.
+    nonisolated func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        DispatchQueue.main.async {
+            self.finishedBackgroundEvents = true
+            self.finishBackgroundWakeIfReady()
+        }
+    }
+
+    private func finishBackgroundWakeIfReady() {
+        guard finishedBackgroundEvents, reconciled, !deletionInProgress,
+              pendingNativeEvents.isEmpty, !enabled || !diagnosticStorageError,
+              let handler = backgroundCompletionHandler else { return }
+        finishedBackgroundEvents = false
+        backgroundCompletionHandler = nil
+        handler()
     }
 
     var diagnosticsSummary: [String: String] {

@@ -19,6 +19,8 @@ final class ImmediateFileUpload {
 
     private let session: URLSession
     private let uptime: () -> TimeInterval
+    private let beginBackgroundTask: @MainActor (@escaping () -> Void) -> UIBackgroundTaskIdentifier
+    private let endBackgroundTask: @MainActor (UIBackgroundTaskIdentifier) -> Void
     private var attempt: Attempt?
     private var cancelledTasks = Set<Int>()
     private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
@@ -31,7 +33,13 @@ final class ImmediateFileUpload {
     private var failures = 0
 
     init(configuration: URLSessionConfiguration = .default,
-         uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+         uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         beginBackgroundTask: @escaping @MainActor (@escaping () -> Void) -> UIBackgroundTaskIdentifier = {
+             UIApplication.shared.beginBackgroundTask(withName: "Deliver recording upload", expirationHandler: $0)
+         },
+         endBackgroundTask: @escaping @MainActor (UIBackgroundTaskIdentifier) -> Void = { UIApplication.shared.endBackgroundTask($0) }) {
+        self.beginBackgroundTask = beginBackgroundTask
+        self.endBackgroundTask = endBackgroundTask
         self.uptime = uptime
         let config = configuration.copy() as! URLSessionConfiguration
         config.timeoutIntervalForRequest = 20
@@ -45,9 +53,9 @@ final class ImmediateFileUpload {
     deinit {
         wakeTask?.cancel()
         session.invalidateAndCancel()
-        let id = allowance
+        let id = allowance, end = endBackgroundTask
         if id != .invalid {
-            DispatchQueue.main.async { UIApplication.shared.endBackgroundTask(id) }
+            DispatchQueue.main.async { end(id) }
         }
     }
 
@@ -79,7 +87,7 @@ final class ImmediateFileUpload {
         let task = session.uploadTask(with: request, fromFile: file)
         attempt = Attempt(batch: batch, task: task, progress: progress, receipt: receipt, wake: wake)
         nextStartAt = instant + 30
-        allowance = UIApplication.shared.beginBackgroundTask(withName: "Deliver recording upload") { [weak self] in
+        allowance = beginBackgroundTask { [weak self] in
             MainActor.assumeIsolated {
                 guard let self, self.attempt?.task === task else { return }
                 self.recordFailure()
@@ -122,7 +130,7 @@ final class ImmediateFileUpload {
 
     private func endAllowance() {
         if allowance != .invalid {
-            UIApplication.shared.endBackgroundTask(allowance)
+            endBackgroundTask(allowance)
             allowance = .invalid
         }
     }
@@ -153,7 +161,13 @@ final class ImmediateFileUpload {
         }
         guard let current = attempt, current.task === task else { return }
         attempt = nil
-        endAllowance()
+        // The wake may start another transfer. Keep this assertion through
+        // the synchronous journal handoff, then release only its identifier.
+        let completedAllowance = allowance
+        allowance = .invalid
+        defer {
+            if completedAllowance != .invalid { endBackgroundTask(completedAllowance) }
+        }
         if current.receipt(task.response as? HTTPURLResponse, current.body, error) {
             acknowledged(current.batch)
         } else {

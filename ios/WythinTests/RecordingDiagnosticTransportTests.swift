@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import SwiftData
+import UIKit
 import XCTest
 @testable import Wythin
 
@@ -561,9 +562,13 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
         try await until { immediate.requestCount == 2 && native.requestCount == 2 }
         stale()
         XCTAssertEqual(try persistedEvents(in: directory).map(\.eventId), [second.eventId])
+        let nativeTask = try XCTUnwrap(native.lastTransfer)
+        let sideTask = try XCTUnwrap(immediate.lastTransfer)
         try await sync.withCloudDataDeletion {
-            XCTAssertEqual(immediate.cancellationCount, 2)
-            XCTAssertEqual(native.cancellationCount, 1)
+            XCTAssertEqual(nativeTask.state, .completed)
+            XCTAssertEqual((nativeTask.error as? URLError)?.code, .cancelled)
+            XCTAssertEqual(sideTask.state, .completed)
+            XCTAssertEqual((sideTask.error as? URLError)?.code, .cancelled)
             XCTAssertFalse(sync.canCollect)
             XCTAssertTrue(try persistedEvents(in: directory).isEmpty)
         }
@@ -575,6 +580,54 @@ final class RecordingDiagnosticTransportTests: XCTestCase {
         native.reply(status: 200, accepted: [fresh.eventId])
         sync.submit(event: fresh)
         try await until { try self.persistedEvents(in: directory).isEmpty }
+    }
+
+    func testImmediateAllowanceCoversReceiptAndWakeAndDoesNotEndReentrantTransfer() async throws {
+        let directory = root()
+        let queue = try MetricUploadQueue(root: directory, migrationBoundary: .distantPast)
+        let entry = try queue.enqueue(payload: Data("{}".utf8), members: [], latestSampleAt: clock,
+                                      expectedStored: 1, expectedSkipped: 0, now: clock)
+        let receiver = DiagnosticHTTPStub()
+        let receipt = Data(#"{"stored":1,"skipped":0}"#.utf8)
+        let first = receiver.hold(status: 200, body: receipt)
+        let second = receiver.hold(status: 503, body: Data())
+        var uptime: TimeInterval = 100
+        var issued = 0, live = Set<UIBackgroundTaskIdentifier>(), ended: [Int] = []
+        let lane = ImmediateFileUpload(configuration: receiver.configuration, uptime: { uptime },
+            beginBackgroundTask: { _ in
+                issued += 1
+                let id = UIBackgroundTaskIdentifier(rawValue: issued)
+                live.insert(id)
+                return id
+            }, endBackgroundTask: { id in
+                XCTAssertNotNil(live.remove(id))
+                ended.append(id.rawValue)
+                if id.rawValue == 1 {
+                    let durable = try? MetricUploadQueue(root: directory, migrationBoundary: .distantPast)
+                    XCTAssertNotNil(durable?.entries.first?.acknowledgedAt)
+                }
+            })
+        let request = APIClient(baseURL: URL(string: "http://127.0.0.1:2")!).metricUploadRequest(userID: "fixture")
+        let firstID = UIBackgroundTaskIdentifier(rawValue: 1), secondID = UIBackgroundTaskIdentifier(rawValue: 2)
+        let file = queue.payloadURL(for: entry.id)
+        lane.offer(batch: entry.id, request: request, file: file, notBefore: clock, now: clock, receipt: { _, data, _ in
+            XCTAssertTrue(live.contains(firstID))
+            do { try queue.acknowledge(entry.id, response: data, now: self.clock) } catch { XCTFail("\(error)") }
+            return true
+        }, wake: {
+            XCTAssertTrue(live.contains(firstID))
+            uptime += 30
+            lane.offer(batch: UUID(), request: request, file: file, notBefore: self.clock, now: self.clock,
+                       receipt: { _, _, _ in true }, wake: {})
+        })
+        first()
+        try await until { receiver.requestCount == 2 }
+        XCTAssertEqual(ended, [1])
+        XCTAssertEqual(live, [secondID])
+        await lane.cancelAndWait()
+        second()
+        XCTAssertEqual(ended, [1, 2])
+        XCTAssertTrue(live.isEmpty)
     }
 
     func testImmediateSpacingAndFailureCooldownRespectMonotonicClockAndDurableDeadline() async throws {
@@ -795,6 +848,7 @@ final class DiagnosticHTTPStub: @unchecked Sendable {
     private var requests = 0
     private var cancellations = 0
     private var lastBody = Data()
+    private var transfer: URLSessionTask?
 
     init() { DiagnosticURLProtocol.register(self, token: token) }
     deinit { DiagnosticURLProtocol.unregister(token) }
@@ -807,6 +861,7 @@ final class DiagnosticHTTPStub: @unchecked Sendable {
     }
 
     var requestCount: Int { lock.withLock { requests } }
+    var lastTransfer: URLSessionTask? { lock.withLock { transfer } }
     var lastRequestBody: Data { lock.withLock { lastBody } }
     var cancellationCount: Int { lock.withLock { cancellations } }
     fileprivate func cancelled() { lock.withLock { cancellations += 1 } }
@@ -845,6 +900,7 @@ final class DiagnosticHTTPStub: @unchecked Sendable {
         }
         let response = lock.withLock { () -> ((DiagnosticURLProtocol) -> Void)? in
             lastBody = bytes
+            transfer = task.task
             requests += 1
             return responses.isEmpty ? nil : responses.removeFirst()
         }
