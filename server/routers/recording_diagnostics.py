@@ -195,12 +195,23 @@ async def prune_user_reports(conn: asyncpg.Connection, user_id: str) -> None:
            WHERE user_id = $1 AND received_at < NOW() - INTERVAL '14 days'""",
         user_id,
     )
+    # Preserve latest-by-sequence snapshots before filling the remaining
+    # timeline by receipt. If installs alone exceed the cap, keep the most
+    # recently received latest snapshots and evict whole older installations.
     await conn.execute(
-        """DELETE FROM recording_diagnostics
-           WHERE user_id = $1 AND event_id IN (
-               SELECT event_id FROM recording_diagnostics WHERE user_id = $1
-               ORDER BY received_at DESC, event_id DESC OFFSET $2
-           )""",
+        """WITH surplus AS (
+               SELECT event_id FROM (
+                   SELECT event_id, received_at, ROW_NUMBER() OVER (
+                       PARTITION BY installation_id
+                       ORDER BY launch_sequence DESC, sequence DESC
+                   ) AS installation_rank
+                   FROM recording_diagnostics WHERE user_id = $1
+               ) ranked
+               ORDER BY (installation_rank = 1) DESC, received_at DESC, event_id DESC
+               OFFSET $2
+           )
+           DELETE FROM recording_diagnostics d USING surplus s
+           WHERE d.user_id = $1 AND d.event_id = s.event_id""",
         user_id, _MAX_REPORTS_PER_USER,
     )
 
@@ -313,6 +324,7 @@ async def read_user_diagnostics(user_id: UUID) -> dict:
             "freshness": freshness,
         })
     return {
+        "as_of": now,
         "installations": installations,
         "recent_events": [_snapshot(row) for row in recent],
         **dict(metric),

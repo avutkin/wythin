@@ -194,6 +194,39 @@ async def test_retention_restart_timeline_and_cloud_deletion():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("all_installations", [False, True])
+async def test_cap_prioritizes_latest_sequence_before_recent_receipt(monkeypatch, all_installations):
+    from server.routers import recording_diagnostics
+
+    monkeypatch.setattr(recording_diagnostics, "_MAX_REPORTS_PER_USER", 3)
+    device = str(uuid4())
+    latest_a = event(sequence=3)
+    delayed_a = {**latest_a, "sequence": 2, "event_id": str(uuid4())}
+    latest_b = event(sequence=2)
+    older_b = {**latest_b, "sequence": 1, "event_id": str(uuid4())}
+    latest_c = event()
+    latest_d = event()
+    async with client() as c:
+        await submit(c, device, latest_a, latest_b, latest_c if all_installations else older_b)
+        await submit(c, device, delayed_a)
+        owner = await user_id(device)
+        view = await diagnostics(c, owner)
+        expected = {latest_a["event_id"], latest_b["event_id"]}
+        if all_installations:
+            expected.add(latest_c["event_id"])
+        assert {row["latest"]["event_id"] for row in view["installations"]} == expected
+        assert len(view["recent_events"]) == 3
+
+        if all_installations:
+            await submit(c, device, latest_d)
+            view = await diagnostics(c, owner)
+            assert {row["latest"]["event_id"] for row in view["installations"]} == {
+                latest_b["event_id"], latest_c["event_id"], latest_d["event_id"],
+            }
+            assert len(view["recent_events"]) == 3
+
+
+@pytest.mark.asyncio
 async def test_freshness_and_metric_timestamp_cross_check():
     device = str(uuid4())
     now = datetime.now(timezone.utc)
