@@ -78,7 +78,7 @@ Both metric and diagnostic uploaders now attempt delivery while the process has 
 
 The active service is `pulsar-api` in `/opt/pulsar`. A tested additive projection preserving unrelated production behavior was deployed as **`5ed00fb`**. Health returned 200; the new diagnostic admin route returned 401 without the key and 200 with the app's key. At release time KT had no automatic reports yet, as expected from build 156.
 
-Both new diagnostic routes require authentication even when the legacy optional global gate is disabled. Production has `RECORDING_DIAGNOSTICS_API_KEY` configured. The pre-existing global `API_KEY` gate remains disabled: changing access to all existing app/admin routes is awaiting the user's answer to the explicit approval question. Existing clients without the key could be affected by that broader change.
+Both new diagnostic routes require authentication even when the legacy optional global gate is disabled. At the build 157 release, production had only `RECORDING_DIAGNOSTICS_API_KEY` configured, pending approval for broader access changes. On 2026-11-18 the user explicitly approved enabling the gate for all app/admin routes. Production now also has `API_KEY` enabled with the same key already shipped in Wythin. That approval is fulfilled; do not ask for it again. Clients omitting the required key are now rejected.
 
 GitHub run https://github.com/avutkin/wythin/actions/runs/44245323483 passed Python tests but its legacy deployment job failed before connecting to the server because deployment secrets were empty. Its deployment path also differs from the active service. This is not a green deployment workflow; the reviewed manual deployment above succeeded independently. No unrelated workflow/secrets changes were made.
 
@@ -94,3 +94,20 @@ These preserve all rulings from the temporary execution ledger, in order:
 6. Add bounded immediate upload attempts for metrics and diagnostics alongside immutable system background transfers, based on the observed delay and Apple's scheduling behavior. Cost: potentially duplicate network delivery, controlled by exact acknowledgement, idempotency and cancellation fences; no new wake-up guarantee.
 7. Implement truthful `last_attempt_at` timing together with the immediate delivery change, using actual network-start evidence rather than scheduling/completion. The deferred finding was resolved before release. Cost if omitted would have been misleading delivery diagnostics; it is covered by regression tests.
 8. Require a configured key on the two new diagnostic routes, with a dedicated fallback key while broader existing-route protection awaits approval. Cost: an additional configuration dependency; missing configuration fails closed. This does not resolve the pre-existing global access gap.
+
+
+## Approved global API-key gate — completed 2026-11-18
+
+The user's explicit answer was: “Enable the gate for all app/admin routes”. The running `pulsar-api` service at production revision `5ed00fb` was checked first: global `API_KEY` was absent, the dedicated diagnostic key was present, and the local admin data route accepted requests without a key. The configured key was compared with the shipped app key by SHA-256 without including credentials in the release record.
+
+Only the ignored service environment file was changed: add `API_KEY` using the existing diagnostic/app key, preserve other settings and ownership, write atomically with mode 0600, then restart the existing service. No application code, database schema, user data or TestFlight build changed. The new service environment confirms both key settings match; the service is active and health returns 200.
+
+Verification passed **28 HTTP checks and 8 WebSocket handshakes**, covering both loopback and public HTTPS/WSS:
+
+- Admin data on loopback: missing/incorrect key returns 401; the app key returns 200.
+- Public metric and diagnostic ingestion: missing/incorrect keys return 401; the app key passes authentication and deliberately invalid empty requests return validation status 422. No test samples or user records were created.
+- Device/admin WebSockets reject missing keys; a device WebSocket rejects an incorrect key and accepts the app key (101). No data messages were sent.
+- Personal `/v1/me` and MCP retain their existing Bearer authentication; a shared key does not bypass it. Health remains public.
+- Caddy already blocks public `/admin` and `/admin/*` with 404, including the data-free dashboard shell. This stricter edge restriction was preserved. The first verification expected the local dashboard's 200 externally; inspection identified the existing Caddy rule, and the completed verification checked 404 instead. The global gate remained enabled throughout.
+
+Verification log: `/private/tmp/wythin-enable-global-gate-result.log`. The repeat verification reported `changed=false`, so the service was not restarted twice. This completes the previously pending global-gate decision; it is the existing shared-key control, not a new per-user admin authorization system.
