@@ -71,68 +71,33 @@ struct RefLine {
 
 // MARK: - Chart Segmenter
 
-/// Assigns a contiguous-run id ("segment") to each bucket that carries a value.
-/// Each run is drawn as a separate `LineMark` series, and Swift Charts draws no
-/// line *between* series — so segment breaks are what make the line break across
-/// genuine sensor-off gaps.
-///
-/// Extracted from `MetricChartCard.points` purely so the gap rule is unit
-/// testable. It regressed once, silently, and only at the 24h window — a
-/// one-token error that no other window could expose.
+/// Split usable samples before averaging: coarse buckets cannot establish
+/// continuity, and a different metric cannot fill this metric's missing data.
 enum ChartSegmenter {
-
-    /// - Parameters:
-    ///   - valueKeys:       bucket keys carrying a value for this metric, ascending.
-    ///   - presentKeys:     every bucket with any sample at all (sensor on), across all metrics.
-    ///   - bucketSeconds:   width of one bucket.
-    ///   - gapBreakSeconds: empty span that counts as the sensor being off.
-    /// - Returns: one segment id per entry of `valueKeys`, in the same order.
-    static func segments(valueKeys: [Int],
-                         presentKeys: Set<Int>,
-                         bucketSeconds: TimeInterval,
-                         gapBreakSeconds: TimeInterval) -> [Int] {
-        var out: [Int] = []
-        out.reserveCapacity(valueKeys.count)
+    /// Timestamps must be sorted. Each run becomes its own line AND area series.
+    static func segments(timestamps: [Date], gapBreakSeconds: TimeInterval) -> [Int] {
         var segment = 0
-        var prevKey: Int?
-
-        for key in valueKeys {
-            if let pk = prevKey {
-                // The empty span between two PRESENT buckets is the number of
-                // buckets MISSING between them — `key - pk - 1` — not their
-                // index distance. Adjacent buckets have an empty span of zero
-                // and must stay joined.
-                //
-                // The earlier `key - pk` form made every adjacent pair look
-                // like a full bucket-width gap. Harmless at 30m (bucket 15s)
-                // and 2h (60s), both under the 300s threshold — but at 24h the
-                // bucket is 720s, so the test was true on EVERY point, every
-                // point became its own segment, and the line rendered as
-                // isolated dots. Keep the `- 1`.
-                let emptySpan = Double(key - pk - 1) * bucketSeconds
-                if emptySpan >= gapBreakSeconds {
-                    let sensorOnBetween = (pk + 1 ..< key).contains { presentKeys.contains($0) }
-                    if !sensorOnBetween { segment += 1 }   // sensor truly off across the gap
-                }
+        var previous: Date?
+        return timestamps.map { timestamp in
+            if let previous, timestamp.timeIntervalSince(previous) >= gapBreakSeconds {
+                segment += 1
             }
-            out.append(segment)
-            prevKey = key
+            previous = timestamp
+            return segment
         }
-        return out
     }
 }
 
 // MARK: - Bucketed Data Point
 
 struct ChartPoint: Identifiable {
-    let id:      Int    // bucket key — stable across re-renders
+    let id:      Date   // first contributing sample; distinct even for runs in one bucket
     let date:    Date
     let val:     Double
     let quality: Float? // average signal quality in this bucket (nil = no quality data)
     let segment: Int    // contiguous-run id; increments across data gaps so the line breaks
     /// More than half this bucket's samples were estimated (EDR) rather than
-    /// measured. Folded into `segment`, so a source change starts a new line
-    /// series and the dashed style cannot bleed across the boundary.
+    /// measured. Source changes affect symbols, not recording continuity.
     var estimated: Bool = false
 }
 
@@ -505,66 +470,65 @@ struct MetricChartCard: View {
         return "\(day.clockLabel(at: windowDates.start))–\(day.clockLabel(at: windowDates.end))  ·  \(grain)"
     }
 
+    /// A bucket belongs to one recording run. Two runs may occupy the same
+    /// clock bucket, but must never share an average, line or shaded area.
+    private struct RecordingBucket {
+        let key: Int
+        let segment: Int
+        let first: Date
+        var last: Date
+        var sum: Double = 0
+        var count: Int = 0
+        var qualitySum: Float = 0
+        var qualityCount: Int = 0
+        var estimatedCount: Int = 0
+    }
+
     var points: [ChartPoint] {
         let (start, end) = bucketDates
         let bucket = bucketSeconds
         let origin = bucketOrigin
-        var sums:    [Int: Double] = [:]
-        var counts:  [Int: Int]    = [:]
-        var qualSum: [Int: Float]  = [:]
-        var qualCnt: [Int: Int]    = [:]
-        var estCnt:  [Int: Int]    = [:]
-        var presentKeys = Set<Int>()   // buckets with ANY valid sample (sensor on)
-        for pt in history where pt.timestamp >= start && pt.timestamp < end {
+        let samples = history.compactMap { pt -> (point: MetricsHistoryPoint, value: Double)? in
+            guard pt.timestamp >= start, pt.timestamp < end,
+                  let value = extract(pt), value.isFinite else { return nil }
+            return (pt, value)
+        }.sorted { $0.point.timestamp < $1.point.timestamp }
+        let segments = ChartSegmenter.segments(timestamps: samples.map { $0.point.timestamp },
+                                                gapBreakSeconds: gapBreakSeconds)
+        var buckets: [RecordingBucket] = []
+        for (sample, segment) in zip(samples, segments) {
+            let pt = sample.point
             let key = Int((pt.timestamp.timeIntervalSince1970 - origin) / bucket)
-            presentKeys.insert(key)          // record sensor-on regardless of this metric
-            guard let v = extract(pt) else { continue }
-            sums[key]   = (sums[key]   ?? 0) + v
-            counts[key] = (counts[key] ?? 0) + 1
-            if isEstimated?(pt) == true { estCnt[key] = (estCnt[key] ?? 0) + 1 }
+            if buckets.last?.key != key || buckets.last?.segment != segment {
+                buckets.append(RecordingBucket(key: key, segment: segment,
+                                               first: pt.timestamp, last: pt.timestamp))
+            }
+            let i = buckets.count - 1
+            buckets[i].last = pt.timestamp
+            buckets[i].sum += sample.value
+            buckets[i].count += 1
+            if isEstimated?(pt) == true { buckets[i].estimatedCount += 1 }
             if let q = pt.signalQuality {
-                qualSum[key] = (qualSum[key] ?? 0) + q
-                qualCnt[key] = (qualCnt[key] ?? 0) + 1
+                buckets[i].qualitySum += q
+                buckets[i].qualityCount += 1
             }
         }
-        // Segment breaks are driven by the SHARED sensor-on timeline, not this
-        // metric's own nil pattern — so gaps line up across every chart. The
-        // line breaks only where the sensor delivered no data at all for
-        // ≥ gapBreakSeconds (strap off). A metric that's momentarily
-        // uncomputable while the sensor is on stays connected (bridged), and
-        // brief (< 5 min) sensor dropouts stay connected too.
-        let valueKeys = sums.keys.sorted().filter { (counts[$0] ?? 0) > 0 }
-        let segs = ChartSegmenter.segments(valueKeys:       valueKeys,
-                                           presentKeys:     presentKeys,
-                                           bucketSeconds:   bucket,
-                                           gapBreakSeconds: gapBreakSeconds)
-        var result: [ChartPoint] = []
-        result.reserveCapacity(valueKeys.count)
-        for (i, key) in valueKeys.enumerated() {
-            let mid = origin + Double(key) * bucket + bucket / 2
-            var val = sums[key]! / Double(counts[key]!)
-            if let transform = bucketTransform { val = transform(val) }
-            let q: Float? = qualCnt[key].map { (qualSum[key] ?? 0) / Float($0) }
-            // A bucket is estimated when STRICTLY more than half its samples
-            // are — an even split resolves to measured.
-            let est = (estCnt[key] ?? 0) * 2 > counts[key]!
-            result.append(ChartPoint(id: key, date: Date(timeIntervalSince1970: mid),
-                                     val: val, quality: q, segment: segs[i],
-                                     estimated: est))
+        return buckets.map { group in
+            // A partial bucket cannot extend a recording into missing time.
+            // An isolated observation stays at its real timestamp.
+            let midpoint = Date(timeIntervalSince1970: origin + Double(group.key) * bucket + bucket / 2)
+            let date = min(max(midpoint, group.first), group.last)
+            let mean = group.sum / Double(group.count)
+            let quality = group.qualityCount > 0 ? group.qualitySum / Float(group.qualityCount) : nil
+            return ChartPoint(id: group.first, date: date,
+                              val: bucketTransform?(mean) ?? mean, quality: quality,
+                              segment: group.segment,
+                              estimated: group.estimatedCount * 2 > group.count)
         }
-        // Deliberately NOT re-segmented on `estimated`. Splitting the series
-        // at every source change looked right in principle and was wrong on
-        // screen: the two channels swap back and forth tick to tick, so each
-        // swap produced a one-point series — a scatter of orphan dots with no
-        // line between them. Continuity of the trace matters more than never
-        // sharing a series, so the run stays whole and estimated samples are
-        // distinguished by their symbol alone.
-        return result
     }
 
-    /// Minimum gap between two dots before the connecting line breaks. Dots
-    /// closer than this stay joined even if a bucket or two is missing.
-    private var gapBreakSeconds: TimeInterval { 300 }   // 5 minutes
+    /// Missing usable samples for five minutes starts a new run at every zoom.
+    private var gapBreakSeconds: TimeInterval { 300 }
 
     /// Keep the full day visible at 24h. Cropping to the first and last sample
     /// hides precisely the missing hours that a recording chart must disclose.
