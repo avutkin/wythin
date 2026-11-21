@@ -14,12 +14,12 @@ final class ChartSegmenterTests: XCTestCase {
     }
 
     private func card(_ history: [MetricsHistoryPoint], window: TimeWindow = .h24,
-                      night: ClosedRange<Date>? = nil,
+                      night: ClosedRange<Date>? = nil, smooth: Bool = false,
                       transform: ((Double) -> Double)? = nil,
                       extract: @escaping (MetricsHistoryPoint) -> Double? = { $0.dc.map(Double.init) }) -> MetricChartCard {
         MetricChartCard(title: "Vagal Tone", subtitle: "", yLabel: "ms", color: .blue,
                         windows: TimeWindow.allCases, refs: [], yDomain: 0...100, win: window,
-                        night: night, selectedX: .constant(nil), panOffset: .constant(0),
+                        night: night, selectedX: .constant(nil), panOffset: .constant(0), smooth: smooth,
                         isEstimated: { $0.breathSource == .heart }, history: history,
                         date: start,
                         liveDay: LiveChartDay(bounds: start..<start.addingTimeInterval(86400),
@@ -125,6 +125,20 @@ final class ChartSegmenterTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(point.quality), 0.8, accuracy: 0.00001)
         XCTAssertFalse(point.estimated, "an even split is measured")
         XCTAssertTrue(card([first]).points.first!.estimated)
+    }
+
+    func testSmoothingPreservesEstimatedReadingsAndValuesAcrossGaps() {
+        let history = [(10.0, Float(10)), (310.0, Float(20)), (610.0, Float(100))].map { seconds, value in
+            var point = sample(seconds, value: value)
+            point.breathSource = .heart
+            return point
+        }
+        let chart = card(history, smooth: true)
+        let points = chart.displayedPoints
+        XCTAssertEqual(points.map(\.segment), [0, 1, 2])
+        XCTAssertEqual(points.map(\.val), [10, 20, 100], "smoothing cannot blend separate runs")
+        XCTAssertEqual(points.map(\.date), chart.points.map(\.date))
+        XCTAssertTrue(points.allSatisfy(\.estimated), "isolated EDR readings must still be labelled estimated")
     }
 
     func testMissingAndNonfiniteValuesDoNotCreateCoverage() {

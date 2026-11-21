@@ -610,14 +610,18 @@ struct MetricChartCard: View {
             let hi  = (idx + 1 <= pts.count - 1 && pts[idx + 1].segment == seg) ? idx + 1 : idx
             let avg = pts[lo...hi].reduce(0.0) { $0 + $1.val } / Double(hi - lo + 1)
             return ChartPoint(id: pts[idx].id, date: pts[idx].date, val: avg,
-                              quality: pts[idx].quality, segment: seg)
+                              quality: pts[idx].quality, segment: seg, estimated: pts[idx].estimated)
         }
+    }
+
+    var displayedPoints: [ChartPoint] {
+        let raw = points
+        return smooth ? smoothed(raw) : raw
     }
 
     @ViewBuilder
     private var chartBody: some View {
-        let raw = points
-        let pts = smooth ? smoothed(raw) : raw
+        let pts = displayedPoints
         // Auto-fit the y-axis to whatever is actually visible in the current
         // x-window (plus any reference lines) with a little padding, so the
         // whole curve is always in frame rather than clipped by a fixed domain.
