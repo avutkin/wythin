@@ -22,7 +22,7 @@ Interfaces: ChartSegmenter.segments(timestamps:gapBreakSeconds:) returns a run p
 - [x] Replace bucket-only tests with realistic chart-card regressions; watch the long-gap/same-bucket cases fail on current code.
 - [x] Segment usable metric timestamps before bucketing; keep each bucket's plotted time within its sample envelope and its metadata/transform semantics.
 - [x] Run focused ChartSegmenterTests and LiveHistoryTimezoneTests, then the full signed suite. Expected: TEST SUCCEEDED, only existing opt-in skips.
-- [ ] Commit, independent final review, resolve important findings with RED→GREEN evidence, push main and run tools/ship.sh testflight under existing release authorization. Verify external availability and record evidence.
+- [x] Commit, independent final review, resolve important findings with RED→GREEN evidence, push main and run tools/ship.sh testflight under existing release authorization. Verify external availability and record evidence.
 
 
 ## Verification and independent review
@@ -32,3 +32,12 @@ The original implementation failed 16 assertions in 12 realistic chart-card test
 Independent review approved the timestamp segmentation, separate bucket averages, identity, date bounds and matching line/area series. It found one important regression: splitting a coarse bucket into three isolated EDR readings exposes a smoothing path that dropped the estimated-source flag. The new displayed-points regression failed before the correction and passed afterward; smoothing now preserves the center point's estimated flag and never blends separate runs. Final signed suite: **1,956 tests, two existing opt-in skips, zero failures**. No deferred findings or declined-to-judge items.
 
 Evidence: `/private/tmp/wythin-chart-gaps-red.log`, `/private/tmp/wythin-chart-gaps-focused.log`, `/private/tmp/wythin-chart-gaps-review-red.log`, `/private/tmp/wythin-chart-gaps-full.log`. This presentation-only correction does not establish that physical overnight recording failures are resolved.
+
+
+## Released — TestFlight 159
+
+On 2026-11-20 (America/Los_Angeles), `tools/ship.sh testflight` independently passed the full signed suite: **1,956 tests, two existing opt-in skips, zero failures**. Release archived and uploaded successfully. Source `bd66b34` on `origin/main` includes corrections `b869a50` and `3b9eebe`.
+
+App Store Connect build `e7fa9fc9-1aa6-40e4-b839-e6385dca75bb` is VALID, beta review APPROVED, and both internal/external states IN_BETA_TESTING. External Testers membership was verified with the expanded build relationship. English/Russian testing notes are set and automatic notification is enabled. Invitation: https://testflight.apple.com/join/7c7b68t1.
+
+Recording outages of five minutes or more leave separate colored line/area runs across all shared Live/sleep metric cards. This chart-only release does not claim to resolve the separately reported overnight application restart incident. Evidence: `/private/tmp/wythin-chart-gaps-testflight.log` and `/tmp/wythin-ship-tests.log`. User-provided images and personal diagnostic reports were not committed.

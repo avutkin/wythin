@@ -9,3 +9,5 @@ Average by run and time bucket, so separate recordings in the same bucket never 
 Scope: the shared MetricChartCard used by all Live history metrics and sleep detail charts, all three zoom levels and pinned spans. This changes presentation of stored history, not capture, upload, Bluetooth or aggregate Track charts. Existing activity-specific charts use separate presentations outside the reported screen.
 
 Implementation and release proceed under the user's correction and ongoing TestFlight authorization. Validate realistic continuous recordings, isolated intermediate readings, same/adjacent-bucket gaps, nil metrics despite other ongoing metrics, exact threshold, unordered input, day/night bounds and metadata. Run the signed full suite and one independent final review, then the sanctioned release pipeline.
+
+Released as externally approved **TestFlight 159**. See [verification and release record](../plans/2026-11-18-recording-chart-gaps.md#released--testflight-159).
