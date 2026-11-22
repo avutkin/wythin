@@ -44,3 +44,14 @@
 - [ ] Run focused tests and full WythinTests. Expected: PASS, existing two opt-in skips permitted. Commit.
 - [ ] Independent final review; fix important findings with failing tests first. Verify full suite after fixes.
 - [ ] Integrate into main and ship via tools/ship.sh testflight. Check processing, review, tester assignment. Report exact verification limits; do not claim the original device exception was identified.
+
+
+## Verification record — 21 November 2026
+
+Implemented in 95f680b, 714afbb and 45230ea, with concurrent main documentation preserved in a62b38e. A fresh reviewer identified five Important lifecycle/performance findings; all were addressed in one regression-driven pass. Tests reproduced failure/expiration callback leaks, missing background execution allowance, duplicate phase delivery, a lost unlock during store opening, and unnecessary publication after an empty history read. The focused run passed 21 tests after the fixes. The full merged simulator suite passed 1,978 tests with two existing opt-in skips and zero failures (`TEST SUCCEEDED`, exit 0).
+
+The store-open policy no longer moves database/sidecar files or force-opens an empty replacement. Disk opening and recent-history reads happen off the main actor. Live samples take precedence over overlapping disk snapshots, reads coalesce, and invalidated reads cannot republish old history. Background startup acquires a bounded UIKit task before yielding; success, failure and expiration release it exactly once. Upload wake callbacks are released on startup failure/expiration without changing durable upload queues. Unlocks received during opening trigger one retry if that attempt fails.
+
+The observed build 159 failure on Alex's physical phone still has no available exception stack. These tests establish specific startup failures and their fixes, not proof of the exact device exception or uninterrupted overnight H10 recording. Physical-device validation remains outstanding.
+
+Deferred minor review item: the recovery-screen snapshot uses a light ImageRenderer environment; verify a hosted dark-mode capture and button contrast. The production app window already requests dark mode. No declined-to-judge findings or unresolved Important/Critical findings remain.
