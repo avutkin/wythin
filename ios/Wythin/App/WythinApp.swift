@@ -4,91 +4,83 @@ import SwiftData
 @main
 struct WythinApp: App {
 
-    private let container: ModelContainer
-
     /// Exists only so notification taps have somewhere to land — the app is
     /// otherwise a pure SwiftUI `@main` with no delegate.
     @UIApplicationDelegateAdaptor(WythinAppDelegate.self) private var appDelegate
 
     @Environment(\.scenePhase) private var scenePhase
-    @State private var env: AppEnvironment
+    @State private var startup: AppStartup<AppEnvironment>
     @State private var showSplash = true
 
     init() {
-        let schema = Schema([HRVSession.self, HRVSample.self, ResonanceResult.self, TrainSession.self, ActivityLog.self, DailyAnchor.self, UsageEventLog.self, FeltStateLog.self, SleepWindowOverride.self])
-        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-        // Attempt to open the store; if the schema can't migrate, set the store
-        // ASIDE and recreate so the app still launches — but never delete it.
-        // A sidecar copy can be migrated or mined later; deleted history is
-        // gone. (2026-08-09: the delete-and-recreate that used to live here
-        // erased a phone's entire local history after builds from two branches
-        // left the store on a schema neither could open. Its cleanup also
-        // targeted "default.store.wal" — SQLite's sidecars are "-wal"/"-shm",
-        // not dot extensions, so the real WAL was never removed either.)
-        let c: ModelContainer
-        do {
-            c = try ModelContainer(for: schema, configurations: [config])
-        } catch {
-            let fm    = FileManager.default
-            let url   = config.url
-            let stamp = Int(Date.now.timeIntervalSince1970)
-            for suffix in ["", "-wal", "-shm"] {
-                let src = URL(fileURLWithPath: url.path + suffix)
-                guard fm.fileExists(atPath: src.path) else { continue }
-                let dst = URL(fileURLWithPath: url.path + ".incompatible-\(stamp)" + suffix)
-                try? fm.moveItem(at: src, to: dst)
-            }
-            c = try! ModelContainer(for: schema, configurations: [config])
+        let startup = AppStartup<AppEnvironment> {
+            let container = try await AppStoreBootstrap.load()
+            let environment = AppEnvironment(modelContainer: container)
+            HealthSyncCoordinator.shared.attach(container: container)
+            return environment
         }
-        container = c
-        _env = State(initialValue: AppEnvironment(modelContainer: c))
-        HealthSyncCoordinator.shared.attach(container: c)
+        _startup = State(initialValue: startup)
+        startup.start()
     }
 
     var body: some Scene {
         WindowGroup {
-            ZStack {
-                ContentView()
-                    .environment(env)
-                    .modelContainer(container)
-                    .preferredColorScheme(.dark)
-
-                if showSplash {
-                    SplashView {
-                        showSplash = false
+            Group {
+                if let env = startup.value {
+                    ZStack {
+                        ContentView()
+                            .environment(env)
+                            .modelContainer(env.modelContainer)
+                        if showSplash {
+                            SplashView { showSplash = false }
+                                .transition(.opacity)
+                        }
                     }
-                    .transition(.opacity)
+                    .animation(.easeOut(duration: 0.4), value: showSplash)
+                } else if startup.error != nil {
+                    StartupUnavailableView { startup.start() }
+                } else {
+                    ZStack {
+                        Theme.bg.ignoresSafeArea()
+                        ProgressView("Opening Wythin…").tint(Theme.accent)
+                    }
                 }
             }
-            .animation(.easeOut(duration: 0.4), value: showSplash)
             .preferredColorScheme(.dark)
         }
-        .onChange(of: scenePhase) { _, newPhase in
-            env.isInForeground = (newPhase == .active)
-            switch newPhase {
-            case .active: env.diagnosticReporter?.setPhase(.foreground)
-            case .inactive: env.diagnosticReporter?.setPhase(.inactive)
-            case .background: env.diagnosticReporter?.setPhase(.background)
-            @unknown default: env.diagnosticReporter?.setPhase(.unknown)
-            }
-            HealthSyncCoordinator.shared.isInForeground = (newPhase == .active)
-            if newPhase == .active { Task { await HealthSyncCoordinator.shared.synchronize() } }
-            // An after-window closes ten minutes after its session, long after
-            // the code that stored the session has finished. Coming back to the
-            // app is when we can finally fill it in.
-            if newPhase == .active {
-                ActivityLog.backfillMissingWindows(context: container.mainContext)
-                // The version re-derive, if one is owed. Detached and chunked;
-                // never on the main context — that is what killed build 98.
-                ActivityLog.migrateInBackground(container: container)
-                // Last night, if it has not been written down yet. Deliberately
-                // here and not only in the tick loop: that loop runs on arriving
-                // metric ticks, so it needs the strap connected. Opening the app
-                // at breakfast — strap on the nightstand — is exactly when a
-                // person wants to see the night, and the samples are already on
-                // disk. Idempotent, so both paths are safe.
-                env.recordSleepInBackground()
-            }
+        .onChange(of: scenePhase) { _, phase in applyScenePhase(phase) }
+        .onChange(of: startup.value != nil) { _, ready in
+            if ready { applyScenePhase(scenePhase) }
+        }
+    }
+
+    private func applyScenePhase(_ newPhase: ScenePhase) {
+        guard let env = startup.value else { return }
+        let container = env.modelContainer
+        env.isInForeground = (newPhase == .active)
+        switch newPhase {
+        case .active: env.diagnosticReporter?.setPhase(.foreground)
+        case .inactive: env.diagnosticReporter?.setPhase(.inactive)
+        case .background: env.diagnosticReporter?.setPhase(.background)
+        @unknown default: env.diagnosticReporter?.setPhase(.unknown)
+        }
+        HealthSyncCoordinator.shared.isInForeground = (newPhase == .active)
+        if newPhase == .active { Task { await HealthSyncCoordinator.shared.synchronize() } }
+        // An after-window closes ten minutes after its session, long after
+        // the code that stored the session has finished. Coming back to the
+        // app is when we can finally fill it in.
+        if newPhase == .active {
+            ActivityLog.backfillMissingWindows(context: container.mainContext)
+            // The version re-derive, if one is owed. Detached and chunked;
+            // never on the main context — that is what killed build 98.
+            ActivityLog.migrateInBackground(container: container)
+            // Last night, if it has not been written down yet. Deliberately
+            // here and not only in the tick loop: that loop runs on arriving
+            // metric ticks, so it needs the strap connected. Opening the app
+            // at breakfast — strap on the nightstand — is exactly when a
+            // person wants to see the night, and the samples are already on
+            // disk. Idempotent, so both paths are safe.
+            env.recordSleepInBackground()
         }
     }
 }

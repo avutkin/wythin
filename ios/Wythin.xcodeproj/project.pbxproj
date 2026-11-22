@@ -342,6 +342,8 @@
 		786FABF6A91F3DF5BAFA9353 /* HealthActivityLinksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C814504E68F7601239F31120 /* HealthActivityLinksTests.swift */; };
 		805E0334466C7ECC2A552B7D /* HealthMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 241E1B78D03FC34E50A4DAF3 /* HealthMigrationTests.swift */; };
 		3D6E40F2CC0785CCC97FEA9C /* HealthCloudConsentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 581EB9EEC8D683B9FEA1B0DA /* HealthCloudConsentTests.swift */; };
+		D16000000000000000000002 /* AppStartup.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16000000000000000000001 /* AppStartup.swift */; };
+		D16000000000000000000004 /* AppStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16000000000000000000003 /* AppStartupTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -693,6 +695,8 @@
 		C814504E68F7601239F31120 /* HealthActivityLinksTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthActivityLinksTests.swift"; sourceTree = "<group>"; };
 		241E1B78D03FC34E50A4DAF3 /* HealthMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthMigrationTests.swift"; sourceTree = "<group>"; };
 		581EB9EEC8D683B9FEA1B0DA /* HealthCloudConsentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthCloudConsentTests.swift"; sourceTree = "<group>"; };
+		D16000000000000000000001 /* AppStartup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStartup.swift; sourceTree = "<group>"; };
+		D16000000000000000000003 /* AppStartupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStartupTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -780,6 +784,7 @@
 			isa = PBXGroup;
 			children = (
 				F101 /* WythinApp.swift */,
+				D16000000000000000000001 /* AppStartup.swift */,
 				E02F045E1EC55D2E98AF5D68 /* LiveSessionController.swift */,
 				D15700000000000000000006 /* RecordingDiagnosticReporter.swift */,
 				F102 /* AppEnvironment.swift */,
@@ -1198,6 +1203,7 @@
 				FT72 /* AdvancedHRVComputeTests.swift */,
 				FT42 /* MetricsQualityFilterTests.swift */,
 				FTCS /* ChartSegmenterTests.swift */,
+				D16000000000000000000003 /* AppStartupTests.swift */,
 				FT51 /* LiveMetricTests.swift */,
 				FT52 /* LiveBaselineTests.swift */,
 				FT55 /* LiveReadingTests.swift */,
@@ -1343,6 +1349,7 @@
 				A163 /* CheckInSheet.swift in Sources */,
 				A210 /* AnchorDetector.swift in Sources */,
 				A101 /* WythinApp.swift in Sources */,
+				D16000000000000000000002 /* AppStartup.swift in Sources */,
 				60ED9331C4BD56C098F8D57D /* LiveSessionController.swift in Sources */,
 				D15700000000000000000005 /* RecordingDiagnosticReporter.swift in Sources */,
 				A102 /* AppEnvironment.swift in Sources */,
@@ -1634,6 +1641,7 @@
 				AT72 /* AdvancedHRVComputeTests.swift in Sources */,
 				AT42 /* MetricsQualityFilterTests.swift in Sources */,
 				ATCS /* ChartSegmenterTests.swift in Sources */,
+				D16000000000000000000004 /* AppStartupTests.swift in Sources */,
 				AT51 /* LiveMetricTests.swift in Sources */,
 				AT52 /* LiveBaselineTests.swift in Sources */,
 				AT55 /* LiveReadingTests.swift in Sources */,
