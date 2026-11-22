@@ -55,3 +55,10 @@ The store-open policy no longer moves database/sidecar files or force-opens an e
 The observed build 159 failure on Alex's physical phone still has no available exception stack. These tests establish specific startup failures and their fixes, not proof of the exact device exception or uninterrupted overnight H10 recording. Physical-device validation remains outstanding.
 
 Deferred minor review item: the recovery-screen snapshot uses a light ImageRenderer environment; verify a hosted dark-mode capture and button contrast. The production app window already requests dark mode. No declined-to-judge findings or unresolved Important/Critical findings remain.
+
+
+## TestFlight release
+
+Build **160** was released through `tools/ship.sh testflight` from source e14e12d. The pipeline independently repeated the full suite: 1,978 tests, two skips, zero failures; archive and upload succeeded. App Store Connect build `566cf703-9c7b-434d-a9b8-4c8ae05f859e` is VALID, export compliance is set, and both internal and external states are IN_BETA_TESTING. Beta review is APPROVED. The existing External Testers group `94ee2df5-3500-412a-91b8-f8f01132ab37` is assigned; English and Russian test notes are published. Existing public link: https://testflight.apple.com/join/7c7b68t1.
+
+The local archive is `/private/tmp/wythin-ship-160.xcarchive`; its arm64 dSYM UUID is `D653A99B-6636-3726-8FD4-A76839A349C2`. Install this as an update over 159. Physical-device startup and overnight recording remain unverified; no new crash-report request was made.
