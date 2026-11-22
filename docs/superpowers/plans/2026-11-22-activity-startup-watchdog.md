@@ -58,3 +58,13 @@ The follow-up review found a snapshot-ordering race: older and newer Health proj
 Follow-up review disposition: no Critical or Minor findings; the one Important ordering finding is fixed by the revision/enqueue guard and the real deletion regression. Physical launch/TestFlight readiness are verified separately below, not inferred from tests. The review's other declined areas—legacy migration cursor, damaged-store recovery, calculation formulas and existing response-clearing semantics—remain unchanged by this Health projection patch.
 
 Final follow-up suite: **1,987 tests, two existing opt-in skips, zero failures**, TEST SUCCEEDED and exit 0 (`/private/tmp/wythin161-health-final.log`). The ordering regression passed all sixteen trials.
+
+## Release and follow-up evidence
+
+The user's 2026-11-22 13:52:34 crash was retrieved directly from the iPhone. Its UUID `D653A99B-6636-3726-8FD4-A76839A349C2` matches the published **TestFlight 160** archive, not the corrected development binary. Symbolication again resolves to `computeHRVWindows` → `backfillMissingWindows` → ContentView's startup task. The installed app path also matched that report. This confirms that this report did not exercise the latest correction.
+
+`tools/ship.sh phone` reinstalled source `852bd8c` after a fresh full suite (1,987 tests, two skips, zero failures); the launch request succeeded. The local-network device tunnel disconnected immediately afterward. Subsequent process/log reads failed with CoreDevice 4000. Sustained launch/UI operation and overnight background recording are therefore **not verified**. Xcode computer-use controls timed out; no successful new phone screenshot was obtained. No store was deleted or replaced.
+
+`tools/ship.sh testflight` passed another full signed suite, archived Release successfully, and uploaded **1.1 (161)** from release commit `e12b55e`. App Store Connect build `6e0cdac7-4bba-4680-ab97-9111424f5601` is VALID, beta review APPROVED, and both internal/external states IN_BETA_TESTING. Membership was verified in Internal and the already-authorized External Testers group. English/Russian release notes describe the main-thread watchdog corrections and preservation of recordings.
+
+The corrected release is delivered; physical long-running validation remains an explicit limitation, not a claimed success. The latest user-facing instruction is to update through TestFlight to 1.1 (161).
