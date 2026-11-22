@@ -10,6 +10,7 @@ final class ActivityWindowMaintenance {
     private let work: Work
     private var task: Task<Void, Never>?
     private var pending = false
+    private var editsWaiting = 0
 
     init(container: ModelContainer, work: @escaping Work = { container in
         let context = ModelContext(container)
@@ -21,14 +22,25 @@ final class ActivityWindowMaintenance {
         self.work = work
     }
 
+    /// A user edit must follow the worker that read the old interval. Awaiting
+    /// it keeps the UI responsive; pause follow-up passes until edits finish.
+    func performEdit(_ edit: @MainActor () async -> Void) async {
+        editsWaiting += 1
+        if let task { await task.value }
+        await edit()
+        editsWaiting -= 1
+        if editsWaiting == 0 && pending { request() }
+    }
+
     @discardableResult
     func request() -> Task<Void, Never> {
         pending = true
         if let task { return task }
+        guard editsWaiting == 0 else { return Task {} }
         let task = Task { [weak self] in
             guard let self else { return }
             defer { self.task = nil }
-            while self.pending {
+            while self.pending && self.editsWaiting == 0 {
                 self.pending = false
                 let container = self.container, work = self.work
                 let result = await Task.detached(priority: .utility) {

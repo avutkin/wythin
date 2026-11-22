@@ -101,4 +101,84 @@ final class ActivityWindowMaintenanceTests: XCTestCase {
                       "Already settled empty windows must not be fetched/recomputed each launch")
         XCTAssertEqual(try read.fetchCount(FetchDescriptor<HRVSample>()), 20_000)
     }
+
+    func testFailedMigrationSliceDoesNotAdvanceCursorAndRetryCompletesRemainingRows() throws {
+        let defaults = UserDefaults.standard
+        let keys = ["activityBackfillVersion", "activityBackfillCursor"]
+        let old = keys.map { defaults.object(forKey: $0) }
+        defer { for (key, value) in zip(keys, old) {
+            if let value { defaults.set(value, forKey: key) } else { defaults.removeObject(forKey: key) }
+        } }
+        defaults.set(0, forKey: keys[0]); defaults.removeObject(forKey: keys[1])
+        let store = try container()
+        // Use one real persisted store for both the failing writer and fresh readers.
+        let writer = ModelContext(store); writer.autosaveEnabled = false
+        let original = Date(timeIntervalSince1970: 500)
+        for i in 0..<13 {
+            let start = Date(timeIntervalSince1970: 1000 + Double(i) * 3600)
+            let row = ActivityLog(activityType: "Exercise", startedAt: start, endedAt: start.addingTimeInterval(600))
+            row.settledAt = original
+            writer.insert(row)
+        }
+        try writer.save()
+        var saves = 0
+        ActivityLog.migrate(context: writer) { ctx in
+            saves += 1
+            if saves == 2 { throw CocoaError(.fileWriteOutOfSpace) }
+            try ctx.save()
+        }
+        XCTAssertEqual(saves, 2)
+        XCTAssertEqual(defaults.integer(forKey: keys[0]), 0)
+        XCTAssertEqual(defaults.object(forKey: keys[1]) as? Date, Date(timeIntervalSince1970: 1000 + 5 * 3600))
+        let read = ModelContext(store)
+        let partial = try read.fetch(FetchDescriptor<ActivityLog>())
+        XCTAssertEqual(partial.filter { $0.settledAt == original }.count, 7)
+        writer.rollback()
+        ActivityLog.migrate(context: ModelContext(store))
+        XCTAssertEqual(defaults.integer(forKey: keys[0]), ActivityLog.currentBackfillVersion)
+        XCTAssertNil(defaults.object(forKey: keys[1]))
+        let complete = try ModelContext(store).fetch(FetchDescriptor<ActivityLog>())
+        XCTAssertTrue(complete.allSatisfy { $0.settledAt != original })
+    }
+
+    func testEditWaitsForOldWindowWriterThenKeepsEditedIntervalAndMetrics() async throws {
+        let store = try container()
+        let writer = ModelContext(store)
+        let start = Date(timeIntervalSince1970: 1000)
+        let row = ActivityLog(activityType: "Exercise", startedAt: start, endedAt: start.addingTimeInterval(600))
+        writer.insert(row); try writer.save()
+        let id = row.id, gate = Gate()
+        let worker = ActivityWindowMaintenance(container: store) { container in
+            let ctx = ModelContext(container)
+            let entry = try XCTUnwrap(try ctx.fetch(FetchDescriptor<ActivityLog>()).first { $0.id == id })
+            let oldStart = entry.startedAt
+            gate.entered.signal()
+            _ = gate.release.wait(timeout: .now() + 3)
+            entry.duringHR = oldStart == start ? 60 : 90
+            entry.settledAt = Date()
+            try ctx.save()
+        }
+        let pending = worker.request()
+        let entered = await Task.detached { gate.entered.wait(timeout: .now() + 3) == .success }.value
+        XCTAssertTrue(entered)
+        var edited = false
+        let editing = Task {
+            await worker.performEdit {
+                row.startedAt = start.addingTimeInterval(3600)
+                row.endedAt = start.addingTimeInterval(4200)
+                row.duringHR = 90
+                try! writer.save()
+                edited = true
+            }
+        }
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertFalse(edited, "A stale writer must finish before an edit changes its input window")
+        gate.release.signal()
+        await editing.value; await pending.value
+        let saved = try XCTUnwrap(try ModelContext(store).fetch(FetchDescriptor<ActivityLog>()).first)
+        XCTAssertEqual(saved.startedAt, start.addingTimeInterval(3600))
+        XCTAssertEqual(saved.endedAt, start.addingTimeInterval(4200))
+        XCTAssertEqual(saved.duringHR, 90)
+    }
+
 }

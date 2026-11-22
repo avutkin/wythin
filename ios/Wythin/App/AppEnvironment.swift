@@ -440,6 +440,10 @@ final class AppEnvironment {
 
     func refreshActivityWindows() { activityWindowMaintenance.request() }
 
+    func performActivityEdit(_ edit: @MainActor () async -> Void) async {
+        await activityWindowMaintenance.performEdit(edit)
+    }
+
     @ObservationIgnored private lazy var historyLoader = RecentHistoryLoader(
         limit: maxTickHistory,
         read: { [container = modelContainer] after, limit in

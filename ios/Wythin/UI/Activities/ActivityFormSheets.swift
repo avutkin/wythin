@@ -493,9 +493,11 @@ struct EditActivitySheet: View {
     @Bindable var entry: ActivityLog
     let onSave: (ModelContext) -> Void
 
+    @Environment(AppEnvironment.self) private var env
     @Environment(\.modelContext) var ctx
     @Environment(\.dismiss) var dismiss
 
+    @State private var isSaving = false
     @State private var selected:        ActivityType
     @State private var selectedSubtype: String?
     @State private var customName:      String
@@ -569,18 +571,26 @@ struct EditActivitySheet: View {
                 .padding(.top, 16)
                 .padding(.bottom, 12)
             }
+            .disabled(isSaving)
+            .interactiveDismissDisabled(isSaving)
             .safeAreaInset(edge: .bottom) {
                 Button {
-                    entry.activityType    = selected.rawValue
-                    entry.activitySubtype = selectedSubtype
-                    entry.customName      = (selected == .custom && !customName.isEmpty) ? customName : nil
-                    entry.startedAt       = startDate
-                    entry.endedAt         = endDate
-                    entry.isManual        = true
-                    onSave(ctx)
-                    dismiss()
+                    isSaving = true
+                    Task {
+                        await env.performActivityEdit {
+                            entry.activityType    = selected.rawValue
+                            entry.activitySubtype = selectedSubtype
+                            entry.customName      = (selected == .custom && !customName.isEmpty) ? customName : nil
+                            entry.startedAt       = startDate
+                            entry.endedAt         = endDate
+                            entry.isManual        = true
+                            onSave(ctx)
+                        }
+                        isSaving = false
+                        dismiss()
+                    }
                 } label: {
-                    Text("SAVE CHANGES")
+                    Text(isSaving ? "SAVING…" : "SAVE CHANGES")
                         .font(Theme.monoBody)
                         .foregroundStyle(Theme.bg)
                         .padding(.vertical, 14)
@@ -588,7 +598,7 @@ struct EditActivitySheet: View {
                         .background(Theme.accent)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
-                .disabled(selected == .custom && customName.isEmpty)
+                .disabled(isSaving || (selected == .custom && customName.isEmpty))
                 .padding(.horizontal)
                 .padding(.top, 12)
                 .padding(.bottom, 12)

@@ -291,11 +291,16 @@ struct ActivitiesView: View {
     }
 
     private func deleteEntry(_ entry: ActivityLog) {
-        if entry.isHealthImported, let id = entry.externalWorkoutID.flatMap(UUID.init(uuidString:)) {
-            Task { await HealthSyncCoordinator.shared.hide(id) }; return
+        Task {
+            await env.performActivityEdit {
+                if entry.isHealthImported, let id = entry.externalWorkoutID.flatMap(UUID.init(uuidString:)) {
+                    await HealthSyncCoordinator.shared.hide(id)
+                } else {
+                    ctx.delete(entry)
+                    try? ctx.save()
+                }
+            }
         }
-        ctx.delete(entry)
-        try? ctx.save()
     }
 
 }

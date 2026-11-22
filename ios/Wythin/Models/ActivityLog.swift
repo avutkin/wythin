@@ -680,7 +680,7 @@ final class ActivityLog {
     /// Version migration is synchronous for testing. Production callers use
     /// ActivityWindowMaintenance, which serializes it with ongoing repair on
     /// a detached worker with its own context. Progress is saved in slices.
-    static func migrate(context: ModelContext) {
+    static func migrate(context: ModelContext, save: (ModelContext) throws -> Void = { try $0.save() }) {
         let versionKey = "activityBackfillVersion"
         let cursorKey = "activityBackfillCursor"
         guard UserDefaults.standard.integer(forKey: versionKey) < currentBackfillVersion else {
@@ -703,7 +703,11 @@ final class ActivityLog {
                 entry.computeHRVWindows(context: context)
                 entry.computeExerciseResponse(context: context)
             }
-            try? context.save()
+            do { try save(context) }
+            catch {
+                BLEDiag.log("ACTIVITY migration save failed code=\((error as NSError).code); keeping committed cursor")
+                return
+            }
             // Progress is banked BEFORE the next slice starts, so whatever has
             // been re-derived stays re-derived.
             if let last = chunk.last {
