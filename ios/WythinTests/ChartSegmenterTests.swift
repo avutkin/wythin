@@ -148,4 +148,33 @@ final class ChartSegmenterTests: XCTestCase {
         XCTAssertEqual(points.map(\.segment), [0, 1])
         XCTAssertTrue(points.allSatisfy { $0.val.isFinite })
     }
+
+    /// Diagnostic reproduction for the build 159 crash report. Exercise Swift
+    /// Charts itself, with synthetic data only, rather than only point math.
+    @MainActor
+    func testDiagnosticRenderingOfLongHistoryAndChangingRecordingRuns() throws {
+        let dense = stride(from: 0.0, to: 86_400.0, by: 2).map {
+            sample($0, value: Float(20 + 10 * sin($0 / 180)))
+        }
+        let gaps = dense.filter {
+            Int($0.timestamp.timeIntervalSince(start) / 600) % 2 == 0
+        }
+        let isolated = stride(from: 0.0, to: 86_400.0, by: 301).map { sample($0) }
+        let cases = [dense, gaps, isolated, [sample(10)], []]
+        let renderer = ImageRenderer(content: card(dense).frame(width: 375))
+        renderer.scale = 1
+        for window in TimeWindow.allCases {
+            for (index, history) in cases.enumerated() {
+                renderer.content = card(history, window: window, smooth: true).frame(width: 375)
+                let image = try XCTUnwrap(renderer.uiImage, "\(window), case \(index)")
+                XCTAssertGreaterThan(image.size.height, 0)
+                if window == .h24 && index == 1 {
+                    let attachment = XCTAttachment(image: image)
+                    attachment.name = "build159-long-recording-gaps"
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
+            }
+        }
+    }
 }

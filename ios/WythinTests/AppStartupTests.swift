@@ -1,5 +1,6 @@
 import XCTest
 import SwiftData
+import SwiftUI
 @testable import Wythin
 
 final class AppStartupTests: XCTestCase {
@@ -32,6 +33,21 @@ final class AppStartupTests: XCTestCase {
 
 @MainActor
 final class AppStartupLifecycleTests: XCTestCase {
+    private func waitUntilIdle<T>(_ startup: AppStartup<T>) async {
+        let deadline = Date().addingTimeInterval(10)
+        while startup.isLoading && Date() < deadline { await Task.yield() }
+        XCTAssertFalse(startup.isLoading, "Startup must finish or report a recoverable error")
+    }
+
+    func testUnavailableStoreHasAVisibleRecoveryScreen() throws {
+        let renderer = ImageRenderer(content: StartupUnavailableView(retry: {}).frame(width: 390, height: 844))
+        let image = try XCTUnwrap(renderer.uiImage)
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "startup-storage-recovery"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testFailedStartupRemainsRetryableWithoutViewAndSuccessfulValueIsRetained() async throws {
         var attempts = 0
         let startup = AppStartup<Int> {
@@ -40,11 +56,11 @@ final class AppStartupLifecycleTests: XCTestCase {
             return 42
         }
         startup.start()
-        while startup.isLoading { await Task.yield() }
+        await waitUntilIdle(startup)
         XCTAssertNil(startup.value)
         XCTAssertNotNil(startup.error)
         startup.start()
-        while startup.isLoading { await Task.yield() }
+        await waitUntilIdle(startup)
         XCTAssertEqual(startup.value, 42)
         XCTAssertNil(startup.error)
         startup.start()
@@ -61,7 +77,7 @@ final class AppStartupLifecycleTests: XCTestCase {
         while release == nil { await Task.yield() }
         startup.start()
         release?.resume(returning: 7)
-        while startup.isLoading { await Task.yield() }
+        await waitUntilIdle(startup)
         XCTAssertEqual(startup.value, 7)
     }
 
@@ -73,7 +89,7 @@ final class AppStartupLifecycleTests: XCTestCase {
             return 9
         }
         startup.start()
-        while startup.isLoading { await Task.yield() }
+        await waitUntilIdle(startup)
         XCTAssertNotNil(startup.error)
         unlocked = true
         center.post(name: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil)
@@ -92,7 +108,7 @@ final class AppStartupLifecycleTests: XCTestCase {
             url: blocker.appendingPathComponent("default.store"), cloudKitDatabase: .none)
         let startup = AppStartup<ModelContainer> { try await AppStoreBootstrap.load(configuration: config) }
         startup.start()
-        while startup.isLoading { await Task.yield() }
+        await waitUntilIdle(startup)
         XCTAssertNil(startup.value)
         XCTAssertNotNil(startup.error)
         XCTAssertEqual(try Data(contentsOf: blocker), sentinel)

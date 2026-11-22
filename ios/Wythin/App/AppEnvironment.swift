@@ -436,6 +436,18 @@ final class AppEnvironment {
     private let metricSignals = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     private var metricSchedule = MetricTriggerPolicy(minInterval: 2)
 
+    @ObservationIgnored private lazy var historyLoader = RecentHistoryLoader(
+        limit: maxTickHistory,
+        read: { [container = modelContainer] after, limit in
+            try RecentHistoryLoader.read(container: container, after: after, limit: limit)
+        },
+        current: { [weak self] in self?.tickHistory ?? [] },
+        publish: { [weak self] points in
+            guard let self else { return }
+            self.tickHistory = points
+            self.historyRevision += 1
+        })
+
     private let maxTickHistory  = 43_200   // 24 h at 2 s/tick
     private let trimBatch       = 600      // trim this many entries at once (amortises O(n) shift)
     private var lastSleepCheckAt: Date = .distantPast
@@ -672,6 +684,9 @@ final class AppEnvironment {
     /// and run the launch warm-up again as if this were a fresh start. The
     /// `historyRevision` bump tells open views their fetches are stale.
     func rewarmAfterRestore() {
+        historyLoader.invalidate()
+        tickHistory = []
+        loadHistory()
         trackCache.resetDerived()
         didWarmLiveBaseline = false
         warmLiveBaseline()
@@ -733,47 +748,14 @@ final class AppEnvironment {
     }
 
     private func loadHistory() {
-        // Fetch + map up to ~43k rows OFF the main thread so app launch isn't
-        // blocked; publish on the main actor and bump the revision so the today
-        // charts fill the instant the data lands (no wait for the 15 s poll).
-        let container = modelContainer
-        let cutoff    = Date().addingTimeInterval(-86_400)
-        let limit     = maxTickHistory
-        Task { @MainActor in
-            let pts: [MetricsHistoryPoint] = await Task.detached {
-                let ctx = ModelContext(container)
-                var descriptor = FetchDescriptor<HRVSample>(
-                    predicate: #Predicate { $0.timestamp >= cutoff },
-                    sortBy:    [SortDescriptor(\.timestamp)]
-                )
-                descriptor.fetchLimit = limit
-                let samples = (try? ctx.fetch(descriptor)) ?? []
-                return samples.map { MetricsHistoryPoint(from: $0) }
-            }.value
-            self.tickHistory = pts
-            self.historyRevision += 1
-        }
+        historyLoader.request(after: Date().addingTimeInterval(-86_400))
     }
 
-    /// Merge samples written during background into tickHistory.
-    /// Called when the app returns to foreground so live charts stay complete.
+    /// Launch and foreground share the same background reader. A main-context
+    /// fetch here used to duplicate the initial 43k-row load before first frame.
     private func reloadRecentHistory() {
-        let context   = modelContainer.mainContext
-        // Only fetch samples newer than the last point we already have.
-        let afterDate = tickHistory.last?.timestamp ?? Date().addingTimeInterval(-86_400)
-        var descriptor = FetchDescriptor<HRVSample>(
-            predicate: #Predicate { $0.timestamp > afterDate },
-            sortBy:    [SortDescriptor(\.timestamp)]
-        )
-        descriptor.fetchLimit = maxTickHistory
-        let newSamples = (try? context.fetch(descriptor)) ?? []
-        guard !newSamples.isEmpty else { return }
-        let pts = newSamples.map { MetricsHistoryPoint(from: $0) }
-        tickHistory.append(contentsOf: pts)
-        if tickHistory.count > maxTickHistory + trimBatch {
-            tickHistory.removeFirst(tickHistory.count - maxTickHistory)
-        }
-        historyRevision += 1
+        let after = tickHistory.last?.timestamp ?? Date().addingTimeInterval(-86_400)
+        historyLoader.request(after: after)
     }
 
     /// Retry any activities that finished without a generated insight,
