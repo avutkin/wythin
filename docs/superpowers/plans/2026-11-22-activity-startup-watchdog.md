@@ -32,3 +32,14 @@
 - [ ] Run focused activity tests and full WythinTests suite on simulator 13E49A03-B74A-4D83-80DF-994C88500356, absolute project path, normal signing. Require TEST SUCCEEDED and zero failures.
 - [ ] Commit; obtain one independent whole-change review; address Important/Critical findings in one test-driven pass.
 - [ ] Integrate main, ship TestFlight, verify external availability, and validate startup on the reachable physical iPhone through ship.sh phone if available. Record observed outcomes and remaining limits.
+
+
+## Verified implementation
+
+Implemented in f6ad401 and 67af97e. The phone's build 159 and 160 reports both resolve to `ActivityLog.computeHRVWindows` → `backfillMissingWindows` → the ContentView startup task. Both are FRONTBOARD watchdog kills with a ten-second allowance. This confirms that the build 160 store-opening fix did not address this specific main-thread backfill.
+
+Regression tests failed before fixes (25 assertions), then passed with background serialization and the corrected settled predicate. Independent review found two further consistency defects: ignored migration-save failures and edits racing a background window writer. Real SwiftData regressions reproduced both (eight assertions); both now pass. Migration stops before advancing an uncommitted cursor/version. An edit or deletion waits asynchronously for the current maintenance pass; follow-up passes wait until the edit finishes. This can delay the save while a current pass completes, while keeping the main thread available.
+
+The final simulator suite passed **1,984 tests, two existing opt-in skips, zero failures**, exit 0 and TEST SUCCEEDED. It includes 20,000 synthetic samples plus 100 already-settled empty activities, preserving samples and valid missing-data windows. No database reset, schema change, calculation-version bump, or user diagnostic export was needed.
+
+Review rulings: physical startup and distribution are verified during release, not inferred from unit tests; historical equal-timestamp migration-cursor handling remains unchanged (an interrupted legacy migration can still skip an equal-start entry); damaged-store recovery remains outside this maintenance fix, which uses the existing container without replacement. No unresolved Important/Critical findings or deferred Minor findings remain.
