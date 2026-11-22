@@ -41,6 +41,7 @@ final class RecentHistoryLoader {
                 }.value
                 guard self.generation == generation, !Task.isCancelled else { return }
                 if case .success(let points) = result {
+                    guard !points.isEmpty else { continue }
                     self.publish(Self.merged(fetched: points, current: self.current(), limit: limit))
                 } else {
                     BLEDiag.log("HISTORY reload failed; retaining current readings")
@@ -73,10 +74,34 @@ final class RecentHistoryLoader {
     static func merged(fetched: [MetricsHistoryPoint], current: [MetricsHistoryPoint],
                        limit: Int) -> [MetricsHistoryPoint] {
         guard limit > 0 else { return [] }
-        var byDate: [Date: MetricsHistoryPoint] = [:]
-        for point in fetched + current where point.timestamp.timeIntervalSince1970.isFinite {
-            byDate[point.timestamp] = point
+        // Both inputs are normally chronological (disk fetch + live append).
+        // Repair clock rollback defensively, without hashing or sorting normal
+        // full-day histories on every foreground transition.
+        func ordered(_ points: [MetricsHistoryPoint]) -> [MetricsHistoryPoint] {
+            var previous = -Double.infinity
+            for point in points {
+                let time = point.timestamp.timeIntervalSince1970
+                if !time.isFinite || time < previous {
+                    return points.filter { $0.timestamp.timeIntervalSince1970.isFinite }
+                        .sorted { $0.timestamp < $1.timestamp }
+                }
+                previous = time
+            }
+            return points
         }
-        return byDate.keys.sorted().suffix(limit).compactMap { byDate[$0] }
+        let disk = ordered(fetched), live = ordered(current)
+        var i = disk.count - 1, j = live.count - 1
+        var newest: [MetricsHistoryPoint] = []
+        newest.reserveCapacity(min(limit, disk.count + live.count))
+        while newest.count < limit && (i >= 0 || j >= 0) {
+            let point: MetricsHistoryPoint
+            if j >= 0 && (i < 0 || live[j].timestamp >= disk[i].timestamp) {
+                point = live[j]; j -= 1
+            } else {
+                point = disk[i]; i -= 1
+            }
+            if newest.last?.timestamp != point.timestamp { newest.append(point) }
+        }
+        return newest.reversed()
     }
 }

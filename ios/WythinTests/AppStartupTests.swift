@@ -133,3 +133,108 @@ final class AppStartupLifecycleTests: XCTestCase {
         XCTAssertEqual(entries.map(\.id), [id])
     }
 }
+
+
+@MainActor
+final class StartupReviewRegressionTests: XCTestCase {
+    private func idle<T>(_ startup: AppStartup<T>) async {
+        let deadline = Date().addingTimeInterval(3)
+        while startup.isLoading && Date() < deadline { await Task.yield() }
+        XCTAssertFalse(startup.isLoading)
+    }
+
+    func testBackgroundCallbacksBeforeAndAfterFailedOpenFinishExactlyOnce() async {
+        let events = StartupBackgroundEvents()
+        var completions = 0
+        var routed: (() -> Void)?
+        events.receive(completion: { completions += 1 }, route: { routed = $0 })
+        let startup = AppStartup<Int>(backgroundEvents: events) { throw CocoaError(.fileReadNoPermission) }
+        startup.start()
+        await idle(startup)
+        XCTAssertEqual(completions, 1)
+        events.receive(completion: { completions += 1 }, route: { _ in XCTFail("No service exists after failed open") })
+        XCTAssertEqual(completions, 2)
+        routed?()
+        routed?()
+        XCTAssertEqual(completions, 2, "A delayed service callback must not complete the OS wake twice")
+    }
+
+    func testAllowanceStartsBeforeYieldAndEndsOnceOnSuccessOrFailure() async {
+        for failing in [false, true] {
+            var begun = 0, ended = 0
+            let startup = AppStartup<Int>(backgroundEvents: StartupBackgroundEvents(), beginAllowance: { _ in
+                begun += 1
+                return UIBackgroundTaskIdentifier(rawValue: 31)
+            }, endAllowance: { id in
+                XCTAssertEqual(id.rawValue, 31); ended += 1
+            }) {
+                XCTAssertEqual(begun, 1)
+                if failing { throw CocoaError(.fileReadNoPermission) }
+                return 1
+            }
+            startup.start()
+            XCTAssertEqual(begun, 1, "Acquire execution time before yielding startup")
+            await idle(startup)
+            XCTAssertEqual(ended, 1)
+        }
+    }
+
+    func testAllowanceExpirationReleasesWakeWithoutDuplicatingInitialization() async {
+        let events = StartupBackgroundEvents()
+        var expire: (@MainActor @Sendable () -> Void)?
+        var resume: CheckedContinuation<Int, Never>?
+        var ended = 0, completed = 0, loads = 0
+        let startup = AppStartup<Int>(backgroundEvents: events, beginAllowance: {
+            expire = $0; return UIBackgroundTaskIdentifier(rawValue: 7)
+        }, endAllowance: { _ in ended += 1 }) {
+            loads += 1
+            return await withCheckedContinuation { resume = $0 }
+        }
+        startup.start()
+        while resume == nil { await Task.yield() }
+        events.receive(completion: { completed += 1 }, route: { _ in })
+        expire?()
+        expire?()
+        XCTAssertEqual(ended, 1)
+        XCTAssertEqual(completed, 1)
+        startup.start()
+        resume?.resume(returning: 9)
+        await idle(startup)
+        XCTAssertEqual(startup.value, 9)
+        XCTAssertEqual(loads, 1)
+        XCTAssertEqual(ended, 1)
+    }
+
+    func testUnlockDuringOpenRetriesOneFailedAttemptWithoutAnotherNotification() async {
+        let center = NotificationCenter()
+        var resume: CheckedContinuation<Void, Never>?
+        var attempts = 0
+        let startup = AppStartup<Int>(notifications: center, backgroundEvents: StartupBackgroundEvents()) {
+            attempts += 1
+            if attempts == 1 {
+                await withCheckedContinuation { resume = $0 }
+                throw CocoaError(.fileReadNoPermission)
+            }
+            return 12
+        }
+        startup.start()
+        while resume == nil { await Task.yield() }
+        center.post(name: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil)
+        for _ in 0..<10 { await Task.yield() }
+        resume?.resume()
+        await idle(startup)
+        XCTAssertEqual(startup.value, 12)
+        XCTAssertEqual(attempts, 2)
+    }
+
+    func testSceneDeliveryDeduplicatesSameEnvironmentAndPhaseButDeliversInitialState() {
+        let first = NSObject(), replacement = NSObject()
+        var delivery = StartupSceneDelivery()
+        XCTAssertTrue(delivery.shouldDeliver(.active, to: first))
+        XCTAssertFalse(delivery.shouldDeliver(.active, to: first))
+        XCTAssertTrue(delivery.shouldDeliver(.background, to: first))
+        XCTAssertFalse(delivery.shouldDeliver(.background, to: first))
+        XCTAssertTrue(delivery.shouldDeliver(.background, to: replacement))
+        XCTAssertTrue(delivery.shouldDeliver(.active, to: replacement))
+    }
+}

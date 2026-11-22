@@ -145,6 +145,20 @@ final class RecentHistoryReloadLifecycleTests: XCTestCase {
         XCTAssertEqual(history.map { $0.timestamp.timeIntervalSince1970 }, [4, 5])
     }
 
+    func testEmptyForegroundReadDoesNotRepublishOrCopyExistingHistory() async {
+        var currentReads = 0, publications = 0
+        let loader = RecentHistoryLoader(read: { _, _ in [] }, current: {
+            currentReads += 1
+            return (0..<43_200).map { Self.point(Double($0)) }
+        }, publish: { _ in publications += 1 })
+        loader.request(after: .distantPast)
+        let deadline = Date().addingTimeInterval(3)
+        while loader.isLoading && Date() < deadline { await Task.yield() }
+        XCTAssertFalse(loader.isLoading)
+        XCTAssertEqual(currentReads, 0)
+        XCTAssertEqual(publications, 0)
+    }
+
     func testLargeMergeRetainsNewest43200SamplesAndCurrentDuplicateValue() {
         let stored = (0..<43_200).map { Self.point(Double($0)) }
         let live = (43_199...43_202).map { Self.point(Double($0)) }

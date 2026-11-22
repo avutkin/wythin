@@ -11,9 +11,10 @@ struct WythinApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var startup: AppStartup<AppEnvironment>
     @State private var showSplash = true
+    @State private var sceneDelivery = StartupSceneDelivery()
 
     init() {
-        let startup = AppStartup<AppEnvironment> {
+        let startup = AppStartup<AppEnvironment>(backgroundEvents: .shared) {
             let container = try await AppStoreBootstrap.load()
             let environment = AppEnvironment(modelContainer: container)
             HealthSyncCoordinator.shared.attach(container: container)
@@ -55,7 +56,7 @@ struct WythinApp: App {
     }
 
     private func applyScenePhase(_ newPhase: ScenePhase) {
-        guard let env = startup.value else { return }
+        guard let env = startup.value, sceneDelivery.shouldDeliver(newPhase, to: env) else { return }
         let container = env.modelContainer
         env.isInForeground = (newPhase == .active)
         switch newPhase {

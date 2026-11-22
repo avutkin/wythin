@@ -60,21 +60,23 @@ final class WythinAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
                      handleEventsForBackgroundURLSession identifier: String,
                      completionHandler: @escaping () -> Void) {
         Task { @MainActor in
-            switch identifier {
-            case RecordingDiagnosticSync.sessionIdentifier:
-                if let active = RecordingDiagnosticSync.active {
-                    active.handleBackgroundEvents(completionHandler: completionHandler)
-                } else { RecordingDiagnosticSync.pendingBackgroundCompletionHandler = completionHandler }
-            case MetricSyncService.sessionIdentifier:
-                if let active = MetricSyncService.active {
-                    active.handleBackgroundEvents(completionHandler: completionHandler)
-                } else { MetricSyncService.pendingBackgroundCompletionHandler = completionHandler }
-            case RawChunkSyncService.sessionIdentifier:
-                if let active = RawChunkSyncService.active {
-                    active.handleBackgroundEvents(completionHandler: completionHandler)
-                } else { RawChunkSyncService.pendingBackgroundCompletionHandler = completionHandler }
-            default:
-                completionHandler()
+            StartupBackgroundEvents.shared.receive(completion: completionHandler) { completionHandler in
+                switch identifier {
+                case RecordingDiagnosticSync.sessionIdentifier:
+                    if let active = RecordingDiagnosticSync.active {
+                        active.handleBackgroundEvents(completionHandler: completionHandler)
+                    } else { RecordingDiagnosticSync.pendingBackgroundCompletionHandler = completionHandler }
+                case MetricSyncService.sessionIdentifier:
+                    if let active = MetricSyncService.active {
+                        active.handleBackgroundEvents(completionHandler: completionHandler)
+                    } else { MetricSyncService.pendingBackgroundCompletionHandler = completionHandler }
+                case RawChunkSyncService.sessionIdentifier:
+                    if let active = RawChunkSyncService.active {
+                        active.handleBackgroundEvents(completionHandler: completionHandler)
+                    } else { RawChunkSyncService.pendingBackgroundCompletionHandler = completionHandler }
+                default:
+                    completionHandler()
+                }
             }
         }
     }

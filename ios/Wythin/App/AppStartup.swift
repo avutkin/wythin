@@ -38,22 +38,36 @@ final class AppStartup<Value> {
     private(set) var value: Value?
     private(set) var error: Error?
     private(set) var isLoading = false
+    @ObservationIgnored private var allowance = UIBackgroundTaskIdentifier.invalid
+    @ObservationIgnored private var unlockedDuringAttempt = false
     @ObservationIgnored private let load: @MainActor () async throws -> Value
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var unlockObserver: NSObjectProtocol?
     @ObservationIgnored private let notifications: NotificationCenter
+    @ObservationIgnored private let backgroundEvents: StartupBackgroundEvents
+    @ObservationIgnored private let beginAllowance: (@escaping @MainActor @Sendable () -> Void) -> UIBackgroundTaskIdentifier
+    @ObservationIgnored private let endAllowance: (UIBackgroundTaskIdentifier) -> Void
 
     init(notifications: NotificationCenter = .default,
+         backgroundEvents: StartupBackgroundEvents? = nil,
+         beginAllowance: @escaping (@escaping @MainActor @Sendable () -> Void) -> UIBackgroundTaskIdentifier = {
+             UIApplication.shared.beginBackgroundTask(withName: "Open saved recordings", expirationHandler: $0)
+         },
+         endAllowance: @escaping (UIBackgroundTaskIdentifier) -> Void = { UIApplication.shared.endBackgroundTask($0) },
          load: @escaping @MainActor () async throws -> Value) {
         self.notifications = notifications
+        self.backgroundEvents = backgroundEvents ?? StartupBackgroundEvents()
+        self.beginAllowance = beginAllowance
+        self.endAllowance = endAllowance
         self.load = load
         unlockObserver = notifications.addObserver(
             forName: UIApplication.protectedDataDidBecomeAvailableNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.error != nil else { return }
-                self.start()
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if self.isLoading { self.unlockedDuringAttempt = true }
+                else if self.error != nil { self.start() }
             }
         }
     }
@@ -67,16 +81,39 @@ final class AppStartup<Value> {
         guard value == nil, task == nil else { return }
         isLoading = true
         error = nil
+        unlockedDuringAttempt = false
+        backgroundEvents.beginAttempt()
+        // Acquire before the first suspension: BLE restoration must not depend
+        // on a visible scene or a fast database open. UIKit bounds this lease.
+        allowance = beginAllowance { [weak self] in
+            guard let self else { return }
+            self.finishAllowance()
+            self.backgroundEvents.failAttempt()
+        }
         task = Task { [weak self] in
             guard let self else { return }
-            defer { self.isLoading = false; self.task = nil }
-            do { self.value = try await self.load() }
+            defer {
+                self.isLoading = false
+                self.task = nil
+                self.finishAllowance()
+                if self.error != nil && self.unlockedDuringAttempt { self.start() }
+            }
+            do {
+                self.value = try await self.load()
+                self.backgroundEvents.succeedAttempt()
+            }
             catch {
                 self.error = error
+                self.backgroundEvents.failAttempt()
                 let ns = error as NSError
                 BLEDiag.log("STARTUP store open failed code=\(ns.code)")
             }
         }
+    }
+    private func finishAllowance() {
+        let identifier = allowance
+        allowance = .invalid
+        if identifier != .invalid { endAllowance(identifier) }
     }
 }
 
@@ -100,5 +137,45 @@ struct StartupUnavailableView: View {
             .padding(28)
         }
         .preferredColorScheme(.dark)
+    }
+}
+
+/// Owns only OS wake completion callbacks, never upload files or acknowledgments.
+@MainActor
+final class StartupBackgroundEvents {
+    static let shared = StartupBackgroundEvents()
+    private var unavailable = false
+    private var pending: [UUID: () -> Void] = [:]
+
+    func beginAttempt() { unavailable = false }
+    func succeedAttempt() { unavailable = false }
+    func failAttempt() {
+        unavailable = true
+        let callbacks = Array(pending.values)
+        pending.removeAll()
+        callbacks.forEach { $0() }
+    }
+
+    func receive(completion: @escaping () -> Void, route: (@escaping () -> Void) -> Void) {
+        guard !unavailable else { completion(); return }
+        let id = UUID()
+        pending[id] = completion
+        route { [weak self] in
+            self?.pending.removeValue(forKey: id)?()
+        }
+    }
+}
+
+@MainActor
+struct StartupSceneDelivery {
+    private var lastEnvironment: ObjectIdentifier?
+    private var lastPhase: ScenePhase?
+
+    mutating func shouldDeliver(_ phase: ScenePhase, to environment: AnyObject) -> Bool {
+        let identity = ObjectIdentifier(environment)
+        guard lastEnvironment != identity || lastPhase != phase else { return false }
+        lastEnvironment = identity
+        lastPhase = phase
+        return true
     }
 }
