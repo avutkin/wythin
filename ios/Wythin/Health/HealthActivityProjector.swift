@@ -9,7 +9,9 @@ final class HealthActivityProjector: @unchecked Sendable {
 
     init(modelContainer: ModelContainer) { container = modelContainer }
 
-    @discardableResult
+    // Enqueue synchronously on the caller's main actor to preserve snapshot
+    // ordering. All persistence still runs on the explicit background queue.
+    @MainActor @discardableResult
     func project(_ entries: [HealthEntry]) async throws -> Bool {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [self] in

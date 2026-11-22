@@ -12,6 +12,7 @@ final class ActivityWindowMaintenance {
     private var task: Task<Void, Never>?
     private var pending = false
     private var editsWaiting = 0
+    private var projectionRevision: UInt64 = 0
 
     init(container: ModelContainer, work: @escaping Work = { container in
         let context = ModelContext(container)
@@ -37,12 +38,17 @@ final class ActivityWindowMaintenance {
     /// Imported interval changes must not race a worker using their old dates.
     /// Projection saves metadata first; the shared worker then derives Polar values.
     func projectHealthActivities(_ entries: [HealthEntry]) async throws {
+        projectionRevision &+= 1
+        let revision = projectionRevision
         editsWaiting += 1
         defer {
             editsWaiting -= 1
             if editsWaiting == 0 && pending { request() }
         }
         if let task { await task.value }
+        // Awaiters of the same task need not resume in request order. Only
+        // the newest waiting snapshot may enqueue after the worker finishes.
+        guard revision == projectionRevision else { return }
         if try await projector.project(entries) { pending = true }
     }
 

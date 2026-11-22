@@ -157,6 +157,33 @@ final class ActivityWindowMaintenanceTests: XCTestCase {
         XCTAssertEqual(try ModelContext(store).fetchCount(FetchDescriptor<HRVSample>()), 1)
     }
 
+    func testNewerHealthDeletionSupersedesSnapshotWaitingForMaintenance() async throws {
+        for _ in 0..<16 {
+            let store = try container(), gate = Gate()
+            let workout = HealthWorkout(id: UUID(), activityCode: 37, activityName: "Running",
+                startedAt: Date(timeIntervalSince1970: 10000), endedAt: Date(timeIntervalSince1970: 10600),
+                activeDurationSeconds: 600, source: HealthSourceInfo(bundleIdentifier: "test", name: "Watch"), timezone: "UTC")
+            let entry = HealthEntry(workout: workout, activityId: UUID())
+            let worker = ActivityWindowMaintenance(container: store) { _ in
+                if gate.next() == 1 {
+                    gate.entered.signal()
+                    _ = gate.release.wait(timeout: .now() + 3)
+                }
+            }
+            let running = worker.request()
+            let entered = await Task.detached { gate.entered.wait(timeout: .now() + 3) == .success }.value
+            XCTAssertTrue(entered)
+            let stale = Task { try await worker.projectHealthActivities([entry]) }
+            for _ in 0..<20 { await Task.yield() }
+            let deletion = Task { try await worker.projectHealthActivities([]) }
+            for _ in 0..<20 { await Task.yield() }
+            gate.release.signal()
+            try await stale.value; try await deletion.value; await running.value
+            XCTAssertEqual(try ModelContext(store).fetchCount(FetchDescriptor<ActivityLog>()), 0,
+                           "An older waiting snapshot must never resurrect a newly deleted imported workout")
+        }
+    }
+
     func testFailedMigrationSliceDoesNotAdvanceCursorAndRetryCompletesRemainingRows() throws {
         let defaults = UserDefaults.standard
         let keys = ["activityBackfillVersion", "activityBackfillCursor"]
