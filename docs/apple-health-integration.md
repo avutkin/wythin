@@ -1,8 +1,9 @@
 # Apple Health integration
 
-The implementation lives in the isolated `codex/apple-health-integration` branch.
-It adds a native iPhone HealthKit reader, separate local storage, a cloud API,
-and imported activities in the existing journal. No server can read a person's
+The implementation was developed in the isolated `codex/apple-health-integration`
+branch and merged into `main`. It adds a native iPhone HealthKit reader,
+separate local storage, a cloud API, and imported activities in the existing
+journal. No server can read a person's
 Apple Health store directly: the authorized iPhone reads it and optionally
 uploads to Wythin. Apple Watch workouts arrive through Health on that iPhone.
 
@@ -59,8 +60,8 @@ pagination, limits, and PostgreSQL test setup. The approved design is in
 
 The iOS target includes HealthKit and background-delivery entitlements and a
 read-purpose description. A valid signing profile with the capability is
-required for a real device. No production server, device installation,
-App Store submission, or deployment is performed by this implementation.
+required for a real device. The signed iPhone installation and production API
+deployment are recorded below; physical HealthKit acceptance remains pending.
 
 Automated tests use synthetic measurements, a disposable PostgreSQL database,
 and the iOS simulator. Coverage includes replay/rollback, series publication,
@@ -69,8 +70,8 @@ the persisted pre-change ActivityLog schema, and an actual Swift-generated JSON
 batch ingested and restored through PostgreSQL. Existing manual and sleep rows
 are checked through migration and another reopen.
 
-Before release, test on a signed iPhone with Watch data: selectively grant and
-deny types; import an old workout and a new Watch workout; lock/unlock and
+For device acceptance, test on a signed iPhone with Watch data: selectively
+grant and deny types; import an old workout and a new Watch workout; lock/unlock and
 background the app; add/delete a measurement; delete a workout in Health;
 interrupt uploads; turn cloud off during a sync; finish an offline deletion;
 reinstall with retained Keychain credential; and inspect a long workout with
@@ -92,6 +93,40 @@ tests. Shipping must use the repository's `tools/ship.sh` workflow after merge.
   persistence remain device acceptance checks. Cloud-consent tests inject a
   credential store because the simulator test app is unsigned.
 
-The feature remains local to its branch; it has not been deployed or installed
-on a phone. Existing unrelated Swift 6 isolation and duplicate MetricNamingTests
-project warnings remain in the baseline.
+At this checkpoint the feature was local to its branch. Existing unrelated
+Swift 6 isolation and duplicate MetricNamingTests project warnings remained
+in the baseline.
+
+### Release and deployment, 2026-11-18–2026-11-20
+
+- Implementation `97c327a` was published to `main` through merge `69097d2`.
+  The merge also preserves the workout's recorded timezone in journal entries.
+- `tools/ship.sh phone` installed and launched version 1.1, build **158**, from
+  `origin/main` commit `9d86136` on the paired iPhone on November 18. Its full
+  simulator run executed **1,953 tests**, with **2 skipped and 0 failures**.
+  The installed artifact contains HealthKit and background-delivery entitlements.
+- On November 20, the complete server suite passed **245 tests** against a
+  fresh, isolated PostgreSQL database. The production server source matches
+  `9d86136`; later main changes through `04fcd2e` do not change server code.
+- Production API: **https://api.77.42.73.250.sslip.io/v1/health**. Deployment
+  commit `825858c` merges `9d86136` into the existing production commit `5ed00fb`,
+  preserving authenticated recording diagnostics. An additive migration ran
+  after a verified PostgreSQL backup at
+  `/opt/pulsar-deploy-backups/health-9d86136/database.dump` on the server.
+- The first restart encountered unreadable deployed source files because the
+  backup's restrictive umask carried into checkout. Normal permissions were
+  restored only on changed tracked files and their directories; protected
+  backup and environment files retained their permissions. Service-user import,
+  restart, and HTTP health checks then succeeded.
+- A live HTTPS check used synthetic data to verify enrollment, explicit consent,
+  one workout and three measurements, stored before/during/after analysis,
+  annotations, restore, immutable retry, owner isolation, consent pause, and
+  idempotent deletion. Both synthetic archives were purged afterward. This
+  verifies transport/storage; analysis calculation is covered by iOS tests.
+
+**Pending on the physical iPhone:** the user must open **Settings → Apple Health
+→ Connect Apple Health** and grant selected read permissions. A real Watch
+workout import, selective denial, background delivery, and reinstall/Keychain
+checks have not been observed. Cloud upload additionally requires the app-wide
+cloud switch and the separate Health cloud confirmation. No real health data
+was read or uploaded during deployment verification.
