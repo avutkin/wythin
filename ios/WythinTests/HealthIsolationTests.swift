@@ -18,6 +18,34 @@ final class HealthIsolationTests: XCTestCase {
         XCTAssertNil(second.first?.timezone, "An unknown historical zone must not become the importing phone's zone")
         XCTAssertEqual(second.first?.startedAt, workout.startedAt)
     }
+    @MainActor func testProjectionSavesMetadataBeforePolarCalculationsAndInvalidatesChangedWindows() async throws {
+        let schema = Schema([ActivityLog.self, HRVSample.self, HRVSession.self])
+        let container = try ModelContainer(for: schema, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let projector = HealthActivityProjector(modelContainer: container)
+        var workout = HealthWorkout(id: UUID(), activityCode: 37, activityName: "Running",
+            startedAt: Date(timeIntervalSince1970: 10000), endedAt: Date(timeIntervalSince1970: 10600),
+            activeDurationSeconds: 600, source: HealthSourceInfo(bundleIdentifier: "test", name: "Watch"), timezone: "Asia/Dubai")
+        let id = UUID()
+        try await projector.project([HealthEntry(workout: workout, activityId: id)])
+        let firstContext = ModelContext(container)
+        let first = try XCTUnwrap(try firstContext.fetch(FetchDescriptor<ActivityLog>()).first)
+        XCTAssertNil(first.settledAt, "Import must durably save metadata without waiting for expensive Polar calculations")
+        XCTAssertEqual(first.id, id)
+        first.settledAt = Date(timeIntervalSince1970: 20000)
+        first.duringHR = 80
+        try firstContext.save()
+        try await projector.project([HealthEntry(workout: workout, activityId: id)])
+        let unchanged = try XCTUnwrap(try ModelContext(container).fetch(FetchDescriptor<ActivityLog>()).first)
+        XCTAssertEqual(unchanged.settledAt, Date(timeIntervalSince1970: 20000))
+        XCTAssertEqual(unchanged.duringHR, 80)
+        workout.endedAt = Date(timeIntervalSince1970: 11200)
+        try await projector.project([HealthEntry(workout: workout, activityId: id)])
+        let changed = try XCTUnwrap(try ModelContext(container).fetch(FetchDescriptor<ActivityLog>()).first)
+        XCTAssertNil(changed.settledAt, "A changed interval must become eligible for background repair")
+        XCTAssertTrue(changed.needsWindowRefresh())
+        XCTAssertEqual(changed.endedAt, workout.endedAt)
+    }
+
     @MainActor func testImportedActivitiesNeverEnterAutomaticAIQueue() throws {
         let container = try ModelContainer(for: ActivityLog.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         let context = container.mainContext

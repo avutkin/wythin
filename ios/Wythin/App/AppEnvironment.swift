@@ -436,7 +436,7 @@ final class AppEnvironment {
     private let metricSignals = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     private var metricSchedule = MetricTriggerPolicy(minInterval: 2)
 
-    @ObservationIgnored private lazy var activityWindowMaintenance = ActivityWindowMaintenance(container: modelContainer)
+    @ObservationIgnored private(set) lazy var activityWindowMaintenance = ActivityWindowMaintenance(container: modelContainer)
 
     func refreshActivityWindows() { activityWindowMaintenance.request() }
 

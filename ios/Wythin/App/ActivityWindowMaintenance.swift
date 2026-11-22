@@ -7,6 +7,7 @@ import SwiftData
 final class ActivityWindowMaintenance {
     typealias Work = @Sendable (ModelContainer) throws -> Void
     private let container: ModelContainer
+    private let projector: HealthActivityProjector
     private let work: Work
     private var task: Task<Void, Never>?
     private var pending = false
@@ -19,6 +20,7 @@ final class ActivityWindowMaintenance {
         ActivityLog.backfillMissingWindows(context: context)
     }) {
         self.container = container
+        self.projector = HealthActivityProjector(modelContainer: container)
         self.work = work
     }
 
@@ -30,6 +32,18 @@ final class ActivityWindowMaintenance {
         await edit()
         editsWaiting -= 1
         if editsWaiting == 0 && pending { request() }
+    }
+
+    /// Imported interval changes must not race a worker using their old dates.
+    /// Projection saves metadata first; the shared worker then derives Polar values.
+    func projectHealthActivities(_ entries: [HealthEntry]) async throws {
+        editsWaiting += 1
+        defer {
+            editsWaiting -= 1
+            if editsWaiting == 0 && pending { request() }
+        }
+        if let task { await task.value }
+        if try await projector.project(entries) { pending = true }
     }
 
     @discardableResult

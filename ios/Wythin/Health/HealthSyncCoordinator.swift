@@ -19,7 +19,7 @@ import SwiftData
     @ObservationIgnored private let source: any HealthSource
     @ObservationIgnored private var store: HealthRepository?
     @ObservationIgnored private var opening: Task<HealthRepository, Error>?
-    @ObservationIgnored private var projectorTask: Task<HealthActivityProjector, Never>?
+    @ObservationIgnored private var activityMaintenance: ActivityWindowMaintenance?
     @ObservationIgnored private var injectedCloud: (any HealthCloudTransport)?
     @ObservationIgnored private let credentials: any HealthCredentialStorage
     @ObservationIgnored private var cloudWorking = false
@@ -43,8 +43,8 @@ import SwiftData
         if opening == nil { opening = Task.detached { try HealthRepository() } }
         let result = try await opening!.value; store = result; return result
     }
-    func attach(container: ModelContainer) {
-        projectorTask = Task.detached { HealthActivityProjector(modelContainer: container) }
+    func attach(activityMaintenance: ActivityWindowMaintenance) {
+        self.activityMaintenance = activityMaintenance
         Task { await bootstrap() }
     }
     /// Called by didFinishLaunching, before any Settings view has appeared.
@@ -331,6 +331,6 @@ import SwiftData
         entries = try await repo.entries(); pendingCount = try await repo.pendingCount()
         let s = try await repo.state(); enabled = s.enabled; cloudEnabled = s.cloudConsent; lastSync = s.lastSuccess; pendingDeletion = s.pendingPurge
         if s.pendingPurge { status = "Cloud deletion pending" }
-        if let projectorTask { try await projectorTask.value.project(entries) }
+        if let activityMaintenance { try await activityMaintenance.projectHealthActivities(entries) }
     }
 }

@@ -17,7 +17,7 @@ struct WythinApp: App {
         let startup = AppStartup<AppEnvironment>(backgroundEvents: .shared) {
             let container = try await AppStoreBootstrap.load()
             let environment = AppEnvironment(modelContainer: container)
-            HealthSyncCoordinator.shared.attach(container: container)
+            HealthSyncCoordinator.shared.attach(activityMaintenance: environment.activityWindowMaintenance)
             return environment
         }
         _startup = State(initialValue: startup)

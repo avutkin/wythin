@@ -1,10 +1,28 @@
 import Foundation
 import SwiftData
 
-/// Serialized background projection; Health snapshots never write into Polar sample tables.
-@ModelActor actor HealthActivityProjector {
-    func project(_ entries: [HealthEntry]) throws {
-        let context = modelContext
+/// Metadata projection owns a serial background queue and creates its context there.
+/// No Polar history scans or derived calculations belong in this import transaction.
+final class HealthActivityProjector: @unchecked Sendable {
+    private let container: ModelContainer
+    private let queue = DispatchQueue(label: "wythin.health.activity-projection", qos: .utility)
+
+    init(modelContainer: ModelContainer) { container = modelContainer }
+
+    @discardableResult
+    func project(_ entries: [HealthEntry]) async throws -> Bool {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async { [self] in
+                continuation.resume(with: Result { try autoreleasepool { try persist(entries) } })
+            }
+        }
+    }
+
+    private func persist(_ entries: [HealthEntry]) throws -> Bool {
+        dispatchPrecondition(condition: .onQueue(queue))
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        var needsRepair = false
         let imported = try context.fetch(FetchDescriptor<ActivityLog>()).filter(\.isHealthImported)
         let byExternal = Dictionary(imported.compactMap { row in row.externalWorkoutID.map { ($0, row) } }, uniquingKeysWith: { a, _ in a })
         let present = Set(entries.filter { !$0.deleted }.map { $0.workout.id.uuidString })
@@ -22,9 +40,14 @@ import SwiftData
             row.activitySubtype = entry.title ?? workout.activityName; row.notes = entry.notes
             // Existing fields still describe real Polar data only. Health analysis is a separate projection.
             if existing == nil || changedWindow {
-                row.computeHRVWindows(context: context); row.computeExerciseResponse(context: context)
+                row.settledAt = nil
+                // Nil stress also makes an old changed interval eligible beyond
+                // the normal after-window retry horizon.
+                row.duringStress = nil
+                needsRepair = true
             }
         }
         try context.save()
+        return needsRepair
     }
 }

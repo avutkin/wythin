@@ -102,6 +102,61 @@ final class ActivityWindowMaintenanceTests: XCTestCase {
         XCTAssertEqual(try read.fetchCount(FetchDescriptor<HRVSample>()), 20_000)
     }
 
+    func testHealthProjectionWaitsForOldWriterAndAutomaticallyRepairsNewInterval() async throws {
+        let store = try container()
+        let ctx = ModelContext(store)
+        let start = Date(timeIntervalSince1970: 10000)
+        var workout = HealthWorkout(id: UUID(), activityCode: 37, activityName: "Running",
+            startedAt: start, endedAt: start.addingTimeInterval(600), activeDurationSeconds: 600,
+            source: HealthSourceInfo(bundleIdentifier: "test", name: "Watch"), timezone: "Asia/Dubai")
+        let id = UUID()
+        let row = ActivityLog(activityType: "Exercise", startedAt: start, endedAt: workout.endedAt)
+        row.id = id; row.origin = "apple_health"; row.externalWorkoutID = workout.id.uuidString
+        ctx.insert(row)
+        let point = HRVSample(anchorTestTimestamp: start.addingTimeInterval(3700), meanBPM: 90)
+        point.sdnn = 40; point.rmssd = 30; point.signalQuality = 0.95
+        ctx.insert(point); try ctx.save()
+        let gate = Gate()
+        let worker = ActivityWindowMaintenance(container: store) { container in
+            XCTAssertFalse(Thread.isMainThread)
+            let context = ModelContext(container)
+            if gate.next() == 1 {
+                let old = try XCTUnwrap(try context.fetch(FetchDescriptor<ActivityLog>()).first)
+                gate.entered.signal()
+                _ = gate.release.wait(timeout: .now() + 3)
+                old.duringHR = 60; old.duringStress = 30; old.settledAt = Date()
+                try context.save()
+            } else {
+                ActivityLog.backfillMissingWindows(context: context)
+            }
+        }
+        let running = worker.request()
+        let entered = await Task.detached { gate.entered.wait(timeout: .now() + 3) == .success }.value
+        XCTAssertTrue(entered)
+        workout.startedAt = start.addingTimeInterval(3600)
+        workout.endedAt = start.addingTimeInterval(4200)
+        var projected = false
+        let importing = Task {
+            try await worker.projectHealthActivities([HealthEntry(workout: workout, activityId: id)])
+            projected = true
+        }
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertFalse(projected)
+        gate.release.signal()
+        try await importing.value; await running.value
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        var repaired: ActivityLog?
+        repeat {
+            await Task.yield()
+            repaired = try ModelContext(store).fetch(FetchDescriptor<ActivityLog>()).first
+            if repaired?.duringHR == 90, repaired?.settledAt != nil { break }
+        } while ContinuousClock.now < deadline
+        XCTAssertEqual(repaired?.startedAt, start.addingTimeInterval(3600))
+        XCTAssertEqual(repaired?.duringHR, 90, "Projection must schedule repair without another foreground event")
+        XCTAssertNotNil(repaired?.settledAt)
+        XCTAssertEqual(try ModelContext(store).fetchCount(FetchDescriptor<HRVSample>()), 1)
+    }
+
     func testFailedMigrationSliceDoesNotAdvanceCursorAndRetryCompletesRemainingRows() throws {
         let defaults = UserDefaults.standard
         let keys = ["activityBackfillVersion", "activityBackfillCursor"]
