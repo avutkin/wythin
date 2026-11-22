@@ -346,6 +346,8 @@
 		D16000000000000000000004 /* AppStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16000000000000000000003 /* AppStartupTests.swift */; };
 		D16000000000000000000006 /* RecentHistoryLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16000000000000000000005 /* RecentHistoryLoader.swift */; };
 		D16000000000000000000008 /* RecentHistoryLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16000000000000000000007 /* RecentHistoryLoaderTests.swift */; };
+		D16100000000000000000002 /* ActivityWindowMaintenance.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16100000000000000000001 /* ActivityWindowMaintenance.swift */; };
+		D16100000000000000000004 /* ActivityWindowMaintenanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D16100000000000000000003 /* ActivityWindowMaintenanceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -701,6 +703,8 @@
 		D16000000000000000000003 /* AppStartupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStartupTests.swift; sourceTree = "<group>"; };
 		D16000000000000000000005 /* RecentHistoryLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentHistoryLoader.swift; sourceTree = "<group>"; };
 		D16000000000000000000007 /* RecentHistoryLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentHistoryLoaderTests.swift; sourceTree = "<group>"; };
+		D16100000000000000000001 /* ActivityWindowMaintenance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityWindowMaintenance.swift; sourceTree = "<group>"; };
+		D16100000000000000000003 /* ActivityWindowMaintenanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityWindowMaintenanceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -788,6 +792,7 @@
 			isa = PBXGroup;
 			children = (
 				F101 /* WythinApp.swift */,
+				D16100000000000000000001 /* ActivityWindowMaintenance.swift */,
 				D16000000000000000000005 /* RecentHistoryLoader.swift */,
 				D16000000000000000000001 /* AppStartup.swift */,
 				E02F045E1EC55D2E98AF5D68 /* LiveSessionController.swift */,
@@ -1208,6 +1213,7 @@
 				FT72 /* AdvancedHRVComputeTests.swift */,
 				FT42 /* MetricsQualityFilterTests.swift */,
 				FTCS /* ChartSegmenterTests.swift */,
+				D16100000000000000000003 /* ActivityWindowMaintenanceTests.swift */,
 				D16000000000000000000007 /* RecentHistoryLoaderTests.swift */,
 				D16000000000000000000003 /* AppStartupTests.swift */,
 				FT51 /* LiveMetricTests.swift */,
@@ -1355,6 +1361,7 @@
 				A163 /* CheckInSheet.swift in Sources */,
 				A210 /* AnchorDetector.swift in Sources */,
 				A101 /* WythinApp.swift in Sources */,
+				D16100000000000000000002 /* ActivityWindowMaintenance.swift in Sources */,
 				D16000000000000000000006 /* RecentHistoryLoader.swift in Sources */,
 				D16000000000000000000002 /* AppStartup.swift in Sources */,
 				60ED9331C4BD56C098F8D57D /* LiveSessionController.swift in Sources */,
@@ -1648,6 +1655,7 @@
 				AT72 /* AdvancedHRVComputeTests.swift in Sources */,
 				AT42 /* MetricsQualityFilterTests.swift in Sources */,
 				ATCS /* ChartSegmenterTests.swift in Sources */,
+				D16100000000000000000004 /* ActivityWindowMaintenanceTests.swift in Sources */,
 				D16000000000000000000008 /* RecentHistoryLoaderTests.swift in Sources */,
 				D16000000000000000000004 /* AppStartupTests.swift in Sources */,
 				AT51 /* LiveMetricTests.swift in Sources */,

@@ -586,8 +586,10 @@ final class ActivityLog {
     /// sees a non-nil value, never correct it.
     func needsWindowRefresh(now: Date = .now) -> Bool {
         guard let end = endedAt else { return false }        // still recording
-        if duringStress == nil { return true }               // never computed at all
-        guard settledAt == nil else { return false }         // computed with the window complete
+        // A completed window may legitimately contain no Polar samples (for
+        // example an imported workout). Nil stress must not undo completion.
+        guard settledAt == nil else { return false }
+        if duringStress == nil { return true }               // not yet computed
         guard now >= end.addingTimeInterval(ActivityLog.afterWindowSeconds) else {
             return false                                     // the window is still filling
         }
@@ -595,7 +597,7 @@ final class ActivityLog {
     }
 
     /// The stored-shape version every finished entry must have been computed
-    /// under. Bumping it schedules a re-derive; see `migrateInBackground` for
+    /// under. Bumping it schedules a re-derive; see `ActivityWindowMaintenance` for
     /// what that costs and why it is not done on the main thread.
     static let currentBackfillVersion = 11
 
@@ -631,7 +633,7 @@ final class ActivityLog {
         //     re-derive on the main context from launch, blew past the
         //     watchdog, and — because the progress marker was written only
         //     after the whole loop — could never finish, so it never started.
-        //     It is safe now only because `migrateInBackground` owns the work:
+        //     It is safe now only because `ActivityWindowMaintenance` owns the work:
         //     detached, chunked, and banking its cursor after every slice.
         //     Do not move a migration back onto this path.
         //
@@ -648,18 +650,24 @@ final class ActivityLog {
         // A migration is NOT done here. It selects every finished entry, and
         // each one costs a session-span fetch plus a four-hour, 20,000-row
         // fetch — on the main context, from launch and from every foreground.
-        // Build 98 shipped that and never drew a frame. `migrateInBackground`
-        // owns that work now; this stays the cheap ongoing guard it always was.
+        // Build 98 shipped that and never drew a frame. ActivityWindowMaintenance
+        // runs BOTH migration and this ongoing repair on a background context.
+        // The ongoing path is not cheap: builds 159/160 hit the same watchdog
+        // when nil Stress Balance caused settled windows to be queried again.
         guard !migrating else { return }
 
         guard let all = try? context.fetch(FetchDescriptor<ActivityLog>()) else { return }
         let needsFill = all.filter { $0.endedAt != nil && $0.needsWindowRefresh() }
-        if !needsFill.isEmpty {
-            for entry in needsFill {
+        for offset in stride(from: 0, to: needsFill.count, by: migrationChunk) {
+            for entry in needsFill[offset..<min(offset + migrationChunk, needsFill.count)] {
                 entry.computeHRVWindows(context: context)
                 entry.computeExerciseResponse(context: context)
             }
-            try? context.save()
+            do { try context.save() }
+            catch {
+                BLEDiag.log("ACTIVITY window save failed code=\((error as NSError).code); retaining unfinished repair")
+                return
+            }
         }
     }
 
@@ -669,34 +677,9 @@ final class ActivityLog {
     /// this much repeated work rather than the entire history.
     static let migrationChunk = 6
 
-    /// Re-derives every stored entry after a version bump, off the main thread
-    /// and in slices that record their own progress.
-    ///
-    /// **Three properties, each of which build 98 lacked and needed.**
-    ///
-    /// It runs on a detached task with its own `ModelContext`, so the recompute
-    /// cannot hold up the first frame — the previous version ran on the main
-    /// context and was killed by the watchdog before the UI appeared.
-    ///
-    /// It saves and records a cursor after every slice. The old code wrote its
-    /// version marker as the last statement after the whole loop, so a kill
-    /// partway through wrote nothing and the next launch started again from the
-    /// beginning: a migration that could not finish in one go could never
-    /// finish at all.
-    ///
-    /// It walks oldest-first from that cursor, so the work is monotonic. Newest
-    /// entries are the ones a person is most likely to open, but they are also
-    /// the ones the cheap ongoing guard already keeps fresh; the stale verdicts
-    /// live in the history.
-    static func migrateInBackground(container: ModelContainer) {
-        Task.detached(priority: .utility) {
-            migrate(context: ModelContext(container))
-        }
-    }
-
-    /// The migration itself, synchronous so it can be driven by a test.
-    ///
-    /// Callers other than a test must reach this through `migrateInBackground`.
+    /// Version migration is synchronous for testing. Production callers use
+    /// ActivityWindowMaintenance, which serializes it with ongoing repair on
+    /// a detached worker with its own context. Progress is saved in slices.
     static func migrate(context: ModelContext) {
         let versionKey = "activityBackfillVersion"
         let cursorKey = "activityBackfillCursor"

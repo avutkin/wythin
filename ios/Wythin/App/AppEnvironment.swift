@@ -436,6 +436,10 @@ final class AppEnvironment {
     private let metricSignals = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     private var metricSchedule = MetricTriggerPolicy(minInterval: 2)
 
+    @ObservationIgnored private lazy var activityWindowMaintenance = ActivityWindowMaintenance(container: modelContainer)
+
+    func refreshActivityWindows() { activityWindowMaintenance.request() }
+
     @ObservationIgnored private lazy var historyLoader = RecentHistoryLoader(
         limit: maxTickHistory,
         read: { [container = modelContainer] after, limit in

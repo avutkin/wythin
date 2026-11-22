@@ -57,7 +57,6 @@ struct WythinApp: App {
 
     private func applyScenePhase(_ newPhase: ScenePhase) {
         guard let env = startup.value, sceneDelivery.shouldDeliver(newPhase, to: env) else { return }
-        let container = env.modelContainer
         env.isInForeground = (newPhase == .active)
         switch newPhase {
         case .active: env.diagnosticReporter?.setPhase(.foreground)
@@ -71,10 +70,7 @@ struct WythinApp: App {
         // the code that stored the session has finished. Coming back to the
         // app is when we can finally fill it in.
         if newPhase == .active {
-            ActivityLog.backfillMissingWindows(context: container.mainContext)
-            // The version re-derive, if one is owed. Detached and chunked;
-            // never on the main context — that is what killed build 98.
-            ActivityLog.migrateInBackground(container: container)
+            env.refreshActivityWindows()
             // Last night, if it has not been written down yet. Deliberately
             // here and not only in the tick loop: that loop runs on arriving
             // metric ticks, so it needs the strap connected. Opening the app
@@ -97,13 +93,6 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var selectedTab: AppTab = .live
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
-    // The version lives inside backfillMissingWindows; this flag must not
-    // second-guess it. It was pinned at "V2" and is already true for every
-    // existing install, so the v3 bump inside the function was unreachable and
-    // no pre-existing activity ever gained its exercise fields. Renamed rather
-    // than reset so the gate opens once and the function's own version counter
-    // becomes the single source of truth from here on.
-    @AppStorage("didRunActivityBackfill") private var didRunActivityBackfill = false
     // One-time cloud-sync disclosure (sync is on by default; the notice gives an
     // explicit, informed choice on first launch after onboarding).
     @AppStorage("didShowCloudSyncNotice") private var didShowCloudSyncNotice = false
@@ -145,9 +134,7 @@ struct ContentView: View {
                                                      client: APIClient(baseURL: env.serverURL),
                                                      userID: env.userID)
             }
-            ActivityLog.backfillMissingWindows(context: modelContext)
-            ActivityLog.migrateInBackground(container: modelContext.container)
-            didRunActivityBackfill = true
+            env.refreshActivityWindows()
         }
         // ── Self check-ins ─────────────────────────────────────────────────
         // On its own node, not on the tab view that already presents the
