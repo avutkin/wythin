@@ -1,0 +1,9 @@
+# Activity startup watchdog fix
+
+Alex's physical-phone reports for builds 159 and 160 terminate with FRONTBOARD 0x8BADF00D. Their matching archive symbols locate the main-thread stack in `ActivityLog.computeHRVWindows` → `backfillMissingWindows` → `ContentView.body`'s task. Build 160 opened its database and initialized the environment before the kill; the remaining launch screen is a blocked UI update, not an unreturned store open. No report export from the user was needed.
+
+Remove all activity-window recomputation from launch and foreground main-thread paths. Preserve existing activity/sample data and calculations. One environment-owned coordinator must serialize migration and ongoing repair on a detached worker with its own ModelContext, coalescing duplicate requests into at most one pending follow-up. Completed empty/no-Polar windows must count as settled: `duringStress == nil` is valid missing data and must not force a settled activity to be recomputed on every launch. Save ongoing progress in groups of six so an interrupted repair does not restart its entire backlog. Do not bump the calculation version or reset any store.
+
+Alternatives considered: a loading timeout would not fix a blocked main thread; removing repair would strand incomplete after-windows. Background repair plus a corrected completion predicate preserves those features and addresses the symbolicated fault. This is the implementation choice; the user requested fixing the app without more diagnostic questions.
+
+Validation must cover settled nil-stress entries, unfinished after-windows, off-main execution, coalescing, retries, and persisted results with a large synthetic recording history. Re-run the full simulator suite, obtain independent review, release through ship.sh, and use the reachable iPhone for startup validation if its connection remains available. Keep private device reports outside the repository.
