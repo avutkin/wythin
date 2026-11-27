@@ -5,6 +5,48 @@ import CoreBluetooth
 
 /// BLE packet parser tests — run on simulator or device.
 final class BLETests: XCTestCase {
+    func testAutoConnectIntentSurvivesRelaunchAndExplicitStop() throws {
+        let suite = "recording-intent-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let pairing = PolarH10Pairing(defaults: defaults)
+        let id = UUID()
+        pairing.remember(id: id, name: "Polar H10 ABC123")
+        XCTAssertTrue(PolarH10Pairing(defaults: defaults).autoConnectEnabled,
+                      "Existing installations must resume their saved strap")
+        pairing.setAutoConnectEnabled(false)
+        XCTAssertFalse(PolarH10Pairing(defaults: defaults).autoConnectEnabled)
+        XCTAssertEqual(PolarH10Pairing(defaults: defaults).savedID, id)
+        pairing.setAutoConnectEnabled(true)
+        XCTAssertTrue(PolarH10Pairing(defaults: defaults).autoConnectEnabled)
+    }
+
+    func testSavedStrapIsRecoveredAfterPickerTimeoutWithoutSelectingAnotherStrap() {
+        var discovery = BLEDiscoverySession()
+        let mine = BLEDevice(id: UUID(), name: "Polar H10 ABC123", rssi: -80)
+        let other = BLEDevice(id: UUID(), name: "Polar H10 DEF456", rssi: -30)
+        discovery.start(devices: [])
+        discovery.setRecoveryEnabled(true)
+        discovery.stop()
+        XCTAssertFalse(discovery.isScanning, "The visible picker may finish")
+        XCTAssertNil(discovery.receive(other, connectionState: .idle, savedID: mine.id))
+        XCTAssertEqual(discovery.receive(mine, connectionState: .idle, savedID: mine.id)?.id, mine.id)
+        XCTAssertTrue(discovery.devices.isEmpty, "Recovery does not grow the hidden picker list")
+        discovery.setRecoveryEnabled(false)
+        XCTAssertNil(discovery.receive(mine, connectionState: .idle, savedID: mine.id),
+                     "Explicit stop must ignore late advertisements")
+    }
+
+    func testBackgroundScanUsesServicesAndRecoveryOutlivesPicker() {
+        XCTAssertEqual(BLEScanMode.resolve(picker: true, recovery: false, foreground: true), .picker)
+        XCTAssertEqual(BLEScanMode.resolve(picker: true, recovery: true, foreground: false), .recovery)
+        XCTAssertEqual(BLEScanMode.resolve(picker: false, recovery: true, foreground: true), .recovery)
+        XCTAssertEqual(BLEScanMode.resolve(picker: false, recovery: false, foreground: false), .stopped)
+        XCTAssertEqual(BLEScanMode.recovery.services,
+                       [PolarH10Profile.heartRateService, PolarH10Profile.pmdService])
+        XCTAssertNil(BLEScanMode.picker.services)
+    }
+
 
     private let recoveryStart = Date(timeIntervalSince1970: 10_000)
 

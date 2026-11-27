@@ -81,6 +81,7 @@ enum PolarH10ConnectionPolicy {
 /// must not hide other straps or stop collecting their advertisements.
 struct BLEDiscoverySession {
     private(set) var isScanning = false
+    private(set) var isRecovering = false
     private(set) var devices: [BLEDevice] = []
 
     mutating func start(devices: [BLEDevice]) {
@@ -90,13 +91,34 @@ struct BLEDiscoverySession {
 
     mutating func stop() { isScanning = false }
 
+    mutating func setRecoveryEnabled(_ enabled: Bool) { isRecovering = enabled }
+
     mutating func remove(id: UUID) { devices.removeAll { $0.id == id } }
 
     mutating func receive(_ device: BLEDevice, connectionState: BLEState, savedID: UUID?) -> BLEDevice? {
-        guard isScanning, PolarH10ConnectionPolicy.name(peripheralName: device.name) != nil else { return nil }
-        devices = DeviceRanking.merge(devices, id: device.id, name: device.name, rssi: device.rssi)
+        guard isScanning || isRecovering,
+              PolarH10ConnectionPolicy.name(peripheralName: device.name) != nil else { return nil }
+        if isScanning {
+            devices = DeviceRanking.merge(devices, id: device.id, name: device.name, rssi: device.rssi)
+        }
         guard PolarH10ConnectionPolicy.canAutomaticallyConnect(in: connectionState) else { return nil }
         return PolarH10ConnectionPolicy.preferredDevice(in: [device], savedID: savedID)
+    }
+}
+
+/// The short-lived picker and ongoing saved-device recovery share one radio.
+/// Background discovery must specify services; a filterless scan cannot wake us.
+enum BLEScanMode: Equatable {
+    case stopped, picker, recovery
+
+    static func resolve(picker: Bool, recovery: Bool, foreground: Bool) -> Self {
+        if picker && foreground { return .picker }
+        if recovery || picker { return .recovery }
+        return .stopped
+    }
+
+    var services: [CBUUID]? {
+        self == .recovery ? [PolarH10Profile.heartRateService, PolarH10Profile.pmdService] : nil
     }
 }
 
@@ -104,6 +126,11 @@ struct PolarH10Pairing {
     let defaults: UserDefaults
     private let uuidKey = "wythin.polar.uuid"
     private let identityKey = "wythin.polar.verifiedIdentity"
+    private let autoConnectKey = "wythin.polar.autoConnectEnabled"
+
+    // Preserve the behavior of existing installations until explicitly paused.
+    var autoConnectEnabled: Bool { defaults.object(forKey: autoConnectKey) as? Bool ?? true }
+    func setAutoConnectEnabled(_ enabled: Bool) { defaults.set(enabled, forKey: autoConnectKey) }
 
     var savedID: UUID? { defaults.string(forKey: uuidKey).flatMap(UUID.init(uuidString:)) }
 
@@ -1021,10 +1048,17 @@ final class BLEService: NSObject {
 
     // MARK: Observable state
 
-    var state: BLEState = .idle { didSet { diagnosticStateSubject.send() } }
+    var state: BLEState = .idle {
+        didSet {
+            diagnosticStateSubject.send()
+            reconcileScanning()
+        }
+    }
     var batteryLevel:      Int?        = nil
     var lastError:         String?     = nil
     private var discovery = BLEDiscoverySession()
+    private var appliedScanMode: BLEScanMode?
+    private var appIsInForeground = UIApplication.shared.applicationState != .background
     var discoveredDevices: [BLEDevice] { discovery.devices }
     var isScanning: Bool { discovery.isScanning }
     /// Current Polar-reported skin-contact status (HR flags bits 1–2).
@@ -1256,7 +1290,9 @@ final class BLEService: NSObject {
     private var canceledPeripheralIDs: Set<UUID> = []
 
     // When true, auto-scan on BT-power-on is skipped (user intentionally disconnected).
-    private(set) var userDisconnected = false
+    private(set) var userDisconnected = false {
+        didSet { pairing.setAutoConnectEnabled(!userDisconnected) }
+    }
 
     // Off-body standby pauses PMD, retaining HR notifications and recovery.
     private var inStandby = false
@@ -1268,6 +1304,7 @@ final class BLEService: NSObject {
 
     override init() {
         super.init()
+        userDisconnected = !pairing.autoConnectEnabled
         centralManager = CBCentralManager(
             delegate: self,
             queue: bleQueue,
@@ -1324,7 +1361,6 @@ final class BLEService: NSObject {
             peripheralMap[p.identifier] = p
             if let currentName { advertisedNames[p.identifier] = currentName }
         }
-        centralManager.stopScan()
         let alreadyConnected = centralManager.retrieveConnectedPeripherals(withServices: [
             PolarH10Profile.heartRateService, PolarH10Profile.pmdService,
         ])
@@ -1334,17 +1370,12 @@ final class BLEService: NSObject {
         }
         discovery.start(devices: supportedDevices(alreadyConnected, source: "os-connected"))
 
-        // No service filter: H10 advertisements may omit the HR service UUID.
-        // The bounded foreground scan continues even after a strap connects.
-        centralManager.scanForPeripherals(
-            withServices: nil,
-            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true]
-        )
+        reconcileScanning()
         scanTimeoutTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(30))
             guard !Task.isCancelled, self.isScanning else { return }
             self.stopScanning()
-            if case .idle = self.state, self.discoveredDevices.isEmpty {
+            if case .idle = self.state, self.discoveredDevices.isEmpty, !self.discovery.isRecovering {
                 self.lastError = "No Polar H10 found (30 s). Wear the strap, moisten its electrodes and keep it nearby."
             }
         }
@@ -1360,8 +1391,35 @@ final class BLEService: NSObject {
     func stopScanning() {
         scanTimeoutTask?.cancel()
         discovery.stop()
-        if centralManager.state == .poweredOn { centralManager.stopScan() }
         if case .scanning = state { state = .idle }
+        reconcileScanning()
+    }
+
+    /// Lifecycle reconciliation also changes a running picker scan's filter.
+    func setAppInForeground(_ foreground: Bool) {
+        appIsInForeground = foreground
+        reconcileScanning()
+        if !userDisconnected { ensureAutoConnect() }
+    }
+
+    private func reconcileScanning() {
+        guard let centralManager else { return }
+        let recovery = !userDisconnected && pairing.savedID != nil
+            && PolarH10ConnectionPolicy.canAutomaticallyConnect(in: state)
+        discovery.setRecoveryEnabled(recovery)
+        guard centralManager.state == .poweredOn else {
+            appliedScanMode = nil
+            return
+        }
+        let mode = BLEScanMode.resolve(picker: discovery.isScanning, recovery: recovery,
+                                      foreground: appIsInForeground)
+        guard mode != appliedScanMode || (mode != .stopped && !centralManager.isScanning) else { return }
+        centralManager.stopScan()
+        appliedScanMode = mode
+        if mode != .stopped {
+            centralManager.scanForPeripherals(withServices: mode.services,
+                options: mode == .picker ? [CBCentralManagerScanOptionAllowDuplicatesKey: true] : nil)
+        }
     }
 
     /// Seamless auto-connect to the already-paired strap. Arms a persistent,
@@ -2074,7 +2132,7 @@ extension BLEService: CBCentralManagerDelegate {
         let uuid = peripheral.identifier
 
         Task { @MainActor in
-            guard self.isScanning else { return }
+            guard self.discovery.isScanning || self.discovery.isRecovering else { return }
             if let advertisedName, !advertisedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 self.advertisedNames[uuid] = advertisedName
             }
