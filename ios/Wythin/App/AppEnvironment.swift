@@ -113,7 +113,10 @@ final class AppEnvironment {
                 ble.captureAudit?.recordPhase(isInForeground ? "foreground" : "background")
                 ble.checkRecordingRecovery()
             }
+            ble.setAppInForeground(isInForeground)
             if !isInForeground {
+                foregroundPreparation.setForeground(false)
+                foregroundDisplay.setForeground(false)
                 metricSync.applicationDidEnterBackground()
                 // Record the just-ended foreground interval as a usage event.
                 if let start = foregroundStart {
@@ -124,7 +127,7 @@ final class AppEnvironment {
                 foregroundStart = Date()
                 // Returning to foreground — merge any samples saved during background
                 // into tickHistory so intraday charts show the full picture.
-                reloadRecentHistory()
+                startForegroundWork()
                 retryPendingInsights()
                 // Make sure the paired strap is (re)armed for seamless auto-connect.
                 ble.ensureAutoConnect()
@@ -432,7 +435,6 @@ final class AppEnvironment {
     var modelContext: ModelContext { modelContainer.mainContext }
     private var cancellables = Set<AnyCancellable>()
     private var metricsTask:  Task<Void, Never>?
-    private var displayTask:  Task<Void, Never>?
     private let metricSignals = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     private var metricSchedule = MetricTriggerPolicy(minInterval: 2)
 
@@ -453,8 +455,23 @@ final class AppEnvironment {
         publish: { [weak self] points in
             guard let self else { return }
             self.tickHistory = points
+            self.hasLoadedHistory = true
             self.historyRevision += 1
         })
+
+    @ObservationIgnored private var hasLoadedHistory = false
+    @ObservationIgnored private lazy var foregroundPreparation = ForegroundPreparation { [weak self] in
+        guard let self else { return }
+        await self.historyLoader.waitUntilIdle()
+        guard !Task.isCancelled, self.isInForeground else { return }
+        self.trackCache.load()
+        await self.warmLiveBaseline()
+        guard !Task.isCancelled, self.isInForeground else { return }
+        await self.prewarmDashboards()
+    }
+    @ObservationIgnored private lazy var foregroundDisplay = ForegroundPreparation { [weak self] in
+        await self?.runWaveformDisplay()
+    }
 
     private let maxTickHistory  = 43_200   // 24 h at 2 s/tick
     private let trimBatch       = 600      // trim this many entries at once (amortises O(n) shift)
@@ -532,11 +549,13 @@ final class AppEnvironment {
         observeLifecycleForDiagnostics()
 
         bindBLE()
+        // Anchor detection also consumes this bounded history in background.
         loadHistory()
-        trackCache.load()
-        warmLiveBaseline()
         startUsageTracking()
-        prewarmDashboards()
+        if isInForeground {
+            foregroundPreparation.setForeground(true)
+            foregroundDisplay.setForeground(true)
+        }
         // Register the notification categories up front: without them a nudge
         // arrives with no menu buttons on it.
         notifications.refreshCategories(disabled: disabledInterventions,
@@ -638,22 +657,16 @@ final class AppEnvironment {
     /// Ordered deliberately: history first (Today's Potential needs the tick
     /// history to find a rested window), then the anchor pipeline, then the
     /// row sets the Activities and Track tabs open on.
-    private func prewarmDashboards() {
-        Task { @MainActor in
-            // loadHistory() publishes asynchronously; give the anchor pass the
-            // history it depends on rather than racing it.
-            for _ in 0..<40 where tickHistory.isEmpty {
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-            await dayPotential.refresh(env: self)
-
-            let context = modelContainer.mainContext
-            _ = try? context.fetch(FetchDescriptor<ActivityLog>())
-            _ = try? context.fetch(FetchDescriptor<DailyAnchor>())
-            var sessions = FetchDescriptor<HRVSession>(sortBy: [SortDescriptor(\.startedAt, order: .reverse)])
-            sessions.fetchLimit = 60
-            _ = try? context.fetch(sessions)
-        }
+    private func prewarmDashboards() async {
+        guard !Task.isCancelled, isInForeground else { return }
+        await dayPotential.refresh(env: self)
+        guard !Task.isCancelled, isInForeground else { return }
+        let context = modelContainer.mainContext
+        _ = try? context.fetch(FetchDescriptor<ActivityLog>())
+        _ = try? context.fetch(FetchDescriptor<DailyAnchor>())
+        var sessions = FetchDescriptor<HRVSession>(sortBy: [SortDescriptor(\.startedAt, order: .reverse)])
+        sessions.fetchLimit = 60
+        _ = try? context.fetch(sessions)
     }
 
     /// One-shot, bounded warm-up so the Live tab's Current State engine has a
@@ -693,17 +706,17 @@ final class AppEnvironment {
     /// `historyRevision` bump tells open views their fetches are stale.
     func rewarmAfterRestore() {
         historyLoader.invalidate()
+        hasLoadedHistory = false
         tickHistory = []
-        loadHistory()
         trackCache.resetDerived()
         didWarmLiveBaseline = false
-        warmLiveBaseline()
+        loadHistory()
+        foregroundPreparation.invalidate()
         historyRevision += 1
     }
 
-    private func warmLiveBaseline() {
+    private func warmLiveBaseline() async {
         guard !didWarmLiveBaseline else { return }
-        didWarmLiveBaseline = true
 
         let cal      = Calendar.current
         let warmTimezone = cal.timeZone.identifier
@@ -719,7 +732,7 @@ final class AppEnvironment {
         // every relaunch after the first, and whenever Track has already
         // been opened this session.
         let pending = trackCache.uncachedDays(days, today: today)
-        guard !pending.isEmpty else { return }
+        guard !pending.isEmpty else { didWarmLiveBaseline = true; return }
 
         // Each day's end computed up front, on the main actor, so the
         // closure handed to `Task.detached` only has to capture plain
@@ -734,25 +747,40 @@ final class AppEnvironment {
         guard !orderedDays.isEmpty else { return }
 
         let container = modelContainer
-        Task { @MainActor in
-            let (rollups, emptyDays) = await Task.detached {
-                let ctx = ModelContext(container)
-                return TrackCache.computeRollups(days: orderedDays) { day in
-                    guard let end = dayEnds[day] else { return [] }
-                    var desc = FetchDescriptor<HRVSample>(
-                        predicate: #Predicate { $0.timestamp >= day && $0.timestamp < end },
-                        sortBy:    [SortDescriptor(\.timestamp)])
-                    // Same bound `TrackView`'s own per-day fetch uses — a
-                    // full day of ~2 s ticks is ~43,200 rows.
-                    desc.fetchLimit = 60_000
-                    return ((try? ctx.fetch(desc)) ?? []).map { MetricsHistoryPoint(from: $0) }
-                }
-            }.value
-            // A flight can change the day boundaries while this fetch runs.
-            // Do not reintroduce the old zone's rollups after invalidation.
-            guard TimeZone.autoupdatingCurrent.identifier == warmTimezone else { return }
-            self.trackCache.mergeComputed(rollups: rollups, emptyDays: emptyDays)
+        let worker = Task.detached(priority: .utility) {
+            let ctx = ModelContext(container)
+            return TrackCache.computeRollups(days: orderedDays) { day in
+                try Task.checkCancellation()
+                guard let end = dayEnds[day] else { return [] }
+                var desc = FetchDescriptor<HRVSample>(
+                    predicate: #Predicate { $0.timestamp >= day && $0.timestamp < end },
+                    sortBy: [SortDescriptor(\.timestamp)])
+                // Same bound `TrackView`'s own per-day fetch uses — a
+                // full day of ~2 s ticks is ~43,200 rows.
+                desc.fetchLimit = 60_000
+                return ((try? ctx.fetch(desc)) ?? []).map { MetricsHistoryPoint(from: $0) }
+            }
         }
+        let (rollups, emptyDays) = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        // A flight can change the day boundaries while this fetch runs.
+        // Do not reintroduce the old zone's rollups after invalidation.
+        guard !Task.isCancelled, isInForeground,
+              TimeZone.autoupdatingCurrent.identifier == warmTimezone else { return }
+        didWarmLiveBaseline = true
+        trackCache.mergeComputed(rollups: rollups, emptyDays: emptyDays)
+    }
+
+    private func startForegroundWork() {
+        // A background process can have a live tail without having loaded the
+        // earlier hours. Never use that tail as the first history-read cursor.
+        if hasLoadedHistory { reloadRecentHistory() }
+        else { loadHistory() }
+        foregroundPreparation.setForeground(true)
+        foregroundDisplay.setForeground(true)
     }
 
     private func loadHistory() {
@@ -1122,6 +1150,9 @@ final class AppEnvironment {
             }
         }
 
+    }
+
+    private func runWaveformDisplay() async {
         // ── Waveform display at ~10 fps ───────────────────────────────────────
         // 100 ms (10 fps) is imperceptible for waveform scrolling and cuts
         // MainActor wakeups by 67% vs the previous 33 ms (30 fps).
@@ -1129,19 +1160,19 @@ final class AppEnvironment {
         // independently; only the data buffer refresh rate changes here.
         // Writes go to `waveform` (separate @Observable) so invalidation is
         // scoped only to TodayLiveSection, not DayScrollView or charts.
-        displayTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(100))
-                guard let self, self.isInForeground else { continue }
-                let ecg = await self.dataBuffer.ecgDisplay(samples: 650)
-                let acc = await self.dataBuffer.accDisplay(samples: 600)
-                let rr  = await self.dataBuffer.rrDisplay()
-                // Three synchronous assignments on MainActor — coalesced into one
-                // SwiftUI render pass by the observation system.
-                self.waveform.ecg = ecg
-                self.waveform.acc = acc
-                self.waveform.rr  = rr
-            }
+        while !Task.isCancelled, isInForeground {
+            do { try await Task.sleep(for: .milliseconds(100)) }
+            catch { return }
+            guard !Task.isCancelled, isInForeground else { return }
+            let ecg = await dataBuffer.ecgDisplay(samples: 650)
+            let acc = await dataBuffer.accDisplay(samples: 600)
+            let rr  = await dataBuffer.rrDisplay()
+            guard !Task.isCancelled, isInForeground else { return }
+            // Three synchronous assignments on MainActor — coalesced into one
+            // SwiftUI render pass by the observation system.
+            waveform.ecg = ecg
+            waveform.acc = acc
+            waveform.rr  = rr
         }
     }
 }

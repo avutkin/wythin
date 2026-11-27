@@ -179,3 +179,44 @@ struct StartupSceneDelivery {
         return true
     }
 }
+
+/// Owns optional UI preparation, not recording. Cancellation retains ownership
+/// until an uncancellable store read drains; re-entry cannot double peak memory.
+@MainActor
+final class ForegroundPreparation {
+    private var foreground = false
+    private var completed = false
+    private var generation = 0
+    private var task: Task<Void, Never>?
+    private let operation: @MainActor () async -> Void
+
+    init(operation: @escaping @MainActor () async -> Void) { self.operation = operation }
+    deinit { task?.cancel() }
+
+    func setForeground(_ value: Bool) {
+        foreground = value
+        if !value { task?.cancel() }
+        else { startIfNeeded() }
+    }
+
+    func invalidate() {
+        completed = false
+        generation += 1
+        task?.cancel()
+        startIfNeeded()
+    }
+
+    private func startIfNeeded() {
+        guard foreground, !completed, task == nil else { return }
+        let generation = generation
+        task = Task { [weak self] in
+            guard let self else { return }
+            if !Task.isCancelled { await self.operation() }
+            if !Task.isCancelled, self.foreground, self.generation == generation {
+                self.completed = true
+            }
+            self.task = nil
+            self.startIfNeeded()
+        }
+    }
+}

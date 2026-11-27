@@ -5,6 +5,19 @@ import CoreBluetooth
 
 /// BLE packet parser tests — run on simulator or device.
 final class BLETests: XCTestCase {
+    func testRestoredScannerCanReceiveSavedStrapBeforeAnyPickerOrSceneCallback() {
+        let mine = BLEDevice(id: UUID(), name: "Polar H10 ABC123", rssi: -80)
+        let other = BLEDevice(id: UUID(), name: "Polar H10 DEF456", rssi: -30)
+        var restored = BLEDiscoverySession(autoConnectID: mine.id, autoConnectEnabled: true)
+        XCTAssertFalse(restored.isScanning)
+        XCTAssertTrue(restored.isRecovering)
+        XCTAssertNil(restored.receive(other, connectionState: .idle, savedID: mine.id))
+        XCTAssertEqual(restored.receive(mine, connectionState: .idle, savedID: mine.id)?.id, mine.id)
+        var paused = BLEDiscoverySession(autoConnectID: mine.id, autoConnectEnabled: false)
+        XCTAssertNil(paused.receive(mine, connectionState: .idle, savedID: mine.id))
+        XCTAssertFalse(BLEDiscoverySession(autoConnectID: nil, autoConnectEnabled: true).isRecovering)
+    }
+
     func testAutoConnectIntentSurvivesRelaunchAndExplicitStop() throws {
         let suite = "recording-intent-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

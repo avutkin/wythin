@@ -1,6 +1,46 @@
 import XCTest
 @testable import Wythin
 
+@MainActor
+final class DayPotentialPreparationTests: XCTestCase {
+    func testCancellationDuringBackfillPreventsRefreshAndLeavesNextAttemptUsable() async {
+        let store = DayPotentialStore()
+        let entered = expectation(description: "backfill started")
+        var release: CheckedContinuation<Void, Never>?
+        var calls = 0
+        let task = Task {
+            await store.ensureBackfill {
+                calls += 1
+                await withCheckedContinuation { continuation in
+                    release = continuation
+                    entered.fulfill()
+                }
+            }
+        }
+        await fulfillment(of: [entered], timeout: 3)
+        task.cancel()
+        release?.resume()
+        let mayRefresh = await task.value
+        XCTAssertFalse(mayRefresh, "A canceled caller must not read/write anchors or generate UI insights")
+        let retried = await store.ensureBackfill { calls += 1 }
+        XCTAssertTrue(retried)
+        XCTAssertEqual(calls, 2, "Canceled preparation must not mark a later refresh complete")
+        let cached = await store.ensureBackfill { calls += 1 }
+        XCTAssertTrue(cached)
+        XCTAssertEqual(calls, 2)
+    }
+
+    func testAlreadyCanceledRefreshDoesNotBeginBackfill() async {
+        let store = DayPotentialStore()
+        var calls = 0
+        let task = Task { await store.ensureBackfill { calls += 1 } }
+        task.cancel()
+        let mayRefresh = await task.value
+        XCTAssertFalse(mayRefresh)
+        XCTAssertEqual(calls, 0)
+    }
+}
+
 /// The state machine behind the strip's headline. Pure, so it can be tested
 /// without a SwiftData context or an AppEnvironment.
 final class DayPotentialStateTests: XCTestCase {

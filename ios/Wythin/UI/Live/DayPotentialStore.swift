@@ -62,6 +62,18 @@ final class DayPotentialStore {
     private var inFlight = false
     private var backfilled = false
 
+    /// Backfill owns persistent changes and may need to drain after cancellation.
+    /// Its canceled caller must not continue with UI work or mark preparation done.
+    func ensureBackfill(_ run: () async -> Void) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        if !backfilled {
+            await run()
+            guard !Task.isCancelled else { return false }
+            backfilled = true
+        }
+        return true
+    }
+
     /// Finds or loads today's anchor, scores it, refreshes the streak and the
     /// local load line, and generates the narrative once per day.
     func refresh(env: AppEnvironment, force: Bool = false) async {
@@ -69,16 +81,15 @@ final class DayPotentialStore {
         inFlight = true
         defer { inFlight = false }
 
-        let context = env.modelContext
-        let today   = Calendar.current.startOfDay(for: Date())
-
-        if !backfilled {
+        let prepared = await ensureBackfill {
             // Awaited, not fired and forgotten: the anchors read below are the
             // ones it rewrites. It does its work on its own background context,
             // so the await is a hand-off rather than a main-thread stall.
             await AnchorBackfill.runIfNeeded(container: env.modelContainer)
-            backfilled = true
         }
+        guard prepared, !Task.isCancelled else { return }
+        let context = env.modelContext
+        let today = Calendar.current.startOfDay(for: Date())
 
         // 1. Today's anchor — load if stored, otherwise try to detect one.
         var stored = (try? context.fetch(FetchDescriptor<DailyAnchor>())) ?? []
@@ -138,6 +149,8 @@ final class DayPotentialStore {
 
     private func generate(env: AppEnvironment, baseline: AnchorBaseline?, force: Bool) async {
         let today = Calendar.current.startOfDay(for: Date())
+        let timezone = TimeZone.autoupdatingCurrent.identifier
+        guard !Task.isCancelled else { return }
         guard force || generatedForDay != today || insight == nil else { return }
         guard let anchor else { return }
 
@@ -178,6 +191,9 @@ final class DayPotentialStore {
             graceUsed: streak?.graceUsed ?? false)
 
         if let response = try? await env.sync.client.generateDayPotentialInsight(payload) {
+            guard !Task.isCancelled,
+                  TimeZone.autoupdatingCurrent.identifier == timezone,
+                  Calendar.current.startOfDay(for: Date()) == today else { return }
             insight = response.text
             generatedForDay = today
         }

@@ -23,15 +23,25 @@ final class RecentHistoryLoader {
 
     deinit { task?.cancel() }
 
+    func waitUntilIdle() async {
+        while let task { await task.value }
+    }
+
     func request(after: Date) {
         pendingAfter = min(pendingAfter ?? after, after)
-        guard task == nil else { return }
+        startIfNeeded()
+    }
+
+    private func startIfNeeded() {
+        guard task == nil, pendingAfter != nil else { return }
         isLoading = true
         let generation = generation
         task = Task { [weak self] in
             guard let self else { return }
             defer {
-                if self.generation == generation { self.task = nil; self.isLoading = false }
+                self.task = nil
+                self.isLoading = false
+                self.startIfNeeded()
             }
             while let after = self.pendingAfter, self.generation == generation, !Task.isCancelled {
                 self.pendingAfter = nil
@@ -51,12 +61,12 @@ final class RecentHistoryLoader {
     }
 
     /// A prior store snapshot cannot reappear after a restore/invalidation.
+    /// Keep ownership until its synchronous disk read drains, so a subsequent
+    /// request cannot start a second full-day fetch alongside it.
     func invalidate() {
         generation += 1
         task?.cancel()
-        task = nil
         pendingAfter = nil
-        isLoading = false
     }
 
     nonisolated static func read(container: ModelContainer, after: Date, limit: Int) throws -> [MetricsHistoryPoint] {

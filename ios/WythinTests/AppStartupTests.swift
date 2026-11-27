@@ -3,6 +3,77 @@ import SwiftData
 import SwiftUI
 @testable import Wythin
 
+@MainActor
+final class ForegroundPreparationTests: XCTestCase {
+    func testBackgroundLaunchDoesNotPrepareUIAndForegroundPreparesOnlyOnce() async {
+        var calls = 0
+        let prepared = expectation(description: "foreground prepared")
+        let work = ForegroundPreparation {
+            calls += 1
+            prepared.fulfill()
+        }
+        work.setForeground(false)
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(calls, 0)
+        work.setForeground(true)
+        work.setForeground(true)
+        await fulfillment(of: [prepared], timeout: 3)
+        for _ in 0..<10 { await Task.yield() }
+        work.setForeground(false)
+        work.setForeground(true)
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testCancellationDrainsBeforeReentryAndCannotCompleteNewGeneration() async {
+        var release: CheckedContinuation<Void, Never>?
+        var calls = 0
+        var cancellationSeen = false
+        let entered = expectation(description: "first operation entered")
+        let resumed = expectation(description: "reentered after drain")
+        let work = ForegroundPreparation {
+            calls += 1
+            if calls == 1 {
+                await withCheckedContinuation { continuation in
+                    release = continuation
+                    entered.fulfill()
+                }
+                cancellationSeen = Task.isCancelled
+            } else { resumed.fulfill() }
+        }
+        work.setForeground(true)
+        await fulfillment(of: [entered], timeout: 3)
+        work.setForeground(false)
+        work.setForeground(true)
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(calls, 1, "Do not overlap an uncancellable store read")
+        release?.resume()
+        await fulfillment(of: [resumed], timeout: 3)
+        XCTAssertTrue(cancellationSeen)
+        XCTAssertEqual(calls, 2)
+    }
+
+    func testInvalidationDefersRebuildUntilForeground() async {
+        var calls = 0
+        let initial = expectation(description: "initial")
+        let rebuilt = expectation(description: "rebuilt")
+        let work = ForegroundPreparation {
+            calls += 1
+            if calls == 1 { initial.fulfill() } else { rebuilt.fulfill() }
+        }
+        work.setForeground(true)
+        await fulfillment(of: [initial], timeout: 3)
+        for _ in 0..<10 { await Task.yield() }
+        work.setForeground(false)
+        work.invalidate()
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(calls, 1)
+        work.setForeground(true)
+        await fulfillment(of: [rebuilt], timeout: 3)
+        XCTAssertEqual(calls, 2)
+    }
+}
+
 final class AppStartupTests: XCTestCase {
     @MainActor
     func testOpenFailurePreservesOriginalStoreAndDoesNotReturnEmptyReplacement() throws {

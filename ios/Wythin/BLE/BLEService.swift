@@ -84,6 +84,11 @@ struct BLEDiscoverySession {
     private(set) var isRecovering = false
     private(set) var devices: [BLEDevice] = []
 
+    init(autoConnectID: UUID? = nil, autoConnectEnabled: Bool = true) {
+        // A restored OS scanner may deliver before any picker/scene callback.
+        isRecovering = autoConnectID != nil && autoConnectEnabled
+    }
+
     mutating func start(devices: [BLEDevice]) {
         self.devices = devices.filter { PolarH10ConnectionPolicy.name(peripheralName: $0.name) != nil }
         isScanning = true
@@ -1291,7 +1296,9 @@ final class BLEService: NSObject {
 
     // When true, auto-scan on BT-power-on is skipped (user intentionally disconnected).
     private(set) var userDisconnected = false {
-        didSet { pairing.setAutoConnectEnabled(!userDisconnected) }
+        didSet {
+            if oldValue != userDisconnected { pairing.setAutoConnectEnabled(!userDisconnected) }
+        }
     }
 
     // Off-body standby pauses PMD, retaining HR notifications and recovery.
@@ -1305,6 +1312,8 @@ final class BLEService: NSObject {
     override init() {
         super.init()
         userDisconnected = !pairing.autoConnectEnabled
+        discovery = BLEDiscoverySession(autoConnectID: pairing.savedID,
+                                        autoConnectEnabled: !userDisconnected)
         centralManager = CBCentralManager(
             delegate: self,
             queue: bleQueue,
@@ -2080,6 +2089,9 @@ extension BLEService: CBCentralManagerDelegate {
             defer { self.diagnosticStateSubject.send() }
             switch central.state {
             case .poweredOn:
+                // Reconcile even an OS-restored scanner with no peripheral or
+                // scene callback. Otherwise isScanning can hide a cached miss.
+                self.reconcileScanning()
                 // On BT power-on, UNLESS the user explicitly disconnected: silently
                 // auto-connect a previously-paired strap (persistent pending connect,
                 // no scan), or scan only if none has been paired yet.
@@ -2110,13 +2122,14 @@ extension BLEService: CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager,
                                     willRestoreState dict: [String: Any]) {
-        guard let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey]
-                as? [CBPeripheral] else { return }
+        let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey]
+                as? [CBPeripheral] ?? []
         Task { @MainActor in
             self.restoredPeripherals = peripherals
             // Restoration can precede poweredOn. Defer central operations until
             // Bluetooth is ready, including canceling a restored watch.
             if central.state == .poweredOn {
+                self.reconcileScanning()
                 self.restoreSupportedPeripheral()
                 self.ensureAutoConnect()
             }

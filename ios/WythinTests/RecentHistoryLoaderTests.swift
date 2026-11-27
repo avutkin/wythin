@@ -50,8 +50,9 @@ final class RecentHistoryReloadLifecycleTests: XCTestCase {
         let entered = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
         let lock = NSLock()
-        var calls = 0
-        func next() -> Int { lock.lock(); defer { lock.unlock() }; calls += 1; return calls }
+        private var count = 0
+        var calls: Int { lock.lock(); defer { lock.unlock() }; return count }
+        func next() -> Int { lock.lock(); defer { lock.unlock() }; count += 1; return count }
     }
 
     func testDiskReaderUsesNewestBoundAndReturnsPlainSnapshots() async throws {
@@ -97,7 +98,7 @@ final class RecentHistoryReloadLifecycleTests: XCTestCase {
         XCTAssertEqual(gate.calls, 2)
     }
 
-    func testInvalidationRejectsAnOlderReadAfterNewHistoryIsPublished() async {
+    func testInvalidationDrainsOldReaderBeforeNextAndRejectsItsResult() async {
         let gate = ReadGate()
         var history: [MetricsHistoryPoint] = []
         let newPublished = expectation(description: "new generation")
@@ -120,9 +121,13 @@ final class RecentHistoryReloadLifecycleTests: XCTestCase {
         XCTAssertTrue(entered)
         loader.invalidate()
         loader.request(after: .distantPast)
-        await fulfillment(of: [newPublished], timeout: 3)
+        // Give a wrongly concurrent reader an opportunity to start. A second
+        // full-day SwiftData fetch during draining doubles peak memory.
+        try? await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(gate.calls, 1, "An invalidated fetch must drain before the next fetch")
         gate.release.signal()
         await fulfillment(of: [oldFinished], timeout: 3)
+        await fulfillment(of: [newPublished], timeout: 3)
         for _ in 0..<10 { await Task.yield() }
         XCTAssertEqual(history.map { $0.timestamp.timeIntervalSince1970 }, [2])
     }
