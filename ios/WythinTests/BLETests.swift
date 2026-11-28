@@ -6,7 +6,183 @@ import CoreBluetooth
 /// BLE packet parser tests — run on simulator or device.
 final class BLETests: XCTestCase {
 
+    func testGarminProPlusIsRecognizedWithoutOpeningTheAllowlistToWatches() {
+        for name in ["HRM-Pro Plus", "Garmin HRM-Pro Plus", "HRM-Pro Plus:123456",
+                     "HRM-Pro+ 123456", " hrm-pro plus ", "HRM-Pro Plus 12AB34"] {
+            XCTAssertNotNil(ChestStrapConnectionPolicy.name(peripheralName: name), name)
+        }
+        for name in ["Garmin", "Garmin Fenix 8", "WHOOP", "HRM-Pro", "HRM-Dual",
+                     "HRM-Pro Plus Watch", "My HRM-Pro Plus", "HRM-Pro Plus2"] {
+            XCTAssertNil(ChestStrapConnectionPolicy.name(peripheralName: name), name)
+        }
+        XCTAssertNil(ChestStrapConnectionPolicy.name(peripheralName: "HRM-Pro Plus",
+                     advertisedName: "WHOOP"))
+        XCTAssertEqual(ChestStrapConnectionPolicy.name(peripheralName: "Old name",
+                       advertisedName: "HRM-Pro Plus"), "HRM-Pro Plus")
+    }
+
+    func testBothStrapModelsRemainVisibleAndOnlySavedGarminAutoConnects() {
+        var discovery = BLEDiscoverySession()
+        let garmin = BLEDevice(id: UUID(), name: "HRM-Pro Plus", rssi: -80)
+        let polar = BLEDevice(id: UUID(), name: "Polar H10 ABC123", rssi: -30)
+        let otherGarmin = BLEDevice(id: UUID(), name: "HRM-Pro Plus 123456", rssi: -40)
+        discovery.start(devices: [polar])
+        XCTAssertNil(discovery.receive(polar, connectionState: .scanning, savedID: garmin.id))
+        XCTAssertEqual(discovery.receive(garmin, connectionState: .scanning, savedID: garmin.id), garmin)
+        XCTAssertNil(discovery.receive(otherGarmin, connectionState: .connected(name: garmin.name),
+                                       savedID: garmin.id))
+        XCTAssertEqual(Set(discovery.devices.map(\.id)), Set([polar.id, garmin.id, otherGarmin.id]))
+        XCTAssertTrue(discovery.isScanning)
+        XCTAssertNil(ChestStrapConnectionPolicy.preferredDevice(in: [garmin], savedID: nil))
+        discovery.start(devices: [garmin, polar])
+        XCTAssertEqual(discovery.devices.count, 2, "OS-connected Garmin must be visible too")
+    }
+
+    func testSavedGarminSurvivesRelaunchAndCanSwitchBackToPolar() throws {
+        let suite = "BLETests.Garmin.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let polar = BLEDevice(id: UUID(), name: "Polar H10 ABC123", rssi: -30)
+        let garmin = BLEDevice(id: UUID(), name: "HRM-Pro Plus", rssi: -70)
+        let pairing = ChestStrapPairing(defaults: defaults)
+        XCTAssertTrue(pairing.remember(id: polar.id, name: polar.name))
+        XCTAssertTrue(pairing.remember(id: garmin.id, name: garmin.name))
+        let reopened = ChestStrapPairing(defaults: defaults)
+        XCTAssertEqual(reopened.savedID, garmin.id)
+        XCTAssertEqual(reopened.name(for: garmin.id, peripheralName: nil), garmin.name)
+        XCTAssertNil(reopened.name(for: polar.id, peripheralName: nil))
+        XCTAssertEqual(ChestStrapConnectionPolicy.preferredDevice(in: [polar, garmin],
+                       savedID: reopened.savedID)?.id, garmin.id)
+        XCTAssertNil(reopened.name(for: garmin.id, peripheralName: "WHOOP"))
+        XCTAssertTrue(reopened.remember(id: polar.id, name: polar.name))
+        XCTAssertEqual(pairing.savedID, polar.id)
+        reopened.forget()
+        XCTAssertNil(pairing.savedID)
+    }
+
+    func testGarminStandardHeartRatePacketFeedsHRVWithoutPolarStreams() async throws {
+        // Standard HRS packet with energy expended, optional contact absent,
+        // two RR values (1/1024 s), and 16-bit BPM. No proprietary PMD data.
+        let frame = try XCTUnwrap(PolarH10Profile.parseHRFrame(
+            Data([0x19, 60, 0, 5, 0, 0x00, 0x04, 0x20, 0x04])))
+        XCTAssertEqual(frame.bpm, 60)
+        XCTAssertEqual(frame.rrIntervalsMs, [1000, 1031])
+        XCTAssertNil(frame.contact)
+        let buffer = DataBuffer()
+        for _ in 0..<40 { await buffer.appendRR(frame.rrIntervalsMs) }
+        await buffer.appendBPM(Float(frame.bpm))
+        let snapshot = await buffer.snapshot(ecgLive: false, accLive: false)
+        let tick = MetricsEngine.compute(from: snapshot)
+        XCTAssertEqual(tick.meanBPM, 60)
+        XCTAssertNotNil(tick.rmssd)
+        XCTAssertNotNil(tick.sdnn)
+        XCTAssertNil(tick.ecgQuality)
+        XCTAssertNil(tick.motion)
+        XCTAssertNil(tick.bodyPosition)
+        XCTAssertNil(tick.coherenceScore)
+        XCTAssertNil(tick.cbi)
+    }
+
     private let recoveryStart = Date(timeIntervalSince1970: 10_000)
+
+    func testGarminHeartRateOnlyRemainsConnectedWhileRRIsUnavailable() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        let frame = HRFrame(bpm: 65, rrIntervalsMs: [], contact: nil)
+        for second in 1...120 {
+            XCTAssertEqual(recovery.receivedHeartRate(frame,
+                at: recoveryStart.addingTimeInterval(Double(second)),
+                inStandby: false, ecgLive: false, model: .garminHRMProPlus), .wait)
+        }
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart.addingTimeInterval(151)), .probe,
+                       "Even a heart-rate-only connection must recover if all traffic stops")
+    }
+
+    func testGarminStillRecoversLostRRIfBeatIntervalsWerePreviouslyAvailable() {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        _ = recovery.receivedHeartRate(HRFrame(bpm: 60, rrIntervalsMs: [1000], contact: nil),
+            at: recoveryStart, inStandby: false, ecgLive: false, model: .garminHRMProPlus)
+        let hrOnly = HRFrame(bpm: 60, rrIntervalsMs: [], contact: nil)
+        XCTAssertEqual(recovery.receivedHeartRate(hrOnly, at: recoveryStart.addingTimeInterval(15),
+            inStandby: false, ecgLive: false, model: .garminHRMProPlus), .refreshHeartRate)
+    }
+
+    func testOptionalBatteryDiscoveryFailureDoesNotRetryOrDisconnectTheHeartRateLink() {
+        for retries in 0...5 {
+            XCTAssertEqual(DiscoveryRetryPolicy.decide(retriesUsed: retries, optionalService: true),
+                           .ignoreOptionalService)
+        }
+        XCTAssertEqual(DiscoveryRetryPolicy.decide(retriesUsed: 0), .retry)
+        XCTAssertEqual(DiscoveryRetryPolicy.decide(retriesUsed: 2), .giveUpAndReconnect)
+    }
+
+    func testGarminRequestsOnlyStandardHeartRateAndBatteryServices() throws {
+        let garmin = try XCTUnwrap(ChestStrapModel.identify("HRM-Pro Plus"))
+        XCTAssertEqual(garmin, .garminHRMProPlus)
+        XCTAssertEqual(Set(garmin.services), Set([PolarH10Profile.heartRateService,
+                                                PolarH10Profile.batteryService]))
+        XCTAssertFalse(garmin.supportsPolarStreams)
+        XCTAssertFalse(garmin.usesInPlaceStandby)
+        XCTAssertEqual(garmin.batteryType, "CR2032")
+        let polar = try XCTUnwrap(ChestStrapModel.identify("Polar H10 ABC123"))
+        XCTAssertTrue(polar.services.contains(PolarH10Profile.pmdService))
+        XCTAssertTrue(polar.supportsPolarStreams)
+        XCTAssertTrue(polar.usesInPlaceStandby)
+        XCTAssertEqual(polar.batteryType, "CR2025")
+    }
+
+    @MainActor
+    func testGarminCapabilitiesFollowConnectingConnectedAndStandbyIdentity() {
+        let ble = BLEService()
+        ble.state = .connecting(name: "HRM-Pro Plus")
+        XCTAssertEqual(ble.sensorModel, .garminHRMProPlus)
+        ble.state = .connected(name: "HRM-Pro Plus")
+        XCTAssertFalse(ble.sensorModel?.supportsPolarStreams ?? true)
+        XCTAssertNil(ble.heartRateBPM, "Pairing cannot invent a heart rate")
+        ble.state = .standby(name: "HRM-Pro Plus")
+        XCTAssertEqual(ble.sensorModel, .garminHRMProPlus)
+        ble.state = .connected(name: "Polar H10 ABC123")
+        XCTAssertTrue(ble.sensorModel?.supportsPolarStreams ?? false)
+        ble.state = .disconnected(reason: "test")
+        XCTAssertNil(ble.sensorModel)
+        ble.disconnect()
+    }
+
+    func testGarminOffBodyGapStartsANewTachogramBeforeForwardingTheNewBeat() async {
+        let buffer = DataBuffer()
+        await buffer.appendRR([800, 810, 820], generation: 0, uptime: 100)
+        XCTAssertFalse(ChestStrapModel.garminHRMProPlus.needsRRGapReset(
+            lastRRUptime: nil, receivedUptime: 100, hasValidRR: true))
+        XCTAssertFalse(ChestStrapModel.garminHRMProPlus.needsRRGapReset(
+            lastRRUptime: 100, receivedUptime: 109, hasValidRR: true))
+        XCTAssertFalse(ChestStrapModel.garminHRMProPlus.needsRRGapReset(
+            lastRRUptime: 100, receivedUptime: 200, hasValidRR: false))
+        let needsReset = ChestStrapModel.garminHRMProPlus.needsRRGapReset(
+            lastRRUptime: 100, receivedUptime: 200, hasValidRR: true)
+        XCTAssertTrue(needsReset)
+        if needsReset { await buffer.clear(generation: 1) }
+        await buffer.appendRR([1000], generation: 1, uptime: 200)
+        let snapshot = await buffer.snapshot(ecgLive: false, accLive: false)
+        XCTAssertEqual(snapshot.rr, [1000])
+        XCTAssertFalse(ChestStrapModel.polarH10.needsRRGapReset(
+            lastRRUptime: 100, receivedUptime: 200, hasValidRR: true),
+            "Polar retains its existing standby/resume continuity path")
+    }
+
+    func testHealthyGarminRRWithoutContactOrPMDKeepsRecordingAlive() throws {
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart)
+        let frame = try XCTUnwrap(PolarH10Profile.parseHRFrame(Data([0x10, 60, 0, 4])))
+        for second in 1...120 {
+            XCTAssertEqual(recovery.receivedHeartRate(frame,
+                at: recoveryStart.addingTimeInterval(Double(second)),
+                inStandby: false, ecgLive: false), .wait)
+            XCTAssertEqual(StandbyPolicy.offBodyScore(contact: frame.contact,
+                ecgPoor: true, rrBad: false, still: false,
+                rrLive: true, ecgLive: false, heartbeatLive: true), 0)
+        }
+    }
 
     func testInvalidOnlyRRDoesNotResetMissingBeatRecovery() {
         var recovery = RRStreamRecovery()
@@ -691,7 +867,7 @@ final class BLETests: XCTestCase {
     func testManualConnectionRejectsWatchBeforeBluetoothLookup() {
         let ble = BLEService()
         ble.connectToDevice(BLEDevice(id: UUID(), name: "VUPU", rssi: -30))
-        XCTAssertEqual(ble.lastError, "Only Polar H10 is supported.")
+        XCTAssertEqual(ble.lastError, "Supported devices: Polar H10 and Garmin HRM-Pro Plus.")
         XCTAssertEqual(ble.state, .idle)
     }
 
@@ -709,34 +885,34 @@ final class BLETests: XCTestCase {
     func testH10IdentityRequiresExactBrandAndModel() {
         for name in ["VUPU", "WHOOP", "Polar H9 123", "Polar Verity Sense 123",
                      "H10", "Polar", "Polar H100 123", "My Polar H10", "", "Heart Rate"] {
-            XCTAssertNil(PolarH10ConnectionPolicy.name(peripheralName: name), name)
+            XCTAssertNil(ChestStrapConnectionPolicy.name(peripheralName: name), name)
         }
         for name in ["Polar H10", "Polar H10 1234ABCD", " polar h10 1234abcd "] {
-            XCTAssertNotNil(PolarH10ConnectionPolicy.name(peripheralName: name), name)
+            XCTAssertNotNil(ChestStrapConnectionPolicy.name(peripheralName: name), name)
         }
-        XCTAssertNil(PolarH10ConnectionPolicy.name(peripheralName: nil))
+        XCTAssertNil(ChestStrapConnectionPolicy.name(peripheralName: nil))
     }
 
     func testFreshAdvertisementOverridesCachedName() {
-        XCTAssertEqual(PolarH10ConnectionPolicy.name(peripheralName: "Old sensor",
+        XCTAssertEqual(ChestStrapConnectionPolicy.name(peripheralName: "Old sensor",
                        advertisedName: "Polar H10 ABC123"), "Polar H10 ABC123")
-        XCTAssertNil(PolarH10ConnectionPolicy.name(peripheralName: "Polar H10 ABC123",
+        XCTAssertNil(ChestStrapConnectionPolicy.name(peripheralName: "Polar H10 ABC123",
                      advertisedName: "VUPU"))
-        XCTAssertEqual(PolarH10ConnectionPolicy.name(peripheralName: "Polar H10 ABC123",
+        XCTAssertEqual(ChestStrapConnectionPolicy.name(peripheralName: "Polar H10 ABC123",
                        advertisedName: ""), "Polar H10 ABC123")
     }
 
     func testOSConnectedWatchDoesNotWinOverH10() {
         let watch = BLEDevice(id: UUID(), name: "VUPU", rssi: -20)
         let strap = BLEDevice(id: UUID(), name: "Polar H10 ABC123", rssi: -65)
-        XCTAssertEqual(PolarH10ConnectionPolicy.preferredDevice(in: [watch, strap],
+        XCTAssertEqual(ChestStrapConnectionPolicy.preferredDevice(in: [watch, strap],
                        savedID: strap.id)?.id, strap.id)
-        XCTAssertNil(PolarH10ConnectionPolicy.preferredDevice(in: [watch], savedID: watch.id))
+        XCTAssertNil(ChestStrapConnectionPolicy.preferredDevice(in: [watch], savedID: watch.id))
     }
 
     func testAnUnpairedH10IsVisibleButNeverAutomaticallySelected() {
         let strap = BLEDevice(id: UUID(), name: "Polar H10 ABC123", rssi: -65)
-        XCTAssertNil(PolarH10ConnectionPolicy.preferredDevice(in: [strap], savedID: nil))
+        XCTAssertNil(ChestStrapConnectionPolicy.preferredDevice(in: [strap], savedID: nil))
     }
 
     @MainActor
@@ -793,31 +969,31 @@ final class BLETests: XCTestCase {
         let suite = "BLETests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let pairing = PolarH10Pairing(defaults: defaults)
+        let pairing = ChestStrapPairing(defaults: defaults)
         let first = BLEDevice(id: UUID(), name: "Polar H10 AAA", rssi: -30)
         let last = BLEDevice(id: UUID(), name: "Polar H10 BBB", rssi: -70)
         pairing.remember(id: first.id, name: first.name)
         pairing.remember(id: last.id, name: last.name)
-        let reopened = PolarH10Pairing(defaults: defaults)
-        XCTAssertEqual(PolarH10ConnectionPolicy.preferredDevice(in: [first, last],
+        let reopened = ChestStrapPairing(defaults: defaults)
+        XCTAssertEqual(ChestStrapConnectionPolicy.preferredDevice(in: [first, last],
                        savedID: reopened.savedID)?.id, last.id)
-        XCTAssertNil(PolarH10ConnectionPolicy.preferredDevice(in: [first], savedID: reopened.savedID))
+        XCTAssertNil(ChestStrapConnectionPolicy.preferredDevice(in: [first], savedID: reopened.savedID))
     }
 
     func testSavedStrapWinsAndOtherStrapsAreNeverChosenArbitrarily() {
         let mine = BLEDevice(id: UUID(), name: "Polar H10 AAA", rssi: -70)
         let other = BLEDevice(id: UUID(), name: "Polar H10 BBB", rssi: -30)
-        XCTAssertEqual(PolarH10ConnectionPolicy.preferredDevice(in: [other, mine],
+        XCTAssertEqual(ChestStrapConnectionPolicy.preferredDevice(in: [other, mine],
                        savedID: mine.id)?.id, mine.id)
-        XCTAssertNil(PolarH10ConnectionPolicy.preferredDevice(in: [other], savedID: mine.id))
-        XCTAssertNil(PolarH10ConnectionPolicy.preferredDevice(in: [other, mine], savedID: nil))
+        XCTAssertNil(ChestStrapConnectionPolicy.preferredDevice(in: [other], savedID: mine.id))
+        XCTAssertNil(ChestStrapConnectionPolicy.preferredDevice(in: [other, mine], savedID: nil))
     }
 
     func testLegacyWatchPairingIsClearedButUnnamedLegacyStrapWaitsForDiscovery() throws {
         let suite = "BLETests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let pairing = PolarH10Pairing(defaults: defaults)
+        let pairing = ChestStrapPairing(defaults: defaults)
         let oldID = UUID()
         defaults.set(oldID.uuidString, forKey: "wythin.polar.uuid")
         XCTAssertNil(pairing.name(for: oldID, peripheralName: nil))
@@ -831,11 +1007,11 @@ final class BLETests: XCTestCase {
         let suite = "BLETests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let pairing = PolarH10Pairing(defaults: defaults)
+        let pairing = ChestStrapPairing(defaults: defaults)
         let id = UUID()
         XCTAssertTrue(pairing.remember(id: id, name: "Polar H10 ABC123"))
         XCTAssertFalse(pairing.remember(id: UUID(), name: "VUPU"))
-        let reopened = PolarH10Pairing(defaults: defaults)
+        let reopened = ChestStrapPairing(defaults: defaults)
         XCTAssertEqual(reopened.savedID, id)
         XCTAssertEqual(reopened.name(for: id, peripheralName: nil), "Polar H10 ABC123")
         XCTAssertNil(reopened.name(for: UUID(), peripheralName: nil))

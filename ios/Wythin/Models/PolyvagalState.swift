@@ -63,7 +63,7 @@ enum PolyvagalState {
         case .regulated: return "Your nervous system is calm and regulated. You're ready to focus or connect."
         case .elevated:  return "Your body is responding to stress. Your nervous system is in an activated state right now."
         case .low:       return "Your nervous system appears quiet or fatigued. Energy and engagement are low."
-        case .unknown:   return "Connect your Polar H10 to see your current nervous system state."
+        case .unknown:   return "Connect your chest strap to see your current nervous system state."
         }
     }
 
@@ -92,7 +92,7 @@ enum PolyvagalState {
         case .regulated: return "You're in a great state. A short resonance session will deepen and sustain this."
         case .elevated:  return "A short guided breathing cycle to activate your parasympathetic nervous system and lower arousal."
         case .low:       return "Use energizing breath cycles to raise arousal and increase engagement."
-        case .unknown:   return "Pair your Polar H10 to get personalized real-time recommendations."
+        case .unknown:   return "Pair your chest strap to get personalized real-time recommendations."
         }
     }
 
