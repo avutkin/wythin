@@ -8,8 +8,8 @@
 
 - [x] Reproduce expensive unknown deletions and blocked MainActor scheduling with focused tests.
 - [x] Fix the demonstrated bottlenecks and verify shared-sample deletion, replay and cloud restore.
-- [ ] Independent review, full WythinTests and Release launch verification.
-- [ ] Merge and release using `tools/ship.sh`; verify external TestFlight status.
+- [x] Independent review, full WythinTests and Release launch verification.
+- [x] Merge and release using `tools/ship.sh`; verify external TestFlight status.
 
 ## Verification evidence
 
@@ -22,4 +22,12 @@
 - Final HealthRepository suite: 20 tests passed (`/private/tmp/wythin-launch-health-final.log`).
 - Independent review approved the corrected all-ID membership scan and lexical pagination; no remaining actionable findings.
 - Final full WythinTests: 2043 executed, 2 existing opt-in background-upload tests skipped, 0 failures (`/private/tmp/wythin-launch-full-final.log`).
-- Release simulator build succeeded (`/private/tmp/wythin-launch-release-fixed.log`); clean simulator startup check in progress.
+- Release simulator build succeeded (`/private/tmp/wythin-launch-release-fixed.log`). The app launched on a clean iPhone 17 Pro Max simulator, stayed running, terminated gracefully in 0.201 s, and relaunched successfully. The relaunched process remained alive during release upload. The fixed build has not yet been verified on the reporting user's physical iPhone.
+- Fix merged as `da70097`; the official ship pipeline repeated the full suite with 2043 tests, 2 existing opt-in skips, 0 failures (`/private/tmp/wythin-ship-tests.log`) and recorded build 166 as `e3624ac`.
+
+## Release evidence
+
+- `tools/ship.sh testflight` finished successfully: archive/export succeeded, build 166 processed as `VALID`, export compliance set.
+- Build 1.1 (166), App Store Connect ID `145ec927-2052-4199-a1c6-e4a3555c2a09`, assigned to External Testers and submitted for beta review.
+- Fresh App Store Connect verification on 2026-11-28 UTC: external and internal states both `IN_BETA_TESTING`, `expired: false`, external group assignment present, automatic tester notifications enabled.
+- Public link is enabled without a tester-count limit: https://testflight.apple.com/join/7c7b68t1. Existing public-link testers can update to build 166.
