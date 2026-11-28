@@ -185,6 +185,7 @@ struct StartupSceneDelivery {
 @MainActor
 final class ForegroundPreparation {
     private var foreground = false
+    private var suspended = false
     private var completed = false
     private var generation = 0
     private var task: Task<Void, Never>?
@@ -193,7 +194,13 @@ final class ForegroundPreparation {
     init(operation: @escaping @MainActor () async -> Void) { self.operation = operation }
     deinit { task?.cancel() }
 
+    func suspendUntilNextForeground() {
+        suspended = true
+        task?.cancel()
+    }
+
     func setForeground(_ value: Bool) {
+        if value && !foreground { suspended = false }
         foreground = value
         if !value { task?.cancel() }
         else { startIfNeeded() }
@@ -207,7 +214,7 @@ final class ForegroundPreparation {
     }
 
     private func startIfNeeded() {
-        guard foreground, !completed, task == nil else { return }
+        guard foreground, !suspended, !completed, task == nil else { return }
         let generation = generation
         task = Task { [weak self] in
             guard let self else { return }

@@ -61,23 +61,47 @@ final class DayPotentialStore {
     private var generatedForDay: Date?
     private var inFlight = false
     private var backfilled = false
+    private var foreground = true
+    private var suspended = false
+    @ObservationIgnored private var backfillTask: Task<Bool, Never>?
+
+    deinit { backfillTask?.cancel() }
 
     /// Backfill owns persistent changes and may need to drain after cancellation.
     /// Its canceled caller must not continue with UI work or mark preparation done.
-    func ensureBackfill(_ run: () async -> Void) async -> Bool {
-        guard !Task.isCancelled else { return false }
-        if !backfilled {
-            await run()
-            guard !Task.isCancelled else { return false }
-            backfilled = true
+    func setForeground(_ value: Bool) {
+        if value && !foreground { suspended = false }
+        foreground = value
+        if !value { backfillTask?.cancel() }
+    }
+
+    func suspendUntilNextForeground() {
+        suspended = true
+        backfillTask?.cancel()
+    }
+
+    func ensureBackfill(_ run: @escaping @MainActor () async -> Bool) async -> Bool {
+        guard !Task.isCancelled, foreground, !suspended else { return false }
+        guard !backfilled else { return true }
+        // Retain ownership until the worker drains, including view-owned callers.
+        guard backfillTask == nil else { return false }
+        let worker = Task { !Task.isCancelled ? await run() : false }
+        backfillTask = worker
+        let succeeded = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
         }
+        backfillTask = nil
+        guard succeeded, !worker.isCancelled, !Task.isCancelled, foreground, !suspended else { return false }
+        backfilled = true
         return true
     }
 
     /// Finds or loads today's anchor, scores it, refreshes the streak and the
     /// local load line, and generates the narrative once per day.
     func refresh(env: AppEnvironment, force: Bool = false) async {
-        guard !inFlight else { return }
+        guard !inFlight, foreground, !suspended, !Task.isCancelled else { return }
         inFlight = true
         defer { inFlight = false }
 
@@ -191,7 +215,7 @@ final class DayPotentialStore {
             graceUsed: streak?.graceUsed ?? false)
 
         if let response = try? await env.sync.client.generateDayPotentialInsight(payload) {
-            guard !Task.isCancelled,
+            guard !Task.isCancelled, foreground, !suspended,
                   TimeZone.autoupdatingCurrent.identifier == timezone,
                   Calendar.current.startOfDay(for: Date()) == today else { return }
             insight = response.text

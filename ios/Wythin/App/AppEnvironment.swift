@@ -114,6 +114,7 @@ final class AppEnvironment {
                 ble.checkRecordingRecovery()
             }
             ble.setAppInForeground(isInForeground)
+            dayPotential.setForeground(isInForeground)
             if !isInForeground {
                 foregroundPreparation.setForeground(false)
                 foregroundDisplay.setForeground(false)
@@ -527,6 +528,7 @@ final class AppEnvironment {
             isInForeground = false
         }
         BLEDiag.log("LAUNCH state=\(launchState.rawValue) foreground=\(isInForeground)")
+        dayPotential.setForeground(isInForeground)
         let transport = diagnosticSync
         diagnosticReporter = RecordingDiagnosticReporter(
             installationID: transport.installationID, launchID: transport.launchID,
@@ -875,7 +877,11 @@ final class AppEnvironment {
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil, queue: .main) { [weak self] _ in
                 BLEDiag.log("MEMORY WARNING")
-                Task { @MainActor in self?.diagnosticReporter?.request(.memoryWarning) }
+                MainActor.assumeIsolated {
+                    self?.foregroundPreparation.suspendUntilNextForeground()
+                    self?.dayPotential.suspendUntilNextForeground()
+                    self?.diagnosticReporter?.request(.memoryWarning)
+                }
             })
         lifecycleObservers.append(center.addObserver(
             forName: UIApplication.willTerminateNotification,

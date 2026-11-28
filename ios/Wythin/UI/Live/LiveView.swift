@@ -307,7 +307,9 @@ private struct DayScrollView: View {
     @State private var historyState = LiveDayHistoryState()
     @State private var chartDayAvg: MetricsTick?
     @State private var liveStore = LiveStateStore()
-    @State private var potentialStore = DayPotentialStore()
+    // Share the replay owner with startup so memory pressure can cancel every
+    // caller, and opening a day cannot start a second historical rebuild.
+    private var potentialStore: DayPotentialStore { env.dayPotential }
 
     private var loadID: LiveDayLoadID {
         LiveDayLoadID(day: day, fallbackTimeZone: fallbackTimeZone,

@@ -3,6 +3,51 @@ import XCTest
 
 @MainActor
 final class DayPotentialPreparationTests: XCTestCase {
+    func testFailedBackfillRemainsRetryable() async {
+        let store = DayPotentialStore()
+        let failed = await store.ensureBackfill { false }
+        XCTAssertFalse(failed)
+        var retries = 0
+        let recovered = await store.ensureBackfill { retries += 1; return true }
+        XCTAssertTrue(recovered)
+        XCTAssertEqual(retries, 1)
+    }
+
+    func testPressureCancelsViewOwnedBackfillAndBlocksDuplicateForegroundRetry() async {
+        let store = DayPotentialStore()
+        var release: CheckedContinuation<Void, Never>?
+        var canceled = false
+        var calls = 0
+        let entered = expectation(description: "view requested backfill")
+        let request = Task {
+            await store.ensureBackfill {
+                calls += 1
+                await withCheckedContinuation { release = $0; entered.fulfill() }
+                canceled = Task.isCancelled
+                return true
+            }
+        }
+        await fulfillment(of: [entered], timeout: 3)
+        store.suspendUntilNextForeground()
+        store.setForeground(true)
+        let overlapping = await store.ensureBackfill { calls += 1; return true }
+        XCTAssertFalse(overlapping)
+        release?.resume()
+        let completed = await request.value
+        XCTAssertFalse(completed)
+        XCTAssertTrue(canceled)
+        let suspended = await store.ensureBackfill { calls += 1; return true }
+        XCTAssertFalse(suspended)
+        XCTAssertEqual(calls, 1)
+        store.setForeground(false)
+        let background = await store.ensureBackfill { calls += 1; return true }
+        XCTAssertFalse(background)
+        store.setForeground(true)
+        let retried = await store.ensureBackfill { calls += 1; return true }
+        XCTAssertTrue(retried)
+        XCTAssertEqual(calls, 2)
+    }
+
     func testCancellationDuringBackfillPreventsRefreshAndLeavesNextAttemptUsable() async {
         let store = DayPotentialStore()
         let entered = expectation(description: "backfill started")
@@ -15,6 +60,7 @@ final class DayPotentialPreparationTests: XCTestCase {
                     release = continuation
                     entered.fulfill()
                 }
+                return true
             }
         }
         await fulfillment(of: [entered], timeout: 3)
@@ -22,10 +68,10 @@ final class DayPotentialPreparationTests: XCTestCase {
         release?.resume()
         let mayRefresh = await task.value
         XCTAssertFalse(mayRefresh, "A canceled caller must not read/write anchors or generate UI insights")
-        let retried = await store.ensureBackfill { calls += 1 }
+        let retried = await store.ensureBackfill { calls += 1; return true }
         XCTAssertTrue(retried)
         XCTAssertEqual(calls, 2, "Canceled preparation must not mark a later refresh complete")
-        let cached = await store.ensureBackfill { calls += 1 }
+        let cached = await store.ensureBackfill { calls += 1; return true }
         XCTAssertTrue(cached)
         XCTAssertEqual(calls, 2)
     }
@@ -33,7 +79,7 @@ final class DayPotentialPreparationTests: XCTestCase {
     func testAlreadyCanceledRefreshDoesNotBeginBackfill() async {
         let store = DayPotentialStore()
         var calls = 0
-        let task = Task { await store.ensureBackfill { calls += 1 } }
+        let task = Task { await store.ensureBackfill { calls += 1; return true } }
         task.cancel()
         let mayRefresh = await task.value
         XCTAssertFalse(mayRefresh)

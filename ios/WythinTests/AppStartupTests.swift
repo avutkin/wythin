@@ -5,6 +5,37 @@ import SwiftUI
 
 @MainActor
 final class ForegroundPreparationTests: XCTestCase {
+    func testMemoryPressureCancelsAndDefersRetryUntilARealForegroundTransition() async {
+        var release: CheckedContinuation<Void, Never>?
+        var calls = 0
+        var canceled = false
+        let entered = expectation(description: "preparation started")
+        let retried = expectation(description: "preparation retried")
+        let work = ForegroundPreparation {
+            calls += 1
+            if calls == 1 {
+                await withCheckedContinuation { release = $0; entered.fulfill() }
+                canceled = Task.isCancelled
+            } else { retried.fulfill() }
+        }
+        work.setForeground(true)
+        await fulfillment(of: [entered], timeout: 3)
+        work.suspendUntilNextForeground()
+        work.setForeground(true)
+        release?.resume()
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertTrue(canceled)
+        XCTAssertEqual(calls, 1, "Draining a canceled read must not restart it under pressure")
+        work.invalidate()
+        work.setForeground(true)
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(calls, 1, "Invalidation and duplicate phase delivery must not lift the pressure latch")
+        work.setForeground(false)
+        work.setForeground(true)
+        await fulfillment(of: [retried], timeout: 3)
+        XCTAssertEqual(calls, 2)
+    }
+
     func testBackgroundLaunchDoesNotPrepareUIAndForegroundPreparesOnlyOnce() async {
         var calls = 0
         let prepared = expectation(description: "foreground prepared")

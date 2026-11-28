@@ -33,12 +33,12 @@ Interfaces: Store.samples(Date) returns that day's [MetricsHistoryPoint]; live u
 
 ### Task 2: React to memory pressure without interrupting recording
 
-Files: App/AppStartup.swift, App/AppEnvironment.swift, Tests/AppStartupTests.swift.
-Interfaces: ForegroundPreparation.suspendUntilNextForeground() cancels and latches; only a real foreground transition releases it. Existing operation ownership prevents overlap.
+Files: App/AppStartup.swift, App/AppEnvironment.swift, UI/Live/DayPotentialStore.swift, UI/Live/LiveView.swift, Tests/AppStartupTests.swift, Tests/DayPotentialStateTests.swift.
+Interfaces: ForegroundPreparation.suspendUntilNextForeground() cancels and latches; only a real foreground transition releases it. Existing operation ownership prevents overlap. The shared DayPotentialStore likewise owns/cancels backfill regardless of whether startup or a view requested it; ensureBackfill consumes the success result from Task 1.
 
-- [ ] Regression RED for canceled task drainage, duplicate foreground delivery and re-entry.
-- [ ] Wire the warning handler to suspend optional preparation synchronously on MainActor; keep recording/history/display active.
-- [ ] Focused GREEN.
+- [x] Regression RED for canceled task drainage, duplicate foreground delivery and re-entry.
+- [x] Wire the warning handler to suspend optional preparation synchronously on MainActor; keep recording/history/display active.
+- [x] Focused GREEN.
 
 ### Task 3: Record bounded local memory evidence
 
@@ -58,3 +58,7 @@ Task 1: complete. Behavioral RED: 17 tests, 7 assertions failed in the 3 new reg
 Task 1: Ruling: reuse RecentHistoryLoader.swift for HistoricalDayReader and pass the captured Calendar through AnchorDetector — both historical consumers need the same bounded read and stable calendar — costs a small internal API extension; detector defaults/formulas remain unchanged.
 
 Task 2: Ruling: LiveView owns a second DayPotentialStore and invokes backfill directly, bypassing foreground warm-up ownership — share the environment's store and give its backfill explicit cancellation/lifecycle ownership — otherwise memory warnings could leave a second replay running. Include failure propagation from Task 1's Bool result; failed work must remain retryable.
+
+Task 2 RED: 8 tests, 10 failed assertions across 3 new regression cases, with API-only no-op pressure methods and the old completion behavior (`/private/tmp/wythin-memory-pressure-red.log`). Failures demonstrate missing cancellation/latch, overlapping view requests and failed replay incorrectly cached as complete.
+
+Task 2: complete. GREEN: 24 tests, 0 failures (ForegroundPreparationTests, DayPotentialPreparationTests, DayPotentialStateTests, AppStartupLifecycleTests; `/private/tmp/wythin-memory-pressure-green.log`). Background launch also initializes the shared store's phase explicitly; no recording/history/display loop is canceled by memory pressure.
