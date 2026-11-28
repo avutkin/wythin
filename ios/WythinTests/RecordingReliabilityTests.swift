@@ -4,6 +4,113 @@ import UIKit
 @testable import Wythin
 
 final class RecordingReliabilityTests: XCTestCase {
+    private func deliverySnapshot() -> DataSnapshot {
+        DataSnapshot(ecg: [], accZ: [], accXYZ: [], rr: [800, 810], bpm: [75],
+            recordingGeneration: 1, lastValidRRAt: Date(timeIntervalSince1970: 100), lastValidRRUptime: 100)
+    }
+
+    func testFailedPersistenceReportsErrorButFreshTickStillReachesLiveConsumers() {
+        enum Failure: Error { case diskFull }
+        let tick = MetricsEngine.compute(from: deliverySnapshot())
+        var events: [String] = []
+        MetricDelivery.deliver(tick, disposition: { .live }, persist: { _ in
+            events.append("save"); throw Failure.diskFull
+        }, saveFailed: { _ in events.append("error") },
+        recordHistory: { _ in events.append("history") },
+        publishLive: { _ in events.append("live") })
+        XCTAssertEqual(events, ["save", "error", "history", "live"])
+    }
+
+    func testSlowSaveKeepsHistoricalPointButDoesNotPublishExpiredLiveValue() {
+        let snapshot = deliverySnapshot()
+        let tick = MetricsEngine.compute(from: snapshot)
+        var uptime = 101.0
+        var events: [String] = []
+        MetricDelivery.deliver(tick, disposition: {
+            MetricCompletionDisposition.decide(snapshot: snapshot, generation: 1, connected: true,
+                admittedUptime: 101, completedUptime: uptime)
+        }, persist: { _ in events.append("save"); uptime = 131 },
+        saveFailed: { _ in XCTFail("unexpected failure") },
+        recordHistory: { _ in events.append("history") },
+        publishLive: { _ in events.append("live") })
+        XCTAssertEqual(events, ["save", "history"])
+    }
+
+    func testRejectedCompletionHasNoPersistenceHistoryOrLiveEffects() {
+        let tick = MetricsEngine.compute(from: deliverySnapshot())
+        for reason in [MetricCompletionDisposition.Rejection.connection, .generation, .staleAdmission, .invalidClock] {
+            MetricDelivery.deliver(tick, disposition: { .discard(reason) },
+                persist: { _ in XCTFail("rejected result saved") },
+                saveFailed: { _ in XCTFail("unexpected save attempt") },
+                recordHistory: { _ in XCTFail("rejected result in chart") },
+                publishLive: { _ in XCTFail("rejected result presented as live") })
+        }
+    }
+
+    @MainActor
+    func testDelayedBreathingCandidateIsNotPersistedAsTrackedRespiration() throws {
+        var tracker = BreathRateTracker()
+        for _ in 0..<8 { _ = tracker.update([.init(bpm: 14, confidence: 6)], dt: 2) }
+        let candidate: Float = 28
+        XCTAssertNotEqual(tracker.update([.init(bpm: candidate, confidence: 3)], dt: 2), candidate)
+        var tick = MetricsEngine.compute(from: deliverySnapshot())
+        tick.breathBPM = candidate
+        tick.breathSource = .accelerometer
+        tick.breathConfidence = 3
+        let container = try ModelContainer(for: HRVSample.self, HRVSession.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        MetricDelivery.deliver(tick, disposition: { .historyOnly }, persist: { completed in
+            try MetricSampleStore.persist(HRVSample(from: completed, timezone: "Australia/Sydney"),
+                session: nil, context: container.mainContext)
+        }, saveFailed: { _ in XCTFail("unexpected failure") }, recordHistory: { completed in
+            XCTAssertNil(completed.breathBPM)
+            XCTAssertNil(completed.breathSource)
+        }, publishLive: { _ in XCTFail("delayed point cannot be live") })
+        let row = try XCTUnwrap(container.mainContext.fetch(FetchDescriptor<HRVSample>()).first)
+        XCTAssertNil(row.breathBPM)
+        XCTAssertNil(row.breathSourceRaw)
+    }
+
+    @MainActor
+    func testDelayedAdmittedMetricIsSavedAtCaptureTimeWithoutBecomingLive() throws {
+        let captured = Date(timeIntervalSince1970: 1795821188) // Sydney 2026-11-28, UTC 2026-11-27
+        let snapshot = DataSnapshot(ecg: [], accZ: [], accXYZ: [], rr: [800, 810], bpm: [75],
+            recordingGeneration: 1, lastValidRRAt: captured, lastValidRRUptime: 100)
+        let disposition = MetricCompletionDisposition.decide(snapshot: snapshot,
+            generation: 1, connected: true, admittedUptime: 101, completedUptime: 131)
+        XCTAssertTrue(disposition.shouldPersist)
+        XCTAssertFalse(disposition.shouldPublishLive)
+        XCTAssertEqual(disposition, .historyOnly)
+        let container = try ModelContainer(for: HRVSample.self, HRVSession.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        let tick = MetricsEngine.compute(from: snapshot)
+        if disposition.shouldPersist {
+            try MetricSampleStore.persist(HRVSample(from: tick, timezone: "Australia/Sydney"),
+                session: nil, context: container.mainContext)
+        }
+        let rows = try container.mainContext.fetch(FetchDescriptor<HRVSample>())
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.timestamp, captured)
+        XCTAssertEqual(rows.first?.timezone, "Australia/Sydney")
+        XCTAssertEqual(rows.first?.cloudUploadState, 0)
+    }
+
+    func testMetricCompletionKeepsGenerationAndAdmissionFences() {
+        let snapshot = DataSnapshot(ecg: [], accZ: [], accXYZ: [], rr: [800], bpm: [75],
+            recordingGeneration: 1, lastValidRRAt: Date(timeIntervalSince1970: 100), lastValidRRUptime: 100)
+        XCTAssertEqual(MetricCompletionDisposition.decide(snapshot: snapshot, generation: 1,
+            connected: true, admittedUptime: 101, completedUptime: 102), .live)
+        for (generation, connected, admitted, completed) in [
+            (UInt64(2), true, 101.0, 131.0), (1, false, 101, 131),
+            (1, true, 106, 131), (1, true, 99, 131), (1, true, 101, 100)
+        ] {
+            let result = MetricCompletionDisposition.decide(snapshot: snapshot, generation: generation,
+                connected: connected, admittedUptime: admitted, completedUptime: completed)
+            XCTAssertFalse(result.shouldPersist)
+            XCTAssertFalse(result.shouldPublishLive)
+        }
+    }
+
     func testSelectivePMDResumeClearsOnlyInterruptedWaveforms() async {
         let buffer = DataBuffer()
         await buffer.appendRR([800, 810], generation: 1, uptime: 100)
@@ -107,6 +214,42 @@ final class RecordingReliabilityTests: XCTestCase {
         XCTAssertTrue(body.contains("savedMetrics"))
         XCTAssertFalse(body.contains("secret-token"))
         XCTAssertFalse(body.contains("private-key"))
+    }
+
+    func testSydneyExportKeepsUTCAndMakesLocalDayAndOffsetExplicit() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "Australia/Sydney"))
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-11-27T23:13:11Z"))
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = try RecordingDiagnostics.write(directory: folder, metadata: [:],
+            bluetooth: "2026-11-27T23:13:11Z BG TICK", capture: "{}", captureError: nil,
+            at: date, timeZone: zone)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(text.contains("Exported: 2026-11-27T23:13:11Z"))
+        XCTAssertTrue(text.contains("time.zone: Australia/Sydney"))
+        XCTAssertTrue(text.contains("time.utcOffsetSeconds: 39600"))
+        XCTAssertTrue(text.contains("time.exportedLocal: 2026-11-28T10:13:11+11:00"))
+        XCTAssertTrue(text.contains("2026-11-27T23:13:11Z BG TICK"), "Original UTC events must not be rewritten")
+    }
+
+    func testSydneyDiagnosticOffsetFollowsBothDSTTransitions() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "Australia/Sydney"))
+        let fixtures = [
+            ("2026-04-04T15:59:59Z", "2026-04-05T02:59:59+11:00", "39600"),
+            ("2026-04-04T16:00:00Z", "2026-04-05T02:00:00+10:00", "36000"),
+            ("2026-10-03T15:59:59Z", "2026-10-04T01:59:59+10:00", "36000"),
+            ("2026-10-03T16:00:00Z", "2026-10-04T03:00:00+11:00", "39600")
+        ]
+        for (utc, local, offset) in fixtures {
+            let date = try XCTUnwrap(ISO8601DateFormatter().date(from: utc))
+            let context = RecordingDiagnostics.timeMetadata(at: date, timeZone: zone)
+            XCTAssertEqual(context["time.exportedLocal"], local)
+            XCTAssertEqual(context["time.utcOffsetSeconds"], offset)
+        }
+        let runtime = RecordingDiagnostics.runtimeMetadata(deviceUptime: 234842, recordingStartedUptime: 234314)
+        XCTAssertEqual(runtime["device.uptimeSeconds"], "234842")
+        XCTAssertEqual(runtime["recording.environmentUptimeSeconds"], "528")
+        XCTAssertNil(runtime["app.uptimeSeconds"], "Device uptime must not masquerade as app lifetime")
     }
 
     func testDiagnosticsReportsMissingCaptureAndBoundsLogSize() throws {

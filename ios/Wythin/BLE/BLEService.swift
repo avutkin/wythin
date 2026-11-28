@@ -447,6 +447,63 @@ enum RRSignalValidity {
     static func isValid(_ interval: Int) -> Bool { (300...2000).contains(interval) }
 }
 
+/// Positive transport evidence is recorded before hopping to MainActor. A busy
+/// actor must not mistake its own backlog for an off-body strap or dead stream.
+/// Bindings fence callbacks from replaced characteristics and earlier sessions.
+final class BLEReceiptHealth: @unchecked Sendable {
+    enum Stream: String, CaseIterable { case rr, heartbeat, ecg, acc }
+    private struct Binding {
+        let source: ObjectIdentifier
+        let since: TimeInterval
+        var latest: TimeInterval?
+    }
+    private let lock = NSLock()
+    private var bindings: [Stream: Binding] = [:]
+    private var lastDelayLog: TimeInterval?
+
+    func bind(_ streams: [Stream], source: ObjectIdentifier, since: TimeInterval) {
+        lock.lock(); defer { lock.unlock() }
+        for stream in streams {
+            if bindings[stream]?.source == source, bindings[stream]?.since == since { continue }
+            bindings[stream] = Binding(source: source, since: since)
+        }
+    }
+
+    func clear(_ streams: [Stream] = Stream.allCases) {
+        lock.lock(); defer { lock.unlock() }
+        for stream in streams { bindings.removeValue(forKey: stream) }
+    }
+
+    func received(_ stream: Stream, source: ObjectIdentifier, uptime: TimeInterval) {
+        lock.lock(); defer { lock.unlock() }
+        guard uptime.isFinite, var binding = bindings[stream], binding.source == source,
+              uptime >= binding.since, uptime >= (binding.latest ?? binding.since) else { return }
+        binding.latest = uptime
+        bindings[stream] = binding
+    }
+
+    func lastUptime(_ stream: Stream) -> TimeInterval? {
+        lock.lock(); defer { lock.unlock() }
+        return bindings[stream]?.latest
+    }
+
+    func isLive(_ stream: Stream, at now: TimeInterval, maxAge: TimeInterval) -> Bool {
+        guard let last = lastUptime(stream) else { return false }
+        return now >= last && now - last < maxAge
+    }
+
+    /// At most one technical latency line per 30 seconds, across all streams.
+    func processed(_ stream: Stream, source: ObjectIdentifier,
+                   received: TimeInterval, now: TimeInterval) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        guard now.isFinite, received.isFinite, let binding = bindings[stream],
+              binding.source == source, received >= binding.since, now - received >= 5,
+              lastDelayLog.map({ now - $0 >= 30 }) ?? true else { return nil }
+        lastDelayLog = now
+        return "BLE_DELIVERY delayed stream=\(stream.rawValue) lag_seconds=\(Int(min(now - received, 86400)))"
+    }
+}
+
 /// Bluetooth events drive this state machine even when the app is in the
 /// background. The watchdog is only a fallback while iOS allows execution.
 struct RRStreamRecovery {
@@ -490,16 +547,20 @@ struct RRStreamRecovery {
         return acceptsPacket(at: now) && now >= (lastHRPacketAt ?? .distantPast)
     }
 
-    mutating func receivedPacket(at date: Date, uptime: TimeInterval? = nil) -> Action {
+    mutating func receivedPacket(at date: Date, uptime: TimeInterval? = nil,
+                                 evaluationUptime: TimeInterval? = nil,
+                                 rrReceiptUptime: TimeInterval? = nil) -> Action {
         let now = BLERecoveryClock.instant(at: date, uptime: uptime)
         guard acceptsPacket(at: now) else { return .wait }
         lastPacketAt = max(lastPacketAt ?? now, now)
-        return evaluate(at: now)
+        return evaluate(at: date, uptime: evaluationUptime ?? uptime, rrReceiptUptime: rrReceiptUptime)
     }
 
     mutating func receivedHeartRate(_ frame: HRFrame, at date: Date, uptime: TimeInterval? = nil,
                                    inStandby: Bool, ecgLive: Bool,
-                                   model: ChestStrapModel = .polarH10) -> Action {
+                                   model: ChestStrapModel = .polarH10,
+                                   evaluationUptime: TimeInterval? = nil,
+                                   rrReceiptUptime: TimeInterval? = nil) -> Action {
         let now = BLERecoveryClock.instant(at: date, uptime: uptime)
         guard acceptsHeartRate(at: now) else { return .wait }
         lastHRPacketAt = now
@@ -522,14 +583,27 @@ struct RRStreamRecovery {
             lastHealthyHRAt = max(lastHealthyHRAt ?? now, now)
             refreshAt = nil
             probeAt = nil
+            // Preserve healthy-packet semantics even when actor delivery is
+            // late (notably Garmin HR-only and normal off-body beacons).
+            // The independent watchdog evaluates any subsequent silence.
+            return .wait
         }
-        return evaluate(at: now)
+        return evaluate(at: date, uptime: evaluationUptime ?? uptime, rrReceiptUptime: rrReceiptUptime)
     }
 
-    mutating func evaluate(at date: Date, uptime: TimeInterval? = nil) -> Action {
+    mutating func evaluate(at date: Date, uptime: TimeInterval? = nil,
+                           rrReceiptUptime: TimeInterval? = nil) -> Action {
         let now = BLERecoveryClock.instant(at: date, uptime: uptime)
-        guard let connectedAt, !reconnectPending,
-              now.timeIntervalSince(lastHealthyHRAt ?? connectedAt) >= 15 else { return .wait }
+        guard let connectedAt, !reconnectPending else { return .wait }
+        var healthyAt = lastHealthyHRAt ?? connectedAt
+        if let uptime, let receipt = rrReceiptUptime, receipt.isFinite, receipt <= uptime {
+            let received = Date(timeIntervalSinceReferenceDate: receipt)
+            if received >= connectedAt { healthyAt = max(healthyAt, received) }
+        }
+        // Receipt evidence covers the entire recovery threshold, even after it
+        // is too old to count as a live reading. Evaluate queued callbacks at
+        // processing uptime so a newer receipt cannot appear to be in the future.
+        guard now.timeIntervalSince(healthyAt) >= 15 else { return .wait }
         if let lastReconnectAt, now.timeIntervalSince(lastReconnectAt) < 60 { return .wait }
         // A lost notification acknowledgement must not strand the disabled
         // subscription, even if all traffic stops after the refresh request.
@@ -662,9 +736,14 @@ enum StandbyPolicy {
 struct StandbyEntryGate {
     private var offBodySince: TimeInterval?
     private var generation: UInt64?
+    private var lastEvaluation: TimeInterval?
 
     mutating func shouldEnterStandby(score: Int, connected: Bool,
                                     generation: UInt64, uptime: TimeInterval) -> Bool {
+        defer { lastEvaluation = uptime }
+        if let lastEvaluation, uptime < lastEvaluation || uptime - lastEvaluation > 10 {
+            offBodySince = nil
+        }
         guard connected, score >= 2 else {
             offBodySince = nil
             self.generation = nil
@@ -998,14 +1077,23 @@ struct PMDStreamRecovery {
 
     mutating func evaluate(at date: Date, uptime: TimeInterval? = nil,
                            isConnected: Bool, inStandby: Bool,
-                           rrFlowing: Bool) -> PMDWatchdogPolicy.Action {
+                           rrFlowing: Bool, ecgReceiptUptime: TimeInterval? = nil,
+                           accReceiptUptime: TimeInterval? = nil) -> PMDWatchdogPolicy.Action {
         let now = BLERecoveryClock.instant(at: date, uptime: uptime)
         guard let startedAt, let graceStartedAt else { return .keepWaiting }
+        func latest(_ processed: Date?, _ received: TimeInterval?) -> Date {
+            var latest = max(processed ?? startedAt, graceStartedAt)
+            if let uptime, let received, received.isFinite, received <= uptime {
+                let instant = Date(timeIntervalSinceReferenceDate: received)
+                if instant >= startedAt { latest = max(latest, instant) }
+            }
+            return latest
+        }
         let action = PMDWatchdogPolicy.decide(
             isConnected: isConnected, inStandby: inStandby,
-            ecgFlowing: now.timeIntervalSince(max(ecg.lastSampleInstant ?? startedAt, graceStartedAt)) < 5,
+            ecgFlowing: now.timeIntervalSince(latest(ecg.lastSampleInstant, ecgReceiptUptime)) < 5,
             rrFlowing: rrFlowing,
-            timeSinceLastACCSample: now.timeIntervalSince(max(acc.lastSampleInstant ?? startedAt, graceStartedAt)),
+            timeSinceLastACCSample: now.timeIntervalSince(latest(acc.lastSampleInstant, accReceiptUptime)),
             timeSinceLastRetry: acc.lastRetryAt.map { now.timeIntervalSince($0) },
             retriesUsed: acc.retries, stallThreshold: 5, retryGap: 5,
             maxRetries: 3, slowRetryGap: 60,
@@ -1274,6 +1362,18 @@ final class BLEService: NSObject {
             Task { @MainActor in self.lastError = message }
             return false
         }
+    }
+
+    nonisolated private let receiptHealth = BLEReceiptHealth()
+
+    var hasFreshRRDelivery: Bool {
+        receiptHealth.isLive(.rr, at: ProcessInfo.processInfo.systemUptime, maxAge: 4)
+    }
+    var hasFreshHeartbeatDelivery: Bool {
+        receiptHealth.isLive(.heartbeat, at: ProcessInfo.processInfo.systemUptime, maxAge: 4)
+    }
+    var hasFreshECGDelivery: Bool {
+        receiptHealth.isLive(.ecg, at: ProcessInfo.processInfo.systemUptime, maxAge: 5)
     }
 
     private var ecgSettings: [UInt8: [UInt16]]?
@@ -1610,6 +1710,7 @@ final class BLEService: NSObject {
     /// disconnect/reconnect path takes over.
     func enterStandby() {
         guard sensorModel?.usesInPlaceStandby == true,
+              !hasFreshRRDelivery, !hasFreshHeartbeatDelivery,
               case .connected = state, let p = peripheral, !inStandby else { return }
         print("🌙 BLE: entering standby — strap off-body (paused in place)")
         BLEDiag.log("STANDBY enter")
@@ -1827,6 +1928,7 @@ final class BLEService: NSObject {
         let startedUptime = ProcessInfo.processInfo.systemUptime
         pmdSessionStartedUptime = startedUptime
         pmdRecovery.begin(at: startedAt, uptime: startedUptime)
+        receiptHealth.bind([.ecg, .acc], source: ObjectIdentifier(data), since: startedUptime)
         ecgSettings = nil
         accSettings = nil
         p.setNotifyValue(true, for: ctrl)
@@ -1885,6 +1987,7 @@ final class BLEService: NSObject {
     }
 
     private func stopPMDStreams() {
+        receiptHealth.clear([.ecg, .acc])
         let hadStartCommands = lastECGStartCmd != nil || lastACCStartCmd != nil
         pmdStartupPending = false
         pmdStreamsStarted = false
@@ -1905,6 +2008,7 @@ final class BLEService: NSObject {
     /// Clears only GATT state (characteristics, stream flags). Keeps `peripheral` alive
     /// so the caller can attempt a direct reconnect without scanning.
     private func clearCharacteristics() {
+        receiptHealth.clear()
         reconnectTask?.cancel()
         reconnectTask = nil
         pmdCommandTask?.cancel()
@@ -1998,7 +2102,8 @@ final class BLEService: NSObject {
         if p.state == .disconnected {
             handleUnexpectedDisconnect(p, error: nil)
         } else if p.state == .connected {
-            applyRecordingRecovery(rrRecovery.evaluate(at: Date(), uptime: ProcessInfo.processInfo.systemUptime))
+            applyRecordingRecovery(rrRecovery.evaluate(at: Date(), uptime: ProcessInfo.processInfo.systemUptime,
+                                                        rrReceiptUptime: receiptHealth.lastUptime(.rr)))
             evaluatePMDWatchdog()
         }
     }
@@ -2076,9 +2181,11 @@ final class BLEService: NSObject {
               let ecg = lastECGStartCmd, let acc = lastACCStartCmd else { return }
         let now = Date()
         let uptime = ProcessInfo.processInfo.systemUptime
-        let rrFlowing = lastRRIntervalUptime.map { uptime - $0 < 5 } ?? false
+        let rrFlowing = hasFreshRRDelivery || (lastRRIntervalUptime.map { uptime - $0 < 5 } ?? false)
         let action = pmdRecovery.evaluate(at: now, uptime: uptime, isConnected: true,
-                                          inStandby: inStandby, rrFlowing: rrFlowing)
+                                          inStandby: inStandby, rrFlowing: rrFlowing,
+                                          ecgReceiptUptime: receiptHealth.lastUptime(.ecg),
+                                          accReceiptUptime: receiptHealth.lastUptime(.acc))
         let commands: [Data]
         switch action {
         case .keepWaiting: return
@@ -2436,6 +2543,8 @@ extension BLEService: CBPeripheralDelegate {
                     print("✅ BLE: PMD data char found")
                 case PolarH10Profile.hrMeasurement:
                     self.hrChar = c
+                    self.receiptHealth.bind([.rr, .heartbeat], source: ObjectIdentifier(c),
+                        since: self.connectionEstablishedUptime ?? receivedUptime)
                     peripheral.setNotifyValue(true, for: c)
                     print("✅ BLE: HR measurement subscribed")
                 case PolarH10Profile.batteryLevel:
@@ -2481,6 +2590,10 @@ extension BLEService: CBPeripheralDelegate {
                 let hasSamples = (parsed as? ECGFrame).map { !$0.samplesUV.isEmpty }
                     ?? (parsed as? ACCFrame).map { !$0.samples.isEmpty } ?? false
                 captureAudit?.recordBLE(stream, rrCount: 0, valid: hasSamples, at: receivedAt)
+                if hasSamples {
+                    receiptHealth.received(stream == .ecg ? .ecg : .acc,
+                        source: ObjectIdentifier(characteristic), uptime: receivedUptime)
+                }
             }
             Task { @MainActor in
                 guard self.acceptsConnectionCallback(peripheral, uptime: receivedUptime),
@@ -2488,6 +2601,9 @@ extension BLEService: CBPeripheralDelegate {
                       !self.inStandby, let sessionStartedUptime = self.pmdSessionStartedUptime,
                       receivedUptime >= sessionStartedUptime,
                       self.rrRecovery.acceptsPacket(at: receivedAt, uptime: receivedUptime) else { return }
+                if let stream, let line = self.receiptHealth.processed(stream == .ecg ? .ecg : .acc,
+                    source: ObjectIdentifier(characteristic), received: receivedUptime,
+                    now: ProcessInfo.processInfo.systemUptime) { BLEDiag.log(line) }
                 if sealed { self.rawChunkReadySubject.send(()) }
                 if let ecg = parsed as? ECGFrame, !ecg.samplesUV.isEmpty {
                     guard self.notePMDSampleReceived(.ecg, at: receivedAt, uptime: receivedUptime) else { return }
@@ -2496,7 +2612,9 @@ extension BLEService: CBPeripheralDelegate {
                     guard self.notePMDSampleReceived(.acc, at: receivedAt, uptime: receivedUptime) else { return }
                     self.accSubject.send(acc.samples)
                 }
-                self.applyRecordingRecovery(self.rrRecovery.receivedPacket(at: receivedAt, uptime: receivedUptime))
+                self.applyRecordingRecovery(self.rrRecovery.receivedPacket(at: receivedAt, uptime: receivedUptime,
+                    evaluationUptime: ProcessInfo.processInfo.systemUptime,
+                    rrReceiptUptime: self.receiptHealth.lastUptime(.rr)))
                 self.evaluatePMDWatchdog()
             }
 
@@ -2542,14 +2660,24 @@ extension BLEService: CBPeripheralDelegate {
                                     validRRCount: frame?.rrIntervalsMs.filter(RRSignalValidity.isValid).count ?? 0,
                                     at: receivedAt)
             if let frame {
+                if frame.rrIntervalsMs.contains(where: RRSignalValidity.isValid) {
+                    receiptHealth.received(.rr, source: ObjectIdentifier(characteristic), uptime: receivedUptime)
+                }
+                if (30...220).contains(frame.bpm) {
+                    receiptHealth.received(.heartbeat, source: ObjectIdentifier(characteristic), uptime: receivedUptime)
+                }
                 Task { @MainActor in
                     guard self.acceptsConnectionCallback(peripheral, uptime: receivedUptime),
                           characteristic === self.hrChar,
                           let name = self.supportedName(peripheral) else { return }
                     guard self.rrRecovery.acceptsHeartRate(at: receivedAt, uptime: receivedUptime) else { return }
+                    if let line = self.receiptHealth.processed(.rr, source: ObjectIdentifier(characteristic),
+                        received: receivedUptime, now: ProcessInfo.processInfo.systemUptime) { BLEDiag.log(line) }
                     let recoveryAction = self.rrRecovery.receivedHeartRate(frame, at: receivedAt, uptime: receivedUptime,
-                        inStandby: self.inStandby, ecgLive: self.ecgStreamLive,
-                        model: self.sensorModel ?? .polarH10)
+                        inStandby: self.inStandby, ecgLive: self.ecgStreamLive || self.hasFreshECGDelivery,
+                        model: self.sensorModel ?? .polarH10,
+                        evaluationUptime: ProcessInfo.processInfo.systemUptime,
+                        rrReceiptUptime: self.receiptHealth.lastUptime(.rr))
                     defer {
                         self.applyRecordingRecovery(recoveryAction)
                         self.evaluatePMDWatchdog()
@@ -2663,7 +2791,9 @@ extension BLEService: CBPeripheralDelegate {
         Task { @MainActor in
             guard self.acceptsConnectionCallback(peripheral, uptime: receivedUptime) else { return }
             if error == nil {
-                self.applyRecordingRecovery(self.rrRecovery.receivedPacket(at: receivedAt, uptime: receivedUptime))
+                self.applyRecordingRecovery(self.rrRecovery.receivedPacket(at: receivedAt, uptime: receivedUptime,
+                    evaluationUptime: ProcessInfo.processInfo.systemUptime,
+                    rrReceiptUptime: self.receiptHealth.lastUptime(.rr)))
             } else {
                 self.checkRecordingRecovery()
             }

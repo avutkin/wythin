@@ -54,6 +54,26 @@ final class RecordingMemoryMonitor {
 enum RecordingDiagnostics {
     private static let sectionLimit = 262_144
 
+    static func timeMetadata(at date: Date, timeZone: TimeZone) -> [String: String] {
+        let local = ISO8601DateFormatter()
+        local.timeZone = timeZone
+        return [
+            "time.zone": timeZone.identifier,
+            "time.utcOffsetSeconds": String(timeZone.secondsFromGMT(for: date)),
+            "time.exportedLocal": local.string(from: date),
+            "time.logTimestamps": "UTC (Z)",
+            "time.captureDateEpoch": "2001-01-01T00:00:00Z"
+        ]
+    }
+
+    static func runtimeMetadata(deviceUptime: TimeInterval,
+                                recordingStartedUptime: TimeInterval) -> [String: String] {
+        // ProcessInfo.systemUptime describes the device, not this process.
+        // The second field measures only this recording environment instance.
+        ["device.uptimeSeconds": String(Int(deviceUptime)),
+         "recording.environmentUptimeSeconds": String(Int(max(0, deviceUptime - recordingStartedUptime)))]
+    }
+
     static func readTail(_ url: URL) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
@@ -63,16 +83,18 @@ enum RecordingDiagnostics {
     }
 
     static func write(directory: URL, metadata: [String: String], bluetooth: String,
-                      capture: String?, captureError: String?) throws -> URL {
+                      capture: String?, captureError: String?, at date: Date = Date(),
+                      timeZone: TimeZone = .autoupdatingCurrent) throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent("Wythin-recording-diagnostics.txt")
+        let metadata = metadata.merging(timeMetadata(at: date, timeZone: timeZone)) { _, actual in actual }
         let manifest = metadata.keys.sorted().prefix(48).map {
             "\($0.prefix(80)): \(metadata[$0, default: ""].prefix(512))"
         }.joined(separator: "\n")
         let captureText = capture ?? "Capture audit unavailable: \(captureError ?? "not initialized")"
         let text = """
         Wythin recording diagnostics
-        Exported: \(ISO8601DateFormatter().string(from: Date()))
+        Exported: \(ISO8601DateFormatter().string(from: date))
 
         [Environment and delivery]
         \(manifest)

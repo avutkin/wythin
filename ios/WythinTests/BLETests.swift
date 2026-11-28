@@ -1617,12 +1617,122 @@ final class BLETests: XCTestCase {
     func testBorderlineEvidenceWaitsFortyFiveSecondsAndBackwardUptimeResets() {
         var gate = StandbyEntryGate()
         XCTAssertFalse(gate.shouldEnterStandby(score: 2, connected: true, generation: 1, uptime: 100))
-        XCTAssertFalse(gate.shouldEnterStandby(score: 2, connected: true, generation: 1, uptime: 144))
+        for second in 101...144 {
+            XCTAssertFalse(gate.shouldEnterStandby(score: 2, connected: true, generation: 1, uptime: Double(second)))
+        }
         XCTAssertTrue(gate.shouldEnterStandby(score: 2, connected: true, generation: 1, uptime: 145))
         XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: 200))
         XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: 10))
         XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: 14))
         XCTAssertTrue(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: 15))
+    }
+
+    func testStandbyDoesNotCountUnobservedTimeAsOffBodyEvidence() {
+        var gate = StandbyEntryGate()
+        XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: 100))
+        // The process/actor could not evaluate during this interval. A single
+        // stale callback after the delay cannot justify stopping a live ECG.
+        XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: 160))
+        for second in 161...164 {
+            XCTAssertFalse(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: Double(second)))
+        }
+        XCTAssertTrue(gate.shouldEnterStandby(score: 4, connected: true, generation: 1, uptime: 165))
+    }
+
+    func testQueuedHealthyReceiptsPreventFalseStandbyAndRRRecovery() {
+        let source = NSObject()
+        let health = BLEReceiptHealth()
+        health.bind([.rr, .heartbeat], source: ObjectIdentifier(source), since: 100)
+        // The BLE queue receives beats while MainActor is busy with other work.
+        health.received(.rr, source: ObjectIdentifier(source), uptime: 159)
+        health.received(.heartbeat, source: ObjectIdentifier(source), uptime: 159)
+        let live = health.isLive(.rr, at: 160, maxAge: 4)
+        XCTAssertTrue(live)
+        XCTAssertEqual(StandbyPolicy.offBodyScore(contact: nil, ecgPoor: true,
+            rrBad: true, still: true, rrLive: live), 0)
+        var recovery = RRStreamRecovery()
+        recovery.beginConnection(at: recoveryStart, uptime: 100)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart, uptime: 160,
+            rrReceiptUptime: health.lastUptime(.rr)), .wait)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart, uptime: 160,
+            rrReceiptUptime: health.lastUptime(.rr)), .wait)
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart, uptime: 164,
+            rrReceiptUptime: health.lastUptime(.rr)), .wait,
+            "A receipt five seconds ago cannot justify a fifteen-second RR-gap reset")
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart, uptime: 130,
+            evaluationUptime: 164, rrReceiptUptime: health.lastUptime(.rr)), .wait,
+            "Queued older PMD callbacks must use processing time to assess newer RR receipts")
+        XCTAssertEqual(recovery.receivedPacket(at: recoveryStart, uptime: 174,
+            rrReceiptUptime: health.lastUptime(.rr)), .refreshHeartRate)
+    }
+
+    func testRRReceiptOutsideCurrentClockOrConnectionCannotSuppressRecovery() {
+        for receipt in [99.0, 131.0, Double.nan, Double.infinity] {
+            var recovery = RRStreamRecovery()
+            recovery.beginConnection(at: recoveryStart, uptime: 100)
+            XCTAssertEqual(recovery.receivedPacket(at: recoveryStart, uptime: 130,
+                rrReceiptUptime: receipt), .refreshHeartRate)
+        }
+    }
+
+    func testQueuedHealthyGarminHRAndStandbyBeaconsDoNotTriggerRecoveryThemselves() {
+        for model in [ChestStrapModel.garminHRMProPlus, .polarH10] {
+            var recovery = RRStreamRecovery()
+            recovery.beginConnection(at: recoveryStart, uptime: 100)
+            let frame = HRFrame(bpm: model == .garminHRMProPlus ? 70 : 0,
+                                rrIntervalsMs: [], contact: false)
+            XCTAssertEqual(recovery.receivedHeartRate(frame, at: recoveryStart, uptime: 130,
+                inStandby: model == .polarH10, ecgLive: false, model: model,
+                evaluationUptime: 164), .wait)
+            XCTAssertEqual(recovery.evaluate(at: recoveryStart, uptime: 164), .probe,
+                "A separate current-time watchdog still recovers actual subsequent silence")
+        }
+    }
+
+    func testReceiptEvidenceRejectsReplacedSourcesOlderEpochsAndFutureTime() {
+        let old = NSObject(), current = NSObject()
+        let health = BLEReceiptHealth()
+        health.bind([.ecg, .acc], source: ObjectIdentifier(old), since: 100)
+        health.received(.ecg, source: ObjectIdentifier(old), uptime: 110)
+        XCTAssertTrue(health.isLive(.ecg, at: 111, maxAge: 5))
+        health.bind([.ecg, .acc], source: ObjectIdentifier(current), since: 120)
+        health.received(.ecg, source: ObjectIdentifier(old), uptime: 121)
+        health.received(.ecg, source: ObjectIdentifier(current), uptime: 119)
+        XCTAssertFalse(health.isLive(.ecg, at: 122, maxAge: 5))
+        health.received(.ecg, source: ObjectIdentifier(current), uptime: 122)
+        health.received(.ecg, source: ObjectIdentifier(current), uptime: 121)
+        XCTAssertEqual(health.lastUptime(.ecg), 122)
+        XCTAssertFalse(health.isLive(.ecg, at: 121, maxAge: 5))
+        XCTAssertFalse(health.isLive(.acc, at: 123, maxAge: 5))
+        health.clear()
+        health.received(.ecg, source: ObjectIdentifier(current), uptime: 124)
+        XCTAssertFalse(health.isLive(.ecg, at: 124, maxAge: 5))
+    }
+
+    func testQueuedPMDReceiptProtectsOnlyItsOwnStream() {
+        var recovery = PMDStreamRecovery()
+        recovery.begin(at: recoveryStart, uptime: 100)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart, uptime: 130,
+            isConnected: true, inStandby: false, rrFlowing: true,
+            ecgReceiptUptime: 129, accReceiptUptime: 129), .keepWaiting)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart, uptime: 136,
+            isConnected: true, inStandby: false, rrFlowing: true,
+            ecgReceiptUptime: 129, accReceiptUptime: 135), .retryECGStart)
+        recovery.begin(at: recoveryStart, uptime: 200)
+        XCTAssertEqual(recovery.evaluate(at: recoveryStart, uptime: 206,
+            isConnected: true, inStandby: false, rrFlowing: true,
+            ecgReceiptUptime: 199, accReceiptUptime: 999), .retryBothPMD,
+            "A prior session or future receipt cannot manufacture liveness")
+    }
+
+    func testDelayedDeliveryDiagnosticsAreBoundedAndDoNotExposePayloads() {
+        let source = NSObject()
+        let health = BLEReceiptHealth()
+        health.bind([.rr], source: ObjectIdentifier(source), since: 100)
+        XCTAssertNil(health.processed(.rr, source: ObjectIdentifier(source), received: 100, now: 101))
+        XCTAssertNotNil(health.processed(.rr, source: ObjectIdentifier(source), received: 100, now: 130))
+        XCTAssertNil(health.processed(.rr, source: ObjectIdentifier(source), received: 101, now: 131))
+        XCTAssertNotNil(health.processed(.rr, source: ObjectIdentifier(source), received: 120, now: 160))
     }
 
     func testOffBodyPresentationMasksStaleQualityButPreservesFreshHeartbeat() {

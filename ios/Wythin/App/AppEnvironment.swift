@@ -438,6 +438,8 @@ final class AppEnvironment {
     private var metricsTask:  Task<Void, Never>?
     private let metricSignals = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     private var metricSchedule = MetricTriggerPolicy(minInterval: 2)
+    private var lastMetricDelayLogUptime: TimeInterval?
+    private let recordingStartedUptime = ProcessInfo.processInfo.systemUptime
 
     @ObservationIgnored private(set) lazy var activityWindowMaintenance = ActivityWindowMaintenance(container: modelContainer)
 
@@ -593,7 +595,6 @@ final class AppEnvironment {
             "device.model": UIDevice.current.model,
             "device.os": UIDevice.current.systemVersion,
             "app.foreground": String(isInForeground),
-            "app.uptimeSeconds": String(Int(ProcessInfo.processInfo.systemUptime)),
             "bluetooth.state": ble.cbStateDescription,
             "recording.state": String(describing: ble.state),
             "recording.generation": String(ble.recordingGeneration),
@@ -603,6 +604,9 @@ final class AppEnvironment {
             "recording.error": recordingError ?? "none",
             "rawArchive.enabled": String(RawArchiveFeature.isAvailable)
         ]
+        metadata.merge(RecordingDiagnostics.runtimeMetadata(
+            deviceUptime: ProcessInfo.processInfo.systemUptime,
+            recordingStartedUptime: recordingStartedUptime)) { _, actual in actual }
         for (key, value) in metricSync.diagnosticsSummary { metadata["upload.\(key)"] = value }
         var capture: String?
         var captureError: String?
@@ -823,12 +827,13 @@ final class AppEnvironment {
         accMotion = computeAccMotion()
         let connected: Bool
         if case .connected = ble.state { connected = true } else { connected = false }
-        let ecgLive = ble.ecgStreamLive
-        let rrLive = ble.rrIntervalsLive
+        let ecgLive = ble.ecgStreamLive || ble.hasFreshECGDelivery
+        let rrLive = ble.rrIntervalsLive || ble.hasFreshRRDelivery
         let score = StandbyPolicy.offBodyScore(
             contact: ble.sensorContact, ecgPoor: !ecgLive, rrBad: !rrLive,
             still: accMotion.map { $0 < self.accStillnessThreshold } ?? false,
-            rrLive: rrLive, ecgLive: ecgLive, heartbeatLive: ble.heartbeatLive)
+            rrLive: rrLive, ecgLive: ecgLive,
+            heartbeatLive: ble.heartbeatLive || ble.hasFreshHeartbeatDelivery)
         if standbyEntryGate.shouldEnterStandby(score: score, connected: connected,
             generation: ble.recordingGeneration, uptime: uptime) {
             ble.enterStandby()
@@ -1043,112 +1048,135 @@ final class AppEnvironment {
                 let snapshot = await self.dataBuffer.snapshot(
                     ecgLive: self.ble.ecgStreamLive,
                     accLive: self.ble.accStreamLive)
+                let admittedUptime = ProcessInfo.processInfo.systemUptime
+                let recordingTimezone = TimeZone.autoupdatingCurrent.identifier
                 guard generation == self.ble.recordingGeneration,
-                      snapshot.isUsable(recordingGeneration: generation) else { continue }
+                      snapshot.isUsable(recordingGeneration: generation, uptime: admittedUptime) else { continue }
 
                 // Use lower CPU priority in background so BLE callbacks stay responsive.
                 let priority: TaskPriority = inForeground ? .userInitiated : .utility
                 var tick = await Task.detached(priority: priority) {
                     MetricsEngine.compute(from: snapshot)
                 }.value
-                // A reconnect/standby transition can occur during either await.
-                // Never publish a result from an obsolete connection or stale RR.
-                guard case .connected = self.ble.state,
-                      generation == self.ble.recordingGeneration,
-                      snapshot.isUsable(recordingGeneration: generation) else {
-                    self.ble.captureAudit?.recordPhase("discard_obsolete_metric")
-                    continue
+                let completedUptime = ProcessInfo.processInfo.systemUptime
+                let connected: Bool
+                if case .connected = self.ble.state { connected = true } else { connected = false }
+                let disposition = MetricCompletionDisposition.decide(snapshot: snapshot,
+                    generation: self.ble.recordingGeneration, connected: connected,
+                    admittedUptime: admittedUptime, completedUptime: completedUptime)
+                if disposition != .live,
+                   self.lastMetricDelayLogUptime.map({ completedUptime - $0 >= 30 }) ?? true {
+                    self.lastMetricDelayLogUptime = completedUptime
+                    BLEDiag.log("METRIC_COMPUTE result=\(disposition) elapsed_seconds=\(Int(completedUptime - admittedUptime))")
                 }
+                guard disposition.shouldPersist else { continue }
                 self.diagnosticReporter?.computed(sampleAt: tick.timestamp)
 
-                // The spectral pick is an observation, not the answer: track it
-                // over time so the chart shows breathing, not estimator noise.
-                // Held here rather than inside the engine because the engine is
-                // a pure per-snapshot function with no memory of the last tick.
-                let dt = Float(Date().timeIntervalSince(self.lastBreathTickAt ?? Date()))
-                self.lastBreathTickAt = Date()
-                tick.breathBPM = self.breathTracker.update(
-                    tick.breathBPM.map { [.init(bpm: $0, confidence: tick.breathConfidence ?? 3)] } ?? [],
-                    dt: dt)
+                if disposition.shouldPublishLive {
+                    // The spectral pick is an observation, not the answer: track it
+                    // over time so the chart shows breathing, not estimator noise.
+                    // Held here rather than inside the engine because the engine is
+                    // a pure per-snapshot function with no memory of the last tick.
+                    let dt = Float(max(0, tick.timestamp.timeIntervalSince(self.lastBreathTickAt ?? tick.timestamp)))
+                    self.lastBreathTickAt = tick.timestamp
+                    tick.breathBPM = self.breathTracker.update(
+                        tick.breathBPM.map { [.init(bpm: $0, confidence: tick.breathConfidence ?? 3)] } ?? [],
+                        dt: dt)
 
-                // QT needs the waveform, not the tachogram, and more beats
-                // than one window holds — so it accumulates here rather than
-                // in the engine. Skipped when the ECG stream is dead, since
-                // delineating silence just burns CPU.
-                if !snapshot.ecg.isEmpty {
-                    tick.qtvi = self.qtTracker.update(
-                        ecg: snapshot.ecg,
-                        fs: Float(PolarH10Profile.ecgSampleRate),
-                        windowEnd: tick.timestamp)
+                    // QT needs the waveform, not the tachogram, and more beats
+                    // than one window holds — so it accumulates here rather than
+                    // in the engine. Skipped when the ECG stream is dead, since
+                    // delineating silence just burns CPU.
+                    if !snapshot.ecg.isEmpty {
+                        tick.qtvi = self.qtTracker.update(
+                            ecg: snapshot.ecg,
+                            fs: Float(PolarH10Profile.ecgSampleRate),
+                            windowEnd: tick.timestamp)
+                    } else {
+                        self.qtTracker.reset()
+                    }
                 } else {
+                    // Do not bridge live estimators across an unprocessed interval.
+                    self.breathTracker.reset()
                     self.qtTracker.reset()
+                    self.lastBreathTickAt = nil
                 }
 
-                // Keep the chart history current in BOTH foreground and background
-                // so the charts are already up-to-date the instant the app is
-                // opened — no post-foreground fetch/refill delay.
-                let recordingTimezone = TimeZone.autoupdatingCurrent.identifier
-                let point = MetricsHistoryPoint(from: tick, timezone: recordingTimezone)
-                self.tickHistory.append(point)
-                if self.tickHistory.count > self.maxTickHistory + self.trimBatch {
-                    self.tickHistory.removeFirst(self.trimBatch)
-                }
-
-                // ── Live Activity: lock screen and Dynamic Island ─────────────
-                // Throttled inside the controller, so this can fire every tick.
-                if let hr = tick.meanBPM {
-                    LiveSessionController.shared.update(
-                        heartRate: Int(hr.rounded()),
-                        hrReserve: nil, zone: nil, strapLost: false)
-                }
-
-                // ── Always: shadow nudge engine (SP6 Phase 1) ─────────────────
-                // Records what *would* have fired so the thresholds can be tuned
-                // against real wear. Delivers nothing to the user.
-                self.nudges.ingest(point, now: point.timestamp)
-                self.evaluateNudgesIfDue(now: point.timestamp)
-                self.detectAnchorIfDue(now: point.timestamp)
-                self.recordSleepIfDue(now: point.timestamp)
-
-                // The off-body check needs signal quality in the background
-                // too. `latestTick` is foreground-only, so it used to freeze at
-                // the last on-screen value the moment the app left the screen.
-                self.lastComputedTick = tick
-                self.backgroundTickCount += inForeground ? 0 : 1
-                if !inForeground, self.backgroundTickCount % 10 == 1 {
-                    // One line every ~5 min of background recording: proves the
-                    // loop is alive and shows exactly when it stopped.
-                    BLEDiag.log("BG TICK n=\(self.backgroundTickCount) ble=\(self.ble.state)")
-                }
-
-                // ── Foreground-only: live table + live cloud stream ───────────
-                if inForeground {
-                    self.latestTick = tick
-                    self.sync.sendTick(tick, userID: self.userID)
-                }
-
-                // ── Always: persist to SwiftData ──────────────────────────────
-                // Continuous samples remain queryable without accumulating in
-                // one session relationship for the lifetime of the process.
-                let context = self.modelContainer.mainContext
-                // A suspended or terminated process must not lose up to a
-                // minute of metrics that were already computed from RR frames.
-                do {
-                    try MetricSampleStore.persist(HRVSample(from: tick, timezone: recordingTimezone),
-                                                  session: self.currentSession,
-                                                  context: context)
-                    self.ble.captureAudit?.recordMetricSave(success: true)
-                    self.diagnosticReporter?.saved(sampleAt: tick.timestamp)
-                    self.metricSync.savedMetricsDidChange()
-                    self.recordingError = nil
-                } catch {
+                MetricDelivery.deliver(tick, disposition: {
+                    MetricCompletionDisposition.decide(snapshot: snapshot,
+                        generation: self.ble.recordingGeneration, connected: connected,
+                        admittedUptime: admittedUptime, completedUptime: ProcessInfo.processInfo.systemUptime)
+                }, persist: { tick in
+                    try self.persistComputedMetric(tick, timezone: recordingTimezone)
+                }, saveFailed: { error in
                     self.ble.captureAudit?.recordMetricSave(success: false)
                     self.diagnosticReporter?.saveFailed(error)
                     self.recordingError = "Metric recording failed: \(error.localizedDescription)"
-                }
+                }, recordHistory: { tick in
+                    self.appendMetricHistory(tick, timezone: recordingTimezone)
+                }, publishLive: { tick in
+                    self.publishLiveMetric(tick, timezone: recordingTimezone)
+                })
+
             }
         }
 
+    }
+
+    private func persistComputedMetric(_ tick: MetricsTick, timezone: String) throws {
+        try MetricSampleStore.persist(HRVSample(from: tick, timezone: timezone),
+            session: currentSession, context: modelContainer.mainContext)
+        ble.captureAudit?.recordMetricSave(success: true)
+        diagnosticReporter?.saved(sampleAt: tick.timestamp)
+        metricSync.savedMetricsDidChange()
+        recordingError = nil
+    }
+
+    private func appendMetricHistory(_ tick: MetricsTick, timezone recordingTimezone: String) {
+        // Keep the chart history current in BOTH foreground and background
+        // so the charts are already up-to-date the instant the app is
+        // opened — no post-foreground fetch/refill delay.
+        let point = MetricsHistoryPoint(from: tick, timezone: recordingTimezone)
+        self.tickHistory.append(point)
+        if self.tickHistory.count > self.maxTickHistory + self.trimBatch {
+            self.tickHistory.removeFirst(self.trimBatch)
+        }
+    }
+
+    private func publishLiveMetric(_ tick: MetricsTick, timezone recordingTimezone: String) {
+        let point = MetricsHistoryPoint(from: tick, timezone: recordingTimezone)
+        // ── Live Activity: lock screen and Dynamic Island ─────────────
+        // Throttled inside the controller, so this can fire every tick.
+        if let hr = tick.meanBPM {
+            LiveSessionController.shared.update(
+                heartRate: Int(hr.rounded()),
+                hrReserve: nil, zone: nil, strapLost: false)
+        }
+
+        // ── Always: shadow nudge engine (SP6 Phase 1) ─────────────────
+        // Records what *would* have fired so the thresholds can be tuned
+        // against real wear. Delivers nothing to the user.
+        self.nudges.ingest(point, now: point.timestamp)
+        self.evaluateNudgesIfDue(now: point.timestamp)
+        self.detectAnchorIfDue(now: point.timestamp)
+        self.recordSleepIfDue(now: point.timestamp)
+
+        // The off-body check needs signal quality in the background
+        // too. `latestTick` is foreground-only, so it used to freeze at
+        // the last on-screen value the moment the app left the screen.
+        self.lastComputedTick = tick
+        self.backgroundTickCount += self.isInForeground ? 0 : 1
+        if !self.isInForeground, self.backgroundTickCount % 10 == 1 {
+            // One line every ten computed background ticks: proves the
+            // loop is alive and shows exactly when it stopped.
+            BLEDiag.log("BG TICK n=\(self.backgroundTickCount) ble=\(self.ble.state)")
+        }
+
+        // ── Foreground-only: live table + live cloud stream ───────────
+        if self.isInForeground {
+            self.latestTick = tick
+            self.sync.sendTick(tick, userID: self.userID)
+        }
     }
 
     private func runWaveformDisplay() async {

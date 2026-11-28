@@ -538,3 +538,61 @@ struct DataSnapshot {
         return age >= 0 && age <= 5
     }
 }
+
+/// Admission freshness determines whether a window may be computed at all.
+/// Completion freshness determines whether it may be shown as live; scheduler
+/// delay alone cannot erase a valid historical observation. Generation/state
+/// fences still reject work spanning a recording discontinuity.
+enum MetricCompletionDisposition: Equatable {
+    enum Rejection: String { case connection, generation, staleAdmission, invalidClock }
+    case live, historyOnly, discard(Rejection)
+
+    var shouldPersist: Bool {
+        if case .discard = self { return false }
+        return true
+    }
+    var shouldPublishLive: Bool { self == .live }
+
+    static func decide(snapshot: DataSnapshot, generation: UInt64, connected: Bool,
+                       admittedUptime: TimeInterval, completedUptime: TimeInterval) -> Self {
+        guard admittedUptime.isFinite, completedUptime.isFinite,
+              completedUptime >= admittedUptime else { return .discard(.invalidClock) }
+        guard connected else { return .discard(.connection) }
+        guard snapshot.recordingGeneration == generation else { return .discard(.generation) }
+        guard snapshot.lastValidRRAt != nil,
+              snapshot.isUsable(recordingGeneration: generation, uptime: admittedUptime) else {
+            return .discard(.staleAdmission)
+        }
+        return snapshot.isUsable(recordingGeneration: generation, uptime: completedUptime) ? .live : .historyOnly
+    }
+}
+
+/// Routes a completed observation to durable history and independent live
+/// consumers. Injectable effects let failures and elapsed time be exercised
+/// without a Bluetooth device or a damaged database.
+enum MetricDelivery {
+    static func deliver(_ tick: MetricsTick,
+                        disposition: () -> MetricCompletionDisposition,
+                        persist: (MetricsTick) throws -> Void,
+                        saveFailed: (Error) -> Void,
+                        recordHistory: (MetricsTick) -> Void,
+                        publishLive: (MetricsTick) -> Void) {
+        let initial = disposition()
+        guard initial.shouldPersist else { return }
+        var tick = tick
+        if !initial.shouldPublishLive {
+            // The engine emits a respiration candidate. Without temporal
+            // tracking it must not masquerade as the finalized history value.
+            tick.breathBPM = nil
+            tick.breathSource = nil
+            tick.breathConfidence = nil
+        }
+        do { try persist(tick) }
+        catch { saveFailed(error) }
+        recordHistory(tick)
+        // Storage failure cannot freeze independent live consumers. Conversely,
+        // a slow successful save cannot turn an expired reading into live data.
+        guard initial.shouldPublishLive, disposition().shouldPublishLive else { return }
+        publishLive(tick)
+    }
+}
