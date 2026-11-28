@@ -80,3 +80,9 @@ Final fixes focused GREEN: 58 tests, 0 failures, exit 0 (`/private/tmp/wythin-me
 Task 3 and final review: complete. Final full WythinTests after all three review fixes: **2,017 tests, 2 opt-in background-upload smoke tests skipped, 0 failures; xcodebuild exit 0** (`/private/tmp/wythin-memory-final-full.log`). Each accepted review finding has a failing regression followed by focused GREEN and this full GREEN. `git diff --check 96cc2a2` passes. No deferred review findings.
 
 Release status: fixes are local commits in the managed recording-resilience worktree; no production or TestFlight deployment. Real iPhone/H10 endurance, OS termination/relaunch behavior and KT's precise termination cause still need device evidence. Memory footprint samples in the local diagnostic export can support that investigation; absence of a memory warning does not establish that memory was sufficient.
+
+## Release integration — 2026-11-27
+
+After the local verification above, the user explicitly requested a new update with the fixes. ASC's current valid build is 162; origin/main at 3a78b30 already includes Garmin HRM-Pro Plus support. Merged that published work into the isolated recording-resilience branch, preserving both supported models, the persistent recovery scan, saved reconnect intent and explicit pause. The conflict was limited to BLEService's generalized model names, scan recovery and device-copy changes. Added a regression for saved Garmin recovery after picker timeout and persisted pause after relaunch.
+
+The merged full WythinTests run passed: **2,029 tests, 2 opt-in skips, 0 failures; exit 0**, `/private/tmp/wythin-resilience-release-merge-tests.log`. Release must use `tools/ship.sh testflight`, with its full test gate and ASC-based build-number selection; the shared main checkout and other sessions' uncommitted work remain untouched.
