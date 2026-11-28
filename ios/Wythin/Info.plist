@@ -5,9 +5,9 @@
 	<key>CFBundleDisplayName</key>
 	<string>Wythin</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Wythin uses Bluetooth to receive live heart rate and beat intervals from your Polar H10 or Garmin HRM-Pro Plus.</string>
+	<string>Wythin needs Bluetooth to connect to your Polar H10 heart rate monitor for real-time ECG and HRV measurement.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>Wythin uses Bluetooth to receive live heart rate and beat intervals from your Polar H10 or Garmin HRM-Pro Plus.</string>
+	<string>Wythin needs Bluetooth to connect to your Polar H10 heart rate monitor.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>

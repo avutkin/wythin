@@ -606,9 +606,9 @@ struct OnboardingConnectScreen: View {
     var body: some View {
         OnboardingScaffold(
             progress: progress,
-            question: connectedName == nil ? "Connect your chest strap" : "You're connected.",
+            question: connectedName == nil ? "Connect your Polar H10" : "You're connected.",
             subtitle: connectedName == nil
-                ? "Use Polar H10 or Garmin HRM-Pro Plus to stream your heart data."
+                ? "Your chest strap streams the heart data behind every reading."
                 : "That's the hard part done.",
             canContinue: true,
             continueTitle: "Continue",
@@ -681,23 +681,19 @@ struct OnboardingConnectScreen: View {
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.accent.opacity(0.35), lineWidth: 1))
 
-            if ChestStrapModel.identify(name) == .garminHRMProPlus {
-                Text("Your Garmin sends heart rate and beat intervals. Open Live to see your readings as they arrive. ECG and chest movement require Polar H10.")
-                    .font(Theme.monoBody)
-                    .foregroundStyle(Theme.dim)
-            } else {
-                liveStrip(title: "LIVE ECG", detail: "130 Hz", tint: Theme.accent) {
-                    ECGWaveformView(buffer: ecg)
-                }
-                liveStrip(title: "BREATHING", detail: "200 Hz · ACC Z", tint: Theme.breathe) {
-                    ACCWaveformView(buffer: acc)
-                }
-                Text("That's your own heartbeat, live.")
-                    .font(Theme.monoBody)
-                    .foregroundStyle(Theme.dim)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 2)
+            liveStrip(title: "LIVE ECG", detail: "130 Hz", tint: Theme.accent) {
+                ECGWaveformView(buffer: ecg)
             }
+
+            liveStrip(title: "BREATHING", detail: "200 Hz · ACC Z", tint: Theme.breathe) {
+                ACCWaveformView(buffer: acc)
+            }
+
+            Text("That's your own heartbeat, live.")
+                .font(Theme.monoBody)
+                .foregroundStyle(Theme.dim)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 2)
         }
         .padding(.top, 8)
     }

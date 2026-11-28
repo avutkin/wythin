@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Preserve Polar H10 and Garmin HRM-Pro Plus behavior and explicit user pause.
+- Preserve Polar H10 behavior and explicit user pause. Initial Garmin compatibility was superseded by the user-authorized Polar H10-only build 164 during release integration.
 - No external release authorization, production writes, schema changes or fabricated data.
 - Full WythinTests green before integration; isolated current worktree only.
 
@@ -80,3 +80,12 @@
 - Skips: two existing opt-in upload/background smoke tests require a local receiver plus external app-background action; no claim of device endurance or background-upload smoke coverage in this run.
 - `git diff --check` passes. Fresh reviewer had no additional findings in replacement/disconnect, independent PMD recovery, standby continuity, generation fences or Sydney formatting. All four Important findings fixed; no deferred minors.
 - Changes retained in the isolated development branch. This task does not publish another TestFlight build or authorize external distribution.
+
+## TestFlight update integration
+
+- User requested the TestFlight update after the implementation commit `234e7aa`.
+- `origin/main` advanced to `ce96665`, incorporating the user-authorized removal of Garmin and build 164. Merged that current behavior, retaining all recording receipt/freshness fixes; no Garmin support is restored.
+- Resolved three BLE signature/guard conflicts and adapted the added delayed healthy-frame regression to Polar normal RR plus standby beacons. Existing rejection/migration tests from build 164 remain unchanged.
+- Fresh read-only integration review: no blocking code findings; superseded Garmin wording corrected in the plan/spec. Full suite runs before pushing, and the official ship script repeats it from origin/main.
+
+- Polar-only integration full suite: **2039 executed, 2 existing opt-in skips, 0 failures**, 2026-11-27 19:18 PST; log `/private/tmp/wythin-delivery-polar-integration.log`.

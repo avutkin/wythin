@@ -831,11 +831,7 @@ struct BLEConnectionSheet: View {
                         // Always present — an empty "waiting for stream…" strip
                         // when nothing flows IS the diagnostic; hiding the card
                         // on disconnect/standby just made the charts feel gone.
-                        if ble.sensorModel == .garminHRMProPlus {
-                            garminStreamsCard
-                        } else {
-                            liveStreamsCard
-                        }
+                        liveStreamsCard
                         actionSection
                         if let err = ble.lastError { errorCard(err) }
                     }
@@ -925,11 +921,9 @@ struct BLEConnectionSheet: View {
                 Spacer()
                 // A verdict is only as fresh as the stream behind it — a dead
                 // stream says so instead of leaving the last "clean" up.
-                Text(ble.sensorModel == .garminHRMProPlus ? "not available on Garmin" :
-                     (offBody ? "no skin contact" : (ble.ecgStreamLive ? (q.ecgReason ?? "—") : "no stream")))
+                Text(offBody ? "no skin contact" : (ble.ecgStreamLive ? (q.ecgReason ?? "—") : "no stream"))
                     .font(Theme.monoBody)
-                    .foregroundStyle(ble.sensorModel == .garminHRMProPlus ? Theme.dim :
-                                     (!offBody && ble.ecgStreamLive ? Theme.text : Theme.warn))
+                    .foregroundStyle(!offBody && ble.ecgStreamLive ? Theme.text : Theme.warn)
             }
             HStack {
                 Text("Skin contact")
@@ -946,13 +940,11 @@ struct BLEConnectionSheet: View {
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                 Spacer()
-                Text(ble.sensorModel == .garminHRMProPlus ? "not available on Garmin" :
-                     ble.accStreamLive
+                Text(ble.accStreamLive
                      ? (motion.map { String(format: "%.1f", $0) } ?? "—")
                      : "no stream")
                     .font(Theme.monoBody)
-                    .foregroundStyle(ble.sensorModel == .garminHRMProPlus ? Theme.dim :
-                                     (ble.accStreamLive ? Theme.text : Theme.warn))
+                    .foregroundStyle(ble.accStreamLive ? Theme.text : Theme.warn)
             }
             if offBody || q.tier != .good {
                 Divider().background(Theme.border)
@@ -1035,7 +1027,7 @@ struct BLEConnectionSheet: View {
                 Text("BATTERY BELOW 5%")
                     .font(Theme.monoBody)
                     .foregroundStyle(Theme.warn)
-                Text("Replace \(ble.sensorModel.map { "the \($0.batteryType) coin cell" } ?? "the battery") soon — the strap can die mid-session.")
+                Text("Replace the CR2025 coin cell soon — the strap can die mid-session.")
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
             }
@@ -1055,29 +1047,6 @@ struct BLEConnectionSheet: View {
         guard ble.isOffBody else { return "waiting for stream…" }
         if case .standby = ble.state { return "strap off — recording paused" }
         return "strap off — no usable signal"
-    }
-
-    private var garminStreamsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("HEART RATE").foregroundStyle(Theme.dim)
-                Spacer()
-                Text(ble.heartRateBPM.map { "\($0) bpm" } ?? "—")
-                    .foregroundStyle(Theme.accent)
-            }
-            HStack {
-                Text("RR INTERVALS").foregroundStyle(Theme.dim)
-                Spacer()
-                Text(ble.rrIntervalsLive ? "Receiving" : "Waiting for beats…")
-                    .foregroundStyle(ble.rrIntervalsLive ? Theme.accent : Theme.dim)
-            }
-            Text("Garmin provides heart rate and beat intervals for HRV. ECG and chest movement are available with Polar H10.")
-                .font(Theme.monoLabel)
-                .foregroundStyle(Theme.dim)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .font(Theme.monoBody)
-        .cardStyle()
     }
 
     /// Raw stream scope — the fastest way to see whether the strap is actually
@@ -1207,7 +1176,7 @@ struct BLEConnectionSheet: View {
                         .strokeBorder(Theme.border, lineWidth: 0.5)
                 )
             } else if ble.isScanning {
-                Text("Looking for Polar H10 or Garmin HRM-Pro Plus…")
+                Text("Looking for Polar H10…")
                     .font(Theme.monoLabel)
                     .foregroundStyle(Theme.dim)
                     .frame(maxWidth: .infinity)
@@ -1281,16 +1250,10 @@ struct BLEConnectionSheet: View {
 
     private var stateSubtitle: String {
         switch ble.state {
-        case .idle:              return "Tap Scan to find Polar H10 or Garmin HRM-Pro Plus"
-        case .scanning:          return "Searching for supported chest straps…"
+        case .idle:              return "Tap Scan to find your Polar H10"
+        case .scanning:          return "Searching for Polar H10…"
         case .connecting:        return "Establishing connection…"
-        case .connected:
-            if ble.isOffBody { return "Strap off — pausing recording" }
-            if ble.sensorModel == .garminHRMProPlus {
-                if ble.rrIntervalsLive { return "Heart rate + RR intervals receiving" }
-                return ble.heartbeatLive ? "Heart rate receiving · waiting for RR intervals" : "Waiting for heart rate and RR intervals…"
-            }
-            return "ECG + ACC streaming"
+        case .connected:         return ble.isOffBody ? "Strap off — pausing recording" : "ECG + ACC streaming"
         case .disconnected(let r): return r
         case .standby:           return "Strap off — recording resumes when worn"
         case .unauthorized:      return "Allow Bluetooth in iPhone Settings"

@@ -12,7 +12,7 @@ UTC timestamps remain canonical. Export explicit device timezone, offset and loc
 
 ## Alternatives and constraints
 
-Increasing every timeout would delay real recovery and not fix false liveness decisions. A complete capture/database actor rewrite is larger than the demonstrated defects. Use the existing callback, generation and persistence architecture with narrow policies and tests. No fabricated samples, interpolation, global timezone changes, schema migration, new dependencies, production data changes or claims that OS termination is fixed. Keep Garmin support. Radio/encryption timeouts and the reason iOS relaunched the process cannot be eliminated or diagnosed from this export alone. Small upload batches are not evidence of loss and are out of scope absent a reproduction.
+Increasing every timeout would delay real recovery and not fix false liveness decisions. A complete capture/database actor rewrite is larger than the demonstrated defects. Use the existing callback, generation and persistence architecture with narrow policies and tests. No fabricated samples, interpolation, global timezone changes, schema migration, new dependencies, production data changes or claims that OS termination is fixed. The initial build 163 scope preserved Garmin support; this is superseded by the user-authorized Polar H10-only build 164 integrated for release. Keep the current Polar-only identity restrictions and migration. Radio/encryption timeouts and the reason iOS relaunched the process cannot be eliminated or diagnosed from this export alone. Small upload batches are not evidence of loss and are out of scope absent a reproduction.
 
 ## Validation
 
