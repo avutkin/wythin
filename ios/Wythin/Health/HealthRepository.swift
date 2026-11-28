@@ -80,6 +80,33 @@ struct HealthEntry: Codable, Sendable {
 
 enum HealthStoreError: Error { case invalidWorkout, oversizedChange, connectionMissing, staleAcknowledgement, annotationTooLong }
 
+/// Enqueue must never wait for a busy Core Data context on the caller's thread.
+/// DefaultSerialModelExecutor can do that from MainActor (build 165 watchdog).
+/// Keep both context creation and actor jobs on our own serial background queue.
+private final class HealthRepositoryExecutor: SerialModelExecutor, @unchecked Sendable {
+    let modelContext: ModelContext
+    private let queue: DispatchQueue
+
+    init(container: ModelContainer) throws {
+        let queue = DispatchQueue(label: "com.wythin.health.repository", qos: .utility)
+        self.queue = queue
+        self.modelContext = try queue.sync {
+            let context = ModelContext(container)
+            context.autosaveEnabled = false
+            for row in try context.fetch(FetchDescriptor<HealthStoredObject>(predicate: #Predicate { $0.kind == "restore" })) {
+                context.delete(row)
+            }
+            try context.save()
+            return context
+        }
+    }
+
+    func enqueue(_ job: consuming ExecutorJob) {
+        let job = UnownedJob(job)
+        queue.async { job.runSynchronously(on: self.asUnownedSerialExecutor()) }
+    }
+}
+
 /// A separate store keeps imported sensor records out of Polar's sample schema.
 /// Each actor call commits source records, cursor and immutable outbox together.
 @ModelActor actor HealthRepository {
@@ -97,11 +124,8 @@ enum HealthStoreError: Error { case invalidWorkout, oversizedChange, connectionM
             configuration = ModelConfiguration("Health", schema: schema, url: destination, cloudKitDatabase: .none)
         }
         let container = try ModelContainer(for: schema, configurations: [configuration])
-        let context = ModelContext(container); context.autosaveEnabled = false
-        for row in try context.fetch(FetchDescriptor<HealthStoredObject>(predicate: #Predicate { $0.kind == "restore" })) { context.delete(row) }
-        try context.save()
         self.modelContainer = container
-        self.modelExecutor = DefaultSerialModelExecutor(modelContext: context)
+        self.modelExecutor = try HealthRepositoryExecutor(container: container)
     }
 
     func state() throws -> HealthLocalState {
@@ -181,7 +205,7 @@ enum HealthStoreError: Error { case invalidWorkout, oversizedChange, connectionM
                 var payload = try dictionary(workout); payload.removeValue(forKey: "id")
                 try enqueue("upsert_workout", id: workout.id, row: row, field: "workout", payload: payload, state: &state)
             }
-            for id in page.deletedIDs { try deleteWorkout(id, state: &state) }
+            try deleteWorkouts(page.deletedIDs, state: &state)
             if let anchor = page.nextAnchor { state.anchors["workouts"] = anchor }
             state.historyComplete = !page.hasMore
             try saveState(state)
@@ -508,21 +532,51 @@ enum HealthStoreError: Error { case invalidWorkout, oversizedChange, connectionM
     }
 
     private func deleteWorkout(_ id: UUID, state: inout HealthLocalState) throws {
-        if try object("workout_tombstone", id) == nil {
-            let marker = HealthStoredObject(kind: "workout_tombstone", id: id, payload: Data()); marker.tombstoned = true; marker.revision = 1
-            modelContext.insert(marker)
-            try enqueue("delete_workout", id: id, row: marker, state: &state)
+        try deleteWorkouts([id], state: &state)
+    }
+    private func deleteWorkouts(_ ids: [UUID], state: inout HealthLocalState) throws {
+        var removed = Set<UUID>()
+        for id in ids where removed.insert(id).inserted {
+            if try object("workout_tombstone", id) == nil {
+                let marker = HealthStoredObject(kind: "workout_tombstone", id: id, payload: Data()); marker.tombstoned = true; marker.revision = 1
+                modelContext.insert(marker)
+                try enqueue("delete_workout", id: id, row: marker, state: &state)
+            }
         }
-        try removeWorkoutData(id)
+        try removeWorkoutData(removed)
     }
     private func removeWorkoutData(_ id: UUID) throws {
-        if let row = try object("workout", id) { modelContext.delete(row) }
-        for row in try modelContext.fetch(FetchDescriptor<HealthStoredObject>(predicate: #Predicate { $0.kind == "sample" })) {
-            var sample = try HealthCoding.decode(HealthSample.self, from: row.payload)
-            guard sample.workoutIds.contains(id) else { continue }
-            sample.workoutIds.removeAll { $0 == id }
-            if sample.workoutIds.isEmpty { modelContext.delete(row) }
-            else { row.payload = try HealthCoding.encode(sample) }
+        try removeWorkoutData(Set([id]))
+    }
+    private func removeWorkoutData(_ ids: Set<UUID>) throws {
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            if let row = try object("workout", id) { modelContext.delete(row) }
+        }
+        // Cloud samples can refer to workouts not restored on this phone yet.
+        // Clean every deleted ID, but inspect only memberships once per page of
+        // deletions; decode dates/measurements only for affected samples.
+        struct Membership: Decodable { let workoutIds: [UUID] }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        var cursor = ""
+        while true {
+            let after = cursor
+            var query = FetchDescriptor<HealthStoredObject>(predicate: #Predicate {
+                $0.kind == "sample" && $0.key > after
+            }, sortBy: [SortDescriptor(\.key, comparator: .lexical)])
+            query.fetchLimit = 256
+            let rows = try modelContext.fetch(query)
+            guard let last = rows.last else { break }
+            cursor = last.key
+            for row in rows {
+                let links = try decoder.decode(Membership.self, from: row.payload)
+                guard !ids.isDisjoint(with: links.workoutIds) else { continue }
+                var sample = try HealthCoding.decode(HealthSample.self, from: row.payload)
+                sample.workoutIds.removeAll { ids.contains($0) }
+                if sample.workoutIds.isEmpty { modelContext.delete(row) }
+                else { row.payload = try HealthCoding.encode(sample) }
+            }
         }
     }
     private func markAnalysisDirty(_ id: UUID) throws {

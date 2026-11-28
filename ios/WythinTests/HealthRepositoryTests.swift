@@ -1,9 +1,96 @@
 import XCTest
+import SwiftData
 @testable import Wythin
 
 final class HealthRepositoryTests: XCTestCase {
     let source = HealthSourceInfo(bundleIdentifier: "test", name: "Watch")
     var workout: HealthWorkout { HealthWorkout(id: UUID(), activityCode: 37, activityName: "Running", startedAt: Date(timeIntervalSince1970: 10000), endedAt: Date(timeIntervalSince1970: 10600), activeDurationSeconds: 600, source: source) }
+
+    func testDeletingUnimportedWorkoutsDoesNotRepeatedlyDecodeSavedHistory() async throws {
+        let store = try await Task.detached { try HealthRepository(inMemory: true) }.value
+        let kept = workout
+        try await store.applyWorkouts(.init(workouts: [kept], deletedIDs: [], nextAnchor: nil, hasMore: false))
+        try await store.seedDeletionHistory(workout: kept, count: 800)
+        let deletedIDs = (0..<24).map { _ in UUID() }
+        let start = ContinuousClock.now
+        try await store.applyWorkouts(.init(workouts: [], deletedIDs: deletedIDs,
+                                            nextAnchor: Data([7]), hasMore: false))
+        let elapsed = start.duration(to: .now)
+        XCTAssertLessThan(elapsed, .seconds(1), "Unknown HealthKit deletions must not rescan the entire sample archive per ID")
+        let samples = try await store.samples(for: kept)
+        let state = try await store.state()
+        XCTAssertEqual(samples.count, 800)
+        XCTAssertEqual(state.anchors["workouts"], Data([7]))
+    }
+
+    func testBusyHealthRepositoryDoesNotBlockMainActorWhenAnotherCallIsQueued() async throws {
+        let store = try await Task.detached { try HealthRepository(inMemory: true) }.value
+        let entered = expectation(description: "Repository is busy")
+        let requesting = expectation(description: "Main actor requests state")
+        let gate = DispatchSemaphore(value: 0)
+        let busy = Task.detached { await store.holdForResponsivenessTest(gate: gate, entered: entered) }
+        await fulfillment(of: [entered], timeout: 2)
+        let release = Task.detached {
+            try? await Task.sleep(for: .seconds(1))
+            gate.signal()
+        }
+        let request = Task { @MainActor in
+            requesting.fulfill()
+            return try await store.state()
+        }
+        await fulfillment(of: [requesting], timeout: 2)
+        let start = ContinuousClock.now
+        await MainActor.run {}
+        XCTAssertLessThan(start.duration(to: .now), .milliseconds(300),
+                          "Awaiting Health storage must yield the UI while existing storage work drains")
+        await release.value
+        await busy.value
+        _ = try await request.value
+    }
+
+    func testBatchWorkoutDeletionCrossesPagesAndPreservesSharedSamplesOnReplay() async throws {
+        let store = try HealthRepository(inMemory: true)
+        let first = workout, second = workout, kept = workout
+        try await store.applyWorkouts(.init(workouts: [first, second, kept], deletedIDs: [],
+                                            nextAnchor: nil, hasMore: false))
+        try await store.seedDeletionHistory(workout: first, count: 300, sharedWith: kept.id)
+        try await store.seedDeletionHistory(workout: second, count: 300, sharedWith: kept.id)
+        let before = try await store.samples(for: kept)
+        let retainedIDs = Set(before.filter { $0.workoutIds.contains(kept.id) }.map(\.id))
+        XCTAssertEqual(retainedIDs.count, 300)
+        let queueBefore = try await store.pendingCount()
+        let page = HealthWorkoutPage(workouts: [], deletedIDs: [first.id, second.id, first.id],
+                                     nextAnchor: Data([8]), hasMore: false)
+        try await store.applyWorkouts(page)
+        try await store.applyWorkouts(page)
+        let entries = try await store.entries()
+        let after = try await store.samples(for: kept)
+        let state = try await store.state()
+        let queueAfter = try await store.pendingCount()
+        XCTAssertEqual(entries.map(\.workout.id), [kept.id])
+        XCTAssertEqual(Set(after.map(\.id)), retainedIDs)
+        XCTAssertTrue(after.allSatisfy { $0.workoutIds == [kept.id] && $0.value == 70 })
+        XCTAssertEqual(queueAfter, queueBefore + 2, "Each deletion is queued once across duplicates/replay")
+        XCTAssertEqual(state.anchors["workouts"], Data([8]))
+    }
+
+    func testDeletingUnknownWorkoutCleansLinksFromRestoredSharedSamples() async throws {
+        let store = try HealthRepository(inMemory: true), kept = workout, absent = UUID(), job = UUID()
+        try await store.mergeRestored([snapshot(kept, revision: 1)], cursor: "one")
+        let sample = HealthSample(id: UUID(), metric: .heartRate, value: 70,
+            startedAt: kept.startedAt, endedAt: kept.startedAt, source: source,
+            workoutIds: [kept.id, absent])
+        var payload = try JSONSerialization.jsonObject(with: HealthCoding.encode(sample)) as! [String: Any]
+        payload["external_id"] = sample.id.uuidString
+        _ = try await store.stageCloudSamples([JSONSerialization.data(withJSONObject: payload)], job: job)
+        try await store.publishCloudSamples(job: job, workoutId: kept.id, epoch: 1)
+        try await store.applyWorkouts(.init(workouts: [], deletedIDs: [absent], nextAnchor: nil, hasMore: false))
+        let retained = try await store.samples(for: kept)
+        XCTAssertEqual(retained.first?.workoutIds, [kept.id])
+        try await store.hideWorkout(kept.id)
+        let remaining = try await store.samples(for: kept)
+        XCTAssertTrue(remaining.isEmpty, "Deleted remote workout links must not keep orphan measurements")
+    }
     func testReplayPreservesOneWorkoutAndPersistentAnchor() async throws {
         let store = try HealthRepository(inMemory: true)
         let w = workout
@@ -229,5 +316,25 @@ final class HealthRepositoryTests: XCTestCase {
         attachment.name = "HealthContractFixture.json"; attachment.lifetime = .keepAlways; add(attachment)
         try await acknowledgeAll(store, revision: 1)
         let count = try await store.pendingCount(); XCTAssertEqual(count, 0)
+    }
+}
+
+private extension HealthRepository {
+    func seedDeletionHistory(workout: HealthWorkout, count: Int, sharedWith: UUID? = nil) throws {
+        for index in 0..<count {
+            let time = workout.startedAt.addingTimeInterval(Double(index) / 2)
+            var ids = [workout.id]
+            if let sharedWith, index.isMultiple(of: 2) { ids.append(sharedWith) }
+            let sample = HealthSample(id: UUID(), metric: .heartRate, value: 70,
+                startedAt: time, endedAt: time, source: workout.source, workoutIds: ids)
+            modelContext.insert(HealthStoredObject(kind: "sample", id: sample.id,
+                start: time, end: time, payload: try HealthCoding.encode(sample)))
+        }
+        try modelContext.save()
+    }
+
+    func holdForResponsivenessTest(gate: DispatchSemaphore, entered: XCTestExpectation) {
+        entered.fulfill()
+        _ = gate.wait(timeout: .now() + 3)
     }
 }
