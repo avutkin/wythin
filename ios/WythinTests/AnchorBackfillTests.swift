@@ -77,6 +77,39 @@ final class AnchorBackfillTests: XCTestCase {
 
     // MARK: - What it keeps and what it rebuilds
 
+    func testReplayAcrossMidnightDSTUsesCanonicalDaysAndPreservesToday() throws {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/Santiago")!
+        func day(_ number: Int) -> Date {
+            cal.startOfDay(for: cal.date(from: DateComponents(year: 2025, month: 9, day: number, hour: 12))!)
+        }
+        let ctx = ModelContext(container)
+        for number in 6...9 {
+            let start = day(number)
+            insertRest(day: start, hour: number == 9 ? 0 : 7, count: 20, spacing: 30, hr: 60, motion: 5, into: ctx)
+            let anchor = DailyAnchor(from: AnchorReading(startedAt: start.addingTimeInterval(7 * 3600),
+                durationSec: 600, hour: 7, lnRMSSD: 3, dc: 7.5, restingHR: 99, pip: 42, dfa1: 1,
+                breathBPM: 13, late: false, motionKnown: true, confidence: .high))
+            anchor.day = start
+            ctx.insert(anchor)
+        }
+        insertRest(day: day(8), hour: 0, count: 1, spacing: 30, hr: 60, motion: 5, into: ctx)
+        try ctx.save()
+        var store = AnchorBackfill.Store.live(ctx, calendar: cal)
+        store.canCommit = { true } // Test this calendar without changing the host timezone.
+        let transitionPoints = try store.samples(day(7))
+        XCTAssertTrue(transitionPoints.allSatisfy { $0.timestamp < day(8) })
+        let outcome = AnchorBackfill.replay(store, calendar: cal, now: day(9).addingTimeInterval(12 * 3600))
+        XCTAssertTrue(outcome.saved)
+        let stored = anchors()
+        XCTAssertEqual(stored.count, 4)
+        XCTAssertEqual(Set(stored.map(\.day)), Set((6...9).map(day)))
+        for number in 6...8 {
+            XCTAssertEqual(stored.first { $0.day == day(number) }?.restingHR, 60)
+        }
+        XCTAssertEqual(stored.first { $0.day == day(9) }?.restingHR, 99)
+    }
+
     func testLiveReaderLoadsOnlyTheRequestedCalendarDay() throws {
         let ctx = ModelContext(container)
         insertRest(day: day(5), hour: 7, count: 20, spacing: 30, hr: 60, motion: 5, into: ctx)

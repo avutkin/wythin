@@ -742,7 +742,7 @@ final class AppEnvironment {
         var orderedDays: [Date] = []
         var dayEnds: [Date: Date] = [:]
         for day in pending {
-            guard let end = cal.date(byAdding: .day, value: 1, to: day) else { continue }
+            guard let end = cal.dateInterval(of: .day, for: day)?.end else { continue }
             orderedDays.append(day)
             dayEnds[day] = end
         }

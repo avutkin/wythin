@@ -13,6 +13,8 @@ User instruction: record the identified errors and fix them. Continue the existi
 
 Lifecycle detail: this app maps both inactive and background scenes to `isInForeground = false`. The pressure latch therefore releases on a real return to active (including return from a system overlay), not on repeated active delivery. Keep that existing lifecycle contract; see the implementation ledger for the tradeoff.
 
+Review refinements: use `Calendar.dateInterval(of: .day, for:)` for each day boundary, including midnight DST transitions (Santiago regression), and normalize the initial cutoff. Persistent replay failure backs off 5/10/20/40/60 minutes (then hourly); explicit refresh or foreground re-entry permits a new attempt. Ordinary failure still loads existing small anchor rows for presentation, without detecting new anchors or generating prose; pressure/cancellation stops that work. Shared presentation carries a civil-day/timezone key, clears stale values and narrative on a new key, and suppresses stale values at render. The existing visible-card loop refreshes persisted potential independently of BLE and gates work on foreground; no extra timer is added.
+
 Only moving the whole fetch to another queue leaves the memory spike intact. A full streaming rewrite of AnchorDetector would reduce memory further but changes a validated algorithm unnecessarily. Chosen bounded daily replay retains current detector behavior and is independently testable. This implementation choice is the executor's under the user's instruction to fix the confirmed risks.
 
 ## Verification

@@ -10,6 +10,27 @@ import SwiftData
 @MainActor
 @Observable
 final class DayPotentialStore {
+    struct PresentationDay: Equatable {
+        let start: Date
+        let timezone: String
+        init(at date: Date, calendar: Calendar = .current) {
+            start = calendar.startOfDay(for: date)
+            timezone = calendar.timeZone.identifier
+        }
+    }
+    private var presentationDay: PresentationDay?
+    private let uptime: () -> TimeInterval
+    init(uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.uptime = uptime
+    }
+    func isCurrent(for day: PresentationDay) -> Bool { presentationDay == day }
+    func preparePresentation(for day: PresentationDay) {
+        guard presentationDay != day else { return }
+        presentationDay = day
+        anchor = nil; result = nil; streak = nil
+        loggedDays = []; recent = []; state = .waitingForStillness
+        insight = nil; loadLine = nil; generatedForDay = nil
+    }
 
     enum State: Equatable {
         case waitingForStillness            // no rested window yet today
@@ -61,6 +82,8 @@ final class DayPotentialStore {
     private var generatedForDay: Date?
     private var inFlight = false
     private var backfilled = false
+    private var failedBackfillAt: TimeInterval?
+    private var backfillFailures = 0
     private var foreground = true
     private var suspended = false
     @ObservationIgnored private var backfillTask: Task<Bool, Never>?
@@ -70,7 +93,10 @@ final class DayPotentialStore {
     /// Backfill owns persistent changes and may need to drain after cancellation.
     /// Its canceled caller must not continue with UI work or mark preparation done.
     func setForeground(_ value: Bool) {
-        if value && !foreground { suspended = false }
+        if value && !foreground {
+            suspended = false
+            failedBackfillAt = nil
+        }
         foreground = value
         if !value { backfillTask?.cancel() }
     }
@@ -83,6 +109,13 @@ final class DayPotentialStore {
     func ensureBackfill(_ run: @escaping @MainActor () async -> Bool) async -> Bool {
         guard !Task.isCancelled, foreground, !suspended else { return false }
         guard !backfilled else { return true }
+        // A persistent corrupt/oversized day must not cause a sixty-day scan on
+        // each UI poll. Retry after 5m, 10m, 20m, 40m, then at most hourly.
+        if let failedBackfillAt {
+            let elapsed = uptime() - failedBackfillAt
+            let delay = min(3600, 300 * pow(2, Double(max(0, backfillFailures - 1))))
+            if elapsed >= 0 && elapsed < delay { return false }
+        }
         // Retain ownership until the worker drains, including view-owned callers.
         guard backfillTask == nil else { return false }
         let worker = Task { !Task.isCancelled ? await run() : false }
@@ -93,33 +126,52 @@ final class DayPotentialStore {
             worker.cancel()
         }
         backfillTask = nil
-        guard succeeded, !worker.isCancelled, !Task.isCancelled, foreground, !suspended else { return false }
+        guard !worker.isCancelled, !Task.isCancelled, foreground, !suspended else { return false }
+        guard succeeded else {
+            failedBackfillAt = uptime()
+            backfillFailures = min(backfillFailures + 1, 5)
+            return false
+        }
+        failedBackfillAt = nil
+        backfillFailures = 0
         backfilled = true
         return true
     }
 
     /// Finds or loads today's anchor, scores it, refreshes the streak and the
     /// local load line, and generates the narrative once per day.
+    func preparedHistory(backfill: @escaping @MainActor () async -> Bool,
+                         read: () throws -> [DailyAnchor]) async -> (anchors: [DailyAnchor], backfilled: Bool)? {
+        let prepared = await ensureBackfill(backfill)
+        guard !Task.isCancelled, foreground, !suspended,
+              let anchors = try? read() else { return nil }
+        return (anchors, prepared)
+    }
+
     func refresh(env: AppEnvironment, force: Bool = false) async {
+        let day = PresentationDay(at: Date())
+        preparePresentation(for: day)
         guard !inFlight, foreground, !suspended, !Task.isCancelled else { return }
+        if force { failedBackfillAt = nil }
         inFlight = true
         defer { inFlight = false }
 
-        let prepared = await ensureBackfill {
+        let prepared = await preparedHistory(backfill: {
             // Awaited, not fired and forgotten: the anchors read below are the
             // ones it rewrites. It does its work on its own background context,
             // so the await is a hand-off rather than a main-thread stall.
             await AnchorBackfill.runIfNeeded(container: env.modelContainer)
-        }
-        guard prepared, !Task.isCancelled else { return }
+        }, read: { try env.modelContext.fetch(FetchDescriptor<DailyAnchor>()) })
+        guard let prepared, !Task.isCancelled, isCurrent(for: day),
+              day == PresentationDay(at: Date()) else { return }
         let context = env.modelContext
-        let today = Calendar.current.startOfDay(for: Date())
+        let today = day.start
 
         // 1. Today's anchor — load if stored, otherwise try to detect one.
-        var stored = (try? context.fetch(FetchDescriptor<DailyAnchor>())) ?? []
+        var stored = prepared.anchors
         var todayAnchor = stored.first { $0.day == today }?.reading
 
-        if todayAnchor == nil {
+        if todayAnchor == nil, prepared.backfilled {
             let todayPoints = MetricsQualityFilter.filter(
                 env.tickHistory.filter { $0.timestamp >= today })
             if let detected = AnchorDetector.detect(todayPoints) {
@@ -144,7 +196,7 @@ final class DayPotentialStore {
             return
         }
 
-        updateLoadLine(env: env, anchor: todayAnchor)
+        if prepared.backfilled { updateLoadLine(env: env, anchor: todayAnchor) }
 
         // 3. Baseline and score. One prior anchor is enough — the baseline
         // blends toward a prior until the user's own spread is established, so
@@ -166,7 +218,7 @@ final class DayPotentialStore {
             recent = []
         }
 
-        await generate(env: env, baseline: baseline, force: force)
+        if prepared.backfilled { await generate(env: env, baseline: baseline, force: force) }
     }
 
     // MARK: - Narrative (once per day)
@@ -174,6 +226,7 @@ final class DayPotentialStore {
     private func generate(env: AppEnvironment, baseline: AnchorBaseline?, force: Bool) async {
         let today = Calendar.current.startOfDay(for: Date())
         let timezone = TimeZone.autoupdatingCurrent.identifier
+        let requestedDay = presentationDay
         guard !Task.isCancelled else { return }
         guard force || generatedForDay != today || insight == nil else { return }
         guard let anchor else { return }
@@ -216,6 +269,7 @@ final class DayPotentialStore {
 
         if let response = try? await env.sync.client.generateDayPotentialInsight(payload) {
             guard !Task.isCancelled, foreground, !suspended,
+                  presentationDay == requestedDay,
                   TimeZone.autoupdatingCurrent.identifier == timezone,
                   Calendar.current.startOfDay(for: Date()) == today else { return }
             insight = response.text

@@ -15,6 +15,16 @@ struct DayPotentialStrip: View {
     private let accent = Theme.accent
 
     var body: some View {
+        if store.isCurrent(for: .init(at: Date())) {
+            content
+        } else {
+            Text(DayPotentialStore.State.waitingForStillness.headline(band: nil))
+                .font(Theme.monoLabel)
+                .foregroundStyle(Theme.dim)
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 11) {
             strip
             crownRow

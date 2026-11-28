@@ -414,8 +414,8 @@ final class LiveStateStore {
     }
 
     /// Whatever is on screen is no longer being refreshed. Called when the
-    /// strap disconnects, which stops the poll loop outright — no recompute
-    /// will ever run to notice on its own.
+    /// strap disconnects, which stops live-state recomputation. The day's
+    /// persisted potential keeps refreshing independently.
     ///
     /// A no-op when there is no state yet: an empty card (see
     /// `LiveEmptyStateCopy`) is not stale.
@@ -493,12 +493,10 @@ struct LiveStateWidget: View {
         .onAppear {
             // The local half (name, feeling, WHY) reads only stored rollups
             // and tick history already in memory — it owes nothing to BLE
-            // being connected right now. `startLoop` below is what needs a
-            // live connection (it also drives the network narration poll);
-            // this recompute must not wait for it, or the card falsely
-            // depends on the strap being on at the moment it first appears.
+            // being connected right now. The loop also loads today's stored
+            // potential while disconnected; only live-state polling needs BLE.
             store.recomputeState(env: env)
-            if isConnected { startLoop() }
+            startLoop()
         }
         .onDisappear {
             stopLoop()
@@ -507,10 +505,6 @@ struct LiveStateWidget: View {
             if case .connected = newValue {
                 startLoop()
             } else {
-                // Stopping the loop means nothing will recompute, so whatever
-                // is on screen stops being current the moment the strap goes.
-                // Nothing else would ever notice.
-                stopLoop()
                 store.markStale()
             }
         }
@@ -756,13 +750,17 @@ struct LiveStateWidget: View {
         // sleep — it owes nothing to a network round trip, unlike `text`.
         store.recomputeState(env: env)
         refreshTask = Task {
+            await potentialStore.refresh(env: env)
             while !Task.isCancelled {
                 // Poll on a short tick; the store decides whether to actually
                 // fetch. Faster ticks until the first description lands.
                 try? await Task.sleep(for: .seconds(store.text == nil ? 15 : 20))
                 guard !Task.isCancelled else { break }
-                store.recomputeState(env: env)
-                await store.refresh(env: env)
+                guard env.isInForeground else { continue }
+                if isConnected {
+                    store.recomputeState(env: env)
+                    await store.refresh(env: env)
+                }
                 // Anchor detection keeps polling until a rested window
                 // appears; once frozen the store's guards make this cheap.
                 await potentialStore.refresh(env: env)

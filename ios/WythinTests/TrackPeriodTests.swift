@@ -18,6 +18,20 @@ final class TrackPeriodTests: XCTestCase {
 
     // MARK: Week
 
+    func testDayStartsReturnToMidnightAfterSantiagoDSTAndNormalizeInitialOffset() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Santiago")!
+        func day(_ number: Int) -> Date {
+            calendar.startOfDay(for: calendar.date(from: DateComponents(year: 2025, month: 9, day: number, hour: 12))!)
+        }
+        XCTAssertEqual(TrackRangeBuilder.dayStarts(from: day(6), to: day(10), calendar: calendar),
+                       (6...9).map(day))
+        XCTAssertEqual(TrackRangeBuilder.dayStarts(from: day(8).addingTimeInterval(3600), to: day(9), calendar: calendar),
+                       [day(8)])
+        let month = TrackRangeBuilder.range(period: .month, offset: 0, today: day(8), calendar: calendar)
+        XCTAssertTrue(month.buckets.contains { $0.start == day(8) && $0.end == day(9) })
+    }
+
     func testWeekCoversMondayThroughSunday() {
         // 2026-07-28 is a Tuesday.
         let r = TrackRangeBuilder.range(period: .week, offset: 0,

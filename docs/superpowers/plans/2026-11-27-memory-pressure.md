@@ -47,7 +47,7 @@ Interfaces: RecordingMemoryMonitor accepts snapshot/output dependencies, samples
 
 - [x] Regression RED for throttling, warning bypass, rollback and unknown samples.
 - [x] Implement physical-footprint/advisory-available-memory snapshots in the existing diagnostic export path; do not modify server payload.
-- [ ] Full WythinTests, independent review, final evidence and commits.
+- [x] Full WythinTests, independent review, final evidence and commits.
 
 ## Ledger
 
@@ -70,3 +70,13 @@ Task 3 RED: 5 tests completed with 20 failed assertions/errors (`/private/tmp/wy
 Task 3: Ruling: fence against the Calendar captured by the caller, not the timezone observed when the detached worker eventually starts — inspection found a zone change in that interval could otherwise pass the fence — the new calendar-race regression failed before this correction. Also wait for explicit drainage in the pressure test to avoid scheduling-dependent assertions.
 
 Task 3 focused GREEN: 49 tests, 0 failures, xcodebuild exit 0 (`/private/tmp/wythin-memory-monitor-green.log`). Includes the real native footprint syscall on Simulator, monitor throttling/unknown values, reporter consent and identity gates, calendar race, all anchor replay and pressure-latch cases.
+
+Initial full suite: 2,011 tests, 2 opt-in skips, 0 failures, exit 0 (`/private/tmp/wythin-memory-full.log`). Independent read-only review found three actionable gaps not covered by that suite: midnight DST can shift subsequent day boundaries; persistent read failure can hot-loop replay and hide frozen presentation; sharing an app-lifetime presentation can show yesterday's data while BLE is disconnected. All are accepted for one fix pass with regression RED→GREEN and a fresh full suite. No declined-to-judge items or deferred minors.
+
+Final fix pass RED: 9 tests, 13 failed assertions, exit 65 (`/private/tmp/wythin-memory-review-red.log`). The Santiago replay persisted 5 anchors instead of 4, including a noncanonical 01:00 duplicate. Persistent failure ran 15 replays instead of 1. Fallback never read stored anchors, and day rollover retained old narrative/load text.
+
+Final fixes focused GREEN: 58 tests, 0 failures, exit 0 (`/private/tmp/wythin-memory-review-green.log`). Canonical day intervals cover replay, baseline warm-up and Track day buckets. Retry backoff is 5/10/20/40/60 minutes, capped hourly; explicit refresh/re-entry can retry. Stored-anchor fallback stays separate from pressure/cancellation. Shared presentation is keyed by civil day and timezone; stale content is suppressed at render, cleared on refresh, and refreshed by the existing visible-card loop independently of BLE. Native recording and transport are untouched by these optional-work controls.
+
+Task 3 and final review: complete. Final full WythinTests after all three review fixes: **2,017 tests, 2 opt-in background-upload smoke tests skipped, 0 failures; xcodebuild exit 0** (`/private/tmp/wythin-memory-final-full.log`). Each accepted review finding has a failing regression followed by focused GREEN and this full GREEN. `git diff --check 96cc2a2` passes. No deferred review findings.
+
+Release status: fixes are local commits in the managed recording-resilience worktree; no production or TestFlight deployment. Real iPhone/H10 endurance, OS termination/relaunch behavior and KT's precise termination cause still need device evidence. Memory footprint samples in the local diagnostic export can support that investigation; absence of a memory warning does not establish that memory was sufficient.

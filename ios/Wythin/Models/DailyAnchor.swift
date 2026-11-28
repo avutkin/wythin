@@ -105,10 +105,10 @@ enum AnchorBackfill {
             let timezone = calendar.timeZone.identifier
             return Store(
                 samples: { day in
-                    guard let end = calendar.date(byAdding: .day, value: 1, to: day) else {
+                    guard let interval = calendar.dateInterval(of: .day, for: day) else {
                         throw HistoricalDayReader.ReadError.invalidRange
                     }
-                    return try HistoricalDayReader.read(container: container, from: day, until: end)
+                    return try HistoricalDayReader.read(container: container, from: interval.start, until: interval.end)
                 },
                 anchors: { try context.fetch(FetchDescriptor<DailyAnchor>()) },
                 delete:  { context.delete($0) },
@@ -160,8 +160,9 @@ enum AnchorBackfill {
     static func replay(_ store: Store, calendar: Calendar = .current, now: Date = .now) -> Outcome {
         var outcome = Outcome()
         let today = calendar.startOfDay(for: now)
-        guard var day = calendar.date(byAdding: .day, value: -AnchorBaseline.windowDays, to: today)
+        guard let cutoff = calendar.date(byAdding: .day, value: -AnchorBaseline.windowDays, to: today)
         else { return outcome }
+        var day = calendar.startOfDay(for: cutoff)
         // Only small candidate readings survive the next iteration. The day's
         // snapshots and all detector temporaries are released before another read.
         var candidates: [(day: Date, reading: AnchorReading?)] = []
@@ -175,7 +176,7 @@ enum AnchorBackfill {
                     return (day, AnchorDetector.detect(MetricsQualityFilter.filter(points), calendar: calendar))
                 }
                 if let candidate { candidates.append(candidate) }
-                guard let next = calendar.date(byAdding: .day, value: 1, to: day), next > day else {
+                guard let next = calendar.dateInterval(of: .day, for: day)?.end, next > day else {
                     return outcome
                 }
                 day = next

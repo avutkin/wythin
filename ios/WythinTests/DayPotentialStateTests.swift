@@ -3,10 +3,83 @@ import XCTest
 
 @MainActor
 final class DayPotentialPreparationTests: XCTestCase {
-    func testFailedBackfillRemainsRetryable() async {
+    func testPersistentFailureDoesNotReplayOnEveryWidgetPoll() async {
+        var clock: TimeInterval = 100
+        let store = DayPotentialStore(uptime: { clock })
+        var calls = 0
+        _ = await store.ensureBackfill { calls += 1; return false }
+        for _ in 0..<14 {
+            clock += 20
+            _ = await store.ensureBackfill { calls += 1; return false }
+        }
+        XCTAssertEqual(calls, 1)
+        clock = 400
+        _ = await store.ensureBackfill { calls += 1; return true }
+        XCTAssertEqual(calls, 2)
+    }
+
+    func testFailedBackfillStillLoadsPersistedHistoryButPressureDoesNot() async {
         let store = DayPotentialStore()
+        let saved = DailyAnchor(from: AnchorReading(startedAt: Date(), durationSec: 600, hour: 7,
+            lnRMSSD: 3.6, dc: 7.5, restingHR: 60, pip: 42, dfa1: 1, breathBPM: 13,
+            late: false, motionKnown: true, confidence: .high))
+        var reads = 0
+        let fallback = await store.preparedHistory(backfill: { false }, read: { reads += 1; return [saved] })
+        XCTAssertNotNil(fallback)
+        XCTAssertEqual(fallback?.backfilled, false)
+        XCTAssertEqual(fallback?.anchors.first?.restingHR, 60)
+        XCTAssertEqual(reads, 1)
+        store.suspendUntilNextForeground()
+        let suspended = await store.preparedHistory(backfill: { true }, read: { reads += 1; return [] })
+        XCTAssertNil(suspended)
+        XCTAssertEqual(reads, 1)
+    }
+
+    func testFailureBackoffGrowsToOneHourAndReentryCanRetryImmediately() async {
+        var clock: TimeInterval = 100
+        let store = DayPotentialStore(uptime: { clock })
+        var calls = 0
+        for delay in [300.0, 600, 1200, 2400, 3600, 3600] {
+            _ = await store.ensureBackfill { calls += 1; return false }
+            let before = calls
+            clock += delay - 1
+            _ = await store.ensureBackfill { calls += 1; return false }
+            XCTAssertEqual(calls, before)
+            clock += 1
+        }
+        XCTAssertEqual(calls, 6)
+        _ = await store.ensureBackfill { calls += 1; return false }
+        store.setForeground(false)
+        store.setForeground(true)
+        let recovered = await store.ensureBackfill { calls += 1; return true }
+        XCTAssertTrue(recovered)
+        XCTAssertEqual(calls, 8)
+    }
+
+    func testCivilDayAndTimezoneSuppressStalePresentationAndClearNarrative() {
+        let store = DayPotentialStore()
+        let cal = Calendar.current
+        let monday = DayPotentialStore.PresentationDay(at: Date(), calendar: cal)
+        let tuesday = DayPotentialStore.PresentationDay(at: cal.date(byAdding: .day, value: 1, to: Date())!, calendar: cal)
+        store.preparePresentation(for: monday)
+        store.insight = "Monday narrative"
+        store.loadLine = "Monday load"
+        XCTAssertTrue(store.isCurrent(for: monday))
+        XCTAssertFalse(store.isCurrent(for: tuesday), "Render must suppress old values before the async refresh runs")
+        store.preparePresentation(for: tuesday)
+        XCTAssertNil(store.insight)
+        XCTAssertNil(store.loadLine)
+        var other = cal
+        other.timeZone = TimeZone(identifier: cal.timeZone.identifier == "Pacific/Honolulu" ? "Europe/Paris" : "Pacific/Honolulu")!
+        XCTAssertFalse(store.isCurrent(for: .init(at: Date(), calendar: other)))
+    }
+
+    func testFailedBackfillRemainsRetryable() async {
+        var clock: TimeInterval = 100
+        let store = DayPotentialStore(uptime: { clock })
         let failed = await store.ensureBackfill { false }
         XCTAssertFalse(failed)
+        clock += 300
         var retries = 0
         let recovered = await store.ensureBackfill { retries += 1; return true }
         XCTAssertTrue(recovered)

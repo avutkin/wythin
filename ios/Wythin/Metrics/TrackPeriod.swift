@@ -150,9 +150,9 @@ enum TrackRangeBuilder {
     private static func dayBuckets(from start: Date, to end: Date, calendar cal: Calendar,
                                    label: (Date) -> String) -> [TrackBucket] {
         var out: [TrackBucket] = []
-        var d = start
+        var d = cal.startOfDay(for: start)
         while d < end {
-            let next = cal.date(byAdding: .day, value: 1, to: d)!
+            guard let next = cal.dateInterval(of: .day, for: d)?.end, next > d else { break }
             out.append(TrackBucket(start: d, end: next, label: label(d)))
             d = next
         }
@@ -162,10 +162,10 @@ enum TrackRangeBuilder {
     /// Day-start dates spanning `[start, end)`, on the given calendar.
     static func dayStarts(from start: Date, to end: Date, calendar cal: Calendar) -> [Date] {
         var out: [Date] = []
-        var d = start
+        var d = cal.startOfDay(for: start)
         while d < end {
             out.append(d)
-            guard let next = cal.date(byAdding: .day, value: 1, to: d) else { break }
+            guard let next = cal.dateInterval(of: .day, for: d)?.end, next > d else { break }
             d = next
         }
         return out
