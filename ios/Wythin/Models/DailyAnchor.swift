@@ -102,7 +102,7 @@ enum AnchorBackfill {
 
         static func live(_ context: ModelContext, calendar: Calendar = .current) -> Store {
             let container = context.container
-            let timezone = TimeZone.autoupdatingCurrent.identifier
+            let timezone = calendar.timeZone.identifier
             return Store(
                 samples: { day in
                     guard let end = calendar.date(byAdding: .day, value: 1, to: day) else {

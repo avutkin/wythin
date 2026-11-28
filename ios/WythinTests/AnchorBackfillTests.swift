@@ -29,6 +29,14 @@ final class AnchorBackfillTests: XCTestCase {
 
     // MARK: - Fixtures
 
+    func testLiveStoreRejectsCalendarCapturedBeforeTimezoneChanged() {
+        var calendar = Calendar.current
+        calendar.timeZone = TimeZone(identifier:
+            TimeZone.autoupdatingCurrent.identifier == "Pacific/Honolulu" ? "Europe/Paris" : "Pacific/Honolulu")!
+        let store = AnchorBackfill.Store.live(ModelContext(container), calendar: calendar)
+        XCTAssertFalse(store.canCommit(), "The fence must compare with the pass's calendar, not a later worker's zone")
+    }
+
     /// Local start-of-day `back` days ago.
     private func day(_ back: Int) -> Date {
         let cal = Calendar.current

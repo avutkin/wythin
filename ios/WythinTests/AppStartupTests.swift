@@ -10,12 +10,14 @@ final class ForegroundPreparationTests: XCTestCase {
         var calls = 0
         var canceled = false
         let entered = expectation(description: "preparation started")
+        let drained = expectation(description: "canceled preparation drained")
         let retried = expectation(description: "preparation retried")
         let work = ForegroundPreparation {
             calls += 1
             if calls == 1 {
                 await withCheckedContinuation { release = $0; entered.fulfill() }
                 canceled = Task.isCancelled
+                drained.fulfill()
             } else { retried.fulfill() }
         }
         work.setForeground(true)
@@ -23,6 +25,7 @@ final class ForegroundPreparationTests: XCTestCase {
         work.suspendUntilNextForeground()
         work.setForeground(true)
         release?.resume()
+        await fulfillment(of: [drained], timeout: 3)
         for _ in 0..<20 { await Task.yield() }
         XCTAssertTrue(canceled)
         XCTAssertEqual(calls, 1, "Draining a canceled read must not restart it under pressure")

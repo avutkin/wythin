@@ -29,6 +29,7 @@ final class RecordingDiagnosticReporter {
     private var collectionEnabled: Bool
     private var emittedLaunch: (installationID: UUID, launchID: UUID, launchSequence: Int)?
     private var timer: Task<Void, Never>?
+    private let memoryMonitor: RecordingMemoryMonitor
 
     init(installationID: UUID, launchID: UUID, launchSequence: Int,
          appVersion: String, appBuild: String, osVersion: String,
@@ -37,7 +38,8 @@ final class RecordingDiagnosticReporter {
          enabled: @escaping () -> Bool, nextSequence: @escaping () -> Int,
          droppedReports: @escaping () -> Int, sensor: @escaping () -> Event.Sensor,
          delivery: @escaping () -> Event.Delivery, submit: @escaping (Event) -> Void,
-         identity: (() -> (installationID: UUID, launchID: UUID, launchSequence: Int))? = nil) {
+         identity: (() -> (installationID: UUID, launchID: UUID, launchSequence: Int))? = nil,
+         memoryMonitor: RecordingMemoryMonitor? = nil) {
         self.identity = identity ?? { (installationID, launchID, launchSequence) }
         self.appVersion = Event.technicalVersion(appVersion)
         self.appBuild = Event.technicalVersion(appBuild)
@@ -46,6 +48,7 @@ final class RecordingDiagnosticReporter {
         collectionEnabled = enabled()
         self.nextSequence = nextSequence; self.droppedReports = droppedReports
         self.sensor = sensor; self.delivery = delivery; self.submit = submit
+        self.memoryMonitor = memoryMonitor ?? RecordingMemoryMonitor()
     }
 
     deinit { timer?.cancel() }
@@ -154,6 +157,7 @@ final class RecordingDiagnosticReporter {
         recording.rrActiveAgeSeconds = rrStart.map { max(0, clock - $0) }
         let sequence = nextSequence()
         guard sequence > 0 else { return }
+        memoryMonitor.record(reason, uptime: clock)
         if reason == .launch { emittedLaunch = identity }
         submit(Event(installationId: identity.installationID, launchId: identity.launchID,
             launchSequence: identity.launchSequence, sequence: sequence, observedAt: now(),

@@ -45,8 +45,8 @@ Interfaces: ForegroundPreparation.suspendUntilNextForeground() cancels and latch
 Files: BLE/RecordingDiagnostics.swift, App/RecordingDiagnosticReporter.swift, Tests/RecordingReliabilityTests.swift.
 Interfaces: RecordingMemoryMonitor accepts snapshot/output dependencies, samples at accepted diagnostic events, tracks observed peak and handles unavailable syscall results.
 
-- [ ] Regression RED for throttling, warning bypass, rollback and unknown samples.
-- [ ] Implement physical-footprint/advisory-available-memory snapshots in the existing diagnostic export path; do not modify server payload.
+- [x] Regression RED for throttling, warning bypass, rollback and unknown samples.
+- [x] Implement physical-footprint/advisory-available-memory snapshots in the existing diagnostic export path; do not modify server payload.
 - [ ] Full WythinTests, independent review, final evidence and commits.
 
 ## Ledger
@@ -62,3 +62,11 @@ Task 2: Ruling: LiveView owns a second DayPotentialStore and invokes backfill di
 Task 2 RED: 8 tests, 10 failed assertions across 3 new regression cases, with API-only no-op pressure methods and the old completion behavior (`/private/tmp/wythin-memory-pressure-red.log`). Failures demonstrate missing cancellation/latch, overlapping view requests and failed replay incorrectly cached as complete.
 
 Task 2: complete. GREEN: 24 tests, 0 failures (ForegroundPreparationTests, DayPotentialPreparationTests, DayPotentialStateTests, AppStartupLifecycleTests; `/private/tmp/wythin-memory-pressure-green.log`). Background launch also initializes the shared store's phase explicitly; no recording/history/display loop is canceled by memory pressure.
+
+Task 2: Ruling: the existing app lifecycle represents foreground as the active scene (both inactive and background map to false) — retain this contract and release the pressure latch only on a real inactive/background→active transition, never a duplicate true — a system overlay can permit an earlier retry than a full background visit, but each pass remains bounded and serialized.
+
+Task 3 RED: 5 tests completed with 20 failed assertions/errors (`/private/tmp/wythin-memory-monitor-red.log`), covering the API-only monitor stub, real syscall not implemented, reporter not connected and an additional calendar race. Xcode stalled after the completed suite; sent SIGINT to only that test runner before continuing. The missing native reading intentionally also caused XCTUnwrap to throw.
+
+Task 3: Ruling: fence against the Calendar captured by the caller, not the timezone observed when the detached worker eventually starts — inspection found a zone change in that interval could otherwise pass the fence — the new calendar-race regression failed before this correction. Also wait for explicit drainage in the pressure test to avoid scheduling-dependent assertions.
+
+Task 3 focused GREEN: 49 tests, 0 failures, xcodebuild exit 0 (`/private/tmp/wythin-memory-monitor-green.log`). Includes the real native footprint syscall on Simulator, monitor throttling/unknown values, reporter consent and identity gates, calendar race, all anchor replay and pressure-latch cases.

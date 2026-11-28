@@ -11,6 +11,8 @@ User instruction: record the identified errors and fix them. Continue the existi
 
 ## Alternatives
 
+Lifecycle detail: this app maps both inactive and background scenes to `isInForeground = false`. The pressure latch therefore releases on a real return to active (including return from a system overlay), not on repeated active delivery. Keep that existing lifecycle contract; see the implementation ledger for the tradeoff.
+
 Only moving the whole fetch to another queue leaves the memory spike intact. A full streaming rewrite of AnchorDetector would reduce memory further but changes a validated algorithm unnecessarily. Chosen bounded daily replay retains current detector behavior and is independently testable. This implementation choice is the executor's under the user's instruction to fix the confirmed risks.
 
 ## Verification

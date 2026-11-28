@@ -121,6 +121,87 @@ final class RecordingReliabilityTests: XCTestCase {
     }
 }
 
+@MainActor
+final class RecordingMemoryMonitorTests: XCTestCase {
+    func testSamplingIsBoundedButWarningsBypassThrottleAndTrackObservedPeak() {
+        var reads = 0
+        var footprint: UInt64 = 200
+        var lines: [String] = []
+        let monitor = RecordingMemoryMonitor(read: {
+            reads += 1
+            return .init(footprintBytes: footprint, availableBytes: 400)
+        }, output: { lines.append($0) })
+        monitor.record(.launch, uptime: 100)
+        monitor.record(.state, uptime: 115)
+        XCTAssertEqual(reads, 1)
+        footprint = 100
+        monitor.record(.heartbeat, uptime: 160)
+        XCTAssertEqual(reads, 2)
+        XCTAssertTrue(lines.last?.contains("footprint_bytes=100") == true)
+        XCTAssertTrue(lines.last?.contains("observed_peak_bytes=200") == true)
+        footprint = 300
+        monitor.record(.memoryWarning, uptime: 161)
+        monitor.record(.lifecycle, uptime: 162)
+        XCTAssertEqual(reads, 3)
+        XCTAssertTrue(lines.last?.contains("reason=memory_warning") == true)
+        XCTAssertTrue(lines.last?.contains("observed_peak_bytes=300") == true)
+    }
+
+    func testUnknownFootprintDoesNotInventZeroOrErasePeakAndClockRollbackCanSample() {
+        var snapshot = RecordingMemoryMonitor.Snapshot(footprintBytes: nil, availableBytes: 0)
+        var lines: [String] = []
+        let monitor = RecordingMemoryMonitor(read: { snapshot }, output: { lines.append($0) })
+        monitor.record(.launch, uptime: 100)
+        XCTAssertTrue(lines.last?.contains("footprint_bytes=unknown") == true)
+        XCTAssertTrue(lines.last?.contains("observed_peak_bytes=unknown") == true)
+        XCTAssertTrue(lines.last?.contains("available_bytes=0") == true)
+        snapshot = .init(footprintBytes: 20, availableBytes: nil)
+        monitor.record(.heartbeat, uptime: 40)
+        XCTAssertEqual(lines.count, 2)
+        snapshot = .init(footprintBytes: nil, availableBytes: nil)
+        monitor.record(.heartbeat, uptime: 101)
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertTrue(lines.last?.contains("observed_peak_bytes=20") == true)
+        XCTAssertTrue(lines.last?.contains("available_bytes=unknown") == true)
+    }
+
+    func testNativeSnapshotReadsTheCurrentProcessFootprint() throws {
+        let snapshot = RecordingMemoryMonitor.systemSnapshot()
+        XCTAssertGreaterThan(try XCTUnwrap(snapshot.footprintBytes), 0)
+        XCTAssertNotNil(snapshot.availableBytes)
+    }
+
+    func testReporterSamplesOnlyAcceptedEventsWithCollectionEnabled() {
+        var enabled = false
+        var launchSequence = 0
+        var sequence = 0
+        var reads = 0
+        let monitor = RecordingMemoryMonitor(read: {
+            reads += 1
+            return .init(footprintBytes: 10, availableBytes: 20)
+        }, output: { _ in })
+        let installationID = UUID(), launchID = UUID()
+        let reporter = RecordingDiagnosticReporter(installationID: installationID,
+            launchID: launchID, launchSequence: 0, appVersion: "1", appBuild: "161", osVersion: "26",
+            uptime: { 100 }, enabled: { enabled }, nextSequence: { sequence },
+            droppedReports: { 0 }, sensor: { .init() }, delivery: { .init() }, submit: { _ in },
+            identity: { (installationID, launchID, launchSequence) }, memoryMonitor: monitor)
+        reporter.request(.launch)
+        enabled = true
+        reporter.request(.launch)
+        launchSequence = 1
+        reporter.request(.launch)
+        XCTAssertEqual(reads, 0, "No sampling for disabled collection or an unpersisted identity/event")
+        sequence = 1
+        reporter.request(.launch)
+        reporter.request(.launch)
+        XCTAssertEqual(reads, 1)
+        enabled = false
+        reporter.request(.memoryWarning)
+        XCTAssertEqual(reads, 1)
+    }
+}
+
 /// Opt-in system transport smoke test. The coordinator supplies a loopback
 /// receiver and backgrounds the host app after the ready marker appears.
 /// This tests actual background URLSession file delivery, not physical BLE.
