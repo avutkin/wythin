@@ -1689,7 +1689,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
 				CODE_SIGN_ENTITLEMENTS = Wythin/Wythin.entitlements;
-				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Wythin uses Bluetooth to receive live heart rate and beat intervals from your Polar H10 or Garmin HRM-Pro Plus.";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Wythin needs Bluetooth to connect to your Polar H10 heart rate monitor.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -1798,7 +1798,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Wythin/Info.plist;
 				CODE_SIGN_ENTITLEMENTS = Wythin/Wythin.entitlements;
-				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Wythin uses Bluetooth to receive live heart rate and beat intervals from your Polar H10 or Garmin HRM-Pro Plus.";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Wythin needs Bluetooth to connect to your Polar H10 heart rate monitor.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

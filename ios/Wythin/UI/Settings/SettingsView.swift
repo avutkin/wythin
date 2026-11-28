@@ -90,7 +90,7 @@ struct SettingsView: View {
                 List {
                     HealthSettingsSection()
                     // ── Device ────────────────────────────────────────
-                    Section("CHEST STRAP") {
+                    Section("POLAR H10") {
                         HStack {
                             Text("Status")
                                 .font(Theme.monoBody)
@@ -114,13 +114,11 @@ struct SettingsView: View {
                         }
 
                         HStack {
-                            Text(env.ble.sensorModel == .garminHRMProPlus ? "Last heart rate / RR" : "Last ECG / motion / RR")
+                            Text("Last ECG / motion / RR")
                                 .font(Theme.monoLabel).foregroundStyle(Theme.dim)
                             Spacer()
-                            Text((env.ble.sensorModel == .garminHRMProPlus
-                                  ? [env.ble.lastPlausibleBPMAt, env.ble.lastRRIntervalAt]
-                                  : [env.ble.lastECGSampleAt, env.ble.lastACCSampleAt,
-                                     env.ble.lastRRIntervalAt]).map {
+                            Text([env.ble.lastECGSampleAt, env.ble.lastACCSampleAt,
+                                  env.ble.lastRRIntervalAt].map {
                                 $0?.formatted(date: .omitted, time: .shortened) ?? "—"
                             }.joined(separator: " / "))
                                 .font(Theme.monoLabel).foregroundStyle(Theme.dim)

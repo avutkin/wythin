@@ -47,47 +47,8 @@ struct BLEDevice: Identifiable, Equatable {
 
 // MARK: - Supported device identity and pairing
 
-/// Only explicitly supported chest straps. The standard HR service also
-/// belongs to watches, so a service UUID alone never grants permission to pair.
-enum ChestStrapModel: Equatable {
-    case polarH10, garminHRMProPlus
-
-    static func identify(_ name: String) -> ChestStrapModel? {
-        let normalized = name.lowercased()
-            .replacingOccurrences(of: "‑", with: "-")
-            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        let words = normalized.split(separator: " ")
-        if (2...3).contains(words.count), words[0] == "polar", words[1] == "h10" {
-            return .polarH10
-        }
-        // Garmin advertises the model without a brand prefix. Permit a device
-        // serial suffix, but never a substring match or arbitrary Garmin name.
-        if normalized.range(of: #"^(garmin )?hrm-pro( plus|\+)([ :][a-f0-9]{4,12})?$"#,
-                            options: .regularExpression) != nil {
-            return .garminHRMProPlus
-        }
-        return nil
-    }
-
-    var supportsPolarStreams: Bool { self == .polarH10 }
-    // Garmin has no PMD streams to pause. Keeping its lightweight HR link
-    // active also lets a BPM-only strap resume without a contact bit or RR.
-    var usesInPlaceStandby: Bool { supportsPolarStreams }
-    var batteryType: String { self == .polarH10 ? "CR2025" : "CR2032" }
-    func needsRRGapReset(lastRRUptime: TimeInterval?, receivedUptime: TimeInterval,
-                         hasValidRR: Bool) -> Bool {
-        guard self == .garminHRMProPlus, hasValidRR, let lastRRUptime else { return false }
-        return StandbyGapPolicy.shouldClearOnResume(
-            secondsSinceLastForwardedBeat: receivedUptime - lastRRUptime)
-    }
-    var services: [CBUUID] {
-        let shared = [PolarH10Profile.heartRateService, PolarH10Profile.batteryService]
-        return supportsPolarStreams ? [PolarH10Profile.pmdService] + shared : shared
-    }
-}
-
 enum ChestStrapConnectionPolicy {
-    /// Current advertised identity takes precedence over the OS's cached name.
+    /// A shared HR service (or even Polar's PMD service) does not identify H10.
     /// Prefer the current advertisement to CoreBluetooth's cached name.
     static func name(peripheralName: String?, advertisedName: String? = nil,
                      verifiedName: String? = nil) -> String? {
@@ -95,7 +56,9 @@ enum ChestStrapConnectionPolicy {
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
         guard let name else { return nil }
-        guard ChestStrapModel.identify(name) != nil else { return nil }
+        let words = name.split(whereSeparator: \.isWhitespace)
+        guard (2...3).contains(words.count),
+              words[0].lowercased() == "polar", words[1].lowercased() == "h10" else { return nil }
         return name
     }
 
@@ -170,6 +133,17 @@ struct ChestStrapPairing {
     private let uuidKey = "wythin.polar.uuid"
     private let identityKey = "wythin.polar.verifiedIdentity"
     private let autoConnectKey = "wythin.polar.autoConnectEnabled"
+
+    init(defaults: UserDefaults) {
+        self.defaults = defaults
+        // A formerly supported sensor must not arm recovery after an update.
+        // Preserve unnamed legacy UUIDs until discovery can verify their model.
+        if let id = savedID,
+           let record = defaults.dictionary(forKey: identityKey) as? [String: String],
+           record["id"] == id.uuidString {
+            discardIfUnsupported(id: id, name: record["name"])
+        }
+    }
 
     // Preserve the behavior of existing installations until explicitly paused.
     var autoConnectEnabled: Bool { defaults.object(forKey: autoConnectKey) as? Bool ?? true }
@@ -460,7 +434,6 @@ struct RRStreamRecovery {
     private var probeAt: Date?
     private var lastReconnectAt: Date?
     private var reconnectPending = false
-    private var hasReceivedRR = false
 
     mutating func beginConnection(at date: Date, uptime: TimeInterval? = nil) {
         let now = BLERecoveryClock.instant(at: date, uptime: uptime)
@@ -477,7 +450,6 @@ struct RRStreamRecovery {
         refreshAt = nil
         probeAt = nil
         reconnectPending = false
-        hasReceivedRR = false
     }
 
     func acceptsPacket(at date: Date, uptime: TimeInterval? = nil) -> Bool {
@@ -498,8 +470,7 @@ struct RRStreamRecovery {
     }
 
     mutating func receivedHeartRate(_ frame: HRFrame, at date: Date, uptime: TimeInterval? = nil,
-                                   inStandby: Bool, ecgLive: Bool,
-                                   model: ChestStrapModel = .polarH10) -> Action {
+                                   inStandby: Bool, ecgLive: Bool) -> Action {
         let now = BLERecoveryClock.instant(at: date, uptime: uptime)
         guard acceptsHeartRate(at: now) else { return .wait }
         lastHRPacketAt = now
@@ -507,18 +478,11 @@ struct RRStreamRecovery {
         let validRR = frame.rrIntervalsMs.filter(RRSignalValidity.isValid)
         let hasRR = !validRR.isEmpty && (!inStandby ||
             StandbyResumeGate.isPhysiologicallyPlausible(bpm: frame.bpm, rr: validRR))
-        if hasRR { hasReceivedRR = true }
-        // RR is optional in HRS. A Garmin that has never supplied it can
-        // still supply useful pulse data. Once RR has flowed, losing it must
-        // trigger the normal continuity reset and recovery instead of hiding
-        // the outage behind an otherwise healthy BPM stream.
-        let heartRateOnly = model == .garminHRMProPlus && !hasReceivedRR &&
-            (30...220).contains(frame.bpm) && frame.rrIntervalsMs.isEmpty
         // Fresh zero-HR beacons are normal off-body. A contact flag alone must
         // not hide a lost RR stream, particularly while ECG is still arriving.
         let offBodyBeacon = frame.bpm == 0 && frame.rrIntervalsMs.isEmpty &&
             frame.contact != true && !ecgLive
-        if hasRR || offBodyBeacon || heartRateOnly {
+        if hasRR || offBodyBeacon {
             lastHealthyHRAt = max(lastHealthyHRAt ?? now, now)
             refreshAt = nil
             probeAt = nil
@@ -1109,13 +1073,6 @@ final class BLEService: NSObject {
             reconcileScanning()
         }
     }
-    var sensorModel: ChestStrapModel? {
-        switch state {
-        case .connected(let name), .connecting(let name), .standby(let name):
-            return ChestStrapModel.identify(name)
-        default: return nil
-        }
-    }
     var hasSavedDevice: Bool { pairing.savedID != nil }
     var batteryLevel:      Int?        = nil
     var lastError:         String?     = nil
@@ -1312,8 +1269,6 @@ final class BLEService: NSObject {
     /// that keeps off-body detection fast while the app is backgrounded.
     private(set) var lastPlausibleBPMAt: Date?
     private var lastPlausibleBPMUptime: TimeInterval?
-    private var lastHeartRateBPM: Int?
-    var heartRateBPM: Int? { heartbeatLive ? lastHeartRateBPM : nil }
     var heartbeatLive: Bool {
         lastPlausibleBPMUptime.map { ProcessInfo.processInfo.systemUptime - $0 < 4 } ?? false
     }
@@ -1397,8 +1352,7 @@ final class BLEService: NSObject {
 
         let content = UNMutableNotificationContent()
         content.title = "Strap battery below 5%"
-        let battery = sensorModel.map { "the \($0.batteryType) coin cell" } ?? "the battery"
-        content.body = "Your chest strap is at \(level)% — replace \(battery) soon so sessions don't cut out."
+        content.body = "Your Polar H10 is at \(level)% — replace the CR2025 coin cell soon so sessions don't cut out."
         content.sound = .default
         content.interruptionLevel = .active
         let request = UNNotificationRequest(identifier: "wythin.battery.low",
@@ -1446,7 +1400,7 @@ final class BLEService: NSObject {
             guard !Task.isCancelled, self.isScanning else { return }
             self.stopScanning()
             if case .idle = self.state, self.discoveredDevices.isEmpty, !self.discovery.isRecovering {
-                self.lastError = "No supported chest strap found (30 s). Wear your Polar H10 or Garmin HRM-Pro Plus, moisten its electrodes and keep it nearby."
+                self.lastError = "No Polar H10 found (30 s). Wear the strap, moisten its electrodes and keep it nearby."
             }
         }
 
@@ -1542,7 +1496,7 @@ final class BLEService: NSObject {
     /// Connect to a device the user tapped in the list.
     func connectToDevice(_ device: BLEDevice) {
         guard ChestStrapConnectionPolicy.name(peripheralName: device.name) != nil else {
-            lastError = "Supported devices: Polar H10 and Garmin HRM-Pro Plus."
+            lastError = "Only Polar H10 is supported."
             return
         }
         userDisconnected = false
@@ -1609,8 +1563,7 @@ final class BLEService: NSObject {
     /// (see resumeFromStandby). If the H10 powers itself off later, the normal
     /// disconnect/reconnect path takes over.
     func enterStandby() {
-        guard sensorModel?.usesInPlaceStandby == true,
-              case .connected = state, let p = peripheral, !inStandby else { return }
+        guard case .connected = state, let p = peripheral, !inStandby else { return }
         print("🌙 BLE: entering standby — strap off-body (paused in place)")
         BLEDiag.log("STANDBY enter")
         inStandby = true
@@ -1629,7 +1582,7 @@ final class BLEService: NSObject {
         // still clears everything — see `handleUnexpectedDisconnect`.
         stopPMDStreams()                 // stop ECG/ACC; keep HR for contact
         pmdStreamsStarted = false        // allow a clean restart on resume
-        state = .standby(name: supportedName(p) ?? "Chest strap")
+        state = .standby(name: supportedName(p) ?? "Polar H10")
     }
 
     /// Resume from off-body standby — the strap is worn again (contact restored).
@@ -1700,7 +1653,8 @@ final class BLEService: NSObject {
         let restored = restoredPeripherals
         restoredPeripherals = []
         let devices = supportedDevices(restored, source: "restore")
-        let selected = ChestStrapConnectionPolicy.preferredDevice(in: devices, savedID: pairing.savedID)
+        let selected = ChestStrapConnectionPolicy.preferredDevice(in: devices,
+            savedID: userDisconnected ? nil : pairing.savedID)
         for p in restored where p.identifier != selected?.id {
             rejectPeripheral(p, source: "restore-unselected")
         }
@@ -1781,7 +1735,7 @@ final class BLEService: NSObject {
     private func doConnect(_ p: CBPeripheral) {
         guard let name = supportedName(p) else {
             rejectPeripheral(p, source: "connect")
-            lastError = "Supported devices: Polar H10 and Garmin HRM-Pro Plus."
+            lastError = "Only Polar H10 is supported."
             return
         }
         BLEDiag.log("CONNECT id=\(p.identifier) name=\(name)")
@@ -1812,13 +1766,15 @@ final class BLEService: NSObject {
     }
 
     private func discoverServices() {
-        guard let model = sensorModel else { return }
-        peripheral?.discoverServices(model.services)
+        peripheral?.discoverServices([
+            PolarH10Profile.pmdService,
+            PolarH10Profile.heartRateService,
+            PolarH10Profile.batteryService,
+        ])
     }
 
     private func startPMDStreams() {
-        guard sensorModel?.supportsPolarStreams == true,
-              !userDisconnected, !inStandby, !recoveryReconnectPending,
+        guard !userDisconnected, !inStandby, !recoveryReconnectPending,
               let ctrl = pmdControl, let data = pmdData, let p = peripheral,
               p.state == .connected, !pmdStreamsStarted else { return }
         pmdStreamsStarted = true
@@ -1860,8 +1816,7 @@ final class BLEService: NSObject {
     /// response cannot strand it, and delayed work can never choose a newer
     /// connection's characteristic after waking up.
     private func pumpPMDCommands() {
-        guard sensorModel?.supportsPolarStreams == true,
-              !userDisconnected, !recoveryReconnectPending,
+        guard !userDisconnected, !recoveryReconnectPending,
               let p = peripheral, p.state == .connected, let ctrl = pmdControl else { return }
         if let timedOut = pmdCommands.expire(at: Date(), uptime: ProcessInfo.processInfo.systemUptime) {
             BLEDiag.log("PMD response timeout op=\(timedOut.data[0]) type=\(timedOut.data[1])")
@@ -1930,7 +1885,6 @@ final class BLEService: NSObject {
         lastRRIntervalUptime = nil
         lastPlausibleBPMAt = nil
         lastPlausibleBPMUptime = nil
-        lastHeartRateBPM = nil
         lastForwardedBeatUptime = nil
         sensorContactObservation = nil
         inStandby        = false
@@ -2068,7 +2022,6 @@ final class BLEService: NSObject {
     /// Invoked on HR/PMD delivery and lifecycle checks as well as a best-effort
     /// timer. Background recovery does not require a foreground timer tick.
     private func evaluatePMDWatchdog() {
-        guard sensorModel?.supportsPolarStreams == true else { return }
         pumpPMDCommands()
         guard case .connected = state, !userDisconnected, !inStandby,
               !recoveryReconnectPending, peripheral?.state == .connected,
@@ -2157,12 +2110,10 @@ extension BLEService: CBCentralManagerDelegate {
                 // Reconcile even an OS-restored scanner with no peripheral or
                 // scene callback. Otherwise isScanning can hide a cached miss.
                 self.reconcileScanning()
-                // On BT power-on, UNLESS the user explicitly disconnected: silently
-                // auto-connect a previously-paired strap (persistent pending connect,
-                // no scan), or scan only if none has been paired yet.
-                if !self.userDisconnected {
-                    self.restoreSupportedPeripheral()
-                }
+                // Always clean up restored connections, even while paused:
+                // an already-connected unsupported sensor may never send didConnect.
+                // Restoration only adopts the saved H10 when auto-connect is enabled.
+                self.restoreSupportedPeripheral()
                 if self.isScanning { self.startScanning(resumeAutoConnect: false) }
                 self.ensureAutoConnect()
             case .unauthorized:
@@ -2392,7 +2343,6 @@ extension BLEService: CBPeripheralDelegate {
             for svc in services {
                 switch svc.uuid {
                 case PolarH10Profile.pmdService:
-                    guard self.sensorModel?.supportsPolarStreams == true else { continue }
                     peripheral.discoverCharacteristics(
                         [PolarH10Profile.pmdControl, PolarH10Profile.pmdData], for: svc)
                 case PolarH10Profile.heartRateService:
@@ -2421,7 +2371,6 @@ extension BLEService: CBPeripheralDelegate {
             for c in chars {
                 switch c.uuid {
                 case PolarH10Profile.pmdControl:
-                    guard self.sensorModel?.supportsPolarStreams == true else { continue }
                     if let old = self.pmdControl, old !== c {
                         self.pmdCommandTask?.cancel()
                         self.pmdCommands.reset()
@@ -2430,7 +2379,6 @@ extension BLEService: CBPeripheralDelegate {
                     self.pmdControl = c
                     print("✅ BLE: PMD control char found")
                 case PolarH10Profile.pmdData:
-                    guard self.sensorModel?.supportsPolarStreams == true else { continue }
                     if let old = self.pmdData, old !== c { self.pmdStreamsStarted = false }
                     self.pmdData = c
                     print("✅ BLE: PMD data char found")
@@ -2548,8 +2496,7 @@ extension BLEService: CBPeripheralDelegate {
                           let name = self.supportedName(peripheral) else { return }
                     guard self.rrRecovery.acceptsHeartRate(at: receivedAt, uptime: receivedUptime) else { return }
                     let recoveryAction = self.rrRecovery.receivedHeartRate(frame, at: receivedAt, uptime: receivedUptime,
-                        inStandby: self.inStandby, ecgLive: self.ecgStreamLive,
-                        model: self.sensorModel ?? .polarH10)
+                        inStandby: self.inStandby, ecgLive: self.ecgStreamLive)
                     defer {
                         self.applyRecordingRecovery(recoveryAction)
                         self.evaluatePMDWatchdog()
@@ -2558,13 +2505,6 @@ extension BLEService: CBPeripheralDelegate {
                     // independent of both PMD streams, so it can prove the
                     // link is alive while ECG and ACC are both stalled.
                     let hasValidRR = frame.rrIntervalsMs.contains(where: RRSignalValidity.isValid)
-                    if self.sensorModel?.needsRRGapReset(lastRRUptime: self.lastRRIntervalUptime,
-                        receivedUptime: receivedUptime, hasValidRR: hasValidRR) == true {
-                        // Garmin stays connected through off-body beacons.
-                        // Clear before forwarding the first new beat, so the
-                        // old and new tachograms can never bridge removal.
-                        self.emitRecordingGap()
-                    }
                     if hasValidRR {
                         self.lastRRIntervalAt = receivedAt
                         self.lastRRIntervalUptime = receivedUptime
@@ -2572,7 +2512,6 @@ extension BLEService: CBPeripheralDelegate {
                     if (30...220).contains(frame.bpm) {
                         self.lastPlausibleBPMAt = receivedAt
                         self.lastPlausibleBPMUptime = receivedUptime
-                        self.lastHeartRateBPM = frame.bpm
                     }
                     self.sensorContactObservation = SensorContactObservation(
                         contact: frame.contact, uptime: receivedUptime)
