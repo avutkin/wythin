@@ -79,7 +79,7 @@
 - Full output: `/private/tmp/wythin-delivery-final-full.log`; `.xcresult` path recorded at its end.
 - Skips: two existing opt-in upload/background smoke tests require a local receiver plus external app-background action; no claim of device endurance or background-upload smoke coverage in this run.
 - `git diff --check` passes. Fresh reviewer had no additional findings in replacement/disconnect, independent PMD recovery, standby continuity, generation fences or Sydney formatting. All four Important findings fixed; no deferred minors.
-- Changes retained in the isolated development branch. This task does not publish another TestFlight build or authorize external distribution.
+- At implementation completion, changes were retained in the isolated development branch. The subsequent user request authorizes the TestFlight update recorded below; external group assignment remains a separate authorization boundary.
 
 ## TestFlight update integration
 
@@ -89,3 +89,13 @@
 - Fresh read-only integration review: no blocking code findings; superseded Garmin wording corrected in the plan/spec. Full suite runs before pushing, and the official ship script repeats it from origin/main.
 
 - Polar-only integration full suite: **2039 executed, 2 existing opt-in skips, 0 failures**, 2026-11-27 19:18 PST; log `/private/tmp/wythin-delivery-polar-integration.log`.
+
+## Build 165 release verification
+
+- Integrated source: `fe6a297`; official `tools/ship.sh testflight` recorded build bump `85c467c` on `origin/main`.
+- The release worktree repeated the full suite: **2039 executed, 2 existing opt-in skips, 0 failures** (2037 passed), 2026-11-27 19:20 PST; log `/private/tmp/wythin-ship-tests.log`.
+- Official Release archive and upload succeeded. Archive metadata verifies `com.alexutkin.wythin`, version **1.1**, build **165**. App Store Connect accepted the upload at 2026-11-27 19:22 PST.
+- Apple processing completed: build ID `b41861d7-ef2a-43c3-9113-68bb7d697cd4`, `processingState=VALID`, `usesNonExemptEncryption=false`. Official shipping script exited successfully.
+- Fresh App Store Connect API verification confirms version **1.1 (165)**, Internal group assignment and `internalBuildState=IN_BETA_TESTING`. Russian and English release notes were saved and read back exactly.
+- External state is `READY_FOR_BETA_SUBMISSION`; no external group assignment has been made in this release run. Explicit permission was requested under the repository's external-tester rule after the concrete internal release was ready.
+- Release logs: `/private/tmp/wythin-delivery-testflight.log`, `/private/tmp/wythin-ship-archive.log`, `/private/tmp/wythin-ship-upload.log`. Final API verification: `/private/tmp/wythin-build165-final.json`.
