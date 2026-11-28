@@ -91,42 +91,54 @@ enum AnchorBackfill {
     /// to make a real fetch or save throw, so without this the failure branches
     /// could only be argued about, not tested.
     struct Store {
-        var samples: (Date) throws -> [HRVSample]
+        /// Exactly one calendar day, returned as values rather than models.
+        var samples: (Date) throws -> [MetricsHistoryPoint]
         var anchors: () throws -> [DailyAnchor]
         var delete:  (DailyAnchor) -> Void
         var insert:  (DailyAnchor) -> Void
         var save:    () throws -> Void
+        var rollback: () -> Void
+        var canCommit: () -> Bool
 
-        static func live(_ context: ModelContext) -> Store {
-            Store(
-                // Fetched directly rather than through sessions: continuous
-                // background samples hang off an auto-created session, and an
-                // orphaned sample would otherwise be invisible here.
-                samples: { cutoff in
-                    try context.fetch(
-                        FetchDescriptor<HRVSample>(predicate: #Predicate { $0.timestamp >= cutoff }))
+        static func live(_ context: ModelContext, calendar: Calendar = .current) -> Store {
+            let container = context.container
+            let timezone = TimeZone.autoupdatingCurrent.identifier
+            return Store(
+                samples: { day in
+                    guard let end = calendar.date(byAdding: .day, value: 1, to: day) else {
+                        throw HistoricalDayReader.ReadError.invalidRange
+                    }
+                    return try HistoricalDayReader.read(container: container, from: day, until: end)
                 },
                 anchors: { try context.fetch(FetchDescriptor<DailyAnchor>()) },
                 delete:  { context.delete($0) },
                 insert:  { context.insert($0) },
-                save:    { try context.save() })
+                save:    { try context.save() },
+                rollback: { context.rollback() },
+                canCommit: { TimeZone.autoupdatingCurrent.identifier == timezone })
         }
     }
 
+    @discardableResult
     static func runIfNeeded(container: ModelContainer,
-                            defaults: UserDefaults = .standard) async {
-        guard defaults.integer(forKey: flagKey) < version else { return }
-
-        // Off the main actor. This user records ~4–5k samples a day, so even
-        // bounded to the baseline window it is a six-figure row count of a
-        // 28-attribute model — and the one caller is `DayPotentialStore.refresh`
-        // on Live-tab appearance, where a main-thread stall of that size is a
-        // watchdog kill. Same shape as `AppEnvironment.loadHistory`.
-        let outcome = await Task.detached(priority: .utility) {
-            replay(.live(ModelContext(container)))
-        }.value
-
+                            defaults: UserDefaults = .standard) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        guard defaults.integer(forKey: flagKey) < version else { return true }
+        let calendar = Calendar.current
+        let now = Date()
+        let worker = Task.detached(priority: .utility) {
+            let context = ModelContext(container)
+            context.autosaveEnabled = false
+            return replay(.live(context, calendar: calendar), calendar: calendar, now: now)
+        }
+        let outcome = await withTaskCancellationHandler {
+            await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+        guard !Task.isCancelled else { return false }
         record(outcome, in: defaults)
+        return outcome.saved
     }
 
     /// The flag advances only on a replay that actually landed. Split out from
@@ -145,84 +157,69 @@ enum AnchorBackfill {
     }
 
     /// Pure of UserDefaults so the caller owns the flag. Returns what it did.
-    static func replay(_ store: Store) -> Outcome {
+    static func replay(_ store: Store, calendar: Calendar = .current, now: Date = .now) -> Outcome {
         var outcome = Outcome()
-
-        // Bounded to the baseline window: `AnchorBaseline.build` cuts at
-        // `windowDays`, so an anchor older than that feeds nothing and
-        // recomputing it buys nothing. Unbounded, this grows without limit for
-        // the life of the install — `HRVSample` rows are never pruned.
-        let cal    = Calendar.current
-        let cutoff = cal.startOfDay(
-            for: cal.date(byAdding: .day, value: -AnchorBaseline.windowDays, to: .now) ?? .distantPast)
-
-        let samples: [HRVSample]
+        let today = calendar.startOfDay(for: now)
+        guard var day = calendar.date(byAdding: .day, value: -AnchorBaseline.windowDays, to: today)
+        else { return outcome }
+        // Only small candidate readings survive the next iteration. The day's
+        // snapshots and all detector temporaries are released before another read.
+        var candidates: [(day: Date, reading: AnchorReading?)] = []
         do {
-            samples = try store.samples(cutoff)
+            while day < today {
+                try Task.checkCancellation()
+                let candidate: (day: Date, reading: AnchorReading?)? = try autoreleasepool {
+                    let points = try store.samples(day)
+                    try Task.checkCancellation()
+                    guard !points.isEmpty else { return nil }
+                    return (day, AnchorDetector.detect(MetricsQualityFilter.filter(points), calendar: calendar))
+                }
+                if let candidate { candidates.append(candidate) }
+                guard let next = calendar.date(byAdding: .day, value: 1, to: day), next > day else {
+                    return outcome
+                }
+                day = next
+            }
+            try Task.checkCancellation()
+            guard store.canCommit() else { return outcome }
         } catch {
-            // A throwing fetch is not an empty store. Treating it as one would
-            // report "nothing to replay, we are done" and advance the flag,
-            // freezing the user on v1 anchors forever.
-            print("❌ AnchorBackfill: sample fetch — \(error)")
+            BLEDiag.log("ANCHOR_BACKFILL read cancelled or failed; original anchors retained")
             return outcome
         }
-        guard !samples.isEmpty else {
-            // Nothing to replay is a finished backfill, not a failed one —
-            // anything written from here on is written by the current rules.
+        outcome.daysConsidered = candidates.count
+        guard !candidates.isEmpty else {
             outcome.saved = true
             return outcome
         }
-
-        // Today is left alone. `DailyAnchor` is documented as written once and
-        // never recomputed, and today's is the one row the tick loop may be
-        // writing concurrently on the main actor — replaying it would both break
-        // the freeze and risk two rows for the same day. It costs nothing: today
-        // is not in its own baseline, and if it has no anchor yet the normal
-        // path will build one under the current rules anyway.
-        let today = cal.startOfDay(for: .now)
-        let byDay = Dictionary(grouping: samples.map { MetricsHistoryPoint(from: $0) }) {
-            cal.startOfDay(for: $0.timestamp)
-        }.filter { $0.key < today }
-        outcome.daysConsidered = byDay.count
-
-        // Recompute only days we can still recompute. A day whose raw samples
-        // are gone — or that fell out of the window — keeps whatever was
-        // stored: a stale anchor beats no anchor, and there is nothing to
-        // rebuild it from.
-        let stored: [DailyAnchor]
+        // No mutations until every day's read succeeds. Today, out-of-window
+        // anchors and days without samples remain untouched.
         do {
-            stored = try store.anchors()
-        } catch {
-            // Must not fall through to the insert loop on an empty `stored`:
-            // nothing would be deleted but a fresh anchor would still be
-            // written for every replayable day, and `DailyAnchor` has no unique
-            // constraint on `day`. Two rows per day, saved, flag advanced,
-            // never retried — and both rows counted by `AnchorBaseline.build`.
-            print("❌ AnchorBackfill: anchor fetch — \(error)")
-            return outcome
-        }
-        var hadAnchor: Set<Date> = []
-        for anchor in stored where byDay[anchor.day] != nil {
-            hadAnchor.insert(anchor.day)
-            store.delete(anchor)
-        }
-
-        for (day, dayPoints) in byDay {
-            guard let reading = AnchorDetector.detect(MetricsQualityFilter.filter(dayPoints)) else {
-                if hadAnchor.contains(day) { outcome.anchorsDropped += 1 }
-                continue
+            let stored = try store.anchors()
+            try Task.checkCancellation()
+            guard store.canCommit() else { return outcome }
+            let replayedDays = Set(candidates.map(\.day))
+            var hadAnchor: Set<Date> = []
+            for anchor in stored where replayedDays.contains(anchor.day) {
+                hadAnchor.insert(anchor.day)
+                store.delete(anchor)
             }
-            store.insert(DailyAnchor(from: reading))
-            outcome.anchorsWritten += 1
-        }
-
-        do {
+            for candidate in candidates {
+                guard let reading = candidate.reading else {
+                    if hadAnchor.contains(candidate.day) { outcome.anchorsDropped += 1 }
+                    continue
+                }
+                let replacement = DailyAnchor(from: reading)
+                replacement.day = candidate.day
+                store.insert(replacement)
+                outcome.anchorsWritten += 1
+            }
+            try Task.checkCancellation()
+            guard store.canCommit() else { store.rollback(); return outcome }
             try store.save()
             outcome.saved = true
         } catch {
-            // Leave the flag where it is; the deletes go with the unsaved
-            // context and the store keeps its old anchors.
-            print("❌ AnchorBackfill: \(error)")
+            store.rollback()
+            BLEDiag.log("ANCHOR_BACKFILL commit cancelled or failed; original anchors retained")
         }
         return outcome
     }

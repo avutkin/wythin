@@ -69,6 +69,85 @@ final class AnchorBackfillTests: XCTestCase {
 
     // MARK: - What it keeps and what it rebuilds
 
+    func testLiveReaderLoadsOnlyTheRequestedCalendarDay() throws {
+        let ctx = ModelContext(container)
+        insertRest(day: day(5), hour: 7, count: 20, spacing: 30, hr: 60, motion: 5, into: ctx)
+        insertRest(day: day(4), hour: 7, count: 20, spacing: 30, hr: 65, motion: 5, into: ctx)
+        try ctx.save()
+
+        let points = try AnchorBackfill.Store.live(ctx).samples(day(5))
+        XCTAssertEqual(points.count, 20, "Reading one day must not materialize all later history")
+        XCTAssertTrue(points.allSatisfy { $0.timestamp < day(4) })
+    }
+
+    @MainActor
+    func testCanceledReplayPreservesAnchorsAndDoesNotAdvanceVersion() async throws {
+        let ctx = ModelContext(container)
+        insertRest(day: day(5), hour: 7, count: 20, spacing: 30, hr: 60, motion: 5, into: ctx)
+        insertAnchor(day: day(5), restingHR: 99, into: ctx)
+        try ctx.save()
+        let task = Task { AnchorBackfill.replay(.live(ctx)) }
+        task.cancel()
+        let outcome = await task.value
+        AnchorBackfill.record(outcome, in: defaults)
+
+        XCTAssertFalse(outcome.saved)
+        XCTAssertEqual(defaults.integer(forKey: AnchorBackfill.flagKey), 0)
+        XCTAssertEqual(anchors(on: day(5)).first?.restingHR, 99)
+    }
+
+    func testLaterDayReadFailureDoesNotPartiallyReplaceEarlierAnchors() throws {
+        let ctx = ModelContext(container)
+        insertRest(day: day(60), hour: 7, count: 20, spacing: 30, hr: 60, motion: 5, into: ctx)
+        insertAnchor(day: day(60), restingHR: 99, into: ctx)
+        try ctx.save()
+        var store = AnchorBackfill.Store.live(ctx)
+        let read = store.samples
+        let failingDay = day(59)
+        store.samples = { start in
+            if start == failingDay { throw StoreFailure() }
+            return try read(start)
+        }
+        let outcome = AnchorBackfill.replay(store)
+        XCTAssertFalse(outcome.saved, "An unread day cannot be treated as absent data")
+        XCTAssertEqual(anchors(on: day(60)).first?.restingHR, 99,
+                       "No anchor changes may land before every day has been read successfully")
+    }
+
+    @MainActor
+    func testCancellationWhileReadingRollsBackAndNextAttemptCanFinish() async throws {
+        let ctx = ModelContext(container)
+        insertRest(day: day(60), hour: 7, count: 20, spacing: 30, hr: 60, motion: 5, into: ctx)
+        insertAnchor(day: day(60), restingHR: 99, into: ctx)
+        try ctx.save()
+        var store = AnchorBackfill.Store.live(ctx)
+        let read = store.samples
+        var task: Task<AnchorBackfill.Outcome, Never>!
+        store.samples = { day in
+            let points = try read(day)
+            task.cancel()
+            return points
+        }
+        task = Task { AnchorBackfill.replay(store) }
+        let canceled = await task.value
+        XCTAssertFalse(canceled.saved)
+        XCTAssertEqual(anchors(on: day(60)).first?.restingHR, 99)
+        let retried = AnchorBackfill.replay(.live(ctx))
+        XCTAssertTrue(retried.saved)
+        XCTAssertEqual(anchors(on: day(60)).first?.restingHR, 60)
+    }
+
+    func testChangedTimezoneDoesNotReplaceAnchors() throws {
+        let ctx = ModelContext(container)
+        insertRest(day: day(5), hour: 7, count: 20, spacing: 30, hr: 60, motion: 5, into: ctx)
+        insertAnchor(day: day(5), restingHR: 99, into: ctx)
+        try ctx.save()
+        var store = AnchorBackfill.Store.live(ctx)
+        store.canCommit = { false }
+        XCTAssertFalse(AnchorBackfill.replay(store).saved)
+        XCTAssertEqual(anchors(on: day(5)).first?.restingHR, 99)
+    }
+
     func testKeepsTheAnchorOfADayWhoseSamplesAreGone() async {
         let ctx = ModelContext(container)
         insertRest(day: day(5), hour: 7, count: 20, spacing: 30, hr: 60, motion: 5, into: ctx)
@@ -260,6 +339,7 @@ final class AnchorBackfillTests: XCTestCase {
 
         XCTAssertEqual(outcome.anchorsWritten, 1, "it got as far as building the anchor")
         XCTAssertFalse(outcome.saved, "but nothing reached the store")
+        XCTAssertFalse(ctx.hasChanges, "A failed commit must roll back pending replacements")
     }
 
     func testVersionIsBumpedForTheWidenedBreathGate() {

@@ -123,14 +123,14 @@ struct AnchorReading: Equatable {
 /// measures load rather than capacity.
 enum AnchorDetector {
 
-    static func detect(_ points: [MetricsHistoryPoint]) -> AnchorReading? {
+    static func detect(_ points: [MetricsHistoryPoint], calendar: Calendar = .current) -> AnchorReading? {
         // Sorted but NOT pre-filtered: `continuousRuns` needs to see the rejected
         // samples, because a rejected sample is what distinguishes "the rest
         // ended" from "the tick loop was throttled".
         let all = points.sorted { $0.timestamp < $1.timestamp }
         guard !all.isEmpty else { return nil }
 
-        let cal = Calendar.current
+        let cal = calendar
         let runs = continuousRuns(all).filter { run in
             // Every gate is applied to the leading window — the span the
             // medians actually come from — not to the whole rest. Two reasons:
@@ -152,7 +152,7 @@ enum AnchorDetector {
         }
         guard let run = morning ?? runs.first else { return nil }
 
-        return reading(from: run, late: morning == nil)
+        return reading(from: run, late: morning == nil, calendar: calendar)
     }
 
     // MARK: Gates
@@ -250,7 +250,7 @@ enum AnchorDetector {
         return last.timestamp.timeIntervalSince(first.timestamp)
     }
 
-    private static func reading(from run: [MetricsHistoryPoint], late: Bool) -> AnchorReading? {
+    private static func reading(from run: [MetricsHistoryPoint], late: Bool, calendar: Calendar) -> AnchorReading? {
         // The whole qualifying rest — this is what the provenance line reports,
         // and what DC's stability requirement is judged on.
         let dur = duration(run)
@@ -270,7 +270,7 @@ enum AnchorDetector {
         let motionKnown = window.contains { $0.motion != nil }
         let ecgKnown    = window.contains { $0.ecgQualityTier != nil }
 
-        let cal = Calendar.current
+        let cal = calendar
         let hour = Double(cal.component(.hour, from: start))
                  + Double(cal.component(.minute, from: start)) / 60
 

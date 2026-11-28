@@ -1,6 +1,34 @@
 import Foundation
 import SwiftData
 
+/// Plain values leave the read context; managed rows never accumulate across
+/// days. Excessively dense history fails explicitly rather than being truncated.
+enum HistoricalDayReader {
+    enum ReadError: Error { case invalidRange, tooManySamples }
+    static let sampleLimit = 60_000
+
+    static func read(container: ModelContainer, from start: Date, until end: Date,
+                     limit: Int = sampleLimit) throws -> [MetricsHistoryPoint] {
+        guard end > start, limit >= 0 else { throw ReadError.invalidRange }
+        return try autoreleasepool {
+            let context = ModelContext(container)
+            context.autosaveEnabled = false
+            var descriptor = FetchDescriptor<HRVSample>(
+                predicate: #Predicate { $0.timestamp >= start && $0.timestamp < end },
+                sortBy: [SortDescriptor(\.timestamp)])
+            descriptor.includePendingChanges = false
+            var points: [MetricsHistoryPoint] = []
+            try Task.checkCancellation()
+            try context.enumerate(descriptor, batchSize: 2_000) { sample in
+                try Task.checkCancellation()
+                guard points.count < limit else { throw ReadError.tooManySamples }
+                points.append(MetricsHistoryPoint(from: sample))
+            }
+            return points
+        }
+    }
+}
+
 /// One coalesced read, using value snapshots across the actor boundary.
 /// Incoming live readings remain authoritative when a disk snapshot arrives.
 @MainActor

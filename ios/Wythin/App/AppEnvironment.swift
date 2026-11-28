@@ -748,17 +748,10 @@ final class AppEnvironment {
 
         let container = modelContainer
         let worker = Task.detached(priority: .utility) {
-            let ctx = ModelContext(container)
             return TrackCache.computeRollups(days: orderedDays) { day in
                 try Task.checkCancellation()
                 guard let end = dayEnds[day] else { return [] }
-                var desc = FetchDescriptor<HRVSample>(
-                    predicate: #Predicate { $0.timestamp >= day && $0.timestamp < end },
-                    sortBy: [SortDescriptor(\.timestamp)])
-                // Same bound `TrackView`'s own per-day fetch uses — a
-                // full day of ~2 s ticks is ~43,200 rows.
-                desc.fetchLimit = 60_000
-                return ((try? ctx.fetch(desc)) ?? []).map { MetricsHistoryPoint(from: $0) }
+                return try HistoricalDayReader.read(container: container, from: day, until: end)
             }
         }
         let (rollups, emptyDays) = await withTaskCancellationHandler {

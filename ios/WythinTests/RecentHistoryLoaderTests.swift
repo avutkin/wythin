@@ -4,6 +4,42 @@ import SwiftData
 
 @MainActor
 final class RecentHistoryLoaderTests: XCTestCase {
+    func testDailyReaderTraversesBatchesWithoutDroppingEqualTimestampsAndRefusesTruncation() throws {
+        let container = try ModelContainer(for: AppStoreBootstrap.schema, configurations: [
+            ModelConfiguration(schema: AppStoreBootstrap.schema, isStoredInMemoryOnly: true)])
+        let context = ModelContext(container)
+        let start = Date(timeIntervalSince1970: 10_000)
+        for _ in 0..<2_005 { context.insert(HRVSample(anchorTestTimestamp: start, meanBPM: 60)) }
+        try context.save()
+        let points = try HistoricalDayReader.read(container: container, from: start,
+            until: start.addingTimeInterval(86_400), limit: 2_005)
+        XCTAssertEqual(points.count, 2_005, "A batch boundary must not lose tied timestamps")
+        XCTAssertThrowsError(try HistoricalDayReader.read(container: container, from: start,
+            until: start.addingTimeInterval(86_400), limit: 2_004)) { error in
+            guard case HistoricalDayReader.ReadError.tooManySamples = error else {
+                return XCTFail("Expected explicit oversized-day failure, got \(error)")
+            }
+        }
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<HRVSample>()), 2_005)
+    }
+
+    func testDailyReaderKeepsLastHourOfDSTDayAndExcludesNextMidnight() throws {
+        let container = try ModelContainer(for: AppStoreBootstrap.schema, configurations: [
+            ModelConfiguration(schema: AppStoreBootstrap.schema, isStoredInMemoryOnly: true)])
+        let parse = ISO8601DateFormatter()
+        // New York's 2026 fall-back day spans 25 hours.
+        let start = try XCTUnwrap(parse.date(from: "2026-11-01T04:00:00Z"))
+        let lastHour = try XCTUnwrap(parse.date(from: "2026-11-02T04:30:00Z"))
+        let end = try XCTUnwrap(parse.date(from: "2026-11-02T05:00:00Z"))
+        let context = ModelContext(container)
+        for time in [start.addingTimeInterval(-1), start, lastHour, end] {
+            context.insert(HRVSample(anchorTestTimestamp: time, meanBPM: 60))
+        }
+        try context.save()
+        let points = try HistoricalDayReader.read(container: container, from: start, until: end)
+        XCTAssertEqual(points.map(\.timestamp), [start, lastHour])
+    }
+
     nonisolated private static func point(_ time: Double, value: Float? = nil) -> MetricsHistoryPoint {
         MetricsHistoryPoint(timestamp: Date(timeIntervalSince1970: time), meanBPM: value)
     }
